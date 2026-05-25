@@ -33,6 +33,7 @@ from .ring_rules import (
     ring_substituent_suffix as _ring_substituent_suffix,
 )
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
+from .stereochemistry import assigned_atom_stereochemistry
 from .substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
 from .template_access import template_record_locants, template_record_mol, template_record_name
 from .template_store import template_store
@@ -1166,14 +1167,9 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
         for bond in mol.GetBonds()
     ):
         return ""
-    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
     centers = [
         (idx, descriptor)
-        for idx, descriptor in Chem.FindMolChiralCenters(
-            mol,
-            includeUnassigned=False,
-            useLegacyImplementation=False,
-        )
+        for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
         if descriptor in {"R", "S"} and idx in seq_set
     ]
     if not centers:

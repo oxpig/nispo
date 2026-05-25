@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from .molecule_cache import mol_cache_get, mol_cache_set
+
 
 def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_desc") -> str:
     """Prepend OPSIN bracket stereochemistry for assigned input stereo.
@@ -56,7 +58,7 @@ def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
 def _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_descriptors: list[str]) -> bool:
     if not locanted_descriptors:
         return False
-    chiral_count = len(_assigned_atom_stereochemistry(mol, Chem))
+    chiral_count = len(assigned_atom_stereochemistry(mol, Chem))
     return chiral_count > 0 and len(locanted_descriptors) >= chiral_count
 
 
@@ -73,7 +75,7 @@ def _remove_locanted_atom_descriptors(descriptors: list[str], locanted_descripto
 def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:
     return [
         descriptor
-        for _idx, descriptor in _assigned_atom_stereochemistry(
+        for _idx, descriptor in assigned_atom_stereochemistry(
             mol,
             Chem,
             atom_order=atom_order,
@@ -81,13 +83,17 @@ def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:
     ]
 
 
-def _assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") -> list[tuple[int, str]]:
+def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") -> list[tuple[int, str]]:
+    cache_key = f"assigned_atom_stereochemistry_{atom_order}"
+    cached = mol_cache_get(mol, cache_key)
+    if cached is not None:
+        return cached
     has_chiral_tag = any(
         atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
         for atom in mol.GetAtoms()
     )
     if not has_chiral_tag:
-        return []
+        return mol_cache_set(mol, cache_key, [])
     Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
     centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False)
     assigned = [
@@ -96,10 +102,13 @@ def _assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") -
         if descriptor in {"R", "S"}
     ]
     reverse = atom_order != "idx"
-    return sorted(assigned, reverse=reverse)
+    return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:
+    cached = mol_cache_get(mol, "bond_stereochemistry")
+    if cached is not None:
+        return cached
     descriptors: list[str] = []
     for bond in mol.GetBonds():
         if bond.GetBondType() != Chem.BondType.DOUBLE:
@@ -109,4 +118,4 @@ def _bond_stereochemistry(mol, Chem) -> list[str]:
             descriptors.append("E")
         elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
             descriptors.append("Z")
-    return descriptors
+    return mol_cache_set(mol, "bond_stereochemistry", descriptors)

@@ -23,6 +23,7 @@ def _list_leaves(value):
 def test_generated_fused_indexes_are_id_based():
     assert (RESOURCE_ROOT / "generated_fused_template_index_records.json").exists()
     for filename in (
+        "generated_fused_templates.json",
         "generated_fused_template_index.json",
         "generated_fused_template_graph_index.json",
         "generated_fused_template_element_graph_index.json",

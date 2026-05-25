@@ -14,16 +14,15 @@ RESOURCE_ROOT = PACKAGE_ROOT / "resources"
 
 
 def main() -> None:
-    print(json.dumps(audit_refactor_score(), indent=2, sort_keys=True))
+    print(json.dumps(audit_closure_score(), indent=2, sort_keys=True))
 
 
-def audit_refactor_score() -> dict:
+def audit_closure_score() -> dict:
     items = [
         _score_template_store(),
         _score_generated_resources(),
         _score_context_cache(),
-        _score_parent_rule_registry(),
-        _score_branch_registry(),
+        _score_rule_routing_and_modularity(),
         _score_structured_rendering(),
         _score_suffix_layer(),
         _score_fragment_layer(),
@@ -31,7 +30,7 @@ def audit_refactor_score() -> dict:
         _score_tests(),
     ]
     return {
-        "audit_refactor_score": sum(item["score"] for item in items),
+        "audit_closure_score": sum(item["score"] for item in items),
         "max_score": 100,
         "items": items,
     }
@@ -64,9 +63,13 @@ def _score_template_store() -> dict:
         if name in method_names:
             score += 1
             evidence.append(f"TemplateStore.{name} exists")
+    template_mutations = _template_dict_nispo_mutations()
+    evidence.append(f"template dict _nispo_* mutation sites: {template_mutations}")
+    if template_mutations:
+        score = min(score, 11)
     if "legacy" in source or "compat" in source:
-        score -= 1
-        evidence.append("TemplateStore still exposes compatibility naming")
+        score = min(score, 12)
+        evidence.append("TemplateStore still exposes legacy/compatibility naming")
     return _item("typed_template_store_resource_layer", max(0, min(score, 15)), 15, evidence)
 
 
@@ -77,17 +80,23 @@ def _score_generated_resources() -> dict:
     if record_table.exists():
         score += 3
         evidence.append("canonical generated fused index record table exists")
+        evidence.append(f"record table size bytes: {record_table.stat().st_size}")
     for filename in (
+        "generated_fused_templates.json",
         "generated_fused_template_index.json",
         "generated_fused_template_graph_index.json",
         "generated_fused_template_element_graph_index.json",
     ):
         path = RESOURCE_ROOT / filename
         if path.exists() and _json_uses_integer_leaves(path):
-            score += 2
+            score += 1 if filename == "generated_fused_templates.json" else 2
             evidence.append(f"{filename} uses compact integer leaves")
-    if (RESOURCE_ROOT / "generated_fused_templates.json").exists():
-        evidence.append("full generated fused template table still exists")
+        elif path.exists():
+            evidence.append(f"{filename} still embeds full records")
+    if (RESOURCE_ROOT / "generated_fused_templates.json").exists() and not _json_uses_integer_leaves(
+        RESOURCE_ROOT / "generated_fused_templates.json"
+    ):
+        score = min(score, 6)
     return _item("generated_fused_resource_consolidation", min(score, 10), 10, evidence)
 
 
@@ -111,43 +120,48 @@ def _score_context_cache() -> dict:
     return _item("molecule_context_cache_ownership", min(score, 10), 10, evidence)
 
 
-def _score_parent_rule_registry() -> dict:
-    text = (PACKAGE_ROOT / "parent_rules.py").read_text(encoding="utf-8")
+def _score_rule_routing_and_modularity() -> dict:
+    branch_path = PACKAGE_ROOT / "branch_rules.py"
+    parent_path = PACKAGE_ROOT / "parent_rules.py"
+    branch_lines = branch_path.read_text(encoding="utf-8").splitlines()
+    parent_lines = parent_path.read_text(encoding="utf-8").splitlines()
+    branch_text = "\n".join(branch_lines)
+    parent_text = "\n".join(parent_lines)
+    debt = _architecture_debt().get("categories", {})
+    unregistered = int(debt.get("unregistered_name_producing_rule_surfaces", 9999))
+    bypass = int(debt.get("rule_or_naming_paths_bypassing_central_registries", 9999))
+    parent_class_count = parent_text.count("class ")
     score = 0
-    evidence = []
-    if "RuleSpec" in text or (PACKAGE_ROOT / "rule_registry.py").exists():
-        score += 8
-        evidence.append("explicit RuleSpec/registry present")
-    class_count = text.count("class ") 
-    evidence.append(f"parent_rules.py class count: {class_count}")
-    if class_count <= 8:
+    evidence = [
+        f"branch_rules.py lines: {len(branch_lines)}",
+        f"parent_rules.py lines: {len(parent_lines)}",
+        f"parent_rules.py class count: {parent_class_count}",
+        f"unregistered name-producing rule surfaces: {unregistered}",
+        f"registry bypass calls: {bypass}",
+    ]
+    if "RuleSpec" in parent_text and "RulePlan" not in (PACKAGE_ROOT / "rule_dispatch.py").read_text(encoding="utf-8"):
+        score += 5
+        evidence.append("parent naming uses explicit RuleSpec without RulePlan introspection")
+    if "BranchRuleSpec" in branch_text and (PACKAGE_ROOT / "branch").exists():
         score += 4
-    if "RulePlan" not in (PACKAGE_ROOT / "rule_dispatch.py").read_text(encoding="utf-8"):
-        score += 3
-        evidence.append("RulePlan introspection removed")
-    return _item("parent_rule_registry", min(score, 15), 15, evidence)
-
-
-def _score_branch_registry() -> dict:
-    path = PACKAGE_ROOT / "branch_rules.py"
-    lines = path.read_text(encoding="utf-8").splitlines()
-    text = "\n".join(lines)
-    score = 0
-    evidence = [f"branch_rules.py lines: {len(lines)}"]
-    if "BranchRuleSpec" in text:
-        score += 5
         evidence.append("BranchRuleSpec present")
-    if len(lines) < 1200:
-        score += 5
-    elif len(lines) < 2000:
+    if len(branch_lines) <= 1200:
+        score += 4
+    elif len(branch_lines) <= 1800:
         score += 2
-    if (PACKAGE_ROOT / "branch").exists():
-        score += 5
-        evidence.append("branch package exists")
-    elif "BranchRule(" in text:
+    if len(parent_lines) <= 900 or parent_class_count <= 8:
+        score += 4
+    elif len(parent_lines) <= 1300 or parent_class_count <= 14:
+        score += 2
+    if unregistered <= 30:
+        score += 4
+    elif unregistered <= 60:
+        score += 2
+    if bypass <= 5:
+        score += 3
+    elif bypass <= 10:
         score += 1
-        evidence.append("existing BranchRule table remains partial")
-    return _item("branch_rule_modularity", min(score, 15), 15, evidence)
+    return _item("explicit_rule_routing_and_module_decomposition", min(score, 20), 20, evidence)
 
 
 def _score_structured_rendering() -> dict:
@@ -160,9 +174,12 @@ def _score_structured_rendering() -> dict:
     if "class Prefix" in text and "class Suffix" in text:
         score += 2
         evidence.append("structured Prefix/Suffix records exist")
-    if "NameParts(" in text:
+    usage_count = text.count("NameParts(")
+    evidence.append(f"NameParts constructor uses: {usage_count}")
+    if usage_count >= 4:
         score += 2
-        evidence.append("NameParts is used")
+    elif usage_count:
+        score += 1
     return _item("structured_rendering_layer", min(score, 10), 10, evidence or ["missing structured rendering layer"])
 
 
@@ -170,16 +187,23 @@ def _score_suffix_layer() -> dict:
     text = _package_text()
     evidence = []
     score = 0
-    if "SuffixSpec" in text or "suffix_store" in text:
+    if "class SuffixSpec" in text and "class InverseSuffixStore" in text:
         score += 4
         evidence.append("suffix spec/store exists")
     if "suffixRules.xml" in text and "suffixApplicability.xml" in text:
         score += 3
         evidence.append("bundled OPSIN suffix resources are referenced by code")
-    if "inverse" in text.lower() and "suffix" in text.lower():
+    runtime_uses = [
+        path
+        for path in PACKAGE_ROOT.rglob("*.py")
+        if path.name != "suffix_store.py"
+        and path.name != "__init__.py"
+        and "suffix_store" in path.read_text(encoding="utf-8")
+    ]
+    evidence.append(f"runtime suffix_store users: {[path.relative_to(PACKAGE_ROOT).as_posix() for path in runtime_uses]}")
+    if runtime_uses:
         score += 3
-        evidence.append("inverse suffix layer language present in code")
-    return _item("inverse_suffix_resource_layer", min(score, 10), 10, evidence or ["missing inverse suffix layer"])
+    return _item("inverse_suffix_resource_layer_drives_naming", min(score, 10), 10, evidence or ["missing inverse suffix layer"])
 
 
 def _score_fragment_layer() -> dict:
@@ -192,6 +216,15 @@ def _score_fragment_layer() -> dict:
     if (PACKAGE_ROOT / "fragment_rules.py").exists():
         score += 2
         evidence.append("fragment_rules.py exists")
+    fragment_text = (PACKAGE_ROOT / "fragment_rules.py").read_text(encoding="utf-8") if (PACKAGE_ROOT / "fragment_rules.py").exists() else ""
+    named_fragment_functions = sum(
+        1
+        for node in ast.walk(ast.parse(fragment_text or "\n"))
+        if isinstance(node, ast.FunctionDef) and ("fragment" in node.name or "anion" in node.name or "cation" in node.name)
+    )
+    evidence.append(f"fragment/cation/anion functions: {named_fragment_functions}")
+    if named_fragment_functions < 4:
+        score = min(score, 3)
     return _item("first_class_fragment_assembly", min(score, 5), 5, evidence or ["fragment assembly remains in main engine"])
 
 
@@ -267,7 +300,45 @@ def _collect_list_leaves(value, leaves: list[list]) -> None:
 
 
 def _package_text() -> str:
-    return "\n".join(path.read_text(encoding="utf-8") for path in PACKAGE_ROOT.glob("*.py"))
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in PACKAGE_ROOT.rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def _template_dict_nispo_mutations() -> int:
+    total = 0
+    for path in PACKAGE_ROOT.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+                if _subscript_key_starts_nispo(node.slice):
+                    total += 1
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in {"setdefault", "update"} and _call_writes_nispo_key(node):
+                    total += 1
+    return total
+
+
+def _subscript_key_starts_nispo(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.startswith("_nispo_")
+    return False
+
+
+def _call_writes_nispo_key(node: ast.Call) -> bool:
+    for arg in node.args:
+        if isinstance(arg, ast.Dict):
+            for key in arg.keys:
+                if key is not None and _subscript_key_starts_nispo(key):
+                    return True
+    for keyword in node.keywords:
+        if keyword.arg and keyword.arg.startswith("_nispo_"):
+            return True
+    return False
 
 
 if __name__ == "__main__":

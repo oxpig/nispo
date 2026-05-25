@@ -671,10 +671,26 @@ def _raw_template_mol(Chem, smiles: str):
 
 def _read_generated_fused_records() -> tuple[dict, ...]:
     try:
-        path = resources.files(__package__).joinpath("resources", "generated_fused_templates.json")
-        return tuple(json.loads(path.read_text(encoding="utf-8")))
+        path = resources.files(__package__).joinpath("resources", "generated_fused_template_index_records.json")
+        table = json.loads(path.read_text(encoding="utf-8"))
+        index_path = resources.files(__package__).joinpath("resources", "generated_fused_templates.json")
+        return _resolve_generated_record_refs(json.loads(index_path.read_text(encoding="utf-8")), table)
     except Exception:
         return ()
+
+
+def _resolve_generated_record_refs(value, table: list[dict]) -> tuple[dict, ...]:
+    if not isinstance(value, list):
+        return ()
+    records = []
+    for item in value:
+        if isinstance(item, int) and 0 <= item < len(table):
+            record = table[item]
+            if isinstance(record, dict):
+                records.append(record)
+        elif isinstance(item, dict):
+            records.append(item)
+    return tuple(records)
 
 
 def build_retained_parent_templates(

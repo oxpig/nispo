@@ -9,6 +9,8 @@ from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 _TemplateIndex = tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict, dict], ...]]]
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
+_TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
+_TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
 _MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 5
 
 
@@ -114,14 +116,12 @@ def _preferred_template_entries_by_scaffold(entries: list[tuple[dict, dict]], Ch
 
 
 def _template_scaffold_key(template: dict, Chem) -> str:
-    cached = template.get("_nispo_scaffold_key")
-    if cached is not None:
-        return cached
+    cache_key = id(template)
+    cached = _TEMPLATE_SCAFFOLD_KEY_CACHE.get(cache_key)
+    if cached is not None and cached[0] is template:
+        return cached[1]
     key = Chem.MolToSmiles(template["mol"], canonical=True, isomericSmiles=False)
-    try:
-        template["_nispo_scaffold_key"] = key
-    except Exception:
-        pass
+    _TEMPLATE_SCAFFOLD_KEY_CACHE[cache_key] = (template, key)
     return key
 
 
@@ -221,14 +221,12 @@ def template_features_for_mol(template_mol, Chem) -> dict:
 
 
 def _template_features(template: dict, Chem) -> dict:
-    cached = template.get("_nispo_features")
-    if cached is not None:
-        return cached
+    cache_key = id(template)
+    cached = _TEMPLATE_FEATURE_CACHE.get(cache_key)
+    if cached is not None and cached[0] is template:
+        return cached[1]
     features = template_features_for_mol(template["mol"], Chem)
-    try:
-        template["_nispo_features"] = features
-    except Exception:
-        pass
+    _TEMPLATE_FEATURE_CACHE[cache_key] = (template, features)
     return features
 
 

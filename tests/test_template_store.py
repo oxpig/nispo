@@ -34,3 +34,15 @@ def test_template_store_candidate_selection_is_stable():
 
     assert candidates
     assert any(template["name"] == "naphthalene" for template in candidates)
+
+
+def test_template_index_does_not_mutate_template_records():
+    store = template_store(Chem)
+    mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")
+    catalog = parent_scaffold_catalog(Chem)
+    template = catalog.static_retained[0]
+    keys_before = set(template)
+
+    assert store.candidate_templates(mol, catalog.fused)
+    assert set(template) == keys_before
+    assert not any(key.startswith("_nispo_") for key in template)

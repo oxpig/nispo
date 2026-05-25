@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 from .name_parts import NameParts, Suffix
+from .suffix_store import inverse_suffix_store
+
+
+@lru_cache(maxsize=None)
+def _suffix_value(value: str) -> str:
+    specs = inverse_suffix_store().by_value.get(value)
+    return specs[0].value if specs else value
 
 
 class FragmentAssemblyRule:
@@ -12,19 +21,23 @@ class FragmentAssemblyRule:
 
     def name(self, fragments: tuple[object, ...]) -> str:
         named_fragments: list[str] = []
+        cations: list[str] = []
         neutral_halides: list[str] = []
         halide_anions: list[str] = []
 
         for fragment in fragments:
-            halide = single_atom_halide(fragment)
-            if halide is not None:
-                symbol, charge = halide
-                if charge < 0:
-                    halide_anions.append(HALIDE_ANIONS[symbol])
-                    continue
-                if charge == 0:
-                    neutral_halides.append(NEUTRAL_HALIDE_SALTS[symbol])
-                    continue
+            halide_anion = single_atom_halide_anion_name(fragment)
+            if halide_anion is not None:
+                halide_anions.append(halide_anion)
+                continue
+            neutral_halide = neutral_halide_name(fragment)
+            if neutral_halide is not None:
+                neutral_halides.append(neutral_halide)
+                continue
+            cation = single_atom_cation_name(fragment, self.Chem)
+            if cation is not None:
+                cations.append(cation)
+                continue
             simple_name = simple_fragment_name(fragment, self.Chem)
             if simple_name:
                 named_fragments.append(simple_name)
@@ -34,27 +47,39 @@ class FragmentAssemblyRule:
                 return ""
             named_fragments.append(name)
 
-        if len(named_fragments) == 1 and neutral_halides and not halide_anions:
+        if len(named_fragments) == 1 and neutral_halides and not halide_anions and not cations:
             return _salt_name(named_fragments[0], neutral_halides)
-        if len(named_fragments) == 1 and halide_anions and not neutral_halides:
+        if len(named_fragments) == 1 and halide_anions and not neutral_halides and not cations:
             return _salt_name(named_fragments[0], halide_anions)
+        if len(cations) == 1 and halide_anions and not named_fragments and not neutral_halides:
+            return _salt_name(cations[0], halide_anions)
         if neutral_halides or halide_anions:
             return ""
-        return " and ".join(sorted(named_fragments, key=lambda item: (len(item), item)))
+        return " and ".join(sorted(cations + named_fragments, key=lambda item: (len(item), item)))
 
+
+HALIDE_STEMS = {"F": "fluor", "Cl": "chlor", "Br": "brom", "I": "iod"}
 
 NEUTRAL_HALIDE_SALTS = {
-    "F": "hydrofluoride",
-    "Cl": "hydrochloride",
-    "Br": "hydrobromide",
-    "I": "hydroiodide",
+    symbol: "hydro" + stem + _suffix_value("ide")
+    for symbol, stem in HALIDE_STEMS.items()
 }
 
-HALIDE_ANIONS = {
-    "F": "fluoride",
-    "Cl": "chloride",
-    "Br": "bromide",
-    "I": "iodide",
+HALIDE_ANIONS = {symbol: stem + _suffix_value("ide") for symbol, stem in HALIDE_STEMS.items()}
+
+COMMON_MONATOMIC_CATIONS = {
+    "Li": "lithium",
+    "Na": "sodium",
+    "K": "potassium",
+    "Rb": "rubidium",
+    "Cs": "cesium",
+    "Mg": "magnesium",
+    "Ca": "calcium",
+    "Sr": "strontium",
+    "Ba": "barium",
+    "Al": "aluminium",
+    "Zn": "zinc",
+    "Ag": "silver",
 }
 
 MULTIPLIERS = {
@@ -76,17 +101,63 @@ def single_atom_halide(mol) -> tuple[str, int] | None:
     return symbol, atom.GetFormalCharge()
 
 
+def single_atom_halide_anion_name(mol) -> str | None:
+    halide = single_atom_halide(mol)
+    if halide is None:
+        return None
+    symbol, charge = halide
+    return HALIDE_ANIONS[symbol] if charge < 0 else None
+
+
+def neutral_halide_name(mol) -> str | None:
+    halide = single_atom_halide(mol)
+    if halide is None:
+        return None
+    symbol, charge = halide
+    return NEUTRAL_HALIDE_SALTS[symbol] if charge == 0 else None
+
+
+def single_atom_cation_name(mol, Chem) -> str | None:
+    if mol.GetNumAtoms() != 1:
+        return None
+    atom = mol.GetAtomWithIdx(0)
+    if atom.GetFormalCharge() <= 0:
+        return None
+    symbol = atom.GetSymbol()
+    if symbol in COMMON_MONATOMIC_CATIONS:
+        return COMMON_MONATOMIC_CATIONS[symbol]
+    element_name = Chem.GetPeriodicTable().GetElementName(atom.GetAtomicNum()).lower()
+    return NameParts(parent=element_name, charge=f"({atom.GetFormalCharge()}+)").render()
+
+
+def single_atom_anion_name(mol, Chem) -> str | None:
+    if mol.GetNumAtoms() != 1:
+        return None
+    atom = mol.GetAtomWithIdx(0)
+    if atom.GetFormalCharge() >= 0:
+        return None
+    symbol = atom.GetSymbol()
+    if symbol in HALIDE_ANIONS:
+        return HALIDE_ANIONS[symbol]
+    element_name = Chem.GetPeriodicTable().GetElementName(atom.GetAtomicNum()).lower()
+    return NameParts(parent=element_name, charge=f"({abs(atom.GetFormalCharge())}-)").render()
+
+
 def simple_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() != 1:
         return ""
     atom = mol.GetAtomWithIdx(0)
     symbol = atom.GetSymbol()
     charge = atom.GetFormalCharge()
-    if symbol in HALIDE_ANIONS:
-        if charge < 0:
-            return HALIDE_ANIONS[symbol]
-        if charge == 0:
-            return f"hydrogen {HALIDE_ANIONS[symbol]}"
+    anion = single_atom_anion_name(mol, Chem)
+    if anion:
+        return anion
+    neutral_halide = neutral_halide_name(mol)
+    if neutral_halide:
+        return f"hydrogen {HALIDE_ANIONS[symbol]}"
+    cation = single_atom_cation_name(mol, Chem)
+    if cation:
+        return cation
     if symbol == "O" and charge < 0 and atom.GetTotalNumHs() > 0:
         return "hydroxide"
     if symbol in {"C", "N", "O", "S", "B", "P", "Si"} and charge == 0:
@@ -120,3 +191,4 @@ def _multiplied_suffix(names: list[str]) -> str:
             return ""
         parts.append(prefix + name)
     return " ".join(parts)
+

@@ -10,6 +10,7 @@ from .polycyclic_rules import (
     spiro_parent_candidate_records,
 )
 from .structural_profile import StructuralProfile, structural_profile
+from .template_access import template_record_mol
 from .template_index import candidate_templates, molecule_features
 from .template_index import ring_systems_for_mol
 from .ring_topology import RingSystemTopology, ring_system_topologies
@@ -127,7 +128,7 @@ class MoleculeContext:
 
     def template_matches(self, template: dict) -> tuple[tuple[int, ...], ...]:
         return self.substruct_matches(
-            template["mol"],
+            template_record_mol(template),
             use_chirality=bool(template.get("stereochemical")),
         )
 

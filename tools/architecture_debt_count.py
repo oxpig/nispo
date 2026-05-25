@@ -22,6 +22,7 @@ PRIORITY_RULE_MODULES = {
 TEMPLATE_LAYER_MODULES = {
     "resource_templates.py",
     "scaffold_catalog.py",
+    "template_access.py",
     "template_index.py",
 }
 
@@ -34,6 +35,7 @@ CENTRAL_RULE_MODULES = {
     "rule_dispatch.py",
     "rule_engine.py",
     "scaffold_catalog.py",
+    "template_access.py",
     "template_index.py",
 }
 

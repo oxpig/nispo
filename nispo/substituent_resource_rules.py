@@ -12,6 +12,7 @@ from .opsin_resource_utils import (
 )
 from .resource_manifest import SUBSTITUENT_FAMILY
 from .resource_operations import apply_token_operations
+from .template_access import template_record_mol, template_record_name
 
 
 SUBSTITUENT_RESOURCE_FILES = (
@@ -44,12 +45,12 @@ def resource_substituent_prefix(mol, idx: int, parent_idx: int, Chem) -> str:
     atoms = _collect_subtree(mol, idx, parent_idx)
     key = _subtree_key(mol, idx, atoms)
     for template in _substituent_templates(Chem).get(key, ()):
-        query = template["mol"]
+        query = template_record_mol(template)
         for match in mol.GetSubstructMatches(query, uniquify=False):
             if set(match) != atoms:
                 continue
             if match[0] == idx:
-                return template["name"]
+                return template_record_name(template)
     return ""
 
 
@@ -59,7 +60,7 @@ def _substituent_templates(Chem) -> dict[tuple, tuple[dict, ...]]:
     for record in iter_opsin_token_records(SUBSTITUENT_RESOURCE_FILES):
         template = _template_from_token(Chem, record)
         if template:
-            grouped[_template_key(template["mol"])].append(template)
+            grouped[_template_key(template_record_mol(template))].append(template)
     return {key: tuple(value) for key, value in grouped.items()}
 
 

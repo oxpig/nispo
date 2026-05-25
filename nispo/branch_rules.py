@@ -34,6 +34,7 @@ from .ring_rules import (
 )
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from .substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
+from .template_access import template_record_locants, template_record_mol, template_record_name
 from .template_index import candidate_templates as _candidate_templates
 
 
@@ -1226,7 +1227,7 @@ def _fused_ring_substituent_prefix_from_templates(
     best = ""
     best_key = None
     for template in _candidate_templates(mol, templates, Chem):
-        core = template["mol"]
+        core = template_record_mol(template)
         for match in mol.GetSubstructMatches(core, uniquify=False):
             if attachment_idx not in match or parent_idx in match:
                 continue
@@ -1235,10 +1236,10 @@ def _fused_ring_substituent_prefix_from_templates(
                 continue
             reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
             template_idx = reverse[attachment_idx]
-            locant = template["locants"].get(template_idx)
+            locant = template_record_locants(template).get(template_idx)
             if not locant or locant.endswith("a"):
                 continue
-            suffix = _fused_substituent_suffix(template["name"], locant)
+            suffix = _fused_substituent_suffix(template_record_name(template), locant)
             if not suffix:
                 continue
             prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
@@ -1256,7 +1257,7 @@ def _fused_substituent_candidate_key(
     template: dict, match: Sequence[int], locant: str, name: str, generated: bool
 ) -> tuple:
     if generated:
-        return (_generated_fusion_preference(template["name"]), -len(match), locant, name)
+        return (_generated_fusion_preference(template_record_name(template)), -len(match), locant, name)
     return (len(match), locant, name)
 
 
@@ -1266,9 +1267,9 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
     best = ""
     best_key = None
     for template in _candidate_templates(mol, templates, Chem):
-        if not _template_is_fully_aromatic(template["mol"]):
+        if not _template_is_fully_aromatic(template_record_mol(template)):
             continue
-        query = _topology_query(template["mol"])
+        query = _topology_query(template_record_mol(template))
         for match in mol.GetSubstructMatches(query, uniquify=False):
             if attachment_idx not in match or parent_idx in match:
                 continue
@@ -1280,7 +1281,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
                 continue
             reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
             template_idx = reverse[attachment_idx]
-            locant = template["locants"].get(template_idx)
+            locant = template_record_locants(template).get(template_idx)
             if not locant or locant.endswith("a"):
                 continue
             suffix = _fused_substituent_suffix(parent_name, locant)
@@ -1288,7 +1289,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             if prefix_text is None:
                 continue
             name = prefix_text + suffix if prefix_text else suffix
-            key = (_generated_fusion_preference(template["name"]), -len(match), locant, name)
+            key = (_generated_fusion_preference(template_record_name(template)), -len(match), locant, name)
             if best_key is None or key < best_key:
                 best_key = key
                 best = name
@@ -1305,7 +1306,7 @@ def _fused_substituent_prefix_text(
 ) -> str | None:
     prefixes = []
     for mol_idx in match:
-        core_loc = template["locants"].get(reverse[mol_idx])
+        core_loc = template_record_locants(template).get(reverse[mol_idx])
         for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx == parent_idx or nidx in core_set:
@@ -1339,7 +1340,7 @@ def _hydro_fused_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     charged_locs = []
     charged_has_hydrogen = False
     for template_idx, mol_idx in enumerate(match):
-        template_atom = template["mol"].GetAtomWithIdx(template_idx)
+        template_atom = template_record_mol(template).GetAtomWithIdx(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
         charge_matches = template_atom.GetFormalCharge() == atom.GetFormalCharge()
         charge_is_parent_ium = (
@@ -1349,7 +1350,7 @@ def _hydro_fused_parent_name(mol, template: dict, match: Sequence[int]) -> str:
         )
         if not charge_matches and not charge_is_parent_ium:
             return ""
-        locant = template["locants"].get(template_idx, "")
+        locant = template_record_locants(template).get(template_idx, "")
         if charge_is_parent_ium:
             if not locant.isdigit():
                 return ""
@@ -1377,7 +1378,7 @@ def _hydro_fused_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     if not hydro:
         return ""
     locants = ",".join(str(loc) for loc in hydro_locs)
-    name = f"{locants}-{hydro}-{template['name']}"
+    name = f"{locants}-{hydro}-{template_record_name(template)}"
     if len(charged_locs) == 1:
         stem = name[:-1] if name.endswith("e") else name
         return f"{stem}-{charged_locs[0]}-ium"

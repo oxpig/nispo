@@ -23,6 +23,7 @@ from .ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
 )
 from .rule_engine import NameCandidate
+from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
 class AcyclicParentRule:
@@ -239,7 +240,7 @@ class GuanidineRetainedParentRule:
         if mol.GetRingInfo().NumRings() != 0:
             return
         for template in _guanidine_parent_templates(self._Chem):
-            if template["mol"].GetNumAtoms() > mol.GetNumAtoms():
+            if template_record_mol(template).GetNumAtoms() > mol.GetNumAtoms():
                 continue
             for match in ctx.template_matches(template):
                 name = _name_acyclic_retained_core_match(mol, template, match)
@@ -249,7 +250,7 @@ class GuanidineRetainedParentRule:
                     name=name,
                     family=self.family,
                     priority=self.priority,
-                    sort_key=(-template["mol"].GetNumAtoms(), len(name), name),
+                    sort_key=(-template_record_mol(template).GetNumAtoms(), len(name), name),
                 )
 
 
@@ -327,7 +328,7 @@ class FusedParentRule:
         return (
             *_fused_candidate_preference(name),
             _template_source_rank(template),
-            _hydrogenated_template_penalty(template["name"]),
+            _hydrogenated_template_penalty(template_record_name(template)),
             -len(match),
             name,
         )
@@ -365,7 +366,7 @@ class GeneratedFusedParentRule(FusedParentRule):
         return ctx.generated_fused_templates
 
     def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
-        return (_generated_fusion_preference(template["name"]), *_fused_candidate_preference(name), -len(match), name)
+        return (_generated_fusion_preference(template_record_name(template)), *_fused_candidate_preference(name), -len(match), name)
 
 
 class SingleRingParentRule:
@@ -460,7 +461,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                 name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
                 if not name:
                     continue
-                fusion_key = _partial_hydro_fusion_preference(template["name"])
+                fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
                 sort_key = (fusion_key, hydro_key, -len(match), name)
                 candidates.append(
                     NameCandidate(
@@ -497,7 +498,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 continue
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
             for template in _hydrocarbon_replacement_parent_templates_for_graph(*key, self._Chem):
-                query = _skeletal_replacement_query(template["mol"], self._Chem)
+                query = _skeletal_replacement_query(template_record_mol(template), self._Chem)
                 if query.GetNumAtoms() != len(atom_set):
                     continue
                 for match in ctx.substruct_matches(query):
@@ -551,7 +552,7 @@ class OxidoFusedParentRule:
                 continue
             reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
             parent_name = _adjust_fused_parent_for_charge(mol, template, reverse)
-            if parent_name == template["name"]:
+            if parent_name == template_record_name(template):
                 continue
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
             if name:
@@ -651,7 +652,7 @@ class ExactRetainedParentRule:
         return ctx.candidate_templates(self._templates(), exact_atom_count=True)
 
     def _sort_key(self, template: dict) -> tuple:
-        return (len(template["name"]), template.get("source_family", ""), template["name"])
+        return (len(template_record_name(template)), template.get("source_family", ""), template_record_name(template))
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -662,12 +663,12 @@ class ExactRetainedParentRule:
         for template in self._template_iter(ctx):
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
-            if template["mol"].GetNumAtoms() != atom_count:
+            if template_record_mol(template).GetNumAtoms() != atom_count:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
                     yield NameCandidate(
-                        name=template["name"],
+                        name=template_record_name(template),
                         family=self.family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
@@ -731,7 +732,7 @@ _BICYCLIC_FUSION_BASES = {
 
 
 def _generated_exact_parent_sort_key(template: dict) -> tuple:
-    name = template["name"]
+    name = template_record_name(template)
     base = _fusion_base_name(name)
     base_rank = 0 if base in _BICYCLIC_FUSION_BASES else 1
     return (base_rank, len(name), template.get("source_family", ""), name)
@@ -790,7 +791,7 @@ def _guanidine_parent_templates(Chem) -> tuple[dict, ...]:
         "pentaguanide",
     }
     return tuple(
-        template for template in _curated_exact_parent_templates(Chem) if template["name"] in names
+        template for template in _curated_exact_parent_templates(Chem) if template_record_name(template) in names
     )
 
 
@@ -806,7 +807,7 @@ def _iter_fused_template_matches(
 ):
     mol = ctx.mol
     for template in templates:
-        template_mol = template["mol"]
+        template_mol = template_record_mol(template)
         if template.get("stereochemical") and not _has_stereo_evidence(mol, Chem):
             continue
         if require_one_ring_system and not _template_has_one_ring_system(template_mol):
@@ -833,14 +834,14 @@ def _match_has_extra_core_bonds(mol, template: dict, match: Sequence[int]) -> bo
         for bond in mol.GetBonds()
         if bond.GetBeginAtomIdx() in core_atoms and bond.GetEndAtomIdx() in core_atoms
     )
-    return core_bonds > template["mol"].GetNumBonds()
+    return core_bonds > template_record_mol(template).GetNumBonds()
 
 
 def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int]) -> str:
     core_set = set(match)
     prefixes = []
     for template_idx, mol_idx in enumerate(match):
-        locant = template["locants"].get(template_idx, "")
+        locant = template_record_locants(template).get(template_idx, "")
         for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx in core_set:
@@ -854,7 +855,7 @@ def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int])
                 return ""
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + template["name"] if prefix_text else template["name"]
+    return prefix_text + "-" + template_record_name(template) if prefix_text else template_record_name(template)
 
 
 def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
@@ -898,7 +899,7 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
         if symbol == "C":
             continue
         replacement = _SKELETAL_REPLACEMENT_PREFIXES.get(symbol)
-        locant = template["locants"].get(template_idx, "")
+        locant = template_record_locants(template).get(template_idx, "")
         if not replacement or not locant:
             return ""
         grouped.setdefault(replacement, []).append(locant)
@@ -909,7 +910,7 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
         locants = sorted(grouped[replacement], key=_locant_sort_key)
         multiplier = MULT.get(len(locants), "")
         parts.append(f"{','.join(locants)}-{multiplier}{replacement}")
-    return "-".join(parts) + template["name"]
+    return "-".join(parts) + template_record_name(template)
 
 
 def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) -> tuple:
@@ -1049,7 +1050,7 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     charged_locs = []
     charged_has_hydrogen = False
     for template_idx, mol_idx in enumerate(match):
-        template_atom = template["mol"].GetAtomWithIdx(template_idx)
+        template_atom = template_record_mol(template).GetAtomWithIdx(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
         charge_matches = template_atom.GetFormalCharge() == atom.GetFormalCharge()
         charge_is_parent_ium = (
@@ -1059,7 +1060,7 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
         )
         if not charge_matches and not charge_is_parent_ium:
             return ""
-        locant = template["locants"].get(template_idx, "")
+        locant = template_record_locants(template).get(template_idx, "")
         if charge_is_parent_ium:
             if not locant.isdigit():
                 return ""
@@ -1087,7 +1088,7 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     if not hydro:
         return ""
     locants = ",".join(str(loc) for loc in hydro_locs)
-    name = f"{locants}-{hydro}-{template['name']}"
+    name = f"{locants}-{hydro}-{template_record_name(template)}"
     if len(charged_locs) == 1:
         if not charged_has_hydrogen:
             name = _drop_indicated_hydrogen_prefix(name)
@@ -1099,14 +1100,14 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
 def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     candidate_locs = []
     for template_idx, mol_idx in enumerate(match):
-        template_atom = template["mol"].GetAtomWithIdx(template_idx)
+        template_atom = template_record_mol(template).GetAtomWithIdx(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
         if template_atom.GetFormalCharge() != atom.GetFormalCharge():
             return
-        locant = template["locants"].get(template_idx, "")
+        locant = template_record_locants(template).get(template_idx, "")
         if not locant or locant.endswith("a"):
             continue
-        score = _partial_hydro_atom_score(mol, template["mol"], mol_idx, template_idx, match)
+        score = _partial_hydro_atom_score(mol, template_record_mol(template), mol_idx, template_idx, match)
         if score <= 0:
             continue
         candidate_locs.append((locant, score))
@@ -1140,7 +1141,7 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
                     -_hydro_locant_span(locs),
                     [_locant_sort_key(locant) for locant in locs],
                 ),
-                f"{locant_text}-{hydro}-{template['name']}",
+                f"{locant_text}-{hydro}-{template_record_name(template)}",
             ))
     for hydro_key, parent_name in sorted(candidates)[:12]:
         yield parent_name, hydro_key
@@ -1266,7 +1267,7 @@ def _name_fused_core_match(
     prefixes = []
     for mol_idx in match:
         template_idx = reverse[mol_idx]
-        locant = template["locants"].get(template_idx)
+        locant = template_record_locants(template).get(template_idx)
         for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx in core_set:
@@ -1303,14 +1304,14 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
     name = _adjust_fused_parent_for_indicated_hydrogen(mol, template, reverse)
     if name in {"quinuclidine", "quinuclidin"}:
         for mol_idx, template_idx in reverse.items():
-            locant = template["locants"].get(template_idx)
+            locant = template_record_locants(template).get(template_idx)
             atom = mol.GetAtomWithIdx(mol_idx)
             if locant == "1" and atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0:
                 return "quinuclidin-1-ium"
     charged_locs = []
     charged_has_hydrogen = False
     for mol_idx, template_idx in reverse.items():
-        locant = template["locants"].get(template_idx)
+        locant = template_record_locants(template).get(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
         if locant and locant.isdigit() and atom.GetSymbol() in {"N", "S"} and atom.GetFormalCharge() > 0:
             charged_locs.append(int(locant))
@@ -1345,13 +1346,13 @@ def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, s
 
 
 def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: dict[int, int]) -> str:
-    name = template["name"]
+    name = template_record_name(template)
     if not name.startswith("1H-"):
         return name
     h_locs = []
     for mol_idx, template_idx in reverse.items():
         atom = mol.GetAtomWithIdx(mol_idx)
-        locant = template["locants"].get(template_idx)
+        locant = template_record_locants(template).get(template_idx)
         if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and locant and locant.isdigit():
             h_locs.append(locant)
     if len(h_locs) != 1 or h_locs[0] == "1":

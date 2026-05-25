@@ -9,6 +9,7 @@ from .fused_rules import build_fused_templates
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
+from .template_access import template_record_mol, template_record_name
 from .template_index import ring_system_feature_key, molecule_features
 
 
@@ -84,10 +85,10 @@ def hydrocarbon_replacement_parent_templates(Chem) -> tuple[dict, ...]:
     selected = []
     seen: set[tuple[str, str]] = set()
     for template in templates:
-        features = molecule_features(template["mol"], Chem)
+        features = molecule_features(template_record_mol(template), Chem)
         if features["ring_count"] < 2 or set(features["elements"]) != {"C"}:
             continue
-        key = (template["name"], Chem.MolToSmiles(template["mol"], canonical=True))
+        key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
         if key in seen:
             continue
         seen.add(key)
@@ -113,17 +114,17 @@ def hydrocarbon_replacement_parent_templates_for_graph(
             + parent_scaffold_catalog(Chem).fusion_component_parents
             + parent_scaffold_catalog(Chem).static_retained
         )
-        if template["mol"].GetNumAtoms() == atom_count
+        if template_record_mol(template).GetNumAtoms() == atom_count
     )
     selected = []
     seen: set[tuple[str, str]] = set()
     for template in templates + retained:
-        features = molecule_features(template["mol"], Chem)
+        features = molecule_features(template_record_mol(template), Chem)
         if features["ring_count"] != ring_count or set(features["elements"]) != {"C"}:
             continue
         if not any(system["graph_signature"] == graph_signature for system in features["ring_systems"]):
             continue
-        key = (template["name"], Chem.MolToSmiles(template["mol"], canonical=True))
+        key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
         if key in seen:
             continue
         seen.add(key)
@@ -176,13 +177,13 @@ def generated_fusion_preference(name: str) -> tuple:
 
 
 def generated_template_key(template: dict) -> tuple:
-    return (generated_fusion_preference(template["name"]), template["name"])
+    return (generated_fusion_preference(template_record_name(template)), template_record_name(template))
 
 
 def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skeleton: int) -> tuple[dict, ...]:
     grouped: dict[str, list[dict]] = {}
     for template in templates:
-        key = Chem.MolToSmiles(template["mol"], canonical=True)
+        key = Chem.MolToSmiles(template_record_mol(template), canonical=True)
         grouped.setdefault(key, []).append(template)
     preferred = []
     for items in grouped.values():

@@ -12,7 +12,10 @@ In other words, NISPO generates a name, OPSIN parses that name back into a struc
 
 ## Status
 
-NISPO currently achieves approximately **99% OPSIN round-trip accuracy** on the development benchmark.
+This repository snapshot is **NISPO version 0.1**.
+
+Version 0.1 was developed using the MolJSON benchmark set of molecules and
+achieved approximately **99% OPSIN round-trip accuracy** on that subset.
 
 ## Usage
 

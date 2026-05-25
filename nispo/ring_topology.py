@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .graph_model import graph_view
+from .molecule_cache import mol_cache_get, mol_cache_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,17 +18,13 @@ class RingSystemTopology:
 
 
 def ring_system_topologies(mol, Chem) -> tuple[RingSystemTopology, ...]:
-    cached = getattr(mol, "_nispo_ring_system_topologies", None)
+    cached = mol_cache_get(mol, "ring_system_topologies")
     if cached is not None:
         return cached
 
     view = graph_view(mol, Chem)
     topologies = tuple(_build_topology(view, atoms) for atoms in view.ring_systems)
-    try:
-        mol._nispo_ring_system_topologies = topologies
-    except Exception:
-        pass
-    return topologies
+    return mol_cache_set(mol, "ring_system_topologies", topologies)
 
 
 def ring_system_graph(mol, Chem, atoms) -> dict[int, frozenset[int]]:

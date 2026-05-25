@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from .molecule_cache import mol_cache_get, mol_cache_set
+
 
 @dataclass(frozen=True, slots=True)
 class MoleculeGraphView:
@@ -23,7 +25,7 @@ class MoleculeGraphView:
 
 
 def graph_view(mol, Chem) -> MoleculeGraphView:
-    cached = getattr(mol, "_nispo_graph_view", None)
+    cached = mol_cache_get(mol, "graph_view")
     if cached is not None:
         return cached
 
@@ -52,11 +54,7 @@ def graph_view(mol, Chem) -> MoleculeGraphView:
         atom_rings=atom_rings,
         ring_systems=ring_systems,
     )
-    try:
-        mol._nispo_graph_view = view
-    except Exception:
-        pass
-    return view
+    return mol_cache_set(mol, "graph_view", view)
 
 
 def _ring_systems_from_atom_rings(atom_rings: tuple[tuple[int, ...], ...]) -> tuple[frozenset[int], ...]:

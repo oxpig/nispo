@@ -25,6 +25,7 @@ from .branch_rules import (
 from .constants import MULT, ROOTS
 from .formatting import format_prefixes as _format_prefixes
 from .graph_model import graph_view
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 
 MAX_ACYCLIC_PARENT_PATHS = 96
@@ -59,7 +60,7 @@ def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
 
 
 def _acyclic_functional_profile(mol) -> dict[str, bool]:
-    cached = getattr(mol, "_nispo_acyclic_functional_profile", None)
+    cached = mol_cache_get(mol, "acyclic_functional_profile")
     if cached is not None:
         return cached
     has_c_c_o_cumulene = False
@@ -107,11 +108,7 @@ def _acyclic_functional_profile(mol) -> dict[str, bool]:
         "ylidene_dioxosulfane": has_c_sulfone_cumulene,
         "thione": has_c_s_double,
     }
-    try:
-        mol._nispo_acyclic_functional_profile = profile
-    except Exception:
-        pass
-    return profile
+    return mol_cache_set(mol, "acyclic_functional_profile", profile)
 
 
 def _name_oxidanium(mol) -> str:
@@ -393,17 +390,10 @@ def _oriented_paths_by_quality(mol, paths: Sequence[Sequence[int]]) -> list[tupl
 
 def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
     path = tuple(path)
-    cache = getattr(mol, "_nispo_path_quality_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_path_quality_cache = cache
-        except Exception:
-            cache = None
-    if cache is not None:
-        cached = cache.get(path)
-        if cached is not None:
-            return cached
+    cache = mol_cache_dict(mol, "path_quality_cache")
+    cached = cache.get(path)
+    if cached is not None:
+        return cached
     view = _acyclic_graph_view(mol)
     path_set = set(path)
     locants = []
@@ -422,22 +412,17 @@ def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
             locants.append(bond_locant)
             suffix_bonus += 1
     descriptor = (-len(path), -suffix_bonus, tuple(locants), -carbon_count)
-    if cache is not None:
-        cache[path] = descriptor
+    cache[path] = descriptor
     return descriptor
 
 
 def _acyclic_graph_view(mol) -> _AcyclicGraphView:
-    cached = getattr(mol, "_nispo_acyclic_graph_view", None)
+    cached = mol_cache_get(mol, "acyclic_graph_view")
     if cached is not None:
         return cached
     graph = graph_view(mol, Chem)
     view = _AcyclicGraphView(symbols=graph.symbols, neighbors=graph.neighbors, bond_orders=graph.bond_orders)
-    try:
-        mol._nispo_acyclic_graph_view = view
-    except Exception:
-        pass
-    return view
+    return mol_cache_set(mol, "acyclic_graph_view", view)
 
 
 def _bond_key(a: int, b: int) -> tuple[int, int]:

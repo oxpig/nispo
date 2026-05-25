@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from functools import lru_cache
 
 from .graph_model import graph_view
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 
 _TemplateIndex = tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict, dict], ...]]]
@@ -19,18 +20,11 @@ def candidate_templates(
     *,
     exact_atom_count: bool = False,
 ) -> tuple[dict, ...]:
-    cache = getattr(mol, "_nispo_candidate_template_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_candidate_template_cache = cache
-        except Exception:
-            cache = None
+    cache = mol_cache_dict(mol, "candidate_template_cache")
     cache_key = (id(templates), exact_atom_count)
-    if cache is not None:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     features = features or molecule_features(mol, Chem)
     pure_ring_templates, other_templates_by_atom_count = _template_index(templates, Chem)
     candidates = []
@@ -65,8 +59,7 @@ def candidate_templates(
             candidates.append(template)
     candidates.sort(key=lambda item: _template_features(item, Chem)["atom_count"], reverse=True)
     result = tuple(candidates)
-    if cache is not None:
-        cache[cache_key] = result
+    cache[cache_key] = result
     return result
 
 
@@ -133,7 +126,7 @@ def _template_scaffold_key(template: dict, Chem) -> str:
 
 
 def molecule_features(mol, Chem) -> dict:
-    cached = getattr(mol, "_nispo_molecule_features", None)
+    cached = mol_cache_get(mol, "molecule_features")
     if cached is not None:
         return cached
     view = graph_view(mol, Chem)
@@ -165,11 +158,7 @@ def molecule_features(mol, Chem) -> dict:
         "all_atoms_in_one_ring_system": bool(ring_systems)
         and any(len(system) == mol.GetNumAtoms() for system in ring_systems),
     }
-    try:
-        mol._nispo_molecule_features = features
-    except Exception:
-        pass
-    return features
+    return mol_cache_set(mol, "molecule_features", features)
 
 
 def ring_system_feature_key(features: dict) -> tuple:

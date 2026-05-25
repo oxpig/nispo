@@ -27,6 +27,7 @@ from .formatting import (
     substituent_parent_suffix as _substituent_parent_suffix,
     unsaturated_parent as _unsaturated_parent,
 )
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
     ring_substituent_suffix as _ring_substituent_suffix,
@@ -45,17 +46,10 @@ _SULFUR_OXO_SUBSTITUENT_SUFFIX = {2: "sulfonyl", 1: "sulfinyl", 0: "sulfanyl"}
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
-    cache = getattr(mol, "_nispo_parent_skeleton_atom_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_parent_skeleton_atom_cache = cache
-        except Exception:
-            cache = None
-    if cache is not None:
-        cached = cache.get(idx)
-        if cached is not None:
-            return cached
+    cache = mol_cache_dict(mol, "parent_skeleton_atom_cache")
+    cached = cache.get(idx)
+    if cached is not None:
+        return cached
     atom = mol.GetAtomWithIdx(idx)
     symbol = atom.GetSymbol()
     result = True
@@ -75,8 +69,7 @@ def can_be_in_parent_skeleton(mol, idx: int) -> bool:
         result = False
     elif symbol == "N" and _is_diazo_nitrogen(mol, idx):
         result = False
-    if cache is not None:
-        cache[idx] = result
+    cache[idx] = result
     return result
 
 
@@ -122,18 +115,14 @@ def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) ->
 
 
 def branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    cache = getattr(mol, "_nispo_branch_prefix_cache", None)
-    if cache is None:
-        cache = {}
-        mol._nispo_branch_prefix_cache = cache
+    cache = mol_cache_dict(mol, "branch_prefix_cache")
     key = (idx, parent_idx)
     cached = cache.get(key)
     if cached is not None:
         return cached
-    in_progress = getattr(mol, "_nispo_branch_prefix_in_progress", None)
+    in_progress = mol_cache_get(mol, "branch_prefix_in_progress")
     if in_progress is None:
-        in_progress = set()
-        mol._nispo_branch_prefix_in_progress = in_progress
+        in_progress = mol_cache_set(mol, "branch_prefix_in_progress", set())
     if key in in_progress:
         return ""
 
@@ -312,21 +301,13 @@ def _has_neighbor_bond(mol, idx: int, neighbors: Sequence[int], symbol: str, bon
 
 
 def _subtree_has_ring(mol, root_idx: int, blocked_idx: int) -> bool:
-    cache = getattr(mol, "_nispo_subtree_has_ring_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_subtree_has_ring_cache = cache
-        except Exception:
-            cache = None
+    cache = mol_cache_dict(mol, "subtree_has_ring_cache")
     key = (root_idx, blocked_idx)
-    if cache is not None:
-        cached = cache.get(key)
-        if cached is not None:
-            return cached
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
     result = any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in collect_subtree(mol, root_idx, blocked_idx))
-    if cache is not None:
-        cache[key] = result
+    cache[key] = result
     return result
 
 
@@ -2151,23 +2132,15 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
 
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
-    cache = getattr(mol, "_nispo_substituent_from_root_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_substituent_from_root_cache = cache
-        except Exception:
-            cache = None
+    cache = mol_cache_dict(mol, "substituent_from_root_cache")
     key = (root_idx, blocked_idx)
-    if cache is not None:
-        cached = cache.get(key)
-        if cached is not None:
-            return cached
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
     atoms = collect_subtree(mol, root_idx, blocked_idx)
     paths = rooted_paths(mol, root_idx, atoms)
     if not paths:
-        if cache is not None:
-            cache[key] = ""
+        cache[key] = ""
         return ""
     best = ""
     best_key = None
@@ -2179,8 +2152,7 @@ def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
         if best_key is None or key < best_key:
             best_key = key
             best = name
-    if cache is not None:
-        cache[(root_idx, blocked_idx)] = best
+    cache[(root_idx, blocked_idx)] = best
     return best
 
 
@@ -2234,18 +2206,11 @@ def substituent_locants(mol, path: Sequence[int], atoms: set[int], blocked_idx: 
 
 
 def rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
-    cache = getattr(mol, "_nispo_rooted_paths_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_rooted_paths_cache = cache
-        except Exception:
-            cache = None
+    cache = mol_cache_dict(mol, "rooted_paths_cache")
     cache_key = (root_idx, tuple(sorted(atoms)))
-    if cache is not None:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return list(cached)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
     if mol.GetAtomWithIdx(root_idx).IsInRing():
         path_atoms = set(atoms)
     else:
@@ -2274,24 +2239,16 @@ def rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
             paths.clear()
         if len(path) == best_len:
             paths.append(tuple(path))
-    if cache is not None:
-        cache[cache_key] = tuple(paths)
+    cache[cache_key] = tuple(paths)
     return paths
 
 
 def collect_subtree(mol, start_idx: int, blocked_idx: int) -> set[int]:
-    cache = getattr(mol, "_nispo_collect_subtree_cache", None)
-    if cache is None:
-        cache = {}
-        try:
-            mol._nispo_collect_subtree_cache = cache
-        except Exception:
-            cache = None
+    cache = mol_cache_dict(mol, "collect_subtree_cache")
     key = (start_idx, blocked_idx)
-    if cache is not None:
-        cached = cache.get(key)
-        if cached is not None:
-            return set(cached)
+    cached = cache.get(key)
+    if cached is not None:
+        return set(cached)
     seen = {blocked_idx}
     stack = [start_idx]
     atoms = set()
@@ -2307,8 +2264,7 @@ def collect_subtree(mol, start_idx: int, blocked_idx: int) -> set[int]:
                 continue
             if nidx not in seen:
                 stack.append(nidx)
-    if cache is not None:
-        cache[key] = frozenset(atoms)
+    cache[key] = frozenset(atoms)
     return atoms
 
 

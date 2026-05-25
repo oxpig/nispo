@@ -6,6 +6,7 @@ from importlib import resources
 import re
 
 from .fused_rules import build_fused_templates
+from .molecule_cache import mol_cache_get, mol_cache_set
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
 from .template_index import ring_system_feature_key, molecule_features
@@ -133,8 +134,8 @@ def hydrocarbon_replacement_parent_templates_for_graph(
 def candidate_generated_fused_templates(
     mol, Chem, features: dict | None = None, *, graph_filter: bool = True
 ) -> tuple[dict, ...]:
-    cache_attr = "_nispo_generated_fused_templates" if graph_filter else "_nispo_generated_fused_templates_broad"
-    cached = getattr(mol, cache_attr, None)
+    cache_key = "generated_fused_templates" if graph_filter else "generated_fused_templates_broad"
+    cached = mol_cache_get(mol, cache_key)
     if cached is not None:
         return cached
     features = features or molecule_features(mol, Chem)
@@ -158,11 +159,7 @@ def candidate_generated_fused_templates(
             candidates.append(template)
     candidates.sort(key=generated_template_key)
     result = tuple(candidates)
-    try:
-        setattr(mol, cache_attr, result)
-    except Exception:
-        pass
-    return result
+    return mol_cache_set(mol, cache_key, result)
 
 
 @lru_cache(maxsize=None)
@@ -195,46 +192,52 @@ def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skelet
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_index() -> dict[str, tuple[dict, ...]]:
-    try:
-        path = resources.files(__package__).joinpath("resources", "generated_fused_template_index.json")
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return {str(key): tuple(value) for key, value in raw.items()}
+    return _load_generated_record_index("generated_fused_template_index.json")
 
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_graph_index() -> dict[str, dict[str, tuple[dict, ...]]]:
-    try:
-        path = resources.files(__package__).joinpath("resources", "generated_fused_template_graph_index.json")
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return {
-        str(feature_key): {str(graph_key): tuple(records) for graph_key, records in graph_buckets.items()}
-        for feature_key, graph_buckets in raw.items()
-    }
+    return _load_generated_record_index("generated_fused_template_graph_index.json")
 
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_element_graph_index() -> dict[str, dict[str, dict[str, tuple[dict, ...]]]]:
+    return _load_generated_record_index("generated_fused_template_element_graph_index.json")
+
+
+@lru_cache(maxsize=1)
+def _generated_fused_record_table() -> tuple[dict, ...]:
     try:
-        path = resources.files(__package__).joinpath(
-            "resources", "generated_fused_template_element_graph_index.json"
-        )
+        path = resources.files(__package__).joinpath("resources", "generated_fused_template_index_records.json")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ()
+    return tuple(record for record in raw if isinstance(record, dict))
+
+
+def _load_generated_record_index(filename: str):
+    try:
+        path = resources.files(__package__).joinpath("resources", filename)
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return {
-        str(feature_key): {
-            str(graph_key): {
-                str(element_key): tuple(records)
-                for element_key, records in element_buckets.items()
-            }
-            for graph_key, element_buckets in graph_buckets.items()
-        }
-        for feature_key, graph_buckets in raw.items()
-    }
+    return _resolve_generated_record_refs(raw)
+
+
+def _resolve_generated_record_refs(value):
+    if isinstance(value, dict):
+        return {str(key): _resolve_generated_record_refs(item) for key, item in value.items()}
+    if not isinstance(value, list):
+        return ()
+    table = _generated_fused_record_table()
+    records = []
+    for item in value:
+        if isinstance(item, int):
+            if 0 <= item < len(table):
+                records.append(table[item])
+        elif isinstance(item, dict):
+            records.append(item)
+    return tuple(records)
 
 
 @lru_cache(maxsize=1024)

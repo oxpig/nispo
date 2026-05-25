@@ -11,6 +11,7 @@ from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import loc_unsat
+from .molecule_cache import mol_cache_get, mol_cache_set
 from .fused_template_families import (
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
@@ -995,19 +996,16 @@ _SKELETAL_REPLACEMENT_PREFIXES = {
 
 
 def _has_stereo_evidence(mol, Chem) -> bool:
-    cached = getattr(mol, "_nispo_has_stereo_evidence", None)
+    cached = mol_cache_get(mol, "has_stereo_evidence")
     if cached is not None:
         return cached
     for atom in mol.GetAtoms():
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
-            mol._nispo_has_stereo_evidence = True
-            return True
+            return mol_cache_set(mol, "has_stereo_evidence", True)
     for bond in mol.GetBonds():
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
-            mol._nispo_has_stereo_evidence = True
-            return True
-    mol._nispo_has_stereo_evidence = False
-    return False
+            return mol_cache_set(mol, "has_stereo_evidence", True)
+    return mol_cache_set(mol, "has_stereo_evidence", False)
 
 
 @lru_cache(maxsize=None)

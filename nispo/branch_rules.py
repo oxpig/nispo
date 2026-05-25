@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Sequence
-from functools import lru_cache
 
 try:
     from rdkit import Chem, RDLogger
@@ -11,40 +10,14 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
-from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
-from .branch import BranchRuleSet, BranchRuleSpec, first_branch_name
-from .cycle_utils import ordered_ring, ring_system_extends_core
-from .fused_rules import FUSED_SUBSTITUENT_STEMS
-from .fused_template_families import (
-    candidate_generated_fused_templates as _candidate_generated_fused_templates,
-    curated_fused_templates as _curated_fused_templates,
-    generated_fusion_preference as _generated_fusion_preference,
-)
+from .branch import BranchRuleSpec, first_branch_name
+from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import (
-    alkyl_to_alkoxy as _alkyl_to_alkoxy,
-    format_prefixes as _format_prefixes,
     join_locants as _join_locants,
     substituent_parent_suffix as _substituent_parent_suffix,
     unsaturated_parent as _unsaturated_parent,
 )
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
-from .ring_rules import (
-    ring_parent_candidates as _ring_parent_candidates,
-    ring_substituent_suffix as _ring_substituent_suffix,
-)
-from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
-from .stereochemistry import assigned_atom_stereochemistry
-from .substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
-from .template_access import template_record_locants, template_record_mol, template_record_name
-from .template_store import template_store
-
-
-_HALOSULFUR_OXO_PREFIXES = {
-    2: {"F": "fluorosulfonyl", "Cl": "chlorosulfonyl", "Br": "bromosulfonyl", "I": "iodosulfonyl"},
-    1: {"F": "fluorosulfinyl", "Cl": "chlorosulfinyl", "Br": "bromosulfinyl", "I": "iodosulfinyl"},
-}
-
-_SULFUR_OXO_SUBSTITUENT_SUFFIX = {2: "sulfonyl", 1: "sulfinyl", 0: "sulfanyl"}
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:

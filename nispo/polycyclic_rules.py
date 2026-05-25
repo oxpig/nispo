@@ -117,22 +117,11 @@ def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 
-    candidates = []
-    for a, b in _bridgehead_pair_candidates(graph, atoms, 3):
-        paths = _bridge_paths(graph, atoms, a, b)
-        if not paths:
-            continue
-        for seq, bracket in _numbering_sequences(paths):
-            parent = _bicyclic_parent(mol, seq, bracket)
-            if not parent:
-                continue
-            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-            if not name:
-                continue
-            key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            candidates.append((key, name, tuple(seq)))
-    candidates.sort(key=lambda item: item[0])
-    return [(name, seq) for _key, name, seq in candidates]
+    return _decorated_polycyclic_records(
+        mol,
+        atoms,
+        _bicyclic_parent_sequence_candidates(mol, atoms, graph),
+    )
 
 
 def _polycyclic_parent_sequence_candidates(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
@@ -296,34 +285,23 @@ def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tup
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 
+    return _decorated_polycyclic_records(
+        mol,
+        atoms,
+        _spiro_parent_sequence_candidates(mol, atoms, graph),
+    )
+
+
+def _decorated_polycyclic_records(
+    mol, atoms: set[int], parent_sequences: Sequence[tuple[str, tuple[int, ...]]]
+) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
-    for spiro_idx in sorted(atoms):
-        components = _components_without_atom(graph, spiro_idx)
-        if len(components) != 2:
+    for parent, seq in parent_sequences:
+        name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+        if not name:
             continue
-        paths = []
-        ok = True
-        for component in components:
-            endpoints = [idx for idx in component if len(graph[idx] & component) == 1]
-            if len(endpoints) != 2:
-                ok = False
-                break
-            path = _path_within_component(graph, endpoints[0], endpoints[1], component)
-            if not path:
-                ok = False
-                break
-            paths.append(path)
-        if not ok:
-            continue
-        for seq, bracket in _spiro_numbering_sequences(paths, spiro_idx):
-            parent = _spiro_parent(mol, seq, bracket)
-            if not parent:
-                continue
-            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-            if not name:
-                continue
-            key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            candidates.append((key, name, tuple(seq)))
+        key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
+        candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]
 

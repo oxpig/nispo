@@ -73,7 +73,24 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
         return f"({candidate.stereo_prefix})-{name}"
-    return apply_stereochemical_prefix(mol, Chem, name)
+    return apply_stereochemical_prefix(
+        mol,
+        Chem,
+        name,
+        atom_order=_fallback_stereo_atom_order(candidate.family),
+    )
+
+
+def _fallback_stereo_atom_order(family: str) -> str:
+    idx_order_families = {
+        "acyclic-parent",
+        "fused-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+        "skeletal-replacement-fused-parent",
+    }
+    return "idx" if family in idx_order_families else "idx_desc"
 
 
 def _normalize_terminal_parent_stem(name: str) -> str:

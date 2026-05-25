@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 
-def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
+def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_desc") -> str:
     """Prepend OPSIN bracket stereochemistry for assigned input stereo.
 
     NISPO's structural rules usually produce the right connectivity, while
@@ -22,7 +22,7 @@ def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
     bond_descriptors = _bond_stereochemistry(mol, Chem)
     descriptors = []
     if not _name_has_complete_locanted_atom_stereo(mol, Chem, name):
-        descriptors = _atom_stereochemistry(mol, Chem)
+        descriptors = _atom_stereochemistry(mol, Chem, atom_order=atom_order)
     descriptors.extend(bond_descriptors)
     if not descriptors:
         return name
@@ -47,11 +47,18 @@ def _name_has_complete_locanted_atom_stereo(mol, Chem, name: str) -> bool:
     return chiral_count > 0 and len(locanted_descriptors) >= chiral_count
 
 
-def _atom_stereochemistry(mol, Chem) -> list[str]:
-    return [descriptor for _idx, descriptor in _assigned_atom_stereochemistry(mol, Chem)]
+def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:
+    return [
+        descriptor
+        for _idx, descriptor in _assigned_atom_stereochemistry(
+            mol,
+            Chem,
+            atom_order=atom_order,
+        )
+    ]
 
 
-def _assigned_atom_stereochemistry(mol, Chem) -> list[tuple[int, str]]:
+def _assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") -> list[tuple[int, str]]:
     has_chiral_tag = any(
         atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
         for atom in mol.GetAtoms()
@@ -65,7 +72,8 @@ def _assigned_atom_stereochemistry(mol, Chem) -> list[tuple[int, str]]:
         for idx, descriptor in centers
         if descriptor in {"R", "S"}
     ]
-    return sorted(assigned, reverse=True)
+    reverse = atom_order != "idx"
+    return sorted(assigned, reverse=reverse)
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

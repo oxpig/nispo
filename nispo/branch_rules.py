@@ -13,7 +13,7 @@ else:
 
 from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .branch_engine import BranchRule, BranchRuleSet, first_branch_name
-from .cycle_utils import _ordered_ring, _ring_system_extends_core
+from .cycle_utils import ordered_ring, ring_system_extends_core
 from .fused_rules import FUSED_SUBSTITUENT_STEMS
 from .fused_template_families import (
     candidate_generated_fused_templates as _candidate_generated_fused_templates,
@@ -121,7 +121,7 @@ def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) ->
     return base
 
 
-def _branch_prefix(mol, idx: int, parent_idx: int) -> str:
+def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     cache = getattr(mol, "_nispo_branch_prefix_cache", None)
     if cache is None:
         cache = {}
@@ -721,7 +721,7 @@ def _acyl_parent_name(mol, carbonyl_idx: int, blocked_idx: int) -> str:
                     continue
                 if nidx not in atoms:
                     continue
-                prefix = _branch_prefix(mol, nidx, atom_idx)
+                prefix = branch_prefix(mol, nidx, atom_idx)
                 if not prefix:
                     ok = False
                     break
@@ -1123,7 +1123,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
     if len(rings) != 1:
         return ""
     ring = rings[0]
-    ordered = _ordered_ring(mol, ring)
+    ordered = ordered_ring(mol, ring)
     if not ordered:
         return ""
     candidates = _ring_parent_candidates(mol, ordered)
@@ -1139,7 +1139,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             nidx = nbr.GetIdx()
             if nidx == parent_idx or nidx in ring_set:
                 continue
-            prefix = _branch_prefix(mol, nidx, ring_idx)
+            prefix = branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return ""
             raw_subs.append((ring_idx, prefix))
@@ -1258,7 +1258,7 @@ def _fused_ring_substituent_prefix_from_templates(
             if attachment_idx not in match or parent_idx in match:
                 continue
             core_set = set(match)
-            if _ring_system_extends_core(mol, core_set):
+            if ring_system_extends_core(mol, core_set):
                 continue
             reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
             template_idx = reverse[attachment_idx]
@@ -1300,7 +1300,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             if attachment_idx not in match or parent_idx in match:
                 continue
             core_set = set(match)
-            if _ring_system_extends_core(mol, core_set):
+            if ring_system_extends_core(mol, core_set):
                 continue
             parent_name = _hydro_fused_parent_name(mol, template, match)
             if not parent_name:
@@ -1339,7 +1339,7 @@ def _fused_substituent_prefix_text(
                 continue
             if not core_loc or core_loc.endswith("a"):
                 return None
-            prefix = _branch_prefix(mol, nidx, mol_idx)
+            prefix = branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return None
             prefixes.append((core_loc, prefix))
@@ -2207,7 +2207,7 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
                 continue
             if nidx not in atoms:
                 continue
-            prefix = _branch_prefix(mol, nidx, idx)
+            prefix = branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((str(pos), prefix))

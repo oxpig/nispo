@@ -6,9 +6,9 @@ from collections.abc import Sequence
 from itertools import combinations
 from functools import lru_cache
 
-from .branch_rules import _branch_prefix
+from .branch_rules import branch_prefix
 from .constants import HALO, MULT, ROOTS
-from .cycle_utils import _ordered_ring, _ring_system_extends_core
+from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import loc_unsat
 from .fused_template_families import (
@@ -69,7 +69,7 @@ class SulfaniumParentRule:
             return
         names = []
         for nidx in neighbors:
-            prefix = _branch_prefix(mol, nidx, sidx)
+            prefix = branch_prefix(mol, nidx, sidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -125,7 +125,7 @@ class OxidoNitrosoAzaniumRule:
                     organic.append(nbidx)
             if not ok or len(oxido) != 1 or len(nitroso) != 1 or len(organic) != 1:
                 continue
-            prefix = _branch_prefix(mol, organic[0], nidx)
+            prefix = branch_prefix(mol, organic[0], nidx)
             if not prefix:
                 continue
             name = f"{prefix}(oxido)(nitroso)azanium"
@@ -161,7 +161,7 @@ class OxoSulfaniumParentRule:
                     break
             if not ok or len(oxo) != 1 or len(heavy) != 1:
                 continue
-            prefix = _branch_prefix(mol, heavy[0], sidx)
+            prefix = branch_prefix(mol, heavy[0], sidx)
             if not prefix:
                 continue
             if _needs_substituent_parentheses(prefix):
@@ -848,7 +848,7 @@ def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int])
                 return ""
             if _subtree_has_cumulated_diene(mol, nidx, mol_idx):
                 return ""
-            prefix = _branch_prefix(mol, nidx, mol_idx)
+            prefix = branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
@@ -1269,7 +1269,7 @@ def _name_fused_core_match(
     mol, template: dict, match: Sequence[int], parent_name: str | None = None
 ) -> str:
     core_set = set(match)
-    if _ring_system_extends_core(mol, core_set):
+    if ring_system_extends_core(mol, core_set):
         return ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
@@ -1283,7 +1283,7 @@ def _name_fused_core_match(
                 continue
             if not locant:
                 return ""
-            prefix = _branch_prefix(mol, nidx, mol_idx)
+            prefix = branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
@@ -1370,7 +1370,7 @@ def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: di
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str]]:
-    ordered = _ordered_ring(mol, ring)
+    ordered = ordered_ring(mol, ring)
     if not ordered:
         return []
     candidates = _ring_parent_candidates(mol, ordered)
@@ -1386,7 +1386,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             nidx = nbr.GetIdx()
             if nidx in ring_set:
                 continue
-            prefix = _branch_prefix(mol, nidx, ring_idx)
+            prefix = branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return []
             raw_subs.append((ring_idx, prefix))

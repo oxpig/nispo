@@ -12,7 +12,7 @@ else:
     RDLogger.DisableLog("rdApp.*")
 
 from .branch_rules import (
-    _branch_prefix,
+    branch_prefix,
     can_be_in_parent_skeleton,
     is_carbonyl_carbon,
     parent_chain_name,
@@ -468,7 +468,7 @@ def _path_substituent_prefixes(
                 continue
             if skip_plain_hydrogen and nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
                 continue
-            prefix = _branch_prefix(mol, nidx, idx)
+            prefix = branch_prefix(mol, nidx, idx)
             if not prefix:
                 return None
             prefixes.append((str(pos), prefix))

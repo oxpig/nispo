@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from itertools import combinations, permutations
 
-from .branch_rules import _branch_prefix
+from .branch_rules import branch_prefix
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import format_prefixes as _format_prefixes, join_locants as _join_locants
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
@@ -851,7 +851,7 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
             nidx = nbr.GetIdx()
             if nidx in core_atoms:
                 continue
-            prefix = _branch_prefix(mol, nidx, idx)
+            prefix = branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
@@ -879,7 +879,7 @@ def _name_polycyclic_substituent(
             nidx = nbr.GetIdx()
             if nidx == blocked_idx or nidx in core_atoms:
                 continue
-            prefix = _branch_prefix(mol, nidx, idx)
+            prefix = branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))

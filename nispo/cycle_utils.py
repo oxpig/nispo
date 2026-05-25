@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 
-def _ordered_ring(mol, ring: Sequence[int]) -> tuple[int, ...]:
+def ordered_ring(mol, ring: Sequence[int]) -> tuple[int, ...]:
     ring_set = set(ring)
     start = min(ring)
     ordered = [start]
@@ -29,7 +29,7 @@ def _ordered_ring(mol, ring: Sequence[int]) -> tuple[int, ...]:
     return tuple(ordered)
 
 
-def _ring_system_extends_core(mol, core_set: set[int]) -> bool:
+def ring_system_extends_core(mol, core_set: set[int]) -> bool:
     for ring in mol.GetRingInfo().AtomRings():
         ring_set = set(ring)
         if ring_set & core_set and not ring_set <= core_set:

@@ -43,7 +43,7 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
     for smiles in smiles_list:
         try:
             mol = Chem.MolFromSmiles(smiles)
-            if mol is None or mol.GetNumAtoms() == 0 or len(Chem.GetMolFrags(mol)) != 1:
+            if mol is None or mol.GetNumAtoms() == 0:
                 names.append("")
                 continue
             names.append(engine.name(mol))
@@ -53,8 +53,6 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
 
 
 def _name_molecule(mol) -> str:
-    if len(Chem.GetMolFrags(mol)) != 1:
-        return ""
     return _engine().name(mol)
 
 

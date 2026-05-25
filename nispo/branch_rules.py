@@ -1268,27 +1268,9 @@ def _fused_ring_substituent_prefix_from_templates(
             suffix = _fused_substituent_suffix(template["name"], locant)
             if not suffix:
                 continue
-            prefixes = []
-            ok = True
-            for mol_idx in match:
-                core_loc = template["locants"].get(reverse[mol_idx])
-                for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
-                    nidx = nbr.GetIdx()
-                    if nidx == parent_idx or nidx in core_set:
-                        continue
-                    if not core_loc or core_loc.endswith("a"):
-                        ok = False
-                        break
-                    prefix = _branch_prefix(mol, nidx, mol_idx)
-                    if not prefix:
-                        ok = False
-                        break
-                    prefixes.append((core_loc, prefix))
-                if not ok:
-                    break
-            if not ok:
+            prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
+            if prefix_text is None:
                 continue
-            prefix_text = _format_prefixes(prefixes)
             name = prefix_text + suffix if prefix_text else suffix
             key = _fused_substituent_candidate_key(template, match, locant, name, generated)
             if best_key is None or (key < best_key if generated else key > best_key):
@@ -1329,33 +1311,39 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             if not locant or locant.endswith("a"):
                 continue
             suffix = _fused_substituent_suffix(parent_name, locant)
-            prefixes = []
-            ok = True
-            for mol_idx in match:
-                core_loc = template["locants"].get(reverse[mol_idx])
-                for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
-                    nidx = nbr.GetIdx()
-                    if nidx == parent_idx or nidx in core_set:
-                        continue
-                    if not core_loc or core_loc.endswith("a"):
-                        ok = False
-                        break
-                    prefix = _branch_prefix(mol, nidx, mol_idx)
-                    if not prefix:
-                        ok = False
-                        break
-                    prefixes.append((core_loc, prefix))
-                if not ok:
-                    break
-            if not ok:
+            prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
+            if prefix_text is None:
                 continue
-            prefix_text = _format_prefixes(prefixes)
             name = prefix_text + suffix if prefix_text else suffix
             key = (_generated_fusion_preference(template["name"]), -len(match), locant, name)
             if best_key is None or key < best_key:
                 best_key = key
                 best = name
     return best
+
+
+def _fused_substituent_prefix_text(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    reverse: dict[int, int],
+    parent_idx: int,
+    core_set: set[int],
+) -> str | None:
+    prefixes = []
+    for mol_idx in match:
+        core_loc = template["locants"].get(reverse[mol_idx])
+        for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == parent_idx or nidx in core_set:
+                continue
+            if not core_loc or core_loc.endswith("a"):
+                return None
+            prefix = _branch_prefix(mol, nidx, mol_idx)
+            if not prefix:
+                return None
+            prefixes.append((core_loc, prefix))
+    return _format_prefixes(prefixes)
 
 
 @lru_cache(maxsize=None)

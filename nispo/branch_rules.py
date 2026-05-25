@@ -1625,26 +1625,34 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
         return "amino"
     names = []
     for nidx in heavy:
-        symbol = mol.GetAtomWithIdx(nidx).GetSymbol()
-        if symbol in HALO:
-            name = HALO[symbol]
-        elif mol.GetAtomWithIdx(nidx).IsInRing():
-            name = _ring_substituent_prefix(mol, nidx, idx)
-        elif symbol == "N":
-            name = _nitrogen_prefix(mol, nidx, idx)
-        elif symbol == "S":
-            name = _sulfur_prefix(mol, nidx, idx)
-        else:
-            name = (
-                "cyano"
-                if _is_nitrile_carbon(mol, nidx)
-                else _functional_carbon_substituent_name(mol, nidx, idx)
-                or _carbonyl_substituent_prefix(mol, nidx, idx)
-                or _substituent_from_root(mol, nidx, idx)
-            )
+        name = _nitrogen_ligand_prefix(mol, nidx, idx)
         if not name:
             return ""
         names.append(name)
+    return _amino_prefix_from_ligands(names)
+
+
+def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    symbol = atom.GetSymbol()
+    if symbol in HALO:
+        return HALO[symbol]
+    if atom.IsInRing():
+        return _ring_substituent_prefix(mol, idx, parent_idx)
+    if symbol == "N":
+        return _nitrogen_prefix(mol, idx, parent_idx)
+    if symbol == "S":
+        return _sulfur_prefix(mol, idx, parent_idx)
+    return (
+        "cyano"
+        if _is_nitrile_carbon(mol, idx)
+        else _functional_carbon_substituent_name(mol, idx, parent_idx)
+        or _carbonyl_substituent_prefix(mol, idx, parent_idx)
+        or _substituent_from_root(mol, idx, parent_idx)
+    )
+
+
+def _amino_prefix_from_ligands(names: Sequence[str]) -> str:
     if len(names) == 1:
         if "-" in names[0] or names[0].startswith("("):
             return f"({names[0]})amino"

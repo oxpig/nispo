@@ -27,6 +27,11 @@ def test_common_counterions_and_hydrides_are_named():
             "[N-]=[N+]=[N-]",
             "O=S(=O)([O-])C(F)(F)F",
             "O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F",
+            "[BH4-]",
+            "[Na+].[BH4-]",
+            "[2H-].[2H-].[Ti+2]",
+            "[BH3-]C#N",
+            "CC(=O)O[BH-](OC(C)=O)OC(C)=O",
         ]
     )
 
@@ -41,6 +46,11 @@ def test_common_counterions_and_hydrides_are_named():
         "azide",
         "trifluoromethanesulfonate",
         "bis(trifluoromethylsulfonyl)azanide",
+        "borohydride",
+        "sodium borohydride",
+        "titanium(2+) dideuteride",
+        "cyanoborohydride",
+        "triacetoxyborohydride",
     ]
 
 

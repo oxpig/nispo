@@ -37,6 +37,10 @@ class FragmentAssemblyRule:
                 neutral_halide_suffixes.append(neutral_halide)
                 neutral_halide_names.append(f"hydrogen {HALIDE_ANIONS[symbol]}")
                 continue
+            common_anion = common_single_atom_anion_name(fragment)
+            if common_anion is not None:
+                anions.append(common_anion)
+                continue
             cation = single_atom_cation_name(fragment, self.Chem)
             if cation is not None:
                 cations.append(cation)
@@ -183,6 +187,20 @@ def neutral_halide_name(mol) -> str | None:
     return NEUTRAL_HALIDE_SALTS[symbol] if charge == 0 else None
 
 
+def common_single_atom_anion_name(mol) -> str | None:
+    if mol.GetNumAtoms() != 1:
+        return None
+    atom = mol.GetAtomWithIdx(0)
+    hydride = _hydride_anion_name(atom)
+    if hydride:
+        return hydride
+    if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1 and atom.GetTotalNumHs() == 4:
+        return "borohydride"
+    if atom.GetSymbol() == "O" and atom.GetFormalCharge() < 0 and atom.GetTotalNumHs() > 0:
+        return "hydroxide"
+    return None
+
+
 def single_atom_cation_name(mol, Chem) -> str | None:
     if mol.GetNumAtoms() != 1:
         return None
@@ -218,8 +236,9 @@ def simple_fragment_name(mol, Chem) -> str:
     atom = mol.GetAtomWithIdx(0)
     symbol = atom.GetSymbol()
     charge = atom.GetFormalCharge()
-    if symbol == "O" and charge < 0 and atom.GetTotalNumHs() > 0:
-        return "hydroxide"
+    common_anion = common_single_atom_anion_name(mol)
+    if common_anion:
+        return common_anion
     anion = single_atom_anion_name(mol, Chem)
     if anion:
         return anion
@@ -248,12 +267,88 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() < 2:
         return ""
     return (
-        _perfluoro_counterion_name(mol, Chem)
+        _substituted_borohydride_name(mol, Chem)
+        or _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
         or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
         or _trifluoromethanesulfonate_name(mol, Chem)
     )
+
+
+def _hydride_anion_name(atom) -> str:
+    if atom.GetSymbol() != "H" or atom.GetFormalCharge() >= 0:
+        return ""
+    if atom.GetIsotope() == 2:
+        return "deuteride"
+    if atom.GetIsotope() == 3:
+        return "tritide"
+    return "hydride"
+
+
+def _substituted_borohydride_name(mol, Chem) -> str:
+    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if len(borons) != 1:
+        return ""
+    boron = borons[0]
+    bidx = boron.GetIdx()
+    if any(
+        mol.GetBondBetweenAtoms(bidx, nbr.GetIdx()).GetBondType() != Chem.BondType.SINGLE
+        for nbr in boron.GetNeighbors()
+    ):
+        return ""
+    hydrogens = boron.GetTotalNumHs()
+    neighbors = [nbr.GetIdx() for nbr in boron.GetNeighbors()]
+    if hydrogens == 3 and len(neighbors) == 1 and _is_cyano_group(mol, Chem, neighbors[0], bidx):
+        return "cyanoborohydride"
+    if hydrogens == 1 and len(neighbors) == 3 and all(_is_acetoxy_group(mol, Chem, nidx, bidx) for nidx in neighbors):
+        return "triacetoxyborohydride"
+    return ""
+
+
+def _is_cyano_group(mol, Chem, carbon_idx: int, boron_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C":
+        return False
+    nitrogen_neighbors = [
+        nbr
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != boron_idx
+        and nbr.GetSymbol() == "N"
+        and mol.GetBondBetweenAtoms(carbon_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.TRIPLE
+    ]
+    return len(nitrogen_neighbors) == 1 and carbon.GetDegree() == 2
+
+
+def _is_acetoxy_group(mol, Chem, oxygen_idx: int, boron_idx: int) -> bool:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O":
+        return False
+    carbon_neighbors = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != boron_idx
+        and nbr.GetSymbol() == "C"
+        and mol.GetBondBetweenAtoms(oxygen_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(carbon_neighbors) != 1:
+        return False
+    carbon_idx = carbon_neighbors[0]
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    double_oxygen_count = 0
+    methyl_count = 0
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetTotalNumHs() == 3:
+            methyl_count += 1
+        else:
+            return False
+    return double_oxygen_count == 1 and methyl_count == 1
 
 
 def _perfluoro_counterion_name(mol, Chem) -> str:

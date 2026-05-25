@@ -39,26 +39,17 @@ class _AcyclicGraphView:
 
 def _name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
     profile = _acyclic_functional_profile(mol)
-    if profile["oxidanium"]:
-        oxidanium = _name_oxidanium(mol)
-        if oxidanium:
-            return oxidanium
-    if profile["ketene"]:
-        ketene = _name_ketene(mol)
-        if ketene:
-            return ketene
-    if profile["thioamide"]:
-        thioamide = _name_thioamide(mol)
-        if thioamide:
-            return thioamide
-    if profile["ylidene_dioxosulfane"]:
-        ylidene_dioxosulfane = _name_ylidene_dioxosulfane(mol)
-        if ylidene_dioxosulfane:
-            return ylidene_dioxosulfane
-    if profile["thione"]:
-        thione = _name_thione(mol)
-        if thione:
-            return thione
+    for signal, namer in (
+        ("oxidanium", _name_oxidanium),
+        ("ketene", _name_ketene),
+        ("thioamide", _name_thioamide),
+        ("ylidene_dioxosulfane", _name_ylidene_dioxosulfane),
+        ("thione", _name_thione),
+    ):
+        if profile[signal]:
+            name = namer(mol)
+            if name:
+                return name
 
     paths = _candidate_parent_paths(mol, allow_ring_atoms=allow_ring_atoms)
     if not paths:

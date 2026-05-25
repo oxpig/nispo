@@ -319,6 +319,9 @@ class FusedParentRule:
     def _templates(self) -> tuple[dict, ...]:
         return _curated_fused_templates(self._Chem)
 
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.candidate_templates(self._templates())
+
     def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
         return (
             *_fused_candidate_preference(name),
@@ -332,20 +335,17 @@ class FusedParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for template in ctx.candidate_templates(self._templates()):
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
-                continue
-            for match in ctx.template_matches(template):
-                if _match_has_extra_core_bonds(mol, template, match):
-                    continue
-                name = _name_fused_core_match(mol, template, match)
-                if name:
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=self._candidate_sort_key(template, match, name),
-                    )
+        for template, match in _iter_fused_template_matches(
+            ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
+        ):
+            name = _name_fused_core_match(mol, template, match)
+            if name:
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=self._candidate_sort_key(template, match, name),
+                )
 
 
 class GeneratedFusedParentRule(FusedParentRule):
@@ -360,24 +360,8 @@ class GeneratedFusedParentRule(FusedParentRule):
     priority = 29
     min_ring_system_ring_count = 2
 
-    def candidates(self, ctx):
-        mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
-            return
-        for template in ctx.generated_fused_templates:
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
-                continue
-            for match in ctx.template_matches(template):
-                if _match_has_extra_core_bonds(mol, template, match):
-                    continue
-                name = _name_fused_core_match(mol, template, match)
-                if name:
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=self._candidate_sort_key(template, match, name),
-                    )
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.generated_fused_templates
 
     def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
         return (_generated_fusion_preference(template["name"]), *_fused_candidate_preference(name), -len(match), name)
@@ -418,32 +402,32 @@ class HydroFusedParentRule:
     def _templates(self) -> tuple[dict, ...]:
         return _curated_fused_templates(self._Chem)
 
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.candidate_templates(self._templates(), exact_atom_count=True)
+
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            self._template_iter(ctx),
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+            require_fully_aromatic=True,
+        ):
+            parent_name = _hydro_parent_name(mol, template, match)
+            if not parent_name:
                 continue
-            if not _template_has_one_ring_system(template["mol"]):
-                continue
-            if not _template_is_fully_aromatic(template["mol"]):
-                continue
-            query = _topology_query(template["mol"], self._Chem)
-            if query.GetNumAtoms() > mol.GetNumAtoms():
-                continue
-            for match in ctx.substruct_matches(query):
-                parent_name = _hydro_parent_name(mol, template, match)
-                if not parent_name:
-                    continue
-                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                if name:
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=(-len(match), name),
-                    )
+            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            if name:
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=(-len(match), name),
+                )
 
 
 class GeneratedHydroFusedParentRule(HydroFusedParentRule):
@@ -451,32 +435,8 @@ class GeneratedHydroFusedParentRule(HydroFusedParentRule):
     priority = 29
     min_ring_system_ring_count = 2
 
-    def candidates(self, ctx):
-        mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
-            return
-        for template in ctx.generated_fused_templates:
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
-                continue
-            if not _template_has_one_ring_system(template["mol"]):
-                continue
-            if not _template_is_fully_aromatic(template["mol"]):
-                continue
-            query = _topology_query(template["mol"], self._Chem)
-            if query.GetNumAtoms() > mol.GetNumAtoms():
-                continue
-            for match in ctx.substruct_matches(query):
-                parent_name = _hydro_parent_name(mol, template, match)
-                if not parent_name:
-                    continue
-                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                if name:
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=(-len(match), name),
-                    )
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.generated_fused_templates
 
 
 class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
@@ -488,29 +448,27 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
         if mol.GetRingInfo().NumRings() < 2:
             return
         candidates = []
-        for template in ctx.generated_fused_templates:
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
-                continue
-            if not _template_has_one_ring_system(template["mol"]):
-                continue
-            query = _topology_query(template["mol"], self._Chem)
-            if query.GetNumAtoms() > mol.GetNumAtoms():
-                continue
-            for match in ctx.substruct_matches(query):
-                for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
-                    name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                    if not name:
-                        continue
-                    fusion_key = _partial_hydro_fusion_preference(template["name"])
-                    sort_key = (fusion_key, hydro_key, -len(match), name)
-                    candidates.append(
-                        NameCandidate(
-                            name=name,
-                            family=self.family,
-                            priority=self.priority,
-                            sort_key=sort_key,
-                        )
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            ctx.generated_fused_templates,
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+        ):
+            for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
+                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+                if not name:
+                    continue
+                fusion_key = _partial_hydro_fusion_preference(template["name"])
+                sort_key = (fusion_key, hydro_key, -len(match), name)
+                candidates.append(
+                    NameCandidate(
+                        name=name,
+                        family=self.family,
+                        priority=self.priority,
+                        sort_key=sort_key,
                     )
+                )
         seen = set()
         yielded = 0
         for candidate in sorted(candidates, key=lambda item: item.sort_key):
@@ -580,29 +538,28 @@ class OxidoFusedParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for template in ctx.candidate_templates(_curated_fused_templates(self._Chem)):
-            if not _template_allowed_by_stereo(mol, template, self._Chem):
+        templates = ctx.candidate_templates(_curated_fused_templates(self._Chem))
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            templates,
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+        ):
+            if not _has_n_oxide_on_match(mol, match):
                 continue
-            if not _template_has_one_ring_system(template["mol"]):
+            reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+            parent_name = _adjust_fused_parent_for_charge(mol, template, reverse)
+            if parent_name == template["name"]:
                 continue
-            query = _topology_query(template["mol"], self._Chem)
-            if query.GetNumAtoms() > mol.GetNumAtoms():
-                continue
-            for match in ctx.substruct_matches(query):
-                if not _has_n_oxide_on_match(mol, match):
-                    continue
-                reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
-                parent_name = _adjust_fused_parent_for_charge(mol, template, reverse)
-                if parent_name == template["name"]:
-                    continue
-                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                if name:
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=(-len(match), name),
-                    )
+            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            if name:
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=(-len(match), name),
+                )
 
 
 class GenericBicyclicParentRule:
@@ -881,6 +838,38 @@ def _template_matches(mol, template: dict, Chem):
     params.uniquify = False
     params.useChirality = True
     return mol.GetSubstructMatches(template["mol"], params)
+
+
+def _iter_fused_template_matches(
+    ctx,
+    templates: Sequence[dict],
+    Chem,
+    *,
+    topology_query: bool = False,
+    require_one_ring_system: bool = False,
+    require_fully_aromatic: bool = False,
+    reject_extra_core_bonds: bool = False,
+):
+    mol = ctx.mol
+    for template in templates:
+        template_mol = template["mol"]
+        if not _template_allowed_by_stereo(mol, template, Chem):
+            continue
+        if require_one_ring_system and not _template_has_one_ring_system(template_mol):
+            continue
+        if require_fully_aromatic and not _template_is_fully_aromatic(template_mol):
+            continue
+        if topology_query:
+            query = _topology_query(template_mol, Chem)
+            if query.GetNumAtoms() > mol.GetNumAtoms():
+                continue
+            matches = ctx.substruct_matches(query)
+        else:
+            matches = ctx.template_matches(template)
+        for match in matches:
+            if reject_extra_core_bonds and _match_has_extra_core_bonds(mol, template, match):
+                continue
+            yield template, match
 
 
 def _match_has_extra_core_bonds(mol, template: dict, match: Sequence[int]) -> bool:

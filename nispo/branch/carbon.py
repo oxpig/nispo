@@ -32,6 +32,7 @@ from .functional_groups import (
     substituent_from_root,
     substituent_locants,
 )
+from .functional_suffixes import suffix_prefix_term
 from .hetero_atoms import _nitrogen_prefix, _oxygen_prefix
 from .ring_substituents import (
     _alkynyl_substituent_prefix,
@@ -77,7 +78,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     """
 
     if _is_nitrile_carbon(mol, idx):
-        return "cyano"
+        return suffix_prefix_term("nitrile", "cyano")
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
     if deuterated_methyl:
         return deuterated_methyl
@@ -102,7 +103,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_isocyano_carbon(mol, idx):
             return "isocyano"
         if _is_carboxylate_carbon(mol, idx):
-            return "carboxylato"
+            return suffix_prefix_term("oate", "carboxylato")
         if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.DOUBLE):
             name = _acyl_halide_prefix(mol, idx)
             if name:
@@ -148,7 +149,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_isocyano_carbon(mol, idx):
             return "isocyano"
         if _is_carboxylate_carbon(mol, idx):
-            return "carboxylato"
+            return suffix_prefix_term("oate", "carboxylato")
 
     name = _carbon_prefix(mol, idx, parent_idx)
     if name:

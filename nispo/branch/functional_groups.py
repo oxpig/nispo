@@ -14,6 +14,7 @@ from ..constants import HALO, MULT
 from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
 from ..formatting import format_prefixes as _format_prefixes
 from ..molecule_cache import mol_cache_dict
+from .functional_suffixes import suffix_prefix_term, suffix_supported_term
 
 _HALOSULFUR_OXO_PREFIXES = {
     2: {"F": "fluorosulfonyl", "Cl": "chlorosulfonyl", "Br": "bromosulfonyl", "I": "iodosulfonyl"},
@@ -66,14 +67,14 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     if atom.GetFormalCharge() > 0:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
         if not heavy and parent_bond is not None and parent_bond.GetBondType() == Chem.BondType.SINGLE:
-            return "sulfaniumyl"
+            return suffix_supported_term("ium", "sulfaniumyl")
         return ""
     if atom.GetFormalCharge() != 0:
         return ""
     if parent_bond is not None and parent_bond.GetBondType() == Chem.BondType.DOUBLE:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
         if not heavy:
-            return "thioxo"
+            return suffix_prefix_term("thione", "thioxo")
     halogens = [
         n.GetSymbol()
         for n in atom.GetNeighbors()
@@ -105,7 +106,7 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         if n.GetIdx() != parent_idx and n.GetIdx() not in double_oxygens and not _is_terminal_carbonyl_oxygen(n)
     ]
     if double_o == 2 and not heavy:
-        return "sulfonyl"
+        return suffix_prefix_term("sulfone", "sulfonyl")
     if not heavy:
         return "sulfanyl"
     if len(heavy) == 1:
@@ -149,6 +150,10 @@ def _halosulfur_prefix(double_o: int, halogens: Sequence[str], non_parent_count:
 
 
 def _sulfur_oxo_substituent_suffix(double_o: int) -> str:
+    if double_o == 2:
+        return suffix_prefix_term("sulfone", "sulfonyl")
+    if double_o == 1:
+        return suffix_prefix_term("sulfoxide", "sulfinyl")
     return _SULFUR_OXO_SUBSTITUENT_SUFFIX.get(double_o, "sulfanyl")
 
 
@@ -229,7 +234,7 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
             return ""
         groups.append(name)
     if not groups:
-        return "carbamoyl"
+        return suffix_prefix_term("amide", "carbamoyl")
     counts = Counter(groups)
     parts = []
     for name in sorted(counts):
@@ -241,7 +246,7 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
                 parts.append(MULT.get(count, "") + name)
         else:
             parts.append(name)
-    return "".join(parts) + "carbamoyl"
+    return "".join(parts) + suffix_prefix_term("amide", "carbamoyl")
 
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:

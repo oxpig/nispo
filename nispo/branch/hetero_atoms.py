@@ -24,6 +24,7 @@ from .functional_groups import (
     _sulfur_prefix,
     substituent_from_root,
 )
+from .functional_suffixes import suffix_prefix_term, suffix_supported_term
 from .ring_substituents import _ring_substituent_prefix
 
 
@@ -83,7 +84,7 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
         if ylidene_oxidanium:
             return ylidene_oxidanium
     if bond.GetBondType() == Chem.BondType.DOUBLE:
-        return "oxo"
+        return suffix_prefix_term("one", "oxo")
     if atom.GetFormalCharge() != 0:
         return ""
     if not heavy:
@@ -165,7 +166,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
     if atom.GetFormalCharge() > 0:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
         if not heavy:
-            return "azaniumyl"
+            return suffix_supported_term("ium", "azaniumyl")
         names = []
         for nidx in heavy:
             if mol.GetAtomWithIdx(nidx).IsInRing():
@@ -218,7 +219,7 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
     if symbol == "S":
         return _sulfur_prefix(mol, idx, parent_idx)
     return (
-        "cyano"
+        suffix_prefix_term("nitrile", "cyano")
         if _is_nitrile_carbon(mol, idx)
         else _functional_carbon_substituent_name(mol, idx, parent_idx)
         or _carbonyl_substituent_prefix(mol, idx, parent_idx)
@@ -280,7 +281,7 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
         name = _sulfur_prefix(mol, substituent_idx, idx)
     elif substituent.GetSymbol() == "C":
         name = (
-            "cyano"
+            suffix_prefix_term("nitrile", "cyano")
             if _is_nitrile_carbon(mol, substituent_idx)
             else _functional_carbon_substituent_name(mol, substituent_idx, idx)
             or _carbonyl_substituent_prefix(mol, substituent_idx, idx)
@@ -322,7 +323,11 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(attached).IsInRing():
         name = _ring_substituent_prefix(mol, attached, idx)
     else:
-        name = "cyano" if _is_nitrile_carbon(mol, attached) else substituent_from_root(mol, attached, idx)
+        name = (
+            suffix_prefix_term("nitrile", "cyano")
+            if _is_nitrile_carbon(mol, attached)
+            else substituent_from_root(mol, attached, idx)
+        )
     if not name:
         return ""
     if "-" in name or name.startswith("("):

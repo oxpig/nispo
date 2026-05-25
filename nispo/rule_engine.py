@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .fragment_rules import FragmentAssemblyRule, simple_fragment_name
+from .fragment_rules import FragmentAssemblyRule, common_polyatomic_fragment_name, simple_fragment_name
 from .naming_context import MoleculeContext
 from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
@@ -40,6 +40,9 @@ class NamingEngine:
         simple_name = simple_fragment_name(mol, self._Chem)
         if simple_name:
             return simple_name
+        polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
+        if polyatomic_name:
+            return polyatomic_name
 
         ctx = MoleculeContext(mol, self._Chem)
         best: NameCandidate | None = None

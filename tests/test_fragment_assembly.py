@@ -12,3 +12,31 @@ def test_existing_fragment_assembly_smoke():
         "1-azaniumyl-ethane hydrochloride",
         "sodium chloride",
     ]
+
+
+def test_common_counterions_and_hydrides_are_named():
+    names = smiles_to_iupac_batch(
+        [
+            "F[B-](F)(F)F",
+            "F[P-](F)(F)(F)(F)F",
+            "O=[N+]([O-])[O-]",
+            "[Na+].O=[N+]([O-])[O-]",
+            "O",
+            "[NH4+]",
+            "[N-]=C=O",
+            "[N-]=[N+]=[N-]",
+            "O=S(=O)([O-])C(F)(F)F",
+        ]
+    )
+
+    assert names == [
+        "tetrafluoroborate",
+        "hexafluorophosphate",
+        "nitrate",
+        "sodium nitrate",
+        "water",
+        "ammonium",
+        "isocyanate",
+        "azide",
+        "trifluoromethanesulfonate",
+    ]

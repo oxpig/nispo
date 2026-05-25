@@ -29,7 +29,6 @@ TEMPLATE_LAYER_MODULES = {
 
 CENTRAL_RULE_MODULES = {
     "api.py",
-    "branch_engine.py",
     "molecule_cache.py",
     "naming_context.py",
     "resource_manifest.py",

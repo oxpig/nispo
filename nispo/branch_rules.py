@@ -12,7 +12,7 @@ else:
     RDLogger.DisableLog("rdApp.*")
 
 from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
-from .branch_engine import BranchRule, BranchRuleSet, first_branch_name
+from .branch import BranchRuleSet, BranchRuleSpec, first_branch_name
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .fused_rules import FUSED_SUBSTITUENT_STEMS
 from .fused_template_families import (
@@ -317,34 +317,34 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
     return {
         "I": (
             (
-                BranchRule(_iodanyl_acyloxy_prefix),
-                BranchRule(HALO["I"]),
+                BranchRuleSpec(_iodanyl_acyloxy_prefix),
+                BranchRuleSpec(HALO["I"]),
             ),
         ),
-        "F": ((BranchRule(HALO["F"]),),),
-        "Cl": ((BranchRule(HALO["Cl"]),),),
-        "Br": ((BranchRule(HALO["Br"]),),),
+        "F": ((BranchRuleSpec(HALO["F"]),),),
+        "Cl": ((BranchRuleSpec(HALO["Cl"]),),),
+        "Br": ((BranchRuleSpec(HALO["Br"]),),),
         "O": (
             (
-                BranchRule(_oxygen_prefix),
-                BranchRule(_resource_prefix),
+                BranchRuleSpec(_oxygen_prefix),
+                BranchRuleSpec(_resource_prefix),
             ),
         ),
         "N": (
             (
-                BranchRule("nitro", _nitro_branch_predicate),
-                BranchRule(_nitrogen_prefix),
-                BranchRule(_resource_prefix),
+                BranchRuleSpec("nitro", _nitro_branch_predicate),
+                BranchRuleSpec(_nitrogen_prefix),
+                BranchRuleSpec(_resource_prefix),
             ),
         ),
         "S": (
             (
-                BranchRule(_sulfur_prefix),
-                BranchRule(_resource_prefix),
+                BranchRuleSpec(_sulfur_prefix),
+                BranchRuleSpec(_resource_prefix),
             ),
         ),
         "*": (
-            (BranchRule(_resource_prefix),),
+            (BranchRuleSpec(_resource_prefix),),
         ),
     }
 

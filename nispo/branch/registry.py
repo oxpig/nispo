@@ -9,8 +9,8 @@ BranchPredicate = Callable[[object, int, int], bool]
 
 
 @dataclass(frozen=True)
-class BranchRule:
-    """One substituent-prefix rule within a named OPSIN-inspired family."""
+class BranchRuleSpec:
+    """One substituent-prefix rule in an ordered branch registry."""
 
     renderer: BranchRenderer
     predicate: BranchPredicate | None = None
@@ -23,7 +23,7 @@ class BranchRule:
         return self.renderer(mol, idx, parent_idx)
 
 
-BranchRuleSet = tuple[BranchRule, ...]
+BranchRuleSet = tuple[BranchRuleSpec, ...]
 
 
 def first_branch_name(rule_sets: Iterable[BranchRuleSet], mol, idx: int, parent_idx: int) -> str:

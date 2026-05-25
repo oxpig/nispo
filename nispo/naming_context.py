@@ -18,17 +18,22 @@ from .ring_topology import RingSystemTopology, ring_system_topologies
 
 
 @dataclass(slots=True)
+class ContextCache:
+    template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
+    acyclic_names: dict[bool, str] = field(default_factory=dict)
+    polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
+    substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class MoleculeContext:
     """Shared per-molecule views used by independent naming rule families."""
 
     mol: object
     Chem: object
+    cache: ContextCache = field(default_factory=ContextCache)
     _features: dict | None = None
-    _template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     _generated_fused_templates: tuple[dict, ...] | None = None
-    _acyclic_names: dict[bool, str] = field(default_factory=dict)
-    _polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
-    _substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     _ring_systems: tuple[frozenset[int], ...] | None = None
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
     _profile: StructuralProfile | None = None
@@ -48,7 +53,7 @@ class MoleculeContext:
 
     def candidate_templates(self, templates: tuple[dict, ...], *, exact_atom_count: bool = False) -> tuple[dict, ...]:
         key = (id(templates), exact_atom_count)
-        cached = self._template_candidates.get(key)
+        cached = self.cache.template_candidates.get(key)
         if cached is None:
             cached = tuple(
                 self.templates.candidate_templates(
@@ -58,7 +63,7 @@ class MoleculeContext:
                     exact_atom_count=exact_atom_count,
                 )
             )
-            self._template_candidates[key] = cached
+            self.cache.template_candidates[key] = cached
         return cached
 
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
@@ -70,10 +75,10 @@ class MoleculeContext:
         replaying the full parent-path search and branch rendering pipeline.
         """
 
-        cached = self._acyclic_names.get(allow_ring_atoms)
+        cached = self.cache.acyclic_names.get(allow_ring_atoms)
         if cached is None:
             cached = name_acyclic(self.mol, allow_ring_atoms=allow_ring_atoms)
-            self._acyclic_names[allow_ring_atoms] = cached
+            self.cache.acyclic_names[allow_ring_atoms] = cached
         return cached
 
     @property
@@ -119,7 +124,7 @@ class MoleculeContext:
 
     def substruct_matches(self, query, *, use_chirality: bool = False) -> tuple[tuple[int, ...], ...]:
         key = (id(query), use_chirality)
-        cached = self._substruct_matches.get(key)
+        cached = self.cache.substruct_matches.get(key)
         if cached is not None:
             return cached
         if not use_chirality:
@@ -130,7 +135,7 @@ class MoleculeContext:
             params.useChirality = True
             matches = self.mol.GetSubstructMatches(query, params)
         result = tuple(tuple(match) for match in matches)
-        self._substruct_matches[key] = result
+        self.cache.substruct_matches[key] = result
         return result
 
     def template_matches(self, template: dict) -> tuple[tuple[int, ...], ...]:
@@ -140,7 +145,7 @@ class MoleculeContext:
         )
 
     def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
-        cached = self._polycyclic_records.get(family)
+        cached = self.cache.polycyclic_records.get(family)
         if cached is not None:
             return cached
         if family == "bicyclic":
@@ -151,7 +156,7 @@ class MoleculeContext:
             records = tuple(kekulized_polycyclic_parent_candidate_records(self.mol, self.Chem))
         else:
             records = ()
-        self._polycyclic_records[family] = records
+        self.cache.polycyclic_records[family] = records
         return records
 
     @property

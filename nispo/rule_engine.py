@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from .fragment_rules import FragmentAssemblyRule, simple_fragment_name
 from .naming_context import MoleculeContext
 from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
@@ -29,8 +30,8 @@ class NamingEngine:
     def name(self, mol) -> str:
         fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
         if len(fragments) > 1:
-            return _name_fragment_assembly(fragments, self)
-        simple_name = _simple_fragment_name(mol, self._Chem)
+            return FragmentAssemblyRule(self._Chem, self).name(fragments)
+        simple_name = simple_fragment_name(mol, self._Chem)
         if simple_name:
             return simple_name
 
@@ -96,110 +97,3 @@ def _normalize_terminal_parent_stem(name: str) -> str:
         if name.endswith(suffix):
             return name[: -len(stem)] + parent
     return name
-
-
-_NEUTRAL_HALIDE_SALTS = {
-    "F": "hydrofluoride",
-    "Cl": "hydrochloride",
-    "Br": "hydrobromide",
-    "I": "hydroiodide",
-}
-
-_HALIDE_ANIONS = {
-    "F": "fluoride",
-    "Cl": "chloride",
-    "Br": "bromide",
-    "I": "iodide",
-}
-
-_MULTIPLIERS = {
-    2: "di",
-    3: "tri",
-    4: "tetra",
-    5: "penta",
-    6: "hexa",
-}
-
-
-def _name_fragment_assembly(fragments: tuple[object, ...], engine: NamingEngine) -> str:
-    named_fragments: list[str] = []
-    neutral_halides: list[str] = []
-    halide_anions: list[str] = []
-
-    for fragment in fragments:
-        halide = _single_atom_halide(fragment)
-        if halide is not None:
-            symbol, charge = halide
-            if charge < 0:
-                halide_anions.append(_HALIDE_ANIONS[symbol])
-                continue
-            if charge == 0:
-                neutral_halides.append(_NEUTRAL_HALIDE_SALTS[symbol])
-                continue
-        simple_name = _simple_fragment_name(fragment, engine._Chem)
-        if simple_name:
-            named_fragments.append(simple_name)
-            continue
-        name = engine.name(fragment)
-        if not name:
-            return ""
-        named_fragments.append(name)
-
-    if len(named_fragments) == 1 and neutral_halides and not halide_anions:
-        suffix = _multiplied_suffix(neutral_halides)
-        return f"{named_fragments[0]} {suffix}" if suffix else ""
-    if len(named_fragments) == 1 and halide_anions and not neutral_halides:
-        suffix = _multiplied_suffix(halide_anions)
-        return f"{named_fragments[0]} {suffix}" if suffix else ""
-    if neutral_halides or halide_anions:
-        return ""
-    return " and ".join(sorted(named_fragments, key=lambda item: (len(item), item)))
-
-
-def _single_atom_halide(mol) -> tuple[str, int] | None:
-    if mol.GetNumAtoms() != 1:
-        return None
-    atom = mol.GetAtomWithIdx(0)
-    symbol = atom.GetSymbol()
-    if symbol not in _HALIDE_ANIONS:
-        return None
-    return symbol, atom.GetFormalCharge()
-
-
-def _simple_fragment_name(mol, Chem) -> str:
-    if mol.GetNumAtoms() != 1:
-        return ""
-    atom = mol.GetAtomWithIdx(0)
-    symbol = atom.GetSymbol()
-    charge = atom.GetFormalCharge()
-    if symbol in _HALIDE_ANIONS:
-        if charge < 0:
-            return _HALIDE_ANIONS[symbol]
-        if charge == 0:
-            return f"hydrogen {_HALIDE_ANIONS[symbol]}"
-    if symbol == "O" and charge < 0 and atom.GetTotalNumHs() > 0:
-        return "hydroxide"
-    if symbol in {"C", "N", "O", "S", "B", "P", "Si"} and charge == 0:
-        return ""
-
-    element_name = Chem.GetPeriodicTable().GetElementName(atom.GetAtomicNum()).lower()
-    if not element_name:
-        return ""
-    if charge == 0:
-        return element_name
-    sign = "+" if charge > 0 else "-"
-    return f"{element_name}({abs(charge)}{sign})"
-
-
-def _multiplied_suffix(names: list[str]) -> str:
-    counts: dict[str, int] = {}
-    for name in names:
-        counts[name] = counts.get(name, 0) + 1
-    parts = []
-    for name in sorted(counts):
-        count = counts[name]
-        prefix = _MULTIPLIERS.get(count, "") if count > 1 else ""
-        if count > 1 and not prefix:
-            return ""
-        parts.append(prefix + name)
-    return " ".join(parts)

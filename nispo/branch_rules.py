@@ -193,7 +193,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     to select the only families that can possibly match.
     """
 
-    if _nitrile_branch_predicate(mol, idx, parent_idx):
+    if _is_nitrile_carbon(mol, idx):
         return "cyano"
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
     if deuterated_methyl:
@@ -221,7 +221,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_carboxylate_carbon(mol, idx):
             return "carboxylato"
         if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.DOUBLE):
-            name = _acyl_halide_rule(mol, idx, parent_idx)
+            name = _acyl_halide_prefix(mol, idx)
             if name:
                 return name
             name = _carbonyl_substituent_prefix(mol, idx, parent_idx)
@@ -334,10 +334,6 @@ def _subtree_has_ring(mol, root_idx: int, blocked_idx: int) -> bool:
     return result
 
 
-def _acyl_halide_rule(mol, idx: int, _parent_idx: int) -> str:
-    return _acyl_halide_prefix(mol, idx)
-
-
 @lru_cache(maxsize=1)
 def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
     return {
@@ -381,30 +377,6 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
                 ),
             ),
         ),
-        "C": (
-            BranchRuleSet(
-                "carbon-functional-prefix",
-                (
-                    BranchRule("carbon-functional-prefix", "cyano", _constant_prefix("cyano"), _nitrile_branch_predicate),
-                    BranchRule("carbon-functional-prefix", "ketenyl", _ketenyl_prefix),
-                    BranchRule("carbon-functional-prefix", "enone", _enone_substituent_prefix),
-                    BranchRule("carbon-functional-prefix", "enal", _enal_substituent_prefix),
-                    BranchRule("carbon-functional-prefix", "haloethenyl", _haloethenyl_prefix),
-                    BranchRule("carbon-functional-prefix", "alkylidene", _alkylidene_prefix),
-                    BranchRule("carbon-functional-prefix", "isocyano", _constant_prefix("isocyano"), _isocyano_branch_predicate),
-                    BranchRule("carbon-functional-prefix", "carboxylato", _constant_prefix("carboxylato"), _carboxylato_branch_predicate),
-                    BranchRule("carbon-functional-prefix", "acyl-halide", _acyl_halide_rule),
-                    BranchRule("carbon-functional-prefix", "carbonyl", _carbonyl_substituent_prefix),
-                    BranchRule("carbon-functional-prefix", "iminomethyl", _iminomethyl_prefix),
-                    BranchRule("carbon-functional-prefix", "ring-ethynyl", _ring_ethynyl_prefix),
-                    BranchRule("carbon-functional-prefix", "alkynyl", _alkynyl_substituent_prefix),
-                    BranchRule("carbon-chain-prefix", "aryloxymethyl", _aryloxy_methyl_prefix),
-                    BranchRule("carbon-chain-prefix", "ring-alkyl", _ring_alkyl_prefix),
-                    BranchRule("carbon-chain-prefix", "simple-carbon", _carbon_prefix),
-                    BranchRule("opsin-resource-substituent", "carbon-resource", _resource_prefix),
-                ),
-            ),
-        ),
         "*": (
             BranchRuleSet(
                 "opsin-resource-substituent",
@@ -428,18 +400,6 @@ def _nitro_branch_predicate(mol, idx: int, parent_idx: int) -> bool:
     if non_oxygen:
         return False
     return mol.GetAtomWithIdx(parent_idx).GetSymbol() == "O"
-
-
-def _nitrile_branch_predicate(mol, idx: int, _parent_idx: int) -> bool:
-    return _is_nitrile_carbon(mol, idx)
-
-
-def _isocyano_branch_predicate(mol, idx: int, _parent_idx: int) -> bool:
-    return _is_isocyano_carbon(mol, idx)
-
-
-def _carboxylato_branch_predicate(mol, idx: int, _parent_idx: int) -> bool:
-    return _is_carboxylate_carbon(mol, idx)
 
 
 def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:

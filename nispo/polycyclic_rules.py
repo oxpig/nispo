@@ -35,6 +35,10 @@ def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]
 
 
 def kekulized_polycyclic_parent_candidates(mol, Chem) -> list[str]:
+    return [name for name, _seq in kekulized_polycyclic_parent_candidate_records(mol, Chem)]
+
+
+def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
     """Late generic fallback for fused systems not covered by retained parents.
 
     OPSIN accepts many replacement-style bicyclo/tricyclo names with explicit
@@ -55,16 +59,28 @@ def kekulized_polycyclic_parent_candidates(mol, Chem) -> list[str]:
             continue
         rank = _graph_cycle_rank(graph)
         if rank == 2:
-            namers = (_name_bicyclic_ring_system, _name_spiro_ring_system)
+            record_sets = (
+                _bicyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
+                _spiro_ring_system_candidate_records(kekulized, Chem, ring_system),
+            )
         elif rank == 3:
-            namers = (_name_tricyclic_ring_system, _name_dispiro_ring_system)
+            record_sets = (
+                _tricyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
+                _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
+            )
         else:
             continue
-        for namer in namers:
-            name = namer(kekulized, Chem, ring_system)
-            if name:
-                candidates.append(name)
-    return sorted(set(candidates), key=lambda item: (len(item), item))
+        for records in record_sets:
+            candidates.extend(records)
+    seen = set()
+    unique = []
+    for name, seq in sorted(candidates, key=lambda item: (len(item[0]), item[0], item[1])):
+        key = (name, seq)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((name, seq))
+    return unique
 
 
 def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int) -> str:
@@ -217,19 +233,23 @@ def _spiro_parent_sequence_candidates(
 
 
 def _name_tricyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
+    candidates = _tricyclic_ring_system_candidate_records(mol, Chem, atoms)
+    return candidates[0][0] if candidates else ""
+
+
+def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
-        return ""
+        return []
     edge_count = sum(len(nbrs) for nbrs in graph.values()) // 2
     if edge_count - len(atoms) + 1 != 3:
-        return ""
+        return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
-        return ""
+        return []
     rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= atoms]
     if any(len(left & right) == 1 for left, right in combinations(rings, 2)):
-        return _name_secondary_zero_bridge_tricyclic_ring_system(mol, atoms, graph)
-    best = ""
-    best_key = None
+        return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
+    candidates = []
     for a, b in _bridgehead_pair_candidates(graph, atoms, 4):
         paths = _bridge_paths_with_count(graph, atoms, a, b, 4)
         if not paths:
@@ -242,12 +262,11 @@ def _name_tricyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
             if not name:
                 continue
             key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            if best_key is None or key < best_key:
-                best_key = key
-                best = name
-    if best:
-        return best
-    return _name_secondary_zero_bridge_tricyclic_ring_system(mol, atoms, graph)
+            candidates.append((key, name, tuple(seq)))
+    if not candidates:
+        return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates]
 
 
 def _name_secondary_zero_bridge_tricyclic_ring_system(
@@ -264,8 +283,14 @@ def _name_secondary_zero_bridge_tricyclic_ring_system(
     bicyclic skeleton.
     """
 
-    best = ""
-    best_key = None
+    candidates = _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
+    return candidates[0][0] if candidates else ""
+
+
+def _secondary_zero_bridge_tricyclic_candidate_records(
+    mol, atoms: set[int], graph: dict[int, set[int]]
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates = []
     for parent, seq, bracket in _secondary_zero_bridge_tricyclic_sequence_candidates(
         mol, atoms, graph, include_bracket=True
     ):
@@ -278,10 +303,9 @@ def _name_secondary_zero_bridge_tricyclic_ring_system(
             _substituent_locants(mol, seq, atoms),
             name,
         )
-        if best_key is None or key < best_key:
-            best_key = key
-            best = name
-    return best
+        candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates]
 
 
 def _secondary_zero_bridge_tricyclic_sequence_candidates(

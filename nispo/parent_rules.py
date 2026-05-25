@@ -693,12 +693,13 @@ class KekulizedGenericPolycyclicParentRule:
         if not aromatic and ring_count < 3:
             return
         priority = self.priority if aromatic else 28
-        for name in ctx.polycyclic_parent_names("kekulized"):
+        for name, seq in ctx.polycyclic_parent_records("kekulized"):
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=priority,
                 sort_key=(len(name), name),
+                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
 
 

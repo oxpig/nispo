@@ -7,6 +7,7 @@ from .fused_template_families import candidate_generated_fused_templates
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
     bicyclic_parent_candidates,
+    kekulized_polycyclic_parent_candidate_records,
     kekulized_polycyclic_parent_candidates,
     spiro_parent_candidate_records,
     spiro_parent_candidates,
@@ -157,6 +158,8 @@ class MoleculeContext:
             records = tuple(bicyclic_parent_candidate_records(self.mol, self.Chem))
         elif family == "spiro":
             records = tuple(spiro_parent_candidate_records(self.mol, self.Chem))
+        elif family == "kekulized":
+            records = tuple(kekulized_polycyclic_parent_candidate_records(self.mol, self.Chem))
         else:
             records = tuple((name, ()) for name in self.polycyclic_parent_names(family))
         self._polycyclic_records[family] = records

@@ -58,12 +58,32 @@ class NamingEngine:
                     best = candidate
                     best_key = candidate_key
             if best is not None and best.priority == rule.priority:
-                return apply_stereochemical_prefix(mol, self._Chem, best.name)
-        return apply_stereochemical_prefix(mol, self._Chem, best.name) if best is not None else ""
+                name = _normalize_terminal_parent_stem(best.name)
+                return apply_stereochemical_prefix(mol, self._Chem, name)
+        if best is None:
+            return ""
+        name = _normalize_terminal_parent_stem(best.name)
+        return apply_stereochemical_prefix(mol, self._Chem, name)
 
 
 def _candidate_key(candidate: NameCandidate) -> tuple:
     return (candidate.priority, candidate.sort_key, candidate.name)
+
+
+def _normalize_terminal_parent_stem(name: str) -> str:
+    terminal_stems = {
+        "androst": "androstane",
+        "chol": "cholane",
+        "gon": "gonane",
+        "pregn": "pregnane",
+    }
+    for stem, parent in terminal_stems.items():
+        if name == stem:
+            return parent
+        suffix = "-" + stem
+        if name.endswith(suffix):
+            return name[: -len(stem)] + parent
+    return name
 
 
 _NEUTRAL_HALIDE_SALTS = {

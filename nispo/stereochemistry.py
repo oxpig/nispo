@@ -14,6 +14,8 @@ def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
 
     if not name or name.startswith("("):
         return name
+    if not _has_assigned_stereo(mol, Chem):
+        return name
 
     bond_descriptors = _bond_stereochemistry(mol, Chem)
     descriptors = _atom_stereochemistry(mol, Chem)
@@ -23,10 +25,31 @@ def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
     return f"({','.join(descriptors)})-{name}"
 
 
+def _has_assigned_stereo(mol, Chem) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return True
+    for bond in mol.GetBonds():
+        if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            return True
+    return False
+
+
 def _atom_stereochemistry(mol, Chem) -> list[str]:
+    has_chiral_tag = any(
+        atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        for atom in mol.GetAtoms()
+    )
+    if not has_chiral_tag:
+        return []
     Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
     centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False)
-    return [descriptor for _idx, descriptor in centers if descriptor in {"R", "S"}]
+    assigned = [
+        (idx, descriptor)
+        for idx, descriptor in centers
+        if descriptor in {"R", "S"}
+    ]
+    return [descriptor for _idx, descriptor in sorted(assigned, reverse=True)]
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

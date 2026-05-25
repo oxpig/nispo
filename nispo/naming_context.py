@@ -5,8 +5,10 @@ from dataclasses import dataclass, field
 from .acyclic_rules import _name_acyclic
 from .fused_template_families import candidate_generated_fused_templates
 from .polycyclic_rules import (
+    bicyclic_parent_candidate_records,
     bicyclic_parent_candidates,
     kekulized_polycyclic_parent_candidates,
+    spiro_parent_candidate_records,
     spiro_parent_candidates,
 )
 from .structural_profile import StructuralProfile, structural_profile
@@ -26,6 +28,7 @@ class MoleculeContext:
     _generated_fused_templates: tuple[dict, ...] | None = None
     _acyclic_names: dict[bool, str] = field(default_factory=dict)
     _polycyclic_names: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    _polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     _substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     _ring_systems: tuple[frozenset[int], ...] | None = None
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
@@ -145,6 +148,19 @@ class MoleculeContext:
             names = ()
         self._polycyclic_names[family] = names
         return names
+
+    def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
+        cached = self._polycyclic_records.get(family)
+        if cached is not None:
+            return cached
+        if family == "bicyclic":
+            records = tuple(bicyclic_parent_candidate_records(self.mol, self.Chem))
+        elif family == "spiro":
+            records = tuple(spiro_parent_candidate_records(self.mol, self.Chem))
+        else:
+            records = tuple((name, ()) for name in self.polycyclic_parent_names(family))
+        self._polycyclic_records[family] = records
+        return records
 
     @property
     def generated_fused_templates(self) -> tuple[dict, ...]:

@@ -618,12 +618,13 @@ class GenericBicyclicParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for name in ctx.polycyclic_parent_names("bicyclic"):
+        for name, seq in ctx.polycyclic_parent_records("bicyclic"):
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=self.priority,
                 sort_key=(len(name), name),
+                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
 
 
@@ -636,7 +637,7 @@ class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for name in ctx.polycyclic_parent_names("bicyclic"):
+        for name, seq in ctx.polycyclic_parent_records("bicyclic"):
             if "azabicyclo[3.1.0]hexane" not in name:
                 continue
             yield NameCandidate(
@@ -644,6 +645,7 @@ class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=(len(name), name),
+                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
 
 
@@ -661,12 +663,13 @@ class GenericSpiroParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for name in ctx.polycyclic_parent_names("spiro"):
+        for name, seq in ctx.polycyclic_parent_records("spiro"):
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=self.priority,
                 sort_key=(len(name), name),
+                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
 
 
@@ -1503,6 +1506,46 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     if not seq:
         return ""
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
+        return ""
+    seq_set = set(seq)
+    tagged_atoms = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged_atoms) < 2:
+        return ""
+    if any(idx not in seq_set for idx in tagged_atoms):
+        return ""
+    if any(
+        bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo() != Chem.BondStereo.STEREONONE
+        for bond in mol.GetBonds()
+    ):
+        return ""
+    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+    centers = [
+        (idx, descriptor)
+        for idx, descriptor in Chem.FindMolChiralCenters(
+            mol,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"R", "S"}
+    ]
+    if len(centers) < 2:
+        return ""
+    locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    if any(idx not in locants for idx, _descriptor in centers):
+        return ""
+    return ",".join(
+        f"{locants[idx]}{descriptor}"
+        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+    )
+
+
+def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
+    if not seq:
         return ""
     seq_set = set(seq)
     tagged_atoms = [

@@ -12,24 +12,26 @@ from .ring_topology import ring_system_topologies as _cached_ring_system_topolog
 
 
 def bicyclic_parent_candidates(mol, Chem) -> list[str]:
+    return [name for name, _seq in bicyclic_parent_candidate_records(mol, Chem)]
+
+
+def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
-        name = _name_bicyclic_ring_system(mol, Chem, ring_system)
-        if name:
-            candidates.append(name)
-    return sorted(candidates, key=lambda item: (len(item), item))
+        candidates.extend(_bicyclic_ring_system_candidate_records(mol, Chem, ring_system))
+    return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
 
 
 def spiro_parent_candidates(mol, Chem) -> list[str]:
+    return [name for name, _seq in spiro_parent_candidate_records(mol, Chem)]
+
+
+def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
-        name = _name_dispiro_ring_system(mol, Chem, ring_system)
-        if name:
-            candidates.append(name)
-        name = _name_spiro_ring_system(mol, Chem, ring_system)
-        if name:
-            candidates.append(name)
-    return sorted(candidates, key=lambda item: (len(item), item))
+        candidates.extend(_dispiro_ring_system_candidate_records(mol, Chem, ring_system))
+        candidates.extend(_spiro_ring_system_candidate_records(mol, Chem, ring_system))
+    return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
 
 
 def kekulized_polycyclic_parent_candidates(mol, Chem) -> list[str]:
@@ -114,17 +116,21 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
 
 
 def _name_bicyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
+    candidates = _bicyclic_ring_system_candidate_records(mol, Chem, atoms)
+    return candidates[0][0] if candidates else ""
+
+
+def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
-        return ""
+        return []
     edge_count = sum(len(nbrs) for nbrs in graph.values()) // 2
     if edge_count - len(atoms) + 1 != 2:
-        return ""
+        return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
-        return ""
+        return []
 
-    best = ""
-    best_key = None
+    candidates = []
     for a, b in _bridgehead_pair_candidates(graph, atoms, 3):
         paths = _bridge_paths(graph, atoms, a, b)
         if not paths:
@@ -137,10 +143,9 @@ def _name_bicyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
             if not name:
                 continue
             key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            if best_key is None or key < best_key:
-                best_key = key
-                best = name
-    return best
+            candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates]
 
 
 def _polycyclic_parent_sequence_candidates(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
@@ -310,17 +315,21 @@ def _secondary_zero_bridge_tricyclic_sequence_candidates(
 
 
 def _name_spiro_ring_system(mol, Chem, atoms: set[int]) -> str:
+    candidates = _spiro_ring_system_candidate_records(mol, Chem, atoms)
+    return candidates[0][0] if candidates else ""
+
+
+def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
-        return ""
+        return []
     edge_count = sum(len(nbrs) for nbrs in graph.values()) // 2
     if edge_count - len(atoms) + 1 != 2:
-        return ""
+        return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
-        return ""
+        return []
 
-    best = ""
-    best_key = None
+    candidates = []
     for spiro_idx in sorted(atoms):
         components = _components_without_atom(graph, spiro_idx)
         if len(components) != 2:
@@ -347,52 +356,55 @@ def _name_spiro_ring_system(mol, Chem, atoms: set[int]) -> str:
             if not name:
                 continue
             key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            if best_key is None or key < best_key:
-                best_key = key
-                best = name
-    return best
+            candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates]
 
 
 def _name_dispiro_ring_system(mol, Chem, atoms: set[int]) -> str:
+    candidates = _dispiro_ring_system_candidate_records(mol, Chem, atoms)
+    return candidates[0][0] if candidates else ""
+
+
+def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
-        return ""
+        return []
     edge_count = sum(len(nbrs) for nbrs in graph.values()) // 2
     if edge_count - len(atoms) + 1 != 3:
-        return ""
+        return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
-        return ""
+        return []
 
     rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= atoms]
     if len(rings) != 3:
-        return ""
+        return []
     spiro_atoms = sorted(idx for idx in atoms if sum(idx in ring for ring in rings) == 2)
     if len(spiro_atoms) != 2:
-        return ""
+        return []
     if any(sum((left & right) == {idx} for left, right in combinations(rings, 2)) == 0 for idx in spiro_atoms):
-        return ""
+        return []
     if any(len(left & right) > 1 for left, right in combinations(rings, 2)):
-        return ""
+        return []
 
     terminal_rings = [ring for ring in rings if len(ring & set(spiro_atoms)) == 1]
     central_rings = [ring for ring in rings if set(spiro_atoms) <= ring]
     if len(terminal_rings) != 2 or len(central_rings) != 1:
-        return ""
+        return []
 
     terminal_paths = {}
     for ring in terminal_rings:
         spiro_idx = next(iter(ring & set(spiro_atoms)))
         path = _terminal_ring_path(graph, ring, spiro_idx)
         if not path:
-            return ""
+            return []
         terminal_paths[spiro_idx] = path
 
     central_paths = _ring_paths_between(graph, central_rings[0], spiro_atoms[0], spiro_atoms[1])
     if len(central_paths) != 2:
-        return ""
+        return []
 
-    best = ""
-    best_key = None
+    candidates = []
     for first_spiro, second_spiro in (tuple(spiro_atoms), tuple(reversed(spiro_atoms))):
         first_terminal = terminal_paths[first_spiro]
         second_terminal = terminal_paths[second_spiro]
@@ -443,10 +455,9 @@ def _name_dispiro_ring_system(mol, Chem, atoms: set[int]) -> str:
                         _substituent_locants(mol, seq, atoms),
                         name,
                     )
-                    if best_key is None or key < best_key:
-                        best_key = key
-                        best = name
-    return best
+                    candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates]
 
 
 def _ring_systems(mol, Chem=None) -> list[set[int]]:

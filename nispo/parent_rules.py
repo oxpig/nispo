@@ -643,13 +643,22 @@ class ExactRetainedParentRule:
     def __init__(self, Chem):
         self._Chem = Chem
 
+    def _templates(self) -> tuple[dict, ...]:
+        return _curated_exact_parent_templates(self._Chem)
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.candidate_templates(self._templates(), exact_atom_count=True)
+
+    def _sort_key(self, template: dict) -> tuple:
+        return (len(template["name"]), template.get("source_family", ""), template["name"])
+
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0 or not ctx.features["all_atoms_in_one_ring_system"]:
             return
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
-        for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
+        for template in self._template_iter(ctx):
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
             if template["mol"].GetNumAtoms() != atom_count:
@@ -660,36 +669,19 @@ class ExactRetainedParentRule:
                         name=template["name"],
                         family=self.family,
                         priority=self.priority,
-                        sort_key=(len(template["name"]), template.get("source_family", ""), template["name"]),
+                        sort_key=self._sort_key(template),
                     )
-
-    def _templates(self) -> tuple[dict, ...]:
-        return _curated_exact_parent_templates(self._Chem)
 
 
 class GeneratedExactParentRule(ExactRetainedParentRule):
     family = "generated-exact-parent"
     priority = 29
 
-    def candidates(self, ctx):
-        mol = ctx.mol
-        if not ctx.features["all_atoms_in_one_ring_system"]:
-            return
-        atom_count = mol.GetNumAtoms()
-        atom_set = set(range(atom_count))
-        for template in ctx.generated_fused_templates:
-            if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
-                continue
-            if template["mol"].GetNumAtoms() != atom_count:
-                continue
-            for match in ctx.template_matches(template):
-                if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
-                    yield NameCandidate(
-                        name=template["name"],
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=_generated_exact_parent_sort_key(template),
-                    )
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.generated_fused_templates
+
+    def _sort_key(self, template: dict) -> tuple:
+        return _generated_exact_parent_sort_key(template)
 
 
 def parent_rules(Chem) -> tuple:

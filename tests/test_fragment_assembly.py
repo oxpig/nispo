@@ -26,6 +26,7 @@ def test_common_counterions_and_hydrides_are_named():
             "[N-]=C=O",
             "[N-]=[N+]=[N-]",
             "O=S(=O)([O-])C(F)(F)F",
+            "O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F",
         ]
     )
 
@@ -39,6 +40,7 @@ def test_common_counterions_and_hydrides_are_named():
         "isocyanate",
         "azide",
         "trifluoromethanesulfonate",
+        "bis(trifluoromethylsulfonyl)azanide",
     ]
 
 
@@ -46,3 +48,11 @@ def test_phosphonium_salts_use_substituted_phosphanium_parent():
     names = smiles_to_iupac_batch(["CCCCCCC[P+](CCCCCCC)(CCCCCCC)CCCCCCC.[Br-]"])
 
     assert names == ["tetraheptylphosphanium bromide"]
+
+
+def test_complex_counterions_use_complex_multipliers():
+    names = smiles_to_iupac_batch(
+        ["O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.[Cu+2]"]
+    )
+
+    assert names == ["copper(2+) bis(bis(trifluoromethylsulfonyl)azanide)"]

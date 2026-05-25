@@ -116,6 +116,14 @@ MULTIPLIERS = {
     6: "hexa",
 }
 
+COMPLEX_MULTIPLIERS = {
+    2: "bis",
+    3: "tris",
+    4: "tetrakis",
+    5: "pentakis",
+    6: "hexakis",
+}
+
 PERFLUORO_ANIONS = {
     ("B", 4, -1): "tetrafluoroborate",
     ("P", 6, -1): "hexafluorophosphate",
@@ -243,6 +251,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
+        or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
         or _trifluoromethanesulfonate_name(mol, Chem)
     )
 
@@ -318,6 +327,55 @@ def _trifluoromethanesulfonate_name(mol, Chem) -> str:
     return ""
 
 
+def _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts != {"C": 2, "F": 6, "N": 1, "O": 4, "S": 2} or _total_charge(mol) != -1:
+        return ""
+    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N" and atom.GetFormalCharge() < 0]
+    if len(nitrogens) != 1:
+        return ""
+    nitrogen = nitrogens[0]
+    sulfur_neighbors = [
+        nbr
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetSymbol() == "S"
+        and mol.GetBondBetweenAtoms(nitrogen.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(sulfur_neighbors) != 2:
+        return ""
+    if all(_is_trifluoromethanesulfonyl_group(mol, Chem, sulfur.GetIdx(), nitrogen.GetIdx()) for sulfur in sulfur_neighbors):
+        return "bis(trifluoromethylsulfonyl)azanide"
+    return ""
+
+
+def _is_trifluoromethanesulfonyl_group(mol, Chem, sulfur_idx: int, nitrogen_idx: int) -> bool:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    double_oxygen_count = 0
+    carbon_neighbors = []
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+        else:
+            return False
+    if double_oxygen_count != 2 or len(carbon_neighbors) != 1:
+        return False
+    carbon = mol.GetAtomWithIdx(carbon_neighbors[0])
+    fluorines = [
+        nbr
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != sulfur_idx
+        and nbr.GetSymbol() == "F"
+        and mol.GetBondBetweenAtoms(carbon.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    return len(fluorines) == 3 and carbon.GetDegree() == 4
+
+
 def _has_bond(mol, Chem, left_symbol: str, right_symbol: str, bond_type) -> bool:
     symbols = {left_symbol, right_symbol}
     for bond in mol.GetBonds():
@@ -354,8 +412,24 @@ def _multiplied_suffix(names: list[str]) -> str:
     parts = []
     for name in sorted(counts):
         count = counts[name]
-        prefix = MULTIPLIERS.get(count, "") if count > 1 else ""
-        if count > 1 and not prefix:
+        multiplied = _multiplied_fragment_suffix(name, count)
+        if not multiplied:
             return ""
-        parts.append(prefix + name)
+        parts.append(multiplied)
     return " ".join(parts)
+
+
+def _multiplied_fragment_suffix(name: str, count: int) -> str:
+    if count == 1:
+        return name
+    if _needs_complex_fragment_multiplier(name):
+        multiplier = COMPLEX_MULTIPLIERS.get(count, "")
+        return f"{multiplier}({name})" if multiplier else ""
+    multiplier = MULTIPLIERS.get(count, "")
+    return multiplier + name if multiplier else ""
+
+
+def _needs_complex_fragment_multiplier(name: str) -> bool:
+    if "(" in name or ")" in name:
+        return True
+    return name.startswith(("bis", "tris", "tetrakis", "tetra", "penta", "hexa"))

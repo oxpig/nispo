@@ -11,8 +11,9 @@ from .polycyclic_rules import (
 )
 from .structural_profile import StructuralProfile, structural_profile
 from .template_access import template_record_mol
-from .template_index import candidate_templates, molecule_features
+from .template_index import molecule_features
 from .template_index import ring_systems_for_mol
+from .template_store import TemplateStore, template_store
 from .ring_topology import RingSystemTopology, ring_system_topologies
 
 
@@ -31,6 +32,13 @@ class MoleculeContext:
     _ring_systems: tuple[frozenset[int], ...] | None = None
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
     _profile: StructuralProfile | None = None
+    _template_store: TemplateStore | None = None
+
+    @property
+    def templates(self) -> TemplateStore:
+        if self._template_store is None:
+            self._template_store = template_store(self.Chem)
+        return self._template_store
 
     @property
     def features(self) -> dict:
@@ -43,10 +51,9 @@ class MoleculeContext:
         cached = self._template_candidates.get(key)
         if cached is None:
             cached = tuple(
-                candidate_templates(
+                self.templates.candidate_templates(
                     self.mol,
                     templates,
-                    self.Chem,
                     features=self.features,
                     exact_atom_count=exact_atom_count,
                 )

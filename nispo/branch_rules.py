@@ -35,7 +35,7 @@ from .ring_rules import (
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from .substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
 from .template_access import template_record_locants, template_record_mol, template_record_name
-from .template_index import candidate_templates as _candidate_templates
+from .template_store import template_store
 
 
 _HALOSULFUR_OXO_PREFIXES = {
@@ -1226,7 +1226,7 @@ def _fused_ring_substituent_prefix_from_templates(
 ) -> str:
     best = ""
     best_key = None
-    for template in _candidate_templates(mol, templates, Chem):
+    for template in template_store(Chem).candidate_templates(mol, templates):
         core = template_record_mol(template)
         for match in mol.GetSubstructMatches(core, uniquify=False):
             if attachment_idx not in match or parent_idx in match:
@@ -1266,7 +1266,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
 ) -> str:
     best = ""
     best_key = None
-    for template in _candidate_templates(mol, templates, Chem):
+    for template in template_store(Chem).candidate_templates(mol, templates):
         if not _template_is_fully_aromatic(template_record_mol(template)):
             continue
         query = _topology_query(template_record_mol(template))

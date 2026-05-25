@@ -24,6 +24,7 @@ TEMPLATE_LAYER_MODULES = {
     "scaffold_catalog.py",
     "template_access.py",
     "template_index.py",
+    "template_store.py",
 }
 
 CENTRAL_RULE_MODULES = {
@@ -37,6 +38,7 @@ CENTRAL_RULE_MODULES = {
     "scaffold_catalog.py",
     "template_access.py",
     "template_index.py",
+    "template_store.py",
 }
 
 BYPASS_CALL_NAMES = {

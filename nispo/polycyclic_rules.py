@@ -204,24 +204,19 @@ def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list
     rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= atoms]
     if any(len(left & right) == 1 for left, right in combinations(rings, 2)):
         return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
-    candidates = []
+    parent_sequences = []
     for a, b in _bridgehead_pair_candidates(graph, atoms, 4):
         paths = _bridge_paths_with_count(graph, atoms, a, b, 4)
         if not paths:
             continue
         for seq, bracket in _polybridge_numbering_sequences(paths, annotate_zero_bridges=True):
             parent = _tricyclic_parent(mol, seq, bracket)
-            if not parent:
-                continue
-            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-            if not name:
-                continue
-            key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
-            candidates.append((key, name, tuple(seq)))
+            if parent:
+                parent_sequences.append((parent, seq))
+    candidates = _decorated_polycyclic_records(mol, atoms, parent_sequences)
     if not candidates:
         return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
-    candidates.sort(key=lambda item: item[0])
-    return [(name, seq) for _key, name, seq in candidates]
+    return candidates
 
 
 def _secondary_zero_bridge_tricyclic_candidate_records(

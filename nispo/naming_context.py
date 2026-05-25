@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .acyclic_rules import _name_acyclic
+from .acyclic_rules import name_acyclic
 from .fused_template_families import candidate_generated_fused_templates
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
@@ -64,7 +64,7 @@ class MoleculeContext:
 
         cached = self._acyclic_names.get(allow_ring_atoms)
         if cached is None:
-            cached = _name_acyclic(self.mol, allow_ring_atoms=allow_ring_atoms)
+            cached = name_acyclic(self.mol, allow_ring_atoms=allow_ring_atoms)
             self._acyclic_names[allow_ring_atoms] = cached
         return cached
 

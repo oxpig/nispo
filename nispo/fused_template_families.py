@@ -8,7 +8,7 @@ import re
 from .fused_rules import build_fused_templates
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
-from .template_index import _ring_system_feature_key, molecule_features
+from .template_index import ring_system_feature_key, molecule_features
 
 
 _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
@@ -141,7 +141,7 @@ def candidate_generated_fused_templates(
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
-        key = json.dumps(_ring_system_feature_key(system), separators=(",", ":"))
+        key = json.dumps(ring_system_feature_key(system), separators=(",", ":"))
         graph_key = system.get("graph_signature", "")
         element_graph_key = system.get("element_graph_signature", "") if graph_filter else ""
         for template in _generated_templates_for_key(

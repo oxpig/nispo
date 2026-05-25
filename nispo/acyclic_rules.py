@@ -37,7 +37,7 @@ class _AcyclicGraphView:
     bond_orders: dict[tuple[int, int], float]
 
 
-def _name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
+def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
     profile = _acyclic_functional_profile(mol)
     for signal, namer in (
         ("oxidanium", _name_oxidanium),

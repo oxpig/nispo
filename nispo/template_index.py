@@ -36,7 +36,7 @@ def candidate_templates(
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
-        key = _ring_system_feature_key(system)
+        key = ring_system_feature_key(system)
         for template in pure_ring_templates.get(key, ()):
             marker = id(template)
             if marker in seen:
@@ -82,7 +82,7 @@ def _template_index(
     for template in templates:
         template_features = _template_features(template, Chem)
         if template_features["all_atoms_in_one_ring_system"]:
-            pure_ring_templates.setdefault(_ring_system_feature_key(template_features), []).append(template)
+            pure_ring_templates.setdefault(ring_system_feature_key(template_features), []).append(template)
         else:
             other_templates_by_atom_count[template_features["atom_count"]].append((template, template_features))
     indexed = (
@@ -172,7 +172,7 @@ def molecule_features(mol, Chem) -> dict:
     return features
 
 
-def _ring_system_feature_key(features: dict) -> tuple:
+def ring_system_feature_key(features: dict) -> tuple:
     return (
         features["atom_count"],
         features["ring_count"],

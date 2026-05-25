@@ -395,45 +395,8 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
     return [(name, seq) for _key, name, seq in candidates]
 
 
-def _ring_systems(mol, Chem=None) -> list[set[int]]:
-    if Chem is not None:
-        return [set(topology.atoms) for topology in _cached_ring_system_topologies(mol, Chem)]
-
-    cached = getattr(mol, "_nispo_polycyclic_ring_systems", None)
-    if cached is not None:
-        return [set(system) for system in cached]
-    systems: list[set[int]] = []
-    for ring in mol.GetRingInfo().AtomRings():
-        current = set(ring)
-        merged = []
-        for system in systems:
-            if current & system:
-                current |= system
-            else:
-                merged.append(system)
-        merged.append(current)
-        systems = merged
-
-    changed = True
-    while changed:
-        changed = False
-        merged = []
-        while systems:
-            current = systems.pop()
-            overlaps = [system for system in systems if current & system]
-            if overlaps:
-                changed = True
-                for system in overlaps:
-                    current |= system
-                    systems.remove(system)
-            merged.append(current)
-        systems = merged
-    result = tuple(frozenset(system) for system in systems)
-    try:
-        mol._nispo_polycyclic_ring_systems = result
-    except Exception:
-        pass
-    return [set(system) for system in result]
+def _ring_systems(mol, Chem) -> list[set[int]]:
+    return [set(topology.atoms) for topology in _cached_ring_system_topologies(mol, Chem)]
 
 
 def _ring_system_graph(mol, Chem, atoms: set[int]) -> dict[int, set[int]]:

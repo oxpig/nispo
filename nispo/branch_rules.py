@@ -164,10 +164,6 @@ def _isotopic_hydrogen_prefix(atom) -> str:
     return ""
 
 
-def _constant_prefix(name: str):
-    return lambda _mol, _idx, _parent_idx: name
-
-
 def _parenthesize_complex_prefix(name: str) -> str:
     if "-" in name or name[:1].isdigit() or name.startswith(("N-", "S-", "O-")):
         return f"({name})"
@@ -340,12 +336,12 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         "I": (
             (
                 BranchRule(_iodanyl_acyloxy_prefix),
-                BranchRule(_constant_prefix(HALO["I"])),
+                BranchRule(HALO["I"]),
             ),
         ),
-        "F": (_halogen_rule_set("F"),),
-        "Cl": (_halogen_rule_set("Cl"),),
-        "Br": (_halogen_rule_set("Br"),),
+        "F": ((BranchRule(HALO["F"]),),),
+        "Cl": ((BranchRule(HALO["Cl"]),),),
+        "Br": ((BranchRule(HALO["Br"]),),),
         "O": (
             (
                 BranchRule(_oxygen_prefix),
@@ -354,7 +350,7 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         ),
         "N": (
             (
-                BranchRule(_constant_prefix("nitro"), _nitro_branch_predicate),
+                BranchRule("nitro", _nitro_branch_predicate),
                 BranchRule(_nitrogen_prefix),
                 BranchRule(_resource_prefix),
             ),
@@ -369,10 +365,6 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
             (BranchRule(_resource_prefix),),
         ),
     }
-
-
-def _halogen_rule_set(symbol: str) -> BranchRuleSet:
-    return (BranchRule(_constant_prefix(HALO[symbol])),)
 
 
 def _nitro_branch_predicate(mol, idx: int, parent_idx: int) -> bool:

@@ -562,95 +562,29 @@ class OxidoFusedParentRule:
                 )
 
 
-class GenericBicyclicParentRule:
-    family = "generic-bicyclic-parent"
-    priority = 25
+class _PolycyclicRecordParentRule:
+    record_family = ""
     min_ring_count = 2
-    requires_generic_bicyclic_topology = True
 
     def __init__(self, Chem):
         self._Chem = Chem
 
-    def candidates(self, ctx):
-        mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
-            return
-        for name, seq in ctx.polycyclic_parent_records("bicyclic"):
-            yield NameCandidate(
-                name=name,
-                family=self.family,
-                priority=self.priority,
-                sort_key=(len(name), name),
-                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
-            )
+    def _candidate_priority(self, mol) -> int | None:
+        return self.priority
 
-
-class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
-    family = "preferred-generic-bicyclic-parent"
-    priority = 19
-    min_ring_system_ring_count = 2
+    def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
+        return True
 
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
-        for name, seq in ctx.polycyclic_parent_records("bicyclic"):
-            if "azabicyclo[3.1.0]hexane" not in name:
+        priority = self._candidate_priority(mol)
+        if priority is None:
+            return
+        for name, seq in ctx.polycyclic_parent_records(self.record_family):
+            if not self._accept_record(name, seq):
                 continue
-            yield NameCandidate(
-                name=name,
-                family=self.family,
-                priority=self.priority,
-                sort_key=(len(name), name),
-                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
-            )
-
-
-class GenericSpiroParentRule:
-    family = "generic-spiro-parent"
-    priority = 26
-    min_ring_count = 2
-    min_ring_system_ring_count = 2
-    requires_spiro_topology = True
-
-    def __init__(self, Chem):
-        self._Chem = Chem
-
-    def candidates(self, ctx):
-        mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
-            return
-        for name, seq in ctx.polycyclic_parent_records("spiro"):
-            yield NameCandidate(
-                name=name,
-                family=self.family,
-                priority=self.priority,
-                sort_key=(len(name), name),
-                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
-            )
-
-
-class KekulizedGenericPolycyclicParentRule:
-    family = "kekulized-generic-polycyclic-parent"
-    priority = 14
-    min_ring_count = 2
-    defer_to_exocyclic_charged_fused_parent = True
-    requires_kekulized_polycycle_signal = True
-    requires_generic_polycyclic_topology = True
-
-    def __init__(self, Chem):
-        self._Chem = Chem
-
-    def candidates(self, ctx):
-        mol = ctx.mol
-        ring_count = mol.GetRingInfo().NumRings()
-        if ring_count < 2:
-            return
-        aromatic = any(atom.GetIsAromatic() for atom in mol.GetAtoms())
-        if not aromatic and ring_count < 3:
-            return
-        priority = self.priority if aromatic else 28
-        for name, seq in ctx.polycyclic_parent_records("kekulized"):
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -658,6 +592,46 @@ class KekulizedGenericPolycyclicParentRule:
                 sort_key=(len(name), name),
                 stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
+
+
+class GenericBicyclicParentRule(_PolycyclicRecordParentRule):
+    family = "generic-bicyclic-parent"
+    priority = 25
+    record_family = "bicyclic"
+    requires_generic_bicyclic_topology = True
+
+
+class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
+    family = "preferred-generic-bicyclic-parent"
+    priority = 19
+    min_ring_system_ring_count = 2
+
+    def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
+        return "azabicyclo[3.1.0]hexane" in name
+
+
+class GenericSpiroParentRule(_PolycyclicRecordParentRule):
+    family = "generic-spiro-parent"
+    priority = 26
+    record_family = "spiro"
+    min_ring_system_ring_count = 2
+    requires_spiro_topology = True
+
+
+class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
+    family = "kekulized-generic-polycyclic-parent"
+    priority = 14
+    record_family = "kekulized"
+    defer_to_exocyclic_charged_fused_parent = True
+    requires_kekulized_polycycle_signal = True
+    requires_generic_polycyclic_topology = True
+
+    def _candidate_priority(self, mol) -> int | None:
+        ring_count = mol.GetRingInfo().NumRings()
+        aromatic = any(atom.GetIsAromatic() for atom in mol.GetAtoms())
+        if not aromatic and ring_count < 3:
+            return None
+        return self.priority if aromatic else 28
 
 
 class ExactRetainedParentRule:

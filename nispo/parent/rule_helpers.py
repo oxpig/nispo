@@ -20,6 +20,7 @@ from ..ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
     ring_parent_candidates as _ring_parent_candidates,
 )
+from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
 _BICYCLIC_FUSION_BASES = {
@@ -754,22 +755,9 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         return ""
     if any(idx not in seq_set for idx in tagged_atoms):
         return ""
-    if any(
-        bond.GetBondType() == Chem.BondType.DOUBLE
-        and bond.GetStereo() != Chem.BondStereo.STEREONONE
-        for bond in mol.GetBonds()
-    ):
+    if _has_assigned_bond_stereo(mol, Chem):
         return ""
-    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
-    centers = [
-        (idx, descriptor)
-        for idx, descriptor in Chem.FindMolChiralCenters(
-            mol,
-            includeUnassigned=False,
-            useLegacyImplementation=False,
-        )
-        if descriptor in {"R", "S"}
-    ]
+    centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     if len(centers) < 2:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
@@ -794,22 +782,9 @@ def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         return ""
     if any(idx not in seq_set for idx in tagged_atoms):
         return ""
-    if any(
-        bond.GetBondType() == Chem.BondType.DOUBLE
-        and bond.GetStereo() != Chem.BondStereo.STEREONONE
-        for bond in mol.GetBonds()
-    ):
+    if _has_assigned_bond_stereo(mol, Chem):
         return ""
-    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
-    centers = [
-        (idx, descriptor)
-        for idx, descriptor in Chem.FindMolChiralCenters(
-            mol,
-            includeUnassigned=False,
-            useLegacyImplementation=False,
-        )
-        if descriptor in {"R", "S"}
-    ]
+    centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     if len(centers) < 2:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}

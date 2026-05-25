@@ -26,11 +26,17 @@ class NamingEngine:
     def __init__(self, Chem, rules: Iterable[RuleSpec]):
         self._Chem = Chem
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
+        self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol) -> str:
-        fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
-        if len(fragments) > 1:
-            return FragmentAssemblyRule(self._Chem, self).name(fragments)
+        if mol.GetNumAtoms() == 1:
+            simple_name = simple_fragment_name(mol, self._Chem)
+            if simple_name:
+                return simple_name
+        fragment_atom_sets = self._Chem.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
+        if len(fragment_atom_sets) > 1:
+            fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
+            return self._fragment_rule.name(fragments)
         simple_name = simple_fragment_name(mol, self._Chem)
         if simple_name:
             return simple_name

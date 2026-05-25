@@ -18,7 +18,10 @@ class RuleSpec:
     producer: CandidateProducer
 
     def applies(self, ctx) -> bool:
-        return all(gate(ctx) for gate in self.gates)
+        for gate in self.gates:
+            if not gate(ctx):
+                return False
+        return True
 
     def candidates(self, ctx) -> Iterable[object]:
         return self.producer(ctx)

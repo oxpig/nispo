@@ -35,13 +35,24 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
 
 
 def _has_assigned_stereo(mol, Chem) -> bool:
+    cached = mol_cache_get(mol, "has_assigned_stereo")
+    if cached is not None:
+        return cached
     for atom in mol.GetAtoms():
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
-            return True
+            return mol_cache_set(mol, "has_assigned_stereo", True)
+    result = _has_assigned_bond_stereo(mol, Chem)
+    return mol_cache_set(mol, "has_assigned_stereo", result)
+
+
+def _has_assigned_bond_stereo(mol, Chem) -> bool:
+    cached = mol_cache_get(mol, "has_assigned_bond_stereo")
+    if cached is not None:
+        return cached
     for bond in mol.GetBonds():
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
-            return True
-    return False
+            return mol_cache_set(mol, "has_assigned_bond_stereo", True)
+    return mol_cache_set(mol, "has_assigned_bond_stereo", False)
 
 
 def _has_leading_stereochemical_prefix(name: str) -> bool:
@@ -94,6 +105,10 @@ def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") ->
     )
     if not has_chiral_tag:
         return mol_cache_set(mol, cache_key, [])
+    assigned = _atom_cip_stereochemistry_from_props(mol)
+    if assigned:
+        reverse = atom_order != "idx"
+        return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
     Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
     centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False)
     assigned = [
@@ -103,6 +118,17 @@ def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") ->
     ]
     reverse = atom_order != "idx"
     return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
+
+
+def _atom_cip_stereochemistry_from_props(mol) -> list[tuple[int, str]]:
+    assigned = []
+    for atom in mol.GetAtoms():
+        if not atom.HasProp("_CIPCode"):
+            continue
+        descriptor = atom.GetProp("_CIPCode")
+        if descriptor in {"R", "S"}:
+            assigned.append((atom.GetIdx(), descriptor))
+    return assigned
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

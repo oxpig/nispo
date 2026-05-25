@@ -29,10 +29,16 @@ def graph_view(mol, Chem) -> MoleculeGraphView:
     if cached is not None:
         return cached
 
-    if Chem is not None:
-        Chem.GetSymmSSSR(mol)
     ring_info = mol.GetRingInfo()
-    ring_count = ring_info.NumRings()
+    try:
+        ring_count = ring_info.NumRings()
+    except RuntimeError:
+        if Chem is None:
+            ring_count = 0
+        else:
+            Chem.GetSymmSSSR(mol)
+            ring_info = mol.GetRingInfo()
+            ring_count = ring_info.NumRings()
     atom_rings = tuple(tuple(ring) for ring in ring_info.AtomRings()) if ring_count else ()
     ring_systems = _ring_systems_from_atom_rings(atom_rings)
     atoms = tuple(mol.GetAtoms())

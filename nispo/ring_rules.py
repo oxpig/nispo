@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import join_locants as _join_locants, loc_unsat
+from .ring.hydrogen import _drop_indicated_hydrogen_prefix, _indicated_hydrogen_prefix
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,16 +124,6 @@ def _single_indicated_hydrogen_n(mol, ordered: Sequence[int]) -> int | None:
         if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetTotalNumHs() > 0
     ]
     return atoms[0] if len(atoms) == 1 else None
-
-
-def _indicated_hydrogen_prefix(mol, ordered: Sequence[int], seq: Sequence[int], indicated: int | None) -> str:
-    if indicated is not None and indicated in seq:
-        return f"{seq.index(indicated) + 1}H-"
-    has_ring_n_h = any(
-        mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetTotalNumHs() > 0
-        for idx in ordered
-    )
-    return "1H-" if has_ring_n_h else ""
 
 
 def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
@@ -619,12 +610,6 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             stem = base[:-1] if base.endswith("e") else base
             return f"{stem}-{loc}-ium"
         return ""
-    return parent_name
-
-
-def _drop_indicated_hydrogen_prefix(parent_name: str) -> str:
-    if len(parent_name) > 3 and parent_name[0].isdigit() and parent_name[1:3] == "H-":
-        return parent_name[3:]
     return parent_name
 
 

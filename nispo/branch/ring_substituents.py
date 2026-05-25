@@ -19,12 +19,13 @@ from ..fused_template_families import (
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
 )
+from ..molecule_cache import mol_cache_dict
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from ..ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
     ring_substituent_suffix as _ring_substituent_suffix,
 )
-from ..stereochemistry import assigned_atom_stereochemistry
+from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 from ..substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 from ..template_store import template_store
@@ -456,11 +457,7 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
     if not seq:
         return ""
     seq_set = set(seq)
-    if any(
-        bond.GetBondType() == Chem.BondType.DOUBLE
-        and bond.GetStereo() != Chem.BondStereo.STEREONONE
-        for bond in mol.GetBonds()
-    ):
+    if _has_assigned_bond_stereo(mol, Chem):
         return ""
     centers = [
         (idx, descriptor)
@@ -519,7 +516,7 @@ def _fused_ring_substituent_prefix_from_templates(
     best_key = None
     for template in template_store(Chem).candidate_templates(mol, templates):
         core = template_record_mol(template)
-        for match in mol.GetSubstructMatches(core, uniquify=False):
+        for match in _substruct_matches(mol, core):
             if attachment_idx not in match or parent_idx in match:
                 continue
             core_set = set(match)
@@ -561,7 +558,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
         if not _template_is_fully_aromatic(template_record_mol(template)):
             continue
         query = _topology_query(template_record_mol(template))
-        for match in mol.GetSubstructMatches(query, uniquify=False):
+        for match in _substruct_matches(mol, query):
             if attachment_idx not in match or parent_idx in match:
                 continue
             core_set = set(match)
@@ -585,6 +582,17 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
                 best_key = key
                 best = name
     return best
+
+
+def _substruct_matches(mol, query) -> tuple[tuple[int, ...], ...]:
+    cache = mol_cache_dict(mol, "branch_ring_template_matches")
+    key = id(query)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    matches = tuple(tuple(match) for match in mol.GetSubstructMatches(query, uniquify=False))
+    cache[key] = matches
+    return matches
 
 
 def _fused_substituent_prefix_text(

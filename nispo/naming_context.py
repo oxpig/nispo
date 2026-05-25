@@ -23,6 +23,7 @@ class ContextCache:
     acyclic_names: dict[bool, str] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    topology_flags: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -101,14 +102,25 @@ class MoleculeContext:
 
     @property
     def has_generic_bicyclic_topology(self) -> bool:
-        return any(topology.cycle_rank == 2 for topology in self.ring_topologies)
+        cached = self.cache.topology_flags.get("generic_bicyclic")
+        if cached is None:
+            cached = any(topology.cycle_rank == 2 for topology in self.ring_topologies)
+            self.cache.topology_flags["generic_bicyclic"] = cached
+        return cached
 
     @property
     def has_generic_polycyclic_topology(self) -> bool:
-        return any(topology.cycle_rank in {2, 3} for topology in self.ring_topologies)
+        cached = self.cache.topology_flags.get("generic_polycyclic")
+        if cached is None:
+            cached = any(topology.cycle_rank in {2, 3} for topology in self.ring_topologies)
+            self.cache.topology_flags["generic_polycyclic"] = cached
+        return cached
 
     @property
     def has_spiro_topology(self) -> bool:
+        cached = self.cache.topology_flags.get("spiro")
+        if cached is not None:
+            return cached
         rings = tuple(frozenset(ring) for ring in self.mol.GetRingInfo().AtomRings())
         for topology in self.ring_topologies:
             if topology.cycle_rank not in {2, 3}:
@@ -119,7 +131,9 @@ class MoleculeContext:
                 for idx, left in enumerate(system_rings)
                 for right in system_rings[idx + 1 :]
             ):
+                self.cache.topology_flags["spiro"] = True
                 return True
+        self.cache.topology_flags["spiro"] = False
         return False
 
     def substruct_matches(self, query, *, use_chirality: bool = False) -> tuple[tuple[int, ...], ...]:

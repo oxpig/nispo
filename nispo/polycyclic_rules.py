@@ -72,6 +72,8 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
 
 
 def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int) -> str:
+    if not _has_polycyclic_substituent_system(mol, Chem, attachment_idx, parent_idx):
+        return ""
     candidates = _polycyclic_substituent_candidates(mol, Chem, attachment_idx, parent_idx)
     if candidates:
         return min(candidates)[-1]
@@ -83,6 +85,13 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
         return ""
     candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx)
     return min(candidates)[-1] if candidates else ""
+
+
+def _has_polycyclic_substituent_system(mol, Chem, attachment_idx: int, parent_idx: int) -> bool:
+    for topology in _cached_ring_system_topologies(mol, Chem):
+        if attachment_idx in topology.atoms and parent_idx not in topology.atoms and topology.cycle_rank in {2, 3}:
+            return True
+    return False
 
 
 def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_idx: int) -> list[tuple]:
@@ -476,7 +485,7 @@ def _bridgehead_pair_candidates(
 def _bridge_paths_with_count(
     graph: dict[int, set[int]], atoms: set[int], a: int, b: int, path_count: int
 ) -> list[tuple[int, ...]]:
-    paths = _simple_paths(graph, a, b, max_paths=24)
+    paths = _simple_paths(graph, a, b, max_paths=12)
     valid = []
     for selected in combinations(paths, path_count):
         internals = [set(path[1:-1]) for path in selected]

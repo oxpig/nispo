@@ -12,8 +12,6 @@ BranchPredicate = Callable[[object, int, int], bool]
 class BranchRule:
     """One substituent-prefix rule within a named OPSIN-inspired family."""
 
-    family: str
-    name: str
     renderer: BranchRenderer
     predicate: BranchPredicate | None = None
 
@@ -27,7 +25,6 @@ class BranchRule:
 class BranchRuleSet:
     """Ordered branch rules for one atom class or generic fallback."""
 
-    family: str
     rules: tuple[BranchRule, ...]
 
     def render(self, mol, idx: int, parent_idx: int) -> str:

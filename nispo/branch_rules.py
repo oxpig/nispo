@@ -339,11 +339,10 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
     return {
         "I": (
             BranchRuleSet(
-                "iodine-ligand",
                 (
-                    BranchRule("iodine-ligand", "iodanyl-acyloxy", _iodanyl_acyloxy_prefix),
-                    BranchRule("halogen", "iodo", _constant_prefix(HALO["I"])),
-                ),
+                    BranchRule(_iodanyl_acyloxy_prefix),
+                    BranchRule(_constant_prefix(HALO["I"])),
+                )
             ),
         ),
         "F": (_halogen_rule_set("F"),),
@@ -351,43 +350,39 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         "Br": (_halogen_rule_set("Br"),),
         "O": (
             BranchRuleSet(
-                "oxygen-prefix",
                 (
-                    BranchRule("oxygen-prefix", "hydroxy-oxo-alkoxy", _oxygen_prefix),
-                    BranchRule("opsin-resource-substituent", "oxygen-resource", _resource_prefix),
+                    BranchRule(_oxygen_prefix),
+                    BranchRule(_resource_prefix),
                 ),
             ),
         ),
         "N": (
             BranchRuleSet(
-                "nitrogen-prefix",
                 (
-                    BranchRule("nitrogen-prefix", "nitro", _constant_prefix("nitro"), _nitro_branch_predicate),
-                    BranchRule("nitrogen-prefix", "amino-azido-imino", _nitrogen_prefix),
-                    BranchRule("opsin-resource-substituent", "nitrogen-resource", _resource_prefix),
+                    BranchRule(_constant_prefix("nitro"), _nitro_branch_predicate),
+                    BranchRule(_nitrogen_prefix),
+                    BranchRule(_resource_prefix),
                 ),
             ),
         ),
         "S": (
             BranchRuleSet(
-                "sulfur-prefix",
                 (
-                    BranchRule("sulfur-prefix", "sulfanyl-sulfinyl-sulfonyl", _sulfur_prefix),
-                    BranchRule("opsin-resource-substituent", "sulfur-resource", _resource_prefix),
+                    BranchRule(_sulfur_prefix),
+                    BranchRule(_resource_prefix),
                 ),
             ),
         ),
         "*": (
             BranchRuleSet(
-                "opsin-resource-substituent",
-                (BranchRule("opsin-resource-substituent", "generic-resource", _resource_prefix),),
+                (BranchRule(_resource_prefix),),
             ),
         ),
     }
 
 
 def _halogen_rule_set(symbol: str) -> BranchRuleSet:
-    return BranchRuleSet("halogen", (BranchRule("halogen", HALO[symbol], _constant_prefix(HALO[symbol])),))
+    return BranchRuleSet((BranchRule(_constant_prefix(HALO[symbol])),))
 
 
 def _nitro_branch_predicate(mol, idx: int, parent_idx: int) -> bool:

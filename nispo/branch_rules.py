@@ -1218,12 +1218,55 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             name = prefix_text + separator + suffix
         else:
             name = suffix
+        stereo_prefix = _simple_ring_substituent_stereo_prefix(mol, seq)
+        if stereo_prefix:
+            name = f"({stereo_prefix})-{name}"
         locants = sorted(pos[idx] for idx, _ in raw_subs)
         key = (0 if loc == 1 else 1, locants, name)
         if best_key is None or key < best_key:
             best_key = key
             best = name
     return best
+
+
+def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
+    if not seq:
+        return ""
+    seq_set = set(seq)
+    tagged_atoms = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged_atoms) < 2:
+        return ""
+    if any(idx not in seq_set for idx in tagged_atoms):
+        return ""
+    if any(
+        bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo() != Chem.BondStereo.STEREONONE
+        for bond in mol.GetBonds()
+    ):
+        return ""
+    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+    centers = [
+        (idx, descriptor)
+        for idx, descriptor in Chem.FindMolChiralCenters(
+            mol,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"R", "S"}
+    ]
+    if len(centers) < 2:
+        return ""
+    locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    if any(idx not in locants for idx, _descriptor in centers):
+        return ""
+    return ",".join(
+        f"{locants[idx]}{descriptor}"
+        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+    )
 
 
 def _ring_substituent_unsaturated_suffix(

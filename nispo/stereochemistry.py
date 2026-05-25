@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
     """Prepend OPSIN bracket stereochemistry for assigned input stereo.
@@ -18,7 +20,9 @@ def apply_stereochemical_prefix(mol, Chem, name: str) -> str:
         return name
 
     bond_descriptors = _bond_stereochemistry(mol, Chem)
-    descriptors = _atom_stereochemistry(mol, Chem)
+    descriptors = []
+    if not _name_has_complete_locanted_atom_stereo(mol, Chem, name):
+        descriptors = _atom_stereochemistry(mol, Chem)
     descriptors.extend(bond_descriptors)
     if not descriptors:
         return name
@@ -35,7 +39,19 @@ def _has_assigned_stereo(mol, Chem) -> bool:
     return False
 
 
+def _name_has_complete_locanted_atom_stereo(mol, Chem, name: str) -> bool:
+    locanted_descriptors = re.findall(r"(?<![A-Za-z])\d+[RS](?![a-z])", name)
+    if not locanted_descriptors:
+        return False
+    chiral_count = len(_assigned_atom_stereochemistry(mol, Chem))
+    return chiral_count > 0 and len(locanted_descriptors) >= chiral_count
+
+
 def _atom_stereochemistry(mol, Chem) -> list[str]:
+    return [descriptor for _idx, descriptor in _assigned_atom_stereochemistry(mol, Chem)]
+
+
+def _assigned_atom_stereochemistry(mol, Chem) -> list[tuple[int, str]]:
     has_chiral_tag = any(
         atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
         for atom in mol.GetAtoms()
@@ -49,7 +65,7 @@ def _atom_stereochemistry(mol, Chem) -> list[str]:
         for idx, descriptor in centers
         if descriptor in {"R", "S"}
     ]
-    return [descriptor for _idx, descriptor in sorted(assigned, reverse=True)]
+    return sorted(assigned, reverse=True)
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

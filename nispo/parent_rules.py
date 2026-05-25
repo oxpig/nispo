@@ -806,7 +806,7 @@ def _iter_fused_template_matches(
     mol = ctx.mol
     for template in templates:
         template_mol = template["mol"]
-        if not _template_allowed_by_stereo(mol, template, Chem):
+        if template.get("stereochemical") and not _has_stereo_evidence(mol, Chem):
             continue
         if require_one_ring_system and not _template_has_one_ring_system(template_mol):
             continue
@@ -907,7 +907,7 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
     for replacement in sorted(grouped):
         locants = sorted(grouped[replacement], key=_locant_sort_key)
         multiplier = MULT.get(len(locants), "")
-        parts.append(f"{_format_locants(locants)}-{multiplier}{replacement}")
+        parts.append(f"{','.join(locants)}-{multiplier}{replacement}")
     return "-".join(parts) + template["name"]
 
 
@@ -982,10 +982,6 @@ def _has_nonaromatic_core_imine(mol, core_atoms: set[int]) -> bool:
     return False
 
 
-def _format_locants(locants: Sequence[str]) -> str:
-    return ",".join(locants)
-
-
 def _locant_sort_key(locant: str) -> tuple[int, str]:
     digits = "".join(ch for ch in locant if ch.isdigit())
     return (int(digits) if digits else 999, locant)
@@ -996,10 +992,6 @@ _SKELETAL_REPLACEMENT_PREFIXES = {
     "O": "oxa",
     "S": "thia",
 }
-
-
-def _template_allowed_by_stereo(mol, template: dict, Chem) -> bool:
-    return not template.get("stereochemical") or _has_stereo_evidence(mol, Chem)
 
 
 def _has_stereo_evidence(mol, Chem) -> bool:

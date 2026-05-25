@@ -26,6 +26,20 @@ def test_branch_smoke_names_remain_stable():
     ]
 
 
+def test_high_multiplicity_prefixes_use_extended_multipliers():
+    name = smiles_to_iupac_batch(
+        [
+            "FC(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)"
+            "C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)I"
+        ]
+    )[0]
+
+    assert (
+        name
+        == "1,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12-pentacosafluoro-12-iodo-dodecane"
+    )
+
+
 def test_extracted_hetero_branch_family_keeps_nitrooxy_wiring():
     mol = Chem.MolFromSmiles("CO[N+](=O)[O-]")
 

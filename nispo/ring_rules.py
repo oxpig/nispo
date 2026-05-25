@@ -172,7 +172,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
                 "azet-2-one",
                 ("N", "C", "C", "C"),
                 checks=(
-                    lambda mol, seq, ring_set: _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set),
+                    lambda mol, seq, ring_set: _has_exocyclic_oxo(mol, seq[1], ring_set),
                     lambda mol, seq, _ring_set: (bond := mol.GetBondBetweenAtoms(seq[2], seq[3]))
                     is not None
                     and bond.GetBondTypeAsDouble() == 2.0,
@@ -209,7 +209,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
                     ordered,
                     "1,3,4-dioxazol-2-one",
                     ("O", "C", "O", "N", "C"),
-                    checks=(lambda mol, seq, ring_set: _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set),),
+                    checks=(lambda mol, seq, ring_set: _has_exocyclic_oxo(mol, seq[1], ring_set),),
                 )
             )
             if candidates:
@@ -640,19 +640,6 @@ def _ring_pattern_candidates(
             continue
         candidates.append((parent, seq))
     return candidates
-
-
-def _ring_atom_has_exocyclic_oxo(mol, atom_idx: int, ring_set: set[int]) -> bool:
-    atom = mol.GetAtomWithIdx(atom_idx)
-    if atom.GetSymbol() != "C":
-        return False
-    return any(
-        nbr.GetIdx() not in ring_set
-        and nbr.GetSymbol() == "O"
-        and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondTypeAsDouble() == 2.0
-        for nbr in atom.GetNeighbors()
-    )
-
 
 
 def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:

@@ -22,6 +22,25 @@ from .ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
     ring_parent_candidates as _ring_parent_candidates,
 )
+from .rule_dispatch import (
+    RuleSpec,
+    acyclic,
+    acyclic_preference_signal,
+    charged_ring_atom,
+    exact_ring_system,
+    functional_skeleton_signal,
+    generic_bicyclic_topology,
+    generic_polycyclic_topology,
+    imino_skeleton_signal,
+    kekulized_polycycle_signal,
+    min_ring_count,
+    min_ring_system_ring_count,
+    no_charged_ring_atom,
+    no_exocyclic_charged_fused_parent,
+    nonring_positive_nitrogen,
+    nonring_positive_sulfur,
+    spiro_topology,
+)
 from .rule_engine import NameCandidate
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
@@ -687,30 +706,84 @@ class GeneratedExactParentRule(ExactRetainedParentRule):
 
 
 def parent_rules(Chem) -> tuple:
+    sulfanium = SulfaniumParentRule(Chem)
+    oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
+    oxo_sulfanium = OxoSulfaniumParentRule(Chem)
+    n_halo_imine = NHaloImineParentRule(Chem)
+    guanidine = GuanidineRetainedParentRule(Chem)
+    acyclic_parent = AcyclicParentRule()
+    imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
+    exact_retained = ExactRetainedParentRule(Chem)
+    preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
+    fused = FusedParentRule(Chem)
+    hydro_fused = HydroFusedParentRule(Chem)
+    oxido_fused = OxidoFusedParentRule(Chem)
+    generic_bicyclic = GenericBicyclicParentRule(Chem)
+    generic_spiro = GenericSpiroParentRule(Chem)
+    single_ring = SingleRingParentRule(Chem)
+    generated_exact = GeneratedExactParentRule(Chem)
+    generated_fused = GeneratedFusedParentRule(Chem)
+    generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
+    generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
+    skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
+    kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
+    functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
+    acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
+
     return (
-        SulfaniumParentRule(Chem),
-        OxidoNitrosoAzaniumRule(Chem),
-        OxoSulfaniumParentRule(Chem),
-        NHaloImineParentRule(Chem),
-        GuanidineRetainedParentRule(Chem),
-        AcyclicParentRule(),
-        IminoFunctionalAcyclicSkeletonRule(),
-        ExactRetainedParentRule(Chem),
-        PreferredGenericBicyclicParentRule(Chem),
-        FusedParentRule(Chem),
-        HydroFusedParentRule(Chem),
-        OxidoFusedParentRule(Chem),
-        GenericBicyclicParentRule(Chem),
-        GenericSpiroParentRule(Chem),
-        SingleRingParentRule(Chem),
-        GeneratedExactParentRule(Chem),
-        GeneratedFusedParentRule(Chem),
-        GeneratedHydroFusedParentRule(Chem),
-        GeneratedPartialHydroFusedParentRule(Chem),
-        SkeletalReplacementFusedParentRule(Chem),
-        KekulizedGenericPolycyclicParentRule(Chem),
-        FunctionalAcyclicSkeletonWithRingSubstituentsRule(),
-        AcyclicSkeletonWithRingSubstituentsRule(),
+        RuleSpec("sulfanium-parent", 9, (nonring_positive_sulfur,), sulfanium.candidates),
+        RuleSpec(
+            "oxido-nitroso-azanium-parent",
+            9,
+            (acyclic, nonring_positive_nitrogen),
+            oxido_nitroso_azanium.candidates,
+        ),
+        RuleSpec("oxo-sulfanium-parent", 9, (nonring_positive_sulfur,), oxo_sulfanium.candidates),
+        RuleSpec("n-halo-imine-parent", 9, (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
+        RuleSpec("guanidine-retained-parent", 9, (acyclic, imino_skeleton_signal), guanidine.candidates),
+        RuleSpec("acyclic-parent", 10, (acyclic,), acyclic_parent.candidates),
+        RuleSpec(
+            "imino-functional-acyclic-skeleton-with-ring-substituents",
+            13,
+            (imino_skeleton_signal, no_exocyclic_charged_fused_parent),
+            imino_functional_acyclic.candidates,
+        ),
+        RuleSpec("exact-retained-parent", 45, (min_ring_count(1), exact_ring_system), exact_retained.candidates),
+        RuleSpec(
+            "preferred-generic-bicyclic-parent",
+            19,
+            (min_ring_system_ring_count(2), generic_bicyclic_topology),
+            preferred_bicyclic.candidates,
+        ),
+        RuleSpec("fused-retained-parent", 20, (min_ring_count(2),), fused.candidates),
+        RuleSpec("hydro-fused-retained-parent", 21, (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
+        RuleSpec(
+            "oxido-fused-retained-parent",
+            22,
+            (min_ring_count(2), min_ring_system_ring_count(2), charged_ring_atom),
+            oxido_fused.candidates,
+        ),
+        RuleSpec("generic-bicyclic-parent", 25, (generic_bicyclic_topology,), generic_bicyclic.candidates),
+        RuleSpec("generic-spiro-parent", 26, (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),
+        RuleSpec("single-ring-parent", 30, (min_ring_count(1),), single_ring.candidates),
+        RuleSpec("generated-exact-parent", 29, (min_ring_count(1), exact_ring_system), generated_exact.candidates),
+        RuleSpec("generated-fused-parent", 29, (min_ring_system_ring_count(2),), generated_fused.candidates),
+        RuleSpec("generated-hydro-fused-parent", 29, (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
+        RuleSpec("generated-partial-hydro-fused-parent", 31, (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
+        RuleSpec("skeletal-replacement-fused-parent", 32, (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
+        RuleSpec(
+            "kekulized-generic-polycyclic-parent",
+            14,
+            (kekulized_polycycle_signal, generic_polycyclic_topology, no_exocyclic_charged_fused_parent),
+            kekulized_polycyclic.candidates,
+        ),
+        RuleSpec(
+            "functional-acyclic-skeleton-with-ring-substituents",
+            14,
+            (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
+            functional_acyclic.candidates,
+        ),
+        RuleSpec("acyclic-skeleton-with-ring-substituents", 60, (min_ring_count(1),), acyclic_with_ring_substituents.candidates),
     )
 
 

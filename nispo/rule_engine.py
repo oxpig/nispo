@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Protocol
 
 from .naming_context import MoleculeContext
-from .rule_dispatch import compile_rule_plan, rule_applies
+from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
 
 
@@ -20,21 +19,12 @@ class NameCandidate:
     stereo_prefix: str = ""
 
 
-class MoleculeRule(Protocol):
-    family: str
-    priority: int
-
-    def candidates(self, ctx: MoleculeContext) -> Iterable[NameCandidate]:
-        ...
-
-
 class NamingEngine:
     """OPSIN-inspired dispatcher over independent nomenclature rule families."""
 
-    def __init__(self, Chem, rules: Iterable[MoleculeRule]):
+    def __init__(self, Chem, rules: Iterable[RuleSpec]):
         self._Chem = Chem
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
-        self._plans = tuple(compile_rule_plan(rule) for rule in self._rules)
 
     def name(self, mol) -> str:
         fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
@@ -47,10 +37,9 @@ class NamingEngine:
         ctx = MoleculeContext(mol, self._Chem)
         best: NameCandidate | None = None
         best_key: tuple | None = None
-        for plan in self._plans:
-            if not rule_applies(plan, ctx):
+        for rule in self._rules:
+            if not rule.applies(ctx):
                 continue
-            rule = plan.rule
             for candidate in rule.candidates(ctx):
                 if not candidate.name:
                     continue

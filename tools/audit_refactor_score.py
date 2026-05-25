@@ -23,6 +23,7 @@ def audit_closure_score() -> dict:
         _score_generated_resources(),
         _score_context_cache(),
         _score_rule_routing_and_modularity(),
+        _score_blue_book_priority_model(),
         _score_structured_rendering(),
         _score_suffix_layer(),
         _score_fragment_layer(),
@@ -143,7 +144,6 @@ def _score_rule_routing_and_modularity() -> dict:
         score += 5
         evidence.append("parent naming uses explicit RuleSpec without RulePlan introspection")
     if (PACKAGE_ROOT / "rule_priority.py").exists() and "parent_priority(" in parent_text:
-        score += 2
         evidence.append("parent rule order is routed through named priority scores")
     if "BranchRuleSpec" in branch_text and (PACKAGE_ROOT / "branch").exists():
         score += 4
@@ -151,6 +151,8 @@ def _score_rule_routing_and_modularity() -> dict:
     if len(branch_lines) <= 1200:
         score += 4
     elif len(branch_lines) <= 1800:
+        score += 3
+    elif len(branch_lines) <= 2000:
         score += 2
     if len(parent_lines) <= 900 or parent_class_count <= 8:
         score += 4
@@ -165,6 +167,35 @@ def _score_rule_routing_and_modularity() -> dict:
     elif bypass <= 10:
         score += 1
     return _item("explicit_rule_routing_and_module_decomposition", min(score, 20), 20, evidence)
+
+
+def _score_blue_book_priority_model() -> dict:
+    priority_path = PACKAGE_ROOT / "rule_priority.py"
+    parent_text = (PACKAGE_ROOT / "parent_rules.py").read_text(encoding="utf-8")
+    if not priority_path.exists():
+        return _item("blue_book_style_priority_model", 0, 10, ["missing rule_priority.py"])
+    text = priority_path.read_text(encoding="utf-8")
+    evidence = []
+    score = 0
+    if "class RulePriority" in text and "score_vector" in text:
+        score += 2
+        evidence.append("RulePriority exposes a score vector")
+    for field in ("seniority_score", "parent_class_score", "specificity_score"):
+        if field in text:
+            score += 1
+            evidence.append(f"{field} is modeled")
+    priority_count = text.count("RulePriority(")
+    evidence.append(f"priority slots: {priority_count}")
+    if priority_count >= 12:
+        score += 2
+    raw_parent_priorities = _raw_priority_assignments(parent_text)
+    evidence.append(f"raw numeric parent priority assignments: {raw_parent_priorities}")
+    if raw_parent_priorities == 0:
+        score += 2
+    if "parent_priority(" in parent_text and "PARENT_RULE_PRIORITIES" in text:
+        score += 1
+        evidence.append("parent rules consume named priority slots")
+    return _item("blue_book_style_priority_model", min(score, 10), 10, evidence)
 
 
 def _score_structured_rendering() -> dict:
@@ -300,6 +331,19 @@ def _collect_list_leaves(value, leaves: list[list]) -> None:
     elif isinstance(value, dict):
         for item in value.values():
             _collect_list_leaves(item, leaves)
+
+
+def _raw_priority_assignments(source: str) -> int:
+    total = 0
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "priority" for target in node.targets):
+            continue
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
+            total += 1
+    return total
 
 
 def _package_text() -> str:

@@ -13,15 +13,30 @@ class RulePriority:
     """
 
     value: int
+    seniority_score: int
+    parent_class_score: int
+    specificity_score: int
     seniority: str
     parent_class: str
     specificity: str
     rationale: str
 
+    @property
+    def score_vector(self) -> tuple[int, int, int, int]:
+        return (
+            self.value,
+            self.seniority_score,
+            self.parent_class_score,
+            self.specificity_score,
+        )
+
 
 PARENT_RULE_PRIORITIES = {
     "senior-functional-exception": RulePriority(
         9,
+        seniority_score=0,
+        parent_class_score=0,
+        specificity_score=0,
         seniority="characteristic group / charge exception",
         parent_class="acyclic retained or functional parent",
         specificity="very high",
@@ -29,6 +44,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "acyclic-parent": RulePriority(
         10,
+        seniority_score=1,
+        parent_class_score=0,
+        specificity_score=1,
         seniority="acyclic parent skeleton",
         parent_class="chain",
         specificity="high",
@@ -36,6 +54,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "functional-acyclic-skeleton": RulePriority(
         13,
+        seniority_score=1,
+        parent_class_score=1,
+        specificity_score=1,
         seniority="functional acyclic skeleton",
         parent_class="chain with ring substituents",
         specificity="high",
@@ -43,6 +64,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "polycyclic-functional-skeleton": RulePriority(
         14,
+        seniority_score=1,
+        parent_class_score=2,
+        specificity_score=1,
         seniority="polycyclic or functional skeleton",
         parent_class="generic graph parent",
         specificity="high",
@@ -50,6 +74,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "preferred-generic-bicyclic": RulePriority(
         19,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=1,
         seniority="preferred bicyclic graph parent",
         parent_class="bicyclic",
         specificity="high",
@@ -57,6 +84,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "retained-fused-parent": RulePriority(
         20,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=2,
         seniority="retained fused parent",
         parent_class="fused ring",
         specificity="medium",
@@ -64,6 +94,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "hydro-retained-fused-parent": RulePriority(
         21,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=3,
         seniority="hydrogenated retained fused parent",
         parent_class="partially saturated fused ring",
         specificity="medium",
@@ -71,6 +104,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "charged-retained-fused-parent": RulePriority(
         22,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=3,
         seniority="charged retained fused parent",
         parent_class="charged fused ring",
         specificity="medium",
@@ -78,6 +114,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "generic-bicyclic-parent": RulePriority(
         25,
+        seniority_score=3,
+        parent_class_score=2,
+        specificity_score=2,
         seniority="generic bicyclic parent",
         parent_class="bicyclic",
         specificity="medium",
@@ -85,13 +124,29 @@ PARENT_RULE_PRIORITIES = {
     ),
     "generic-spiro-parent": RulePriority(
         26,
+        seniority_score=3,
+        parent_class_score=2,
+        specificity_score=2,
         seniority="generic spiro parent",
         parent_class="spiro",
         specificity="medium",
         rationale="Spiro graph names are more specific than single-ring fallback.",
     ),
+    "nonaromatic-polycyclic-parent": RulePriority(
+        28,
+        seniority_score=3,
+        parent_class_score=2,
+        specificity_score=3,
+        seniority="nonaromatic generic polycyclic parent",
+        parent_class="polycyclic",
+        specificity="medium",
+        rationale="Nonaromatic polycyclic graph names run after spiro/bicyclic preferences and before generated templates.",
+    ),
     "generated-parent": RulePriority(
         29,
+        seniority_score=3,
+        parent_class_score=3,
+        specificity_score=3,
         seniority="generated retained-like parent",
         parent_class="generated ring template",
         specificity="medium",
@@ -99,6 +154,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "single-ring-parent": RulePriority(
         30,
+        seniority_score=4,
+        parent_class_score=4,
+        specificity_score=3,
         seniority="single ring parent",
         parent_class="monocycle",
         specificity="low",
@@ -106,6 +164,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "generated-partial-hydro-parent": RulePriority(
         31,
+        seniority_score=4,
+        parent_class_score=3,
+        specificity_score=4,
         seniority="generated partially saturated parent",
         parent_class="partially saturated generated fused ring",
         specificity="low",
@@ -113,6 +174,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "skeletal-replacement-parent": RulePriority(
         32,
+        seniority_score=4,
+        parent_class_score=3,
+        specificity_score=4,
         seniority="skeletal replacement parent",
         parent_class="hetero replacement fused ring",
         specificity="low",
@@ -120,6 +184,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "exact-retained-parent": RulePriority(
         45,
+        seniority_score=5,
+        parent_class_score=5,
+        specificity_score=5,
         seniority="exact retained parent",
         parent_class="exact retained ring",
         specificity="fallback",
@@ -127,6 +194,9 @@ PARENT_RULE_PRIORITIES = {
     ),
     "acyclic-with-ring-substituents": RulePriority(
         60,
+        seniority_score=6,
+        parent_class_score=6,
+        specificity_score=6,
         seniority="acyclic skeleton fallback",
         parent_class="chain with ring substituents",
         specificity="fallback",

@@ -91,6 +91,31 @@ _INDICATED_H_SUBSTITUENT_STEMS = {
 }
 
 
+_AROMATIC_6_DIAZINE_NAMES = {2: "pyridazine", 3: "pyrimidine", 4: "pyrazine"}
+_AROMATIC_6_TRIAZINE_NAMES = {
+    (1, 3, 5): "s-triazine",
+    (1, 2, 4): "1,2,4-triazine",
+    (1, 2, 3): "v-triazine",
+}
+_AROMATIC_5_SINGLE_HETERO_NAMES = {"O": "furan", "S": "thiophene", "N": "1H-pyrrole"}
+_AROMATIC_5_DIAZOLE_NAMES = {2: "pyrazole", 3: "imidazole"}
+_AROMATIC_5_TRIAZOLE_NAMES = {
+    (1, 2, 3): "1,2,3-triazole",
+    (1, 2, 4): "1,2,4-triazole",
+}
+_AROMATIC_5_AZOLE_NAMES = {
+    "O": {2: "isoxazole", 3: "oxazole"},
+    "S": {2: "isothiazole", 3: "thiazole"},
+}
+_AROMATIC_5_DIAZOLE_HETERO_FAMILIES = {"O": "oxadiazole", "S": "thiadiazole"}
+_AROMATIC_5_DIAZOLE_HETERO_LOCANTS = {
+    (1, 2, 3): "1,2,3",
+    (1, 2, 4): "1,2,4",
+    (1, 2, 5): "1,2,5",
+    (1, 3, 4): "1,3,4",
+}
+
+
 def _join_locants(locs: Sequence[int]) -> str:
     return ",".join(str(loc) for loc in sorted(locs))
 
@@ -137,48 +162,9 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
             return candidates
 
     if n == 6 and all_aromatic:
-        if symbols.count("C") == 6:
-            return [("benzene", seq) for seq in _ring_numberings(ordered)]
-        if symbols.count("N") == 1 and symbols.count("C") == 5:
-            indicated = _single_indicated_hydrogen_n(mol, ordered)
-            return [
-                (_indicated_hydrogen_prefix(mol, ordered, seq, indicated) + "pyridine", seq)
-                for seq in _numberings_with_atom_at(ordered, mol, "N")
-            ]
-        if symbols.count("N") == 2 and symbols.count("C") == 4:
-            indicated = _single_indicated_hydrogen_n(mol, ordered)
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
-                second = sorted(n_locs)[1]
-                name = {2: "pyridazine", 3: "pyrimidine", 4: "pyrazine"}.get(second)
-                if name:
-                    candidates.append((_indicated_hydrogen_prefix(mol, ordered, seq, indicated) + name, seq))
+        candidates = _six_membered_aromatic_candidates(mol, ordered, symbols)
+        if candidates:
             return candidates
-        if symbols.count("N") == 3 and symbols.count("C") == 3:
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = tuple(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                name = {
-                    (1, 3, 5): "s-triazine",
-                    (1, 2, 4): "1,2,4-triazine",
-                    (1, 2, 3): "v-triazine",
-                }.get(n_locs)
-                if name:
-                    candidates.append((name, seq))
-            return candidates
-        if symbols.count("N") == 4 and symbols.count("C") == 2:
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = tuple(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                candidates.append((f"{_join_locants(n_locs)}-tetrazine", seq))
-            return candidates
-        if symbols.count("N") == 5 and symbols.count("C") == 1:
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = tuple(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                candidates.append((f"{_join_locants(n_locs)}-pentazine", seq))
-            return candidates
-        if symbols.count("N") == 6:
-            return [("hexazine", seq) for seq in _ring_numberings(ordered)]
-        if symbols.count("O") == 1 and symbols.count("C") == 5:
-            return [("2H-pyran", seq) for seq in _pyran_numberings(ordered, mol)]
 
     if (
         all_aromatic
@@ -199,66 +185,9 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
             candidates.extend(_dioxazolone_candidates(mol, ordered))
             if candidates:
                 return candidates
-        if counts == Counter({"C": 4, "O": 1}):
-            return [("furan", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
-        if counts == Counter({"C": 4, "S": 1}):
-            return [("thiophene", seq) for seq in _numberings_with_atom_at(ordered, mol, "S")]
-        if counts == Counter({"C": 4, "N": 1}):
-            return [("1H-pyrrole", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if counts == Counter({"C": 3, "N": 2}):
-            indicated = _single_indicated_hydrogen_n(mol, ordered)
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
-                second = sorted(n_locs)[1]
-                stem = {2: "pyrazole", 3: "imidazole"}.get(second)
-                hprefix = _indicated_hydrogen_prefix(mol, ordered, seq, indicated)
-                name = f"{hprefix}{stem}" if stem else ""
-                if name:
-                    candidates.append((name, seq))
+        candidates = _five_membered_aromatic_candidates(mol, ordered, counts)
+        if candidates:
             return candidates
-        if counts == Counter({"C": 2, "N": 3}):
-            indicated = _single_indicated_hydrogen_n(mol, ordered)
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = tuple(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                stem = {(1, 2, 3): "1,2,3-triazole", (1, 2, 4): "1,2,4-triazole"}.get(n_locs)
-                hprefix = _indicated_hydrogen_prefix(mol, ordered, seq, indicated)
-                name = f"{hprefix}{stem}" if stem else ""
-                if name:
-                    candidates.append((name, seq))
-            return candidates
-        if counts == Counter({"C": 1, "N": 4}):
-            indicated = _single_indicated_hydrogen_n(mol, ordered)
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                if mol.GetAtomWithIdx(seq[4]).GetSymbol() != "C":
-                    continue
-                hprefix = _indicated_hydrogen_prefix(mol, ordered, seq, indicated)
-                candidates.append((f"{hprefix}tetrazole", seq))
-            return candidates
-        for hetero, names in (("O", {2: "isoxazole", 3: "oxazole"}), ("S", {2: "isothiazole", 3: "thiazole"})):
-            if counts == Counter({"C": 3, "N": 1, hetero: 1}):
-                for seq in _numberings_with_atom_at(ordered, mol, hetero):
-                    n_locs = [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
-                    if n_locs and n_locs[0] in names:
-                        candidates.append((names[n_locs[0]], seq))
-                return candidates
-        for hetero, family in (("O", "oxadiazole"), ("S", "thiadiazole")):
-            if counts == Counter({"C": 2, "N": 2, hetero: 1}):
-                valid = {
-                    (1, 2, 3): f"1,2,3-{family}",
-                    (1, 2, 4): f"1,2,4-{family}",
-                    (1, 2, 5): f"1,2,5-{family}",
-                    (1, 3, 4): f"1,3,4-{family}",
-                }
-                for seq in _numberings_with_atom_at(ordered, mol, hetero):
-                    locs = tuple(
-                        i + 1
-                        for i, idx in enumerate(seq)
-                        if mol.GetAtomWithIdx(idx).GetSymbol() in {hetero, "N"}
-                    )
-                    name = valid.get(locs)
-                    if name:
-                        candidates.append((name, seq))
-                return candidates
 
     if n == 6 and symbols.count("N") == 2 and symbols.count("C") == 4 and not all_aromatic:
         candidates.extend(_unsaturated_diazine_candidates(mol, ordered))
@@ -316,6 +245,135 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
             return candidates
 
     return candidates
+
+
+def _six_membered_aromatic_candidates(
+    mol, ordered: Sequence[int], symbols: Sequence[str]
+) -> list[tuple[str, tuple[int, ...]]]:
+    counts = Counter(symbols)
+    if counts == Counter({"C": 6}):
+        return [("benzene", seq) for seq in _ring_numberings(ordered)]
+    if counts == Counter({"C": 5, "N": 1}):
+        indicated = _single_indicated_hydrogen_n(mol, ordered)
+        return [
+            (_indicated_hydrogen_prefix(mol, ordered, seq, indicated) + "pyridine", seq)
+            for seq in _numberings_with_atom_at(ordered, mol, "N")
+        ]
+    if counts == Counter({"C": 4, "N": 2}):
+        return _aromatic_nitrogen_ring_candidates(
+            mol,
+            ordered,
+            _AROMATIC_6_DIAZINE_NAMES,
+            indicated_hydrogen=True,
+            use_second_n_locant=True,
+        )
+    if counts == Counter({"C": 3, "N": 3}):
+        return _aromatic_nitrogen_ring_candidates(mol, ordered, _AROMATIC_6_TRIAZINE_NAMES)
+    if counts == Counter({"C": 2, "N": 4}):
+        return _aromatic_polynitrogen_ring_candidates(mol, ordered, "tetrazine")
+    if counts == Counter({"C": 1, "N": 5}):
+        return _aromatic_polynitrogen_ring_candidates(mol, ordered, "pentazine")
+    if counts == Counter({"N": 6}):
+        return [("hexazine", seq) for seq in _ring_numberings(ordered)]
+    if counts == Counter({"C": 5, "O": 1}):
+        return [("2H-pyran", seq) for seq in _pyran_numberings(ordered, mol)]
+    return []
+
+
+def _five_membered_aromatic_candidates(
+    mol, ordered: Sequence[int], counts: Counter[str]
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    for hetero, parent in _AROMATIC_5_SINGLE_HETERO_NAMES.items():
+        if counts == Counter({"C": 4, hetero: 1}):
+            return [(parent, seq) for seq in _numberings_with_atom_at(ordered, mol, hetero)]
+
+    if counts == Counter({"C": 3, "N": 2}):
+        return _aromatic_nitrogen_ring_candidates(
+            mol,
+            ordered,
+            _AROMATIC_5_DIAZOLE_NAMES,
+            indicated_hydrogen=True,
+            use_second_n_locant=True,
+        )
+    if counts == Counter({"C": 2, "N": 3}):
+        return _aromatic_nitrogen_ring_candidates(
+            mol,
+            ordered,
+            _AROMATIC_5_TRIAZOLE_NAMES,
+            indicated_hydrogen=True,
+        )
+    if counts == Counter({"C": 1, "N": 4}):
+        indicated = _single_indicated_hydrogen_n(mol, ordered)
+        for seq in _numberings_with_atom_at(ordered, mol, "N"):
+            if mol.GetAtomWithIdx(seq[4]).GetSymbol() != "C":
+                continue
+            hprefix = _indicated_hydrogen_prefix(mol, ordered, seq, indicated)
+            candidates.append((f"{hprefix}tetrazole", seq))
+        return candidates
+
+    for hetero, names in _AROMATIC_5_AZOLE_NAMES.items():
+        if counts != Counter({"C": 3, "N": 1, hetero: 1}):
+            continue
+        for seq in _numberings_with_atom_at(ordered, mol, hetero):
+            n_locs = _symbol_locants(mol, seq, "N")
+            if n_locs and n_locs[0] in names:
+                candidates.append((names[n_locs[0]], seq))
+        return candidates
+
+    for hetero, family in _AROMATIC_5_DIAZOLE_HETERO_FAMILIES.items():
+        if counts != Counter({"C": 2, "N": 2, hetero: 1}):
+            continue
+        locant_names = {
+            locants: f"{prefix}-{family}"
+            for locants, prefix in _AROMATIC_5_DIAZOLE_HETERO_LOCANTS.items()
+        }
+        for seq in _numberings_with_atom_at(ordered, mol, hetero):
+            locs = tuple(
+                i + 1
+                for i, idx in enumerate(seq)
+                if mol.GetAtomWithIdx(idx).GetSymbol() in {hetero, "N"}
+            )
+            name = locant_names.get(locs)
+            if name:
+                candidates.append((name, seq))
+        return candidates
+    return candidates
+
+
+def _aromatic_nitrogen_ring_candidates(
+    mol,
+    ordered: Sequence[int],
+    name_by_locant,
+    *,
+    indicated_hydrogen: bool = False,
+    use_second_n_locant: bool = False,
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    indicated = _single_indicated_hydrogen_n(mol, ordered) if indicated_hydrogen else None
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        n_locs = tuple(_symbol_locants(mol, seq, "N"))
+        key = sorted(n_locs)[1] if use_second_n_locant and len(n_locs) > 1 else n_locs
+        name = name_by_locant.get(key)
+        if not name:
+            continue
+        hprefix = _indicated_hydrogen_prefix(mol, ordered, seq, indicated) if indicated_hydrogen else ""
+        candidates.append((hprefix + name, seq))
+    return candidates
+
+
+def _aromatic_polynitrogen_ring_candidates(
+    mol, ordered: Sequence[int], parent: str
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates = []
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        n_locs = tuple(_symbol_locants(mol, seq, "N"))
+        candidates.append((f"{_join_locants(n_locs)}-{parent}", seq))
+    return candidates
+
+
+def _symbol_locants(mol, seq: Sequence[int], symbol: str) -> list[int]:
+    return [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == symbol]
 
 
 def _fixed_saturated_heterocycle_candidates(

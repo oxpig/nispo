@@ -14,15 +14,18 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
     inventing locants for every rule family.
     """
 
-    if not name or name.startswith("("):
+    if not name or _has_leading_stereochemical_prefix(name):
         return name
     if not _has_assigned_stereo(mol, Chem):
         return name
 
     bond_descriptors = _bond_stereochemistry(mol, Chem)
     descriptors = []
-    if not _name_has_complete_locanted_atom_stereo(mol, Chem, name):
+    locanted_atom_descriptors = _locanted_atom_stereo_descriptors_in_name(name)
+    if not _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_atom_descriptors):
         descriptors = _atom_stereochemistry(mol, Chem, atom_order=atom_order)
+        if locanted_atom_descriptors:
+            descriptors = _remove_locanted_atom_descriptors(descriptors, locanted_atom_descriptors)
     descriptors.extend(bond_descriptors)
     if not descriptors:
         return name
@@ -39,12 +42,32 @@ def _has_assigned_stereo(mol, Chem) -> bool:
     return False
 
 
-def _name_has_complete_locanted_atom_stereo(mol, Chem, name: str) -> bool:
-    locanted_descriptors = re.findall(r"(?<![A-Za-z])\d+[RS](?![a-z])", name)
+def _has_leading_stereochemical_prefix(name: str) -> bool:
+    return bool(re.match(r"^\((?:\d*[RSZE](?:,\d*[RSZE])*)\)-", name))
+
+
+def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
+    return [
+        descriptor[-1]
+        for descriptor in re.findall(r"(?<![A-Za-z])\d+[RS](?![a-z])", name)
+    ]
+
+
+def _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_descriptors: list[str]) -> bool:
     if not locanted_descriptors:
         return False
     chiral_count = len(_assigned_atom_stereochemistry(mol, Chem))
     return chiral_count > 0 and len(locanted_descriptors) >= chiral_count
+
+
+def _remove_locanted_atom_descriptors(descriptors: list[str], locanted_descriptors: list[str]) -> list[str]:
+    remaining = list(descriptors)
+    for locanted in locanted_descriptors:
+        try:
+            remaining.remove(locanted)
+        except ValueError:
+            continue
+    return remaining
 
 
 def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:

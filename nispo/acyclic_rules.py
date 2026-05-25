@@ -481,6 +481,8 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
             nidx = nbr.GetIdx()
             if nidx in path_set:
                 continue
+            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+                continue
             prefix = _branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""

@@ -132,7 +132,9 @@ def _branch_prefix(mol, idx: int, parent_idx: int) -> str:
     in_progress.add(key)
     try:
         atom = mol.GetAtomWithIdx(idx)
-        if atom.IsInRing():
+        if atom.GetSymbol() == "H":
+            prefix = _isotopic_hydrogen_prefix(atom)
+        elif atom.IsInRing():
             prefix = _ring_substituent_prefix(mol, idx, parent_idx)
         elif atom.GetSymbol() == "C":
             prefix = _carbon_branch_prefix(mol, idx, parent_idx)
@@ -144,6 +146,14 @@ def _branch_prefix(mol, idx: int, parent_idx: int) -> str:
         return prefix
     finally:
         in_progress.discard(key)
+
+
+def _isotopic_hydrogen_prefix(atom) -> str:
+    if atom.GetIsotope() == 2:
+        return "deuterio"
+    if atom.GetIsotope() == 3:
+        return "tritio"
+    return ""
 
 
 def _constant_prefix(name: str):
@@ -177,6 +187,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
     if _nitrile_branch_predicate(mol, idx, parent_idx):
         return "cyano"
+    deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
+    if deuterated_methyl:
+        return deuterated_methyl
 
     atom = mol.GetAtomWithIdx(idx)
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
@@ -250,6 +263,40 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     if name:
         return name
     return _resource_prefix(mol, idx, parent_idx)
+
+
+def _deuterated_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C":
+        return ""
+    deuterium_count = 0
+    tritium_count = 0
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        if nbr.GetSymbol() != "H":
+            return ""
+        if nbr.GetIsotope() == 2:
+            deuterium_count += 1
+        elif nbr.GetIsotope() == 3:
+            tritium_count += 1
+        else:
+            return ""
+    if deuterium_count and tritium_count:
+        return ""
+    if deuterium_count:
+        return _isotopic_methyl_prefix(deuterium_count, "deuterio")
+    if tritium_count:
+        return _isotopic_methyl_prefix(tritium_count, "tritio")
+    return ""
+
+
+def _isotopic_methyl_prefix(count: int, isotope_prefix: str) -> str:
+    if count == 1:
+        return isotope_prefix + "methyl"
+    multiplier = MULT.get(count)
+    return f"{multiplier}{isotope_prefix}methyl" if multiplier else ""
 
 
 def _has_neighbor_bond(mol, idx: int, neighbors: Sequence[int], symbol: str, bond_type) -> bool:
@@ -2171,6 +2218,8 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
             nidx = nbr.GetIdx()
             if nidx == blocked_idx or nidx in path_set:
                 continue
+            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+                continue
             if nidx not in atoms:
                 continue
             prefix = _branch_prefix(mol, nidx, idx)
@@ -2200,6 +2249,8 @@ def _substituent_locants(mol, path: Sequence[int], atoms: set[int], blocked_idx:
             locs.append(pos)
         for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
             nidx = nbr.GetIdx()
+            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+                continue
             if nidx != blocked_idx and nidx in atoms and nidx not in path_set:
                 locs.append(pos)
     return locs
@@ -2275,6 +2326,8 @@ def _collect_subtree(mol, start_idx: int, blocked_idx: int) -> set[int]:
         atoms.add(idx)
         for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
             nidx = nbr.GetIdx()
+            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+                continue
             if nidx not in seen:
                 stack.append(nidx)
     if cache is not None:

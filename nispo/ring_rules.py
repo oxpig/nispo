@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
-from .formatting import loc_unsat
+from .formatting import join_locants as _join_locants, loc_unsat
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +114,6 @@ _AROMATIC_5_DIAZOLE_HETERO_LOCANTS = {
     (1, 2, 5): "1,2,5",
     (1, 3, 4): "1,3,4",
 }
-
-
-def _join_locants(locs: Sequence[int]) -> str:
-    return ",".join(str(loc) for loc in sorted(locs))
 
 
 def _single_indicated_hydrogen_n(mol, ordered: Sequence[int]) -> int | None:
@@ -676,14 +672,6 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return _substituent_suffix_from_stem(stem, loc)
     if parent_name.endswith("dihydropyrimidine"):
         return f"{parent_name[:-1]}-{loc}-yl"
-    if parent_name == "1H-imidazole":
-        if charge_loc is not None:
-            return f"imidazol-{charge_loc}-ium-{loc}-yl"
-        return f"1H-imidazol-{loc}-yl"
-    if parent_name == "1H-pyrazole":
-        if charge_loc is not None:
-            return f"pyrazol-{charge_loc}-ium-{loc}-yl"
-        return f"1H-pyrazol-{loc}-yl"
     if parent_name.endswith("H-imidazole"):
         if charge_loc is not None:
             return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-ium-{loc}-yl"
@@ -699,13 +687,7 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return f"2-oxoazet-{loc}-yl"
     if parent_name == "1,3,4-dioxazol-2-one":
         return f"2-oxo-1,3,4-dioxazol-{loc}-yl"
-    if parent_name.endswith("triazole"):
-        if charge_loc is not None:
-            base = _drop_indicated_hydrogen_prefix(parent_name)
-            stem = base[:-1] if base.endswith("e") else base
-            return f"{stem}-{charge_loc}-ium-{loc}-yl"
-        return f"{parent_name[:-1]}-{loc}-yl"
-    if parent_name.endswith("tetrazole"):
+    if parent_name.endswith(("triazole", "tetrazole")):
         if charge_loc is not None:
             base = _drop_indicated_hydrogen_prefix(parent_name)
             stem = base[:-1] if base.endswith("e") else base

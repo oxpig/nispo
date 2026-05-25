@@ -40,3 +40,9 @@ def test_common_counterions_and_hydrides_are_named():
         "azide",
         "trifluoromethanesulfonate",
     ]
+
+
+def test_phosphonium_salts_use_substituted_phosphanium_parent():
+    names = smiles_to_iupac_batch(["CCCCCCC[P+](CCCCCCC)(CCCCCCC)CCCCCCC.[Br-]"])
+
+    assert names == ["tetraheptylphosphanium bromide"]

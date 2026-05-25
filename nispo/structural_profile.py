@@ -19,6 +19,7 @@ class StructuralProfile:
     sulfone_like_count: int
     nonring_positive_sulfur_count: int
     nonring_positive_nitrogen_count: int
+    nonring_positive_phosphorus_count: int
     aromatic_atom_count: int
 
     @property
@@ -56,6 +57,10 @@ class StructuralProfile:
         return self.nonring_positive_nitrogen_count > 0
 
     @property
+    def has_nonring_positive_phosphorus(self) -> bool:
+        return self.nonring_positive_phosphorus_count > 0
+
+    @property
     def has_aromatic_atom(self) -> bool:
         return self.aromatic_atom_count > 0
 
@@ -82,6 +87,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     sulfone_like = 0
     nonring_positive_sulfur = 0
     nonring_positive_nitrogen = 0
+    nonring_positive_phosphorus = 0
     aromatic_atoms = 0
     for idx, symbol in enumerate(view.symbols):
         if view.aromatic_atoms[idx]:
@@ -92,6 +98,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
             nonring_positive_sulfur += 1
         elif symbol == "N":
             nonring_positive_nitrogen += 1
+        elif symbol == "P":
+            nonring_positive_phosphorus += 1
 
     for bond in mol.GetBonds():
         begin = bond.GetBeginAtom()
@@ -132,6 +140,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         sulfone_like_count=sulfone_like,
         nonring_positive_sulfur_count=nonring_positive_sulfur,
         nonring_positive_nitrogen_count=nonring_positive_nitrogen,
+        nonring_positive_phosphorus_count=nonring_positive_phosphorus,
         aromatic_atom_count=aromatic_atoms,
     )
 

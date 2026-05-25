@@ -866,6 +866,14 @@ def _max_nonoxo_ring_double_bond_locs(ring_size: int, oxo_atoms: set[int]) -> li
 
 
 def _sulfanium_name(names: Sequence[str]) -> str:
+    return _substituted_onium_name(names, "sulfanium")
+
+
+def _phosphanium_name(names: Sequence[str]) -> str:
+    return _substituted_onium_name(names, "phosphanium")
+
+
+def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     counts = Counter(names)
     parts = []
     for name in sorted(counts):
@@ -874,7 +882,7 @@ def _sulfanium_name(names: Sequence[str]) -> str:
         if _needs_substituent_parentheses(term):
             term = f"({term})"
         parts.append(term)
-    return "".join(parts) + "sulfanium"
+    return "".join(parts) + parent
 
 
 def _needs_substituent_parentheses(name: str) -> bool:

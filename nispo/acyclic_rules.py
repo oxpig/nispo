@@ -203,19 +203,13 @@ def _oxidanium_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
 def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: int) -> str:
     if carbon_idx not in path:
         return ""
-    path_set = set(path)
-    prefixes: list[tuple[str, str]] = []
-    for pos, idx in enumerate(path, start=1):
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in path_set:
-                continue
-            if idx == carbon_idx and nidx == oxygen_idx:
-                continue
-            prefix = _branch_prefix(mol, nidx, idx)
-            if not prefix:
-                return ""
-            prefixes.append((str(pos), prefix))
+    prefixes = _path_substituent_prefixes(
+        mol,
+        path,
+        skip_bonds={_bond_key(carbon_idx, oxygen_idx)},
+    )
+    if prefixes is None:
+        return ""
 
     replacement_prefixes = _replacement_prefixes(mol, path)
     parent = _parent_chain_name(mol, path, as_substituent=False)
@@ -294,19 +288,13 @@ def _ketene_motifs(mol) -> list[tuple[int, int, int]]:
 def _name_ketene_path(
     mol, path: Sequence[int], alpha_idx: int, carbonyl_idx: int, oxygen_idx: int
 ) -> str:
-    path_set = set(path)
-    prefixes: list[tuple[str, str]] = []
-    for pos, idx in enumerate(path, start=1):
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in path_set:
-                continue
-            if idx == alpha_idx and nidx == carbonyl_idx:
-                continue
-            prefix = _branch_prefix(mol, nidx, idx)
-            if not prefix:
-                return ""
-            prefixes.append((str(pos), prefix))
+    prefixes = _path_substituent_prefixes(
+        mol,
+        path,
+        skip_bonds={_bond_key(alpha_idx, carbonyl_idx)},
+    )
+    if prefixes is None:
+        return ""
 
     replacement_prefixes = _replacement_prefixes(mol, path)
     parent = _parent_chain_name(mol, path, as_substituent=False)
@@ -469,24 +457,43 @@ def _bond_key(a: int, b: int) -> tuple[int, int]:
     return (a, b) if a < b else (b, a)
 
 
-def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> str:
-    if not path:
-        return ""
+def _path_substituent_prefixes(
+    mol,
+    path: Sequence[int],
+    *,
+    skip_bonds: set[tuple[int, int]] | None = None,
+    skip_atoms: set[int] | None = None,
+    allowed_atoms: set[int] | None = None,
+    skip_plain_hydrogen: bool = False,
+) -> list[tuple[str, str]] | None:
     path_set = set(path)
+    skip_bonds = skip_bonds or set()
+    skip_atoms = skip_atoms or set()
     prefixes: list[tuple[str, str]] = []
-
     for pos, idx in enumerate(path, start=1):
-        atom = mol.GetAtomWithIdx(idx)
-        for nbr in atom.GetNeighbors():
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
             nidx = nbr.GetIdx()
-            if nidx in path_set:
+            if nidx in path_set or nidx in skip_atoms:
                 continue
-            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+            if allowed_atoms is not None and nidx not in allowed_atoms:
+                continue
+            if _bond_key(idx, nidx) in skip_bonds:
+                continue
+            if skip_plain_hydrogen and nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
                 continue
             prefix = _branch_prefix(mol, nidx, idx)
             if not prefix:
-                return ""
+                return None
             prefixes.append((str(pos), prefix))
+    return prefixes
+
+
+def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> str:
+    if not path:
+        return ""
+    prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+    if prefixes is None:
+        return ""
 
     replacement_prefixes = _replacement_prefixes(mol, path)
     parent = _parent_chain_name(mol, path, as_substituent=as_substituent)
@@ -679,20 +686,13 @@ def _name_exocyclic_sulfur_suffix_path(
 ) -> str:
     if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in path):
         return ""
-    path_set = set(path)
-    prefixes = []
-    for pos, idx in enumerate(path, start=1):
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in path_set:
-                continue
-            bond = mol.GetBondBetweenAtoms(idx, nidx)
-            if idx == center_idx and nidx == sulfur_idx and bond.GetBondType() == Chem.BondType.DOUBLE:
-                continue
-            prefix = _branch_prefix(mol, nidx, idx)
-            if not prefix:
-                return ""
-            prefixes.append((str(pos), prefix))
+    prefixes = _path_substituent_prefixes(
+        mol,
+        path,
+        skip_bonds={_bond_key(center_idx, sulfur_idx)},
+    )
+    if prefixes is None:
+        return ""
     parent = _parent_chain_name(mol, path, as_substituent=False)
     if not parent or not parent.endswith("ane"):
         return ""
@@ -715,27 +715,14 @@ def _thioamide_parent_name(mol, carbonyl_idx: int, sulfur_idx: int, nitrogen_idx
         root = ROOTS.get(len(path))
         if not root:
             continue
-        path_set = set(path)
-        prefixes = []
-        ok = True
-        for pos, atom_idx in enumerate(path, start=1):
-            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
-                nidx = nbr.GetIdx()
-                if nidx in path_set or nidx == nitrogen_idx:
-                    continue
-                bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
-                if atom_idx == carbonyl_idx and nidx == sulfur_idx and bond.GetBondType() == Chem.BondType.DOUBLE:
-                    continue
-                if nidx not in atoms:
-                    continue
-                prefix = _branch_prefix(mol, nidx, atom_idx)
-                if not prefix:
-                    ok = False
-                    break
-                prefixes.append((str(pos), prefix))
-            if not ok:
-                break
-        if not ok:
+        prefixes = _path_substituent_prefixes(
+            mol,
+            path,
+            skip_bonds={_bond_key(carbonyl_idx, sulfur_idx)},
+            skip_atoms={nitrogen_idx},
+            allowed_atoms=atoms,
+        )
+        if prefixes is None:
             continue
         prefix_text = _format_prefixes(prefixes)
         name = root + "anethioamide"

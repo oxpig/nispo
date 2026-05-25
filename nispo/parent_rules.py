@@ -396,13 +396,13 @@ class SingleRingParentRule:
         if mol.GetRingInfo().NumRings() < 1:
             return
         for ring in mol.GetRingInfo().AtomRings():
-            name = _name_named_ring_instance(mol, tuple(ring), self._Chem)
-            if name:
+            for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
                 yield NameCandidate(
                     name=name,
                     family=self.family,
                     priority=self.priority,
                     sort_key=_single_ring_candidate_sort_key(name),
+                    stereo_prefix=stereo_prefix,
                     )
 
 
@@ -1424,14 +1424,19 @@ def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: di
 
 
 def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
+    candidates = _named_ring_instance_names(mol, ring, Chem)
+    return candidates[0][0] if candidates else ""
+
+
+def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str]]:
     ordered = _ordered_ring(mol, ring)
     if not ordered:
-        return ""
+        return []
     candidates = _ring_parent_candidates(mol, ordered)
     if not candidates:
         candidates = _resource_ring_parent_candidates(mol, ordered, Chem)
     if not candidates:
-        return ""
+        return []
     ring_set = set(ordered)
     raw_subs = []
     for ring_idx in ordered:
@@ -1442,11 +1447,12 @@ def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
                 continue
             prefix = _branch_prefix(mol, nidx, ring_idx)
             if not prefix:
-                return ""
+                return []
             raw_subs.append((ring_idx, prefix))
 
-    best = ""
     best_key = None
+    best_name = ""
+    best_seq: Sequence[int] = ()
     for parent_name, seq in candidates:
         adjusted_parent = _adjust_ring_parent_for_charge(mol, parent_name, seq, raw_subs)
         if not adjusted_parent:
@@ -1456,7 +1462,8 @@ def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
             key = ([], name)
             if best_key is None or key < best_key:
                 best_key = key
-                best = name
+                best_name = name
+                best_seq = seq
             continue
         pos = {idx: i + 1 for i, idx in enumerate(seq)}
         prefixes = [
@@ -1474,7 +1481,8 @@ def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
         key = (locants, 1, name)
         if best_key is None or key < best_key:
             best_key = key
-            best = name
+            best_name = name
+            best_seq = seq
         suffix_name = (
             ""
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
@@ -1484,8 +1492,53 @@ def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
             suffix_key = (locants, 0, suffix_name)
             if best_key is None or suffix_key < best_key:
                 best_key = suffix_key
-                best = suffix_name
-    return best
+                best_name = suffix_name
+                best_seq = seq
+    if not best_name:
+        return []
+    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem))]
+
+
+def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
+    if not seq:
+        return ""
+    if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
+        return ""
+    seq_set = set(seq)
+    tagged_atoms = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged_atoms) < 2:
+        return ""
+    if any(idx not in seq_set for idx in tagged_atoms):
+        return ""
+    if any(
+        bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo() != Chem.BondStereo.STEREONONE
+        for bond in mol.GetBonds()
+    ):
+        return ""
+    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+    centers = [
+        (idx, descriptor)
+        for idx, descriptor in Chem.FindMolChiralCenters(
+            mol,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"R", "S"}
+    ]
+    if len(centers) < 2:
+        return ""
+    locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    if any(idx not in locants for idx, _descriptor in centers):
+        return ""
+    return ",".join(
+        f"{locants[idx]}{descriptor}"
+        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+    )
 
 
 def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

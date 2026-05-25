@@ -17,6 +17,7 @@ class NameCandidate:
     family: str
     priority: int
     sort_key: tuple = ()
+    stereo_prefix: str = ""
 
 
 class MoleculeRule(Protocol):
@@ -58,16 +59,21 @@ class NamingEngine:
                     best = candidate
                     best_key = candidate_key
             if best is not None and best.priority == rule.priority:
-                name = _normalize_terminal_parent_stem(best.name)
-                return apply_stereochemical_prefix(mol, self._Chem, name)
+                return _finalize_candidate_name(mol, self._Chem, best)
         if best is None:
             return ""
-        name = _normalize_terminal_parent_stem(best.name)
-        return apply_stereochemical_prefix(mol, self._Chem, name)
+        return _finalize_candidate_name(mol, self._Chem, best)
 
 
 def _candidate_key(candidate: NameCandidate) -> tuple:
     return (candidate.priority, candidate.sort_key, candidate.name)
+
+
+def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
+    name = _normalize_terminal_parent_stem(candidate.name)
+    if candidate.stereo_prefix and not name.startswith("("):
+        return f"({candidate.stereo_prefix})-{name}"
+    return apply_stereochemical_prefix(mol, Chem, name)
 
 
 def _normalize_terminal_parent_stem(name: str) -> str:

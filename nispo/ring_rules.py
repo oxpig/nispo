@@ -148,12 +148,37 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
     candidates: list[tuple[str, tuple[int, ...]]] = []
 
     if n == 3 and symbols.count("C") == 1 and symbols.count("N") == 2:
-        candidates.extend(_diazirine_candidates(mol, ordered))
+        candidates.extend(
+            _ring_pattern_candidates(
+                mol,
+                ordered,
+                "3H-diazirine",
+                ("N", "N", "C"),
+                checks=(
+                    lambda mol, seq, _ring_set: (bond := mol.GetBondBetweenAtoms(seq[0], seq[1]))
+                    is not None
+                    and bond.GetBondTypeAsDouble() == 2.0,
+                ),
+            )
+        )
         if candidates:
             return candidates
 
     if n == 4 and symbols.count("C") == 3 and symbols.count("N") == 1:
-        candidates.extend(_azetone_candidates(mol, ordered))
+        candidates.extend(
+            _ring_pattern_candidates(
+                mol,
+                ordered,
+                "azet-2-one",
+                ("N", "C", "C", "C"),
+                checks=(
+                    lambda mol, seq, ring_set: _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set),
+                    lambda mol, seq, _ring_set: (bond := mol.GetBondBetweenAtoms(seq[2], seq[3]))
+                    is not None
+                    and bond.GetBondTypeAsDouble() == 2.0,
+                ),
+            )
+        )
         if candidates:
             return candidates
 
@@ -178,7 +203,15 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
     if n == 5 and all_aromatic:
         counts = Counter(symbols)
         if counts == Counter({"C": 2, "N": 1, "O": 2}):
-            candidates.extend(_dioxazolone_candidates(mol, ordered))
+            candidates.extend(
+                _ring_pattern_candidates(
+                    mol,
+                    ordered,
+                    "1,3,4-dioxazol-2-one",
+                    ("O", "C", "O", "N", "C"),
+                    checks=(lambda mol, seq, ring_set: _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set),),
+                )
+            )
             if candidates:
                 return candidates
         candidates = _five_membered_aromatic_candidates(mol, ordered, counts)
@@ -595,42 +628,17 @@ def _drop_indicated_hydrogen_prefix(parent_name: str) -> str:
     return parent_name
 
 
-def _dioxazolone_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+def _ring_pattern_candidates(
+    mol, ordered: Sequence[int], parent: str, symbols: Sequence[str], *, checks=()
+) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
     ring_set = set(ordered)
     for seq in _ring_numberings(ordered):
-        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq] != ["O", "C", "O", "N", "C"]:
+        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq] != list(symbols):
             continue
-        if not _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set):
+        if not all(check(mol, seq, ring_set) for check in checks):
             continue
-        candidates.append(("1,3,4-dioxazol-2-one", seq))
-    return candidates
-
-
-def _diazirine_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
-    candidates = []
-    for seq in _ring_numberings(ordered):
-        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq] != ["N", "N", "C"]:
-            continue
-        bond = mol.GetBondBetweenAtoms(seq[0], seq[1])
-        if bond is None or bond.GetBondTypeAsDouble() != 2.0:
-            continue
-        candidates.append(("3H-diazirine", seq))
-    return candidates
-
-
-def _azetone_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
-    candidates = []
-    ring_set = set(ordered)
-    for seq in _ring_numberings(ordered):
-        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq] != ["N", "C", "C", "C"]:
-            continue
-        if not _ring_atom_has_exocyclic_oxo(mol, seq[1], ring_set):
-            continue
-        unsat = mol.GetBondBetweenAtoms(seq[2], seq[3])
-        if unsat is None or unsat.GetBondTypeAsDouble() != 2.0:
-            continue
-        candidates.append(("azet-2-one", seq))
+        candidates.append((parent, seq))
     return candidates
 
 

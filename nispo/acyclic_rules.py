@@ -13,14 +13,14 @@ else:
 
 from .branch_rules import (
     _branch_prefix,
-    _can_be_in_parent_skeleton,
-    _is_carbonyl_carbon,
-    _parent_chain_name,
-    _replacement_prefixes,
-    _rooted_paths,
-    _substituent_from_root,
-    _substituent_locants,
-    _collect_subtree,
+    can_be_in_parent_skeleton,
+    is_carbonyl_carbon,
+    parent_chain_name,
+    replacement_prefixes,
+    rooted_paths,
+    substituent_from_root,
+    substituent_locants,
+    collect_subtree,
 )
 from .constants import MULT, ROOTS
 from .formatting import format_prefixes as _format_prefixes
@@ -155,7 +155,7 @@ def _oxidanium_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
     allowed = {
         atom.GetIdx()
         for atom in mol.GetAtoms()
-        if not atom.IsInRing() and _can_be_in_parent_skeleton(mol, atom.GetIdx())
+        if not atom.IsInRing() and can_be_in_parent_skeleton(mol, atom.GetIdx())
     }
     if carbon_idx not in allowed:
         return []
@@ -166,7 +166,7 @@ def _oxidanium_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
         if idx == carbon_idx
         or (
             view.symbols[idx] == "C"
-            and not _is_carbonyl_carbon(mol, idx)
+            and not is_carbonyl_carbon(mol, idx)
             and sum(1 for nidx in view.neighbors[idx] if nidx in allowed) <= 1
         )
     ]
@@ -202,12 +202,12 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
     if prefixes is None:
         return ""
 
-    replacement_prefixes = _replacement_prefixes(mol, path)
-    parent = _parent_chain_name(mol, path, as_substituent=False)
+    replacement_text = replacement_prefixes(mol, path)
+    parent = parent_chain_name(mol, path, as_substituent=False)
     if not parent or not parent.endswith("e"):
         return ""
     locant = path.index(carbon_idx) + 1
-    parent = replacement_prefixes + parent if replacement_prefixes else parent
+    parent = replacement_text + parent if replacement_text else parent
     name = f"{parent[:-1]}-{locant}-ylideneoxidanium"
     prefix_text = _format_prefixes(prefixes)
     return prefix_text + "-" + name if prefix_text else name
@@ -287,12 +287,12 @@ def _name_ketene_path(
     if prefixes is None:
         return ""
 
-    replacement_prefixes = _replacement_prefixes(mol, path)
-    parent = _parent_chain_name(mol, path, as_substituent=False)
+    replacement_text = replacement_prefixes(mol, path)
+    parent = parent_chain_name(mol, path, as_substituent=False)
     if not parent:
         return ""
-    if replacement_prefixes:
-        parent = replacement_prefixes + parent
+    if replacement_text:
+        parent = replacement_text + parent
     if not parent.endswith("e"):
         return ""
     locant = path.index(alpha_idx) + 1
@@ -307,7 +307,7 @@ def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[in
         atom.GetIdx()
         for atom in mol.GetAtoms()
         if (allow_ring_atoms or not atom.IsInRing())
-        and _can_be_in_parent_skeleton(mol, atom.GetIdx())
+        and can_be_in_parent_skeleton(mol, atom.GetIdx())
     ]
     allowed_set = set(allowed)
     if not allowed:
@@ -317,7 +317,7 @@ def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[in
         idx
         for idx in allowed
         if view.symbols[idx] == "C"
-        and not _is_carbonyl_carbon(mol, idx)
+        and not is_carbonyl_carbon(mol, idx)
     ]
     if len(endpoints) < 2:
         endpoints = [idx for idx in allowed if view.symbols[idx] == "C"]
@@ -482,16 +482,16 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
     if prefixes is None:
         return ""
 
-    replacement_prefixes = _replacement_prefixes(mol, path)
-    parent = _parent_chain_name(mol, path, as_substituent=as_substituent)
+    replacement_text = replacement_prefixes(mol, path)
+    parent = parent_chain_name(mol, path, as_substituent=as_substituent)
     if not parent:
         return ""
     prefix_text = _format_prefixes(prefixes)
     pieces = []
     if prefix_text:
         pieces.append(prefix_text)
-    if replacement_prefixes:
-        pieces.append(replacement_prefixes + parent)
+    if replacement_text:
+        pieces.append(replacement_text + parent)
     else:
         pieces.append(parent)
     return "-".join(pieces)
@@ -680,7 +680,7 @@ def _name_exocyclic_sulfur_suffix_path(
     )
     if prefixes is None:
         return ""
-    parent = _parent_chain_name(mol, path, as_substituent=False)
+    parent = parent_chain_name(mol, path, as_substituent=False)
     if not parent or not parent.endswith("ane"):
         return ""
     locant = path.index(center_idx) + 1
@@ -690,8 +690,8 @@ def _name_exocyclic_sulfur_suffix_path(
 
 
 def _thioamide_parent_name(mol, carbonyl_idx: int, sulfur_idx: int, nitrogen_idx: int) -> str:
-    atoms = _collect_subtree(mol, carbonyl_idx, nitrogen_idx)
-    paths = _rooted_paths(mol, carbonyl_idx, atoms)
+    atoms = collect_subtree(mol, carbonyl_idx, nitrogen_idx)
+    paths = rooted_paths(mol, carbonyl_idx, atoms)
     best = ""
     best_key = None
     for path in paths:
@@ -715,7 +715,7 @@ def _thioamide_parent_name(mol, carbonyl_idx: int, sulfur_idx: int, nitrogen_idx
         name = root + "anethioamide"
         if prefix_text:
             name = prefix_text + name
-        key = (-len(path), _substituent_locants(mol, path, atoms, nitrogen_idx), name)
+        key = (-len(path), substituent_locants(mol, path, atoms, nitrogen_idx), name)
         if best_key is None or key < best_key:
             best_key = key
             best = name
@@ -728,7 +728,7 @@ def _thioamide_n_prefix(mol, nitrogen_idx: int, carbonyl_idx: int) -> str | None
         nidx = nbr.GetIdx()
         if nidx == carbonyl_idx:
             continue
-        name = _substituent_from_root(mol, nidx, nitrogen_idx)
+        name = substituent_from_root(mol, nidx, nitrogen_idx)
         if not name:
             return None
         groups.append(name)

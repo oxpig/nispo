@@ -44,7 +44,7 @@ _HALOSULFUR_OXO_PREFIXES = {
 _SULFUR_OXO_SUBSTITUENT_SUFFIX = {2: "sulfonyl", 1: "sulfinyl", 0: "sulfanyl"}
 
 
-def _can_be_in_parent_skeleton(mol, idx: int) -> bool:
+def can_be_in_parent_skeleton(mol, idx: int) -> bool:
     cache = getattr(mol, "_nispo_parent_skeleton_atom_cache", None)
     if cache is None:
         cache = {}
@@ -80,7 +80,7 @@ def _can_be_in_parent_skeleton(mol, idx: int) -> bool:
     return result
 
 
-def _replacement_prefixes(mol, path: Sequence[int]) -> str:
+def replacement_prefixes(mol, path: Sequence[int]) -> str:
     grouped: dict[str, list[int]] = defaultdict(list)
     for pos, idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(idx)
@@ -99,7 +99,7 @@ def _replacement_prefixes(mol, path: Sequence[int]) -> str:
     return "-".join(parts)
 
 
-def _parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) -> str:
+def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) -> str:
     n = len(path)
     root = ROOTS.get(n)
     if root is None:
@@ -181,7 +181,7 @@ def _resource_prefix(mol, idx: int, parent_idx: int) -> str:
 def _carbon_prefix(mol, idx: int, parent_idx: int) -> str:
     if _is_carbonyl_oxygen_idx(mol, idx):
         return ""
-    return _substituent_from_root(mol, idx, parent_idx)
+    return substituent_from_root(mol, idx, parent_idx)
 
 
 def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -328,7 +328,7 @@ def _subtree_has_ring(mol, root_idx: int, blocked_idx: int) -> bool:
         cached = cache.get(key)
         if cached is not None:
             return cached
-    result = any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in _collect_subtree(mol, root_idx, blocked_idx))
+    result = any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in collect_subtree(mol, root_idx, blocked_idx))
     if cache is not None:
         cache[key] = result
     return result
@@ -446,7 +446,7 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
             if symbol in HALO:
                 substituent_names.append(HALO[symbol])
                 continue
-            name = _substituent_from_root(mol, nidx, idx)
+            name = substituent_from_root(mol, nidx, idx)
             if not name:
                 substituent_names = []
                 break
@@ -544,7 +544,7 @@ def _enone_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
         if nidx == idx:
             continue
         bond = mol.GetBondBetweenAtoms(beta_idx, nidx)
-        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE and _is_carbonyl_carbon(mol, nidx):
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE and is_carbonyl_carbon(mol, nidx):
             carbonyls.append(nidx)
         else:
             return ""
@@ -687,7 +687,7 @@ def _acyloxy_ligand_name(mol, oxygen_idx: int, iodine_idx: int) -> str:
         if nidx == iodine_idx or nbr.GetSymbol() != "C":
             continue
         bond = mol.GetBondBetweenAtoms(oxygen_idx, nidx)
-        if bond.GetBondType() == Chem.BondType.SINGLE and _is_carbonyl_carbon(mol, nidx):
+        if bond.GetBondType() == Chem.BondType.SINGLE and is_carbonyl_carbon(mol, nidx):
             carbonyls.append(nidx)
     if len(carbonyls) != 1:
         return ""
@@ -696,8 +696,8 @@ def _acyloxy_ligand_name(mol, oxygen_idx: int, iodine_idx: int) -> str:
 
 
 def _acyl_parent_name(mol, carbonyl_idx: int, blocked_idx: int) -> str:
-    atoms = _collect_subtree(mol, carbonyl_idx, blocked_idx)
-    paths = _rooted_paths(mol, carbonyl_idx, atoms)
+    atoms = collect_subtree(mol, carbonyl_idx, blocked_idx)
+    paths = rooted_paths(mol, carbonyl_idx, atoms)
     best = ""
     best_key = None
     for path in paths:
@@ -734,7 +734,7 @@ def _acyl_parent_name(mol, carbonyl_idx: int, blocked_idx: int) -> str:
         name = root + "anoyl"
         if prefix_text:
             name = prefix_text + name
-        key = (-len(path), _substituent_locants(mol, path, atoms, blocked_idx), name)
+        key = (-len(path), substituent_locants(mol, path, atoms, blocked_idx), name)
         if best_key is None or key < best_key:
             best_key = key
             best = name
@@ -897,7 +897,7 @@ def _iminomethyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(didx).IsInRing():
         name = _ring_substituent_prefix(mol, didx, nidx)
     else:
-        name = _substituent_from_root(mol, didx, nidx)
+        name = substituent_from_root(mol, didx, nidx)
     if not name:
         return ""
     return name + "iminomethyl"
@@ -929,7 +929,7 @@ def _difluoro_substituted_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(attached).IsInRing():
         name = _ring_substituent_prefix(mol, attached, idx)
     else:
-        name = _substituent_from_root(mol, attached, idx)
+        name = substituent_from_root(mol, attached, idx)
     if not name:
         return ""
     return f"({name})difluoromethyl"
@@ -1065,10 +1065,10 @@ def _alkynyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     for path in paths:
         if not _simple_alkynyl_side_branches(mol, path, parent_idx):
             continue
-        name = _name_subtree_path(mol, path, set(_collect_subtree(mol, idx, parent_idx)), parent_idx)
+        name = _name_subtree_path(mol, path, set(collect_subtree(mol, idx, parent_idx)), parent_idx)
         if not name:
             continue
-        key = (-len(path), _substituent_locants(mol, path, set(path), parent_idx), name)
+        key = (-len(path), substituent_locants(mol, path, set(path), parent_idx), name)
         if best_key is None or key < best_key:
             best_key = key
             best = name
@@ -1470,7 +1470,7 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
             if ring == "phenyl":
                 return "phenoxy"
             return f"({ring})oxy"
-        alk = _substituent_from_root(mol, heavy[0], idx)
+        alk = substituent_from_root(mol, heavy[0], idx)
         return _alkyl_to_alkoxy(alk)
     return ""
 
@@ -1538,7 +1538,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
             if mol.GetAtomWithIdx(nidx).IsInRing():
                 name = _ring_substituent_prefix(mol, nidx, idx)
             else:
-                name = _substituent_from_root(mol, nidx, idx)
+                name = substituent_from_root(mol, nidx, idx)
             if not name:
                 return ""
             names.append(name)
@@ -1589,7 +1589,7 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_nitrile_carbon(mol, idx)
         else _functional_carbon_substituent_name(mol, idx, parent_idx)
         or _carbonyl_substituent_prefix(mol, idx, parent_idx)
-        or _substituent_from_root(mol, idx, parent_idx)
+        or substituent_from_root(mol, idx, parent_idx)
     )
 
 
@@ -1651,7 +1651,7 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
             if _is_nitrile_carbon(mol, substituent_idx)
             else _functional_carbon_substituent_name(mol, substituent_idx, idx)
             or _carbonyl_substituent_prefix(mol, substituent_idx, idx)
-            or _substituent_from_root(mol, substituent_idx, idx)
+            or substituent_from_root(mol, substituent_idx, idx)
         )
     elif substituent.GetSymbol() == "N":
         name = _nitrogen_prefix(mol, substituent_idx, idx)
@@ -1689,7 +1689,7 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(attached).IsInRing():
         name = _ring_substituent_prefix(mol, attached, idx)
     else:
-        name = "cyano" if _is_nitrile_carbon(mol, attached) else _substituent_from_root(mol, attached, idx)
+        name = "cyano" if _is_nitrile_carbon(mol, attached) else substituent_from_root(mol, attached, idx)
     if not name:
         return ""
     if "-" in name or name.startswith("("):
@@ -1747,7 +1747,7 @@ def _diazenyl_prefix(mol, idx: int, parent_idx: int) -> str:
         if mol.GetAtomWithIdx(didx).IsInRing():
             name = _ring_substituent_prefix(mol, didx, nidx)
         else:
-            name = _substituent_from_root(mol, didx, nidx)
+            name = substituent_from_root(mol, didx, nidx)
         if name:
             return name + "diazenyl"
     return ""
@@ -1792,7 +1792,7 @@ def _azoxy_prefix(mol, idx: int, parent_idx: int) -> str:
             if name and not (name.startswith("(") or "-" in name):
                 return f"({name}azoxy)"
         else:
-            name = _substituent_from_root(mol, didx, nidx)
+            name = substituent_from_root(mol, didx, nidx)
         if not name:
             continue
         if "-" in name or name.startswith("("):
@@ -1946,7 +1946,7 @@ def _imine_carbon_ylidene(mol, carbon_idx: int, nitrogen_idx: int) -> str:
             if name and name.endswith("yl"):
                 return name + "methylidene"
             return ""
-        name = _substituent_from_root(mol, sub_idx, carbon_idx)
+        name = substituent_from_root(mol, sub_idx, carbon_idx)
         if name and "-" not in name and not name.startswith("("):
             return name + "methylidene"
         return ""
@@ -1956,7 +1956,7 @@ def _imine_carbon_ylidene(mol, carbon_idx: int, nitrogen_idx: int) -> str:
             if mol.GetAtomWithIdx(sub_idx).IsInRing():
                 name = _ring_substituent_prefix(mol, sub_idx, carbon_idx)
             else:
-                name = _substituent_from_root(mol, sub_idx, carbon_idx)
+                name = substituent_from_root(mol, sub_idx, carbon_idx)
             if not name or "-" in name or name.startswith("("):
                 return ""
             names.append(name)
@@ -2046,7 +2046,7 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             if sulfur.endswith("sulfanyl"):
                 return sulfur[: -len("sulfanyl")] + "disulfanyl"
             return sulfur + "sulfanyl"
-        alk = _substituent_from_root(mol, heavy[0], idx)
+        alk = substituent_from_root(mol, heavy[0], idx)
         if not alk:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)
@@ -2087,7 +2087,7 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if single_atom.GetSymbol() in HALO:
         s_group = HALO[single_atom.GetSymbol()]
     else:
-        s_group = _substituent_from_root(mol, single_groups[0], idx)
+        s_group = substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
         return ""
     n_group = _imino_n_substituent_name(mol, imino[0], idx)
@@ -2108,7 +2108,7 @@ def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:
     carbamoyl = _carbamoyl_substituent_name(mol, attached, nidx)
     if carbamoyl:
         return carbamoyl
-    name = _substituent_from_root(mol, attached, nidx)
+    name = substituent_from_root(mol, attached, nidx)
     if not name:
         return None
     return name
@@ -2138,7 +2138,7 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
         nbr_idx = nbr.GetIdx()
         if nbr_idx == cidx:
             continue
-        name = _substituent_from_root(mol, nbr_idx, amine)
+        name = substituent_from_root(mol, nbr_idx, amine)
         if not name:
             return ""
         groups.append(name)
@@ -2158,7 +2158,7 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
     return "".join(parts) + "carbamoyl"
 
 
-def _substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
+def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
     cache = getattr(mol, "_nispo_substituent_from_root_cache", None)
     if cache is None:
         cache = {}
@@ -2171,8 +2171,8 @@ def _substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
         cached = cache.get(key)
         if cached is not None:
             return cached
-    atoms = _collect_subtree(mol, root_idx, blocked_idx)
-    paths = _rooted_paths(mol, root_idx, atoms)
+    atoms = collect_subtree(mol, root_idx, blocked_idx)
+    paths = rooted_paths(mol, root_idx, atoms)
     if not paths:
         if cache is not None:
             cache[key] = ""
@@ -2183,7 +2183,7 @@ def _substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
         name = _name_subtree_path(mol, path, atoms, blocked_idx)
         if not name:
             continue
-        key = (-len(path), _substituent_locants(mol, path, atoms, blocked_idx), name)
+        key = (-len(path), substituent_locants(mol, path, atoms, blocked_idx), name)
         if best_key is None or key < best_key:
             best_key = key
             best = name
@@ -2197,7 +2197,7 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
     prefixes = []
     for pos, idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(idx)
-        if not _can_be_in_parent_skeleton(mol, idx):
+        if not can_be_in_parent_skeleton(mol, idx):
             return ""
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -2211,10 +2211,10 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
             if not prefix:
                 return ""
             prefixes.append((str(pos), prefix))
-    parent = _parent_chain_name(mol, path, as_substituent=True)
+    parent = parent_chain_name(mol, path, as_substituent=True)
     if not parent:
         return ""
-    repl = _replacement_prefixes(mol, path)
+    repl = replacement_prefixes(mol, path)
     prefix_text = _format_prefixes(prefixes)
     pieces = []
     if prefix_text:
@@ -2226,7 +2226,7 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
     return "-".join(pieces)
 
 
-def _substituent_locants(mol, path: Sequence[int], atoms: set[int], blocked_idx: int) -> list[int]:
+def substituent_locants(mol, path: Sequence[int], atoms: set[int], blocked_idx: int) -> list[int]:
     path_set = set(path)
     locs = []
     for pos, idx in enumerate(path, start=1):
@@ -2241,7 +2241,7 @@ def _substituent_locants(mol, path: Sequence[int], atoms: set[int], blocked_idx:
     return locs
 
 
-def _rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
+def rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
     cache = getattr(mol, "_nispo_rooted_paths_cache", None)
     if cache is None:
         cache = {}
@@ -2264,7 +2264,7 @@ def _rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
         for idx in path_atoms
         if idx != root_idx
         and sum(1 for n in mol.GetAtomWithIdx(idx).GetNeighbors() if n.GetIdx() in path_atoms) <= 1
-        and _can_be_in_parent_skeleton(mol, idx)
+        and can_be_in_parent_skeleton(mol, idx)
     ]
     if not leaves:
         leaves = [root_idx]
@@ -2275,7 +2275,7 @@ def _rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
             path = (root_idx,)
         else:
             path = Chem.rdmolops.GetShortestPath(mol, root_idx, leaf)
-        if any(idx not in path_atoms or not _can_be_in_parent_skeleton(mol, idx) for idx in path):
+        if any(idx not in path_atoms or not can_be_in_parent_skeleton(mol, idx) for idx in path):
             continue
         if len(path) > best_len:
             best_len = len(path)
@@ -2287,7 +2287,7 @@ def _rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
     return paths
 
 
-def _collect_subtree(mol, start_idx: int, blocked_idx: int) -> set[int]:
+def collect_subtree(mol, start_idx: int, blocked_idx: int) -> set[int]:
     cache = getattr(mol, "_nispo_collect_subtree_cache", None)
     if cache is None:
         cache = {}
@@ -2329,7 +2329,7 @@ def _is_terminal_carbonyl_oxygen(atom) -> bool:
     return bond.GetBondType() == Chem.BondType.DOUBLE
 
 
-def _is_carbonyl_carbon(mol, idx: int) -> bool:
+def is_carbonyl_carbon(mol, idx: int) -> bool:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "C":
         return False
@@ -2440,7 +2440,7 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(distal).IsInRing():
         name = _ring_substituent_prefix(mol, distal, idx)
     else:
-        name = _substituent_from_root(mol, distal, idx)
+        name = substituent_from_root(mol, distal, idx)
     if not name:
         return ""
     return name + "carbonyl"
@@ -2492,7 +2492,7 @@ def _alkoxycarbonyl_prefix(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
             return ""
         oxy = "phenoxy" if ring == "phenyl" else f"({ring})oxy"
     else:
-        alk = _substituent_from_root(mol, attached, oxygen_idx)
+        alk = substituent_from_root(mol, attached, oxygen_idx)
         if not alk:
             return ""
         oxy = _alkyl_to_alkoxy(alk)

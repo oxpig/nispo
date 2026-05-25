@@ -793,15 +793,6 @@ def _guanidine_parent_templates(Chem) -> tuple[dict, ...]:
     )
 
 
-def _template_matches(mol, template: dict, Chem):
-    if not template.get("stereochemical"):
-        return mol.GetSubstructMatches(template["mol"], uniquify=False)
-    params = Chem.SubstructMatchParameters()
-    params.uniquify = False
-    params.useChirality = True
-    return mol.GetSubstructMatches(template["mol"], params)
-
-
 def _iter_fused_template_matches(
     ctx,
     templates: Sequence[dict],

@@ -28,7 +28,14 @@ def test_representative_names_roundtrip_through_opsin(tmp_path):
     if java_check.returncode != 0:
         pytest.skip("Java runtime is not available for OPSIN")
 
-    smiles = ["CC", "c1ccccc1", "CCO", "CC(=O)N"]
+    smiles = [
+        "CC",
+        "c1ccccc1",
+        "CCO",
+        "CC(=O)N",
+        "OC[C@@H](O)C(O)[C@@H](O)CO",
+        "C/C=C/C",
+    ]
     names = smiles_to_iupac_batch(smiles)
     names_file = tmp_path / "names.txt"
     out_file = tmp_path / "opsin.smi"

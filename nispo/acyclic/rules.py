@@ -26,6 +26,7 @@ from ..constants import MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
 from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from ..stereochemistry import assigned_atom_stereochemistry
 
 
 MAX_ACYCLIC_PARENT_PATHS = 48
@@ -479,7 +480,55 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         pieces.append(replacement_text + parent)
     else:
         pieces.append(parent)
-    return "-".join(pieces)
+    name = "-".join(pieces)
+    stereo_prefix = _complete_path_stereo_prefix(mol, path)
+    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _complete_path_stereo_prefix(mol, path: Sequence[int]) -> str:
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    bond_descriptors = _path_bond_stereo_descriptors(mol, path)
+    if bond_descriptors is None:
+        return ""
+    if not assigned and not bond_descriptors:
+        return ""
+    locants = {idx: pos for pos, idx in enumerate(path, start=1)}
+    if any(idx not in locants for idx, _descriptor in assigned):
+        return ""
+    atom_descriptors = [
+        (locants[idx], f"{locants[idx]}{descriptor}")
+        for idx, descriptor in assigned
+    ]
+    descriptors = atom_descriptors + bond_descriptors
+    return ",".join(text for _locant, text in sorted(descriptors))
+
+
+def _path_bond_stereo_descriptors(mol, path: Sequence[int]) -> list[tuple[int, str]] | None:
+    locants = {idx: pos for pos, idx in enumerate(path, start=1)}
+    descriptors: list[tuple[int, str]] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo == Chem.BondStereo.STEREONONE:
+            continue
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in locants or end not in locants:
+            return None
+        begin_locant = locants[begin]
+        end_locant = locants[end]
+        if abs(begin_locant - end_locant) != 1:
+            return None
+        locant = min(begin_locant, end_locant)
+        descriptors.append((locant, f"{locant}{descriptor}"))
+    return descriptors
 
 
 def _name_thioamide(mol) -> str:

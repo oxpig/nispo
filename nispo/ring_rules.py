@@ -2,9 +2,93 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import loc_unsat
+
+
+@dataclass(frozen=True, slots=True)
+class _SaturatedHeterocycleSpec:
+    size: int
+    counts: tuple[tuple[str, int], ...]
+    anchor_symbol: str
+    parent: str
+    locant_symbol: str = ""
+    locants: tuple[int, ...] = ()
+
+
+_SATURATED_HETEROCYCLE_SPECS: tuple[_SaturatedHeterocycleSpec, ...] = (
+    _SaturatedHeterocycleSpec(3, (("C", 2), ("N", 1)), "N", "aziridine"),
+    _SaturatedHeterocycleSpec(3, (("C", 2), ("O", 1)), "O", "oxirane"),
+    _SaturatedHeterocycleSpec(3, (("C", 2), ("S", 1)), "S", "thiirane"),
+    _SaturatedHeterocycleSpec(4, (("C", 3), ("N", 1)), "N", "azetidine"),
+    _SaturatedHeterocycleSpec(4, (("C", 3), ("O", 1)), "O", "oxetane"),
+    _SaturatedHeterocycleSpec(4, (("C", 3), ("S", 1)), "S", "thietane"),
+    _SaturatedHeterocycleSpec(5, (("C", 3), ("O", 2)), "O", "1,3-dioxolane", "O", (1, 3)),
+    _SaturatedHeterocycleSpec(5, (("C", 4), ("N", 1)), "N", "pyrrolidine"),
+    _SaturatedHeterocycleSpec(5, (("C", 4), ("O", 1)), "O", "oxolane"),
+    _SaturatedHeterocycleSpec(6, (("C", 4), ("O", 2)), "O", "1,3-dioxane", "O", (1, 3)),
+    _SaturatedHeterocycleSpec(6, (("C", 4), ("O", 2)), "O", "1,4-dioxane", "O", (1, 4)),
+    _SaturatedHeterocycleSpec(6, (("C", 5), ("N", 1)), "N", "piperidine"),
+    _SaturatedHeterocycleSpec(6, (("C", 5), ("O", 1)), "O", "oxane"),
+    _SaturatedHeterocycleSpec(6, (("C", 5), ("S", 1)), "S", "thiane"),
+    _SaturatedHeterocycleSpec(6, (("C", 4), ("N", 2)), "N", "piperazine", "N", (1, 4)),
+    _SaturatedHeterocycleSpec(6, (("C", 4), ("N", 1), ("O", 1)), "O", "morpholine", "N", (4,)),
+    _SaturatedHeterocycleSpec(7, (("C", 6), ("N", 1)), "N", "azepane"),
+    _SaturatedHeterocycleSpec(7, (("C", 6), ("O", 1)), "O", "oxepane"),
+    _SaturatedHeterocycleSpec(7, (("C", 6), ("S", 1)), "S", "thiepane"),
+)
+
+
+_SATURATED_SUBSTITUENT_STEMS = {
+    "aziridine": "aziridin",
+    "azetidine": "azetidin",
+    "pyrrolidine": "pyrrolidin",
+    "azepane": "azepan",
+    "oxirane": "oxiran",
+    "oxetane": "oxetan",
+    "oxolane": "oxolan",
+    "oxane": "oxan",
+    "oxepane": "oxepan",
+    "thiirane": "thiiran",
+    "thietane": "thietan",
+    "thiane": "thian",
+    "thiepane": "thiepan",
+    "1,3-dioxolane": "1,3-dioxolan",
+    "1,3-dioxane": "1,3-dioxan",
+    "1,4-dioxane": "1,4-dioxan",
+}
+
+
+_CHARGEABLE_SUBSTITUENT_STEMS = {
+    "pyridine": "pyridin",
+    "pyrimidine": "pyrimidin",
+    "pyrazine": "pyrazin",
+    "pyridazine": "pyridazin",
+    "thiophene": "thiophen",
+    "thiazole": "thiazol",
+    "isothiazole": "isothiazol",
+    "piperidine": "piperidin",
+    "piperazine": "piperazin",
+    "morpholine": "morpholin",
+}
+
+
+_NEUTRAL_SUBSTITUENT_STEMS = {
+    "furan": "furan",
+    "oxazole": "oxazol",
+    "isoxazole": "isoxazol",
+}
+
+
+_INDICATED_H_SUBSTITUENT_STEMS = {
+    "1H-pyrrole": "1H-pyrrol",
+    "1H-1,2,3-triazole": "1H-1,2,3-triazol",
+    "1H-1,2,4-triazole": "1H-1,2,4-triazol",
+    "1H-tetrazole": "1H-tetrazol",
+    "3H-diazirine": "3H-diazirin",
+}
 
 
 def _join_locants(locs: Sequence[int]) -> str:
@@ -219,64 +303,9 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
                 return candidates
 
     if all_aliphatic and all_single_bonds:
-        if n == 3 and symbols.count("N") == 1 and symbols.count("C") == 2:
-            return [("aziridine", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if n == 3 and symbols.count("O") == 1 and symbols.count("C") == 2:
-            return [("oxirane", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
-        if n == 3 and symbols.count("S") == 1 and symbols.count("C") == 2:
-            return [("thiirane", seq) for seq in _numberings_with_atom_at(ordered, mol, "S")]
-        if n == 4 and symbols.count("N") == 1 and symbols.count("C") == 3:
-            return [("azetidine", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if n == 4 and symbols.count("O") == 1 and symbols.count("C") == 3:
-            return [("oxetane", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
-        if n == 4 and symbols.count("S") == 1 and symbols.count("C") == 3:
-            return [("thietane", seq) for seq in _numberings_with_atom_at(ordered, mol, "S")]
-        if n == 5 and symbols.count("O") == 2 and symbols.count("C") == 3:
-            for seq in _numberings_with_atom_at(ordered, mol, "O"):
-                o_locs = sorted(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "O")
-                if o_locs == [1, 3]:
-                    candidates.append(("1,3-dioxolane", seq))
-            if candidates:
-                return candidates
-        if n == 6 and symbols.count("O") == 2 and symbols.count("C") == 4:
-            for seq in _numberings_with_atom_at(ordered, mol, "O"):
-                o_locs = sorted(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "O")
-                if o_locs == [1, 3]:
-                    candidates.append(("1,3-dioxane", seq))
-                if o_locs == [1, 4]:
-                    candidates.append(("1,4-dioxane", seq))
-            if candidates:
-                return candidates
-        if n == 6 and symbols.count("N") == 1 and symbols.count("C") == 5:
-            return [("piperidine", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if n == 6 and symbols.count("O") == 1 and symbols.count("C") == 5:
-            return [("oxane", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
-        if n == 6 and symbols.count("S") == 1 and symbols.count("C") == 5:
-            return [("thiane", seq) for seq in _numberings_with_atom_at(ordered, mol, "S")]
-        if n == 6 and symbols.count("N") == 2 and symbols.count("C") == 4:
-            for seq in _numberings_with_atom_at(ordered, mol, "N"):
-                n_locs = sorted(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                if n_locs == [1, 4]:
-                    candidates.append(("piperazine", seq))
-            if candidates:
-                return candidates
-        if n == 6 and symbols.count("N") == 1 and symbols.count("O") == 1 and symbols.count("C") == 4:
-            for seq in _numberings_with_atom_at(ordered, mol, "O"):
-                n_locs = sorted(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N")
-                if n_locs == [4]:
-                    candidates.append(("morpholine", seq))
-            if candidates:
-                return candidates
-        if n == 7 and symbols.count("N") == 1 and symbols.count("C") == 6:
-            return [("azepane", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if n == 7 and symbols.count("O") == 1 and symbols.count("C") == 6:
-            return [("oxepane", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
-        if n == 7 and symbols.count("S") == 1 and symbols.count("C") == 6:
-            return [("thiepane", seq) for seq in _numberings_with_atom_at(ordered, mol, "S")]
-        if n == 5 and symbols.count("N") == 1 and symbols.count("C") == 4:
-            return [("pyrrolidine", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
-        if n == 5 and symbols.count("O") == 1 and symbols.count("C") == 4:
-            return [("oxolane", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
+        candidates = _fixed_saturated_heterocycle_candidates(mol, ordered, symbols)
+        if candidates:
+            return candidates
         if 3 <= n <= max(ROOTS) and all(sym in SKELETON_ATOMS for sym in symbols) and any(sym != "C" for sym in symbols):
             for seq in _ring_numberings(ordered):
                 if mol.GetAtomWithIdx(seq[0]).GetSymbol() == "C":
@@ -286,6 +315,28 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
                     candidates.append((parent, seq))
             return candidates
 
+    return candidates
+
+
+def _fixed_saturated_heterocycle_candidates(
+    mol, ordered: Sequence[int], symbols: Sequence[str]
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    counts = Counter(symbols)
+    size = len(ordered)
+    for spec in _SATURATED_HETEROCYCLE_SPECS:
+        if size != spec.size or counts != Counter(dict(spec.counts)):
+            continue
+        for seq in _numberings_with_atom_at(ordered, mol, spec.anchor_symbol):
+            if spec.locant_symbol:
+                locants = tuple(
+                    i + 1
+                    for i, idx in enumerate(seq)
+                    if mol.GetAtomWithIdx(idx).GetSymbol() == spec.locant_symbol
+                )
+                if locants != spec.locants:
+                    continue
+            candidates.append((spec.parent, seq))
     return candidates
 
 
@@ -559,32 +610,14 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
     h_azine = _azine_indicated_hydrogen_substituent_suffix(parent_name, loc, charge_loc)
     if h_azine:
         return h_azine
-    if parent_name == "pyridine":
-        if charge_loc is not None:
-            return f"pyridin-{charge_loc}-ium-{loc}-yl"
-        return f"pyridin-{loc}-yl"
-    if parent_name == "pyrimidine":
-        if charge_loc is not None:
-            return f"pyrimidin-{charge_loc}-ium-{loc}-yl"
-        return f"pyrimidin-{loc}-yl"
+    stem = _CHARGEABLE_SUBSTITUENT_STEMS.get(parent_name)
+    if stem:
+        return _substituent_suffix_from_stem(stem, loc, charge_loc)
+    stem = _NEUTRAL_SUBSTITUENT_STEMS.get(parent_name)
+    if stem:
+        return _substituent_suffix_from_stem(stem, loc)
     if parent_name.endswith("dihydropyrimidine"):
         return f"{parent_name[:-1]}-{loc}-yl"
-    if parent_name == "pyrazine":
-        if charge_loc is not None:
-            return f"pyrazin-{charge_loc}-ium-{loc}-yl"
-        return f"pyrazin-{loc}-yl"
-    if parent_name == "pyridazine":
-        if charge_loc is not None:
-            return f"pyridazin-{charge_loc}-ium-{loc}-yl"
-        return f"pyridazin-{loc}-yl"
-    if parent_name == "furan":
-        return f"furan-{loc}-yl"
-    if parent_name == "thiophene":
-        if charge_loc is not None:
-            return f"thiophen-{charge_loc}-ium-{loc}-yl"
-        return f"thiophen-{loc}-yl"
-    if parent_name == "1H-pyrrole":
-        return f"1H-pyrrol-{loc}-yl"
     if parent_name == "1H-imidazole":
         if charge_loc is not None:
             return f"imidazol-{charge_loc}-ium-{loc}-yl"
@@ -601,30 +634,13 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         if charge_loc is not None:
             return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-ium-{loc}-yl"
         return f"{parent_name[:-1]}-{loc}-yl"
-    if parent_name == "oxazole":
-        return f"oxazol-{loc}-yl"
-    if parent_name == "isoxazole":
-        return f"isoxazol-{loc}-yl"
-    if parent_name == "3H-diazirine":
-        return f"3H-diazirin-{loc}-yl"
+    stem = _INDICATED_H_SUBSTITUENT_STEMS.get(parent_name)
+    if stem:
+        return _substituent_suffix_from_stem(stem, loc)
     if parent_name == "azet-2-one":
         return f"2-oxoazet-{loc}-yl"
     if parent_name == "1,3,4-dioxazol-2-one":
         return f"2-oxo-1,3,4-dioxazol-{loc}-yl"
-    if parent_name == "thiazole":
-        if charge_loc is not None:
-            return f"thiazol-{charge_loc}-ium-{loc}-yl"
-        return f"thiazol-{loc}-yl"
-    if parent_name == "isothiazole":
-        if charge_loc is not None:
-            return f"isothiazol-{charge_loc}-ium-{loc}-yl"
-        return f"isothiazol-{loc}-yl"
-    if parent_name == "1H-1,2,3-triazole":
-        return f"1H-1,2,3-triazol-{loc}-yl"
-    if parent_name == "1H-1,2,4-triazole":
-        return f"1H-1,2,4-triazol-{loc}-yl"
-    if parent_name == "1H-tetrazole":
-        return f"1H-tetrazol-{loc}-yl"
     if parent_name.endswith("triazole"):
         if charge_loc is not None:
             base = _drop_indicated_hydrogen_prefix(parent_name)
@@ -639,47 +655,19 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return f"{parent_name[:-1]}-{loc}-yl"
     if parent_name.startswith("cyclo") and parent_name.endswith("ane"):
         return parent_name[:-3] + "yl" if loc == 1 else ""
-    if parent_name == "piperidine":
-        if charge_loc is not None:
-            return f"piperidin-{charge_loc}-ium-{loc}-yl"
-        return f"piperidin-{loc}-yl"
-    if parent_name == "piperazine":
-        if charge_loc is not None:
-            return f"piperazin-{charge_loc}-ium-{loc}-yl"
-        return f"piperazin-{loc}-yl"
-    if parent_name == "morpholine":
-        if charge_loc is not None:
-            return f"morpholin-{charge_loc}-ium-{loc}-yl"
-        return f"morpholin-{loc}-yl"
-    saturated_stems = {
-        "aziridine": "aziridin",
-        "azetidine": "azetidin",
-        "pyrrolidine": "pyrrolidin",
-        "azepane": "azepan",
-        "oxirane": "oxiran",
-        "oxetane": "oxetan",
-        "oxolane": "oxolan",
-        "oxane": "oxan",
-        "oxepane": "oxepan",
-        "thiirane": "thiiran",
-        "thietane": "thietan",
-        "thiane": "thian",
-        "thiepane": "thiepan",
-        "1,3-dioxolane": "1,3-dioxolan",
-        "1,3-dioxane": "1,3-dioxan",
-        "1,4-dioxane": "1,4-dioxan",
-    }
-    stem = saturated_stems.get(parent_name)
+    stem = _SATURATED_SUBSTITUENT_STEMS.get(parent_name)
     if stem:
-        if charge_loc is not None:
-            return f"{stem}-{charge_loc}-ium-{loc}-yl"
-        return f"{stem}-{loc}-yl"
+        return _substituent_suffix_from_stem(stem, loc, charge_loc)
     if parent_name.isascii() and " " not in parent_name and loc >= 1:
         stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
-        if charge_loc is not None:
-            return f"{stem}-{charge_loc}-ium-{loc}-yl"
-        return f"{stem}-{loc}-yl"
+        return _substituent_suffix_from_stem(stem, loc, charge_loc)
     return ""
+
+
+def _substituent_suffix_from_stem(stem: str, loc: int, charge_loc: int | None = None) -> str:
+    if charge_loc is not None:
+        return f"{stem}-{charge_loc}-ium-{loc}-yl"
+    return f"{stem}-{loc}-yl"
 
 
 def _azine_indicated_hydrogen_substituent_suffix(

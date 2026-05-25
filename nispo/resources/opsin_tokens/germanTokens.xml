@@ -1,0 +1,18 @@
+<!DOCTYPE tokenLists SYSTEM "tokenLists.dtd">
+<!-- This file contains some of the most common pieces of vocab that differ in German from English
+It is far from comprehensive -->
+<tokenLists>
+	<tokenList tagname="group" type="substituent" subType="halideOrPseudoHalide" symbol="x">
+		<token value="-Br">brom</token>
+		<token value="-Cl">chlor</token>
+		<token value="-F">fluor</token>
+		<token value="-I">iod</token>
+	</tokenList>
+
+	<tokenList tagname="group" type="substituent" subType="perhalogeno" symbol="x">
+		<token value="-F">perfluor</token>
+		<token value="-Br">perbrom</token>
+		<token value="-Cl">perchlor</token>
+		<token value="-I">period</token>
+	</tokenList>
+</tokenLists>

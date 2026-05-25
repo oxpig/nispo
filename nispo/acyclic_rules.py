@@ -385,10 +385,6 @@ def _allowed_endpoint_groups(
     return groups
 
 
-def _name_quality_key(mol, path: Sequence[int], name: str) -> tuple:
-    return (*_path_quality_descriptor(mol, path), name)
-
-
 def _oriented_paths_by_quality(mol, paths: Sequence[Sequence[int]]) -> list[tuple[tuple, tuple[int, ...]]]:
     orientations = []
     seen = set()

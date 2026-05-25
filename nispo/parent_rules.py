@@ -827,10 +827,6 @@ def _guanidine_parent_templates(Chem) -> tuple[dict, ...]:
     )
 
 
-def _exact_template_matches(mol, template: dict, Chem):
-    return _template_matches(mol, template, Chem)
-
-
 def _template_matches(mol, template: dict, Chem):
     if not template.get("stereochemical"):
         return mol.GetSubstructMatches(template["mol"], uniquify=False)
@@ -1416,11 +1412,6 @@ def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: di
     return f"{h_locs[0]}H-{name[3:]}"
 
 
-def _name_named_ring_instance(mol, ring: Sequence[int], Chem) -> str:
-    candidates = _named_ring_instance_names(mol, ring, Chem)
-    return candidates[0][0] if candidates else ""
-
-
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str]]:
     ordered = _ordered_ring(mol, ring)
     if not ordered:
@@ -1763,27 +1754,3 @@ def _functional_term_score(name: str) -> int:
     for match in re.finditer(r"(?:(di|tri|tetra|penta|hexa))?oxo", name):
         score += multiplier_values.get(match.group(1) or "", 1)
     return score
-
-
-def _may_prefer_acyclic_skeleton(mol) -> bool:
-    nonring_multiple = 0
-    sulfone_like = False
-    nitrile_like = 0
-    for bond in mol.GetBonds():
-        begin = bond.GetBeginAtom()
-        end = bond.GetEndAtom()
-        if begin.IsInRing() and end.IsInRing():
-            continue
-        order = bond.GetBondTypeAsDouble()
-        if order > 1.0:
-            nonring_multiple += 1
-            symbols = {begin.GetSymbol(), end.GetSymbol()}
-            if symbols == {"C", "N"} and order == 3.0:
-                nitrile_like += 1
-            if "S" in symbols and "O" in symbols:
-                sulfone_like = True
-    return nonring_multiple >= 1 or nitrile_like >= 1 or sulfone_like
-
-
-def _has_charged_ring_atom(mol) -> bool:
-    return any(atom.IsInRing() and atom.GetFormalCharge() != 0 for atom in mol.GetAtoms())

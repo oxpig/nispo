@@ -6,11 +6,8 @@ from .acyclic_rules import _name_acyclic
 from .fused_template_families import candidate_generated_fused_templates
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
-    bicyclic_parent_candidates,
     kekulized_polycyclic_parent_candidate_records,
-    kekulized_polycyclic_parent_candidates,
     spiro_parent_candidate_records,
-    spiro_parent_candidates,
 )
 from .structural_profile import StructuralProfile, structural_profile
 from .template_index import candidate_templates, molecule_features
@@ -28,7 +25,6 @@ class MoleculeContext:
     _template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     _generated_fused_templates: tuple[dict, ...] | None = None
     _acyclic_names: dict[bool, str] = field(default_factory=dict)
-    _polycyclic_names: dict[str, tuple[str, ...]] = field(default_factory=dict)
     _polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     _substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     _ring_systems: tuple[frozenset[int], ...] | None = None
@@ -135,21 +131,6 @@ class MoleculeContext:
             use_chirality=bool(template.get("stereochemical")),
         )
 
-    def polycyclic_parent_names(self, family: str) -> tuple[str, ...]:
-        cached = self._polycyclic_names.get(family)
-        if cached is not None:
-            return cached
-        if family == "bicyclic":
-            names = tuple(bicyclic_parent_candidates(self.mol, self.Chem))
-        elif family == "spiro":
-            names = tuple(spiro_parent_candidates(self.mol, self.Chem))
-        elif family == "kekulized":
-            names = tuple(kekulized_polycyclic_parent_candidates(self.mol, self.Chem))
-        else:
-            names = ()
-        self._polycyclic_names[family] = names
-        return names
-
     def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
         cached = self._polycyclic_records.get(family)
         if cached is not None:
@@ -161,7 +142,7 @@ class MoleculeContext:
         elif family == "kekulized":
             records = tuple(kekulized_polycyclic_parent_candidate_records(self.mol, self.Chem))
         else:
-            records = tuple((name, ()) for name in self.polycyclic_parent_names(family))
+            records = ()
         self._polycyclic_records[family] = records
         return records
 

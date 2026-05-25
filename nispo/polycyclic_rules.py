@@ -11,19 +11,11 @@ from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
 
 
-def bicyclic_parent_candidates(mol, Chem) -> list[str]:
-    return [name for name, _seq in bicyclic_parent_candidate_records(mol, Chem)]
-
-
 def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_bicyclic_ring_system_candidate_records(mol, Chem, ring_system))
     return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
-
-
-def spiro_parent_candidates(mol, Chem) -> list[str]:
-    return [name for name, _seq in spiro_parent_candidate_records(mol, Chem)]
 
 
 def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -32,10 +24,6 @@ def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]
         candidates.extend(_dispiro_ring_system_candidate_records(mol, Chem, ring_system))
         candidates.extend(_spiro_ring_system_candidate_records(mol, Chem, ring_system))
     return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
-
-
-def kekulized_polycyclic_parent_candidates(mol, Chem) -> list[str]:
-    return [name for name, _seq in kekulized_polycyclic_parent_candidate_records(mol, Chem)]
 
 
 def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -129,11 +117,6 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
                     )
                 )
     return min(candidates)[-1] if candidates else ""
-
-
-def _name_bicyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
-    candidates = _bicyclic_ring_system_candidate_records(mol, Chem, atoms)
-    return candidates[0][0] if candidates else ""
 
 
 def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
@@ -232,11 +215,6 @@ def _spiro_parent_sequence_candidates(
     return candidates
 
 
-def _name_tricyclic_ring_system(mol, Chem, atoms: set[int]) -> str:
-    candidates = _tricyclic_ring_system_candidate_records(mol, Chem, atoms)
-    return candidates[0][0] if candidates else ""
-
-
 def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
@@ -267,24 +245,6 @@ def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list
         return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]
-
-
-def _name_secondary_zero_bridge_tricyclic_ring_system(
-    mol, atoms: set[int], graph: dict[int, set[int]]
-) -> str:
-    """Name tricyclo systems whose third cycle is a zero-length bridge.
-
-    OPSIN's von Baeyer implementation accepts secondary bridge descriptors such
-    as ``0^2,6`` after the three main bridge lengths.  Many fused/spiro hybrid
-    systems are not decomposable into four internally disjoint paths between
-    one pair of bridgeheads, but become a normal bicyclic graph after removing
-    one zero bridge.  This fallback inverts that construction by trying each
-    ring-system edge as the secondary zero bridge, then naming the remaining
-    bicyclic skeleton.
-    """
-
-    candidates = _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
-    return candidates[0][0] if candidates else ""
 
 
 def _secondary_zero_bridge_tricyclic_candidate_records(
@@ -338,11 +298,6 @@ def _secondary_zero_bridge_tricyclic_sequence_candidates(
     return candidates
 
 
-def _name_spiro_ring_system(mol, Chem, atoms: set[int]) -> str:
-    candidates = _spiro_ring_system_candidate_records(mol, Chem, atoms)
-    return candidates[0][0] if candidates else ""
-
-
 def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
@@ -383,11 +338,6 @@ def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tup
             candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]
-
-
-def _name_dispiro_ring_system(mol, Chem, atoms: set[int]) -> str:
-    candidates = _dispiro_ring_system_candidate_records(mol, Chem, atoms)
-    return candidates[0][0] if candidates else ""
 
 
 def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:

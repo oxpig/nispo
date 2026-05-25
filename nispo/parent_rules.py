@@ -41,6 +41,7 @@ from .rule_dispatch import (
     nonring_positive_sulfur,
     spiro_topology,
 )
+from .rule_priority import parent_priority
 from .rule_engine import NameCandidate
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
@@ -731,59 +732,59 @@ def parent_rules(Chem) -> tuple:
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
 
     return (
-        RuleSpec("sulfanium-parent", 9, (nonring_positive_sulfur,), sulfanium.candidates),
+        RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",
-            9,
+            parent_priority("senior-functional-exception"),
             (acyclic, nonring_positive_nitrogen),
             oxido_nitroso_azanium.candidates,
         ),
-        RuleSpec("oxo-sulfanium-parent", 9, (nonring_positive_sulfur,), oxo_sulfanium.candidates),
-        RuleSpec("n-halo-imine-parent", 9, (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
-        RuleSpec("guanidine-retained-parent", 9, (acyclic, imino_skeleton_signal), guanidine.candidates),
-        RuleSpec("acyclic-parent", 10, (acyclic,), acyclic_parent.candidates),
+        RuleSpec("oxo-sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), oxo_sulfanium.candidates),
+        RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
+        RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
+        RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",
-            13,
+            parent_priority("functional-acyclic-skeleton"),
             (imino_skeleton_signal, no_exocyclic_charged_fused_parent),
             imino_functional_acyclic.candidates,
         ),
-        RuleSpec("exact-retained-parent", 45, (min_ring_count(1), exact_ring_system), exact_retained.candidates),
+        RuleSpec("exact-retained-parent", parent_priority("exact-retained-parent"), (min_ring_count(1), exact_ring_system), exact_retained.candidates),
         RuleSpec(
             "preferred-generic-bicyclic-parent",
-            19,
+            parent_priority("preferred-generic-bicyclic"),
             (min_ring_system_ring_count(2), generic_bicyclic_topology),
             preferred_bicyclic.candidates,
         ),
-        RuleSpec("fused-retained-parent", 20, (min_ring_count(2),), fused.candidates),
-        RuleSpec("hydro-fused-retained-parent", 21, (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
+        RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_count(2),), fused.candidates),
+        RuleSpec("hydro-fused-retained-parent", parent_priority("hydro-retained-fused-parent"), (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
         RuleSpec(
             "oxido-fused-retained-parent",
-            22,
+            parent_priority("charged-retained-fused-parent"),
             (min_ring_count(2), min_ring_system_ring_count(2), charged_ring_atom),
             oxido_fused.candidates,
         ),
-        RuleSpec("generic-bicyclic-parent", 25, (generic_bicyclic_topology,), generic_bicyclic.candidates),
-        RuleSpec("generic-spiro-parent", 26, (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),
-        RuleSpec("single-ring-parent", 30, (min_ring_count(1),), single_ring.candidates),
-        RuleSpec("generated-exact-parent", 29, (min_ring_count(1), exact_ring_system), generated_exact.candidates),
-        RuleSpec("generated-fused-parent", 29, (min_ring_system_ring_count(2),), generated_fused.candidates),
-        RuleSpec("generated-hydro-fused-parent", 29, (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
-        RuleSpec("generated-partial-hydro-fused-parent", 31, (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
-        RuleSpec("skeletal-replacement-fused-parent", 32, (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
+        RuleSpec("generic-bicyclic-parent", parent_priority("generic-bicyclic-parent"), (generic_bicyclic_topology,), generic_bicyclic.candidates),
+        RuleSpec("generic-spiro-parent", parent_priority("generic-spiro-parent"), (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),
+        RuleSpec("single-ring-parent", parent_priority("single-ring-parent"), (min_ring_count(1),), single_ring.candidates),
+        RuleSpec("generated-exact-parent", parent_priority("generated-parent"), (min_ring_count(1), exact_ring_system), generated_exact.candidates),
+        RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates),
+        RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
+        RuleSpec("generated-partial-hydro-fused-parent", parent_priority("generated-partial-hydro-parent"), (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
+        RuleSpec("skeletal-replacement-fused-parent", parent_priority("skeletal-replacement-parent"), (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
         RuleSpec(
             "kekulized-generic-polycyclic-parent",
-            14,
+            parent_priority("polycyclic-functional-skeleton"),
             (kekulized_polycycle_signal, generic_polycyclic_topology, no_exocyclic_charged_fused_parent),
             kekulized_polycyclic.candidates,
         ),
         RuleSpec(
             "functional-acyclic-skeleton-with-ring-substituents",
-            14,
+            parent_priority("polycyclic-functional-skeleton"),
             (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
             functional_acyclic.candidates,
         ),
-        RuleSpec("acyclic-skeleton-with-ring-substituents", 60, (min_ring_count(1),), acyclic_with_ring_substituents.candidates),
+        RuleSpec("acyclic-skeleton-with-ring-substituents", parent_priority("acyclic-with-ring-substituents"), (min_ring_count(1),), acyclic_with_ring_substituents.candidates),
     )
 
 

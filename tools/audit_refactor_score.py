@@ -142,6 +142,9 @@ def _score_rule_routing_and_modularity() -> dict:
     if "RuleSpec" in parent_text and "RulePlan" not in (PACKAGE_ROOT / "rule_dispatch.py").read_text(encoding="utf-8"):
         score += 5
         evidence.append("parent naming uses explicit RuleSpec without RulePlan introspection")
+    if (PACKAGE_ROOT / "rule_priority.py").exists() and "parent_priority(" in parent_text:
+        score += 2
+        evidence.append("parent rule order is routed through named priority scores")
     if "BranchRuleSpec" in branch_text and (PACKAGE_ROOT / "branch").exists():
         score += 4
         evidence.append("BranchRuleSpec present")

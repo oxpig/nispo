@@ -60,6 +60,20 @@ def test_phosphonium_salts_use_substituted_phosphanium_parent():
     assert names == ["tetraheptylphosphanium bromide"]
 
 
+def test_repeated_complex_onium_substituents_use_complex_multipliers():
+    names = smiles_to_iupac_batch(
+        [
+            "C[S+](c1ccc(C)cc1)c1ccc(C)cc1",
+            "[P+](c1ccc(C)cc1)(c1ccc(C)cc1)(c1ccccc1)c1ccccc1",
+        ]
+    )
+
+    assert names == [
+        "methylbis(4-methylphenyl)sulfanium",
+        "diphenylbis(4-methylphenyl)phosphanium",
+    ]
+
+
 def test_complex_counterions_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         ["O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.[Cu+2]"]

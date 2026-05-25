@@ -875,18 +875,35 @@ def _phosphanium_name(names: Sequence[str]) -> str:
 
 def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     counts = Counter(names)
-    parts = []
+    terms = []
     for name in sorted(counts):
         count = counts[name]
-        term = (MULT.get(count, "") if count > 1 else "") + name
-        if _needs_substituent_parentheses(term):
+        is_complex = _needs_substituent_parentheses(name)
+        if count > 1 and is_complex:
+            multiplier = _COMPLEX_MULTIPLIERS.get(count, "")
+            term = f"{multiplier}({name})" if multiplier else ""
+        else:
+            term = (MULT.get(count, "") if count > 1 else "") + name
+        if not term:
+            return ""
+        if count == 1 and is_complex:
             term = f"({term})"
-        parts.append(term)
+        terms.append((is_complex, name, term))
+    parts = [term for _is_complex, _name, term in sorted(terms)]
     return "".join(parts) + parent
 
 
 def _needs_substituent_parentheses(name: str) -> bool:
     return name[:1].isdigit() or "-" in name or "," in name or name.startswith("(")
+
+
+_COMPLEX_MULTIPLIERS = {
+    2: "bis",
+    3: "tris",
+    4: "tetrakis",
+    5: "pentakis",
+    6: "hexakis",
+}
 
 
 def _n_halo_atom(mol, nitrogen_idx: int, carbon_idx: int) -> int:

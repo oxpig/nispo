@@ -72,6 +72,20 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
 
 
 def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int) -> str:
+    candidates = _polycyclic_substituent_candidates(mol, Chem, attachment_idx, parent_idx)
+    if candidates:
+        return min(candidates)[-1]
+
+    kekulized = Chem.Mol(mol)
+    try:
+        Chem.Kekulize(kekulized, clearAromaticFlags=True)
+    except Exception:
+        return ""
+    candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx)
+    return min(candidates)[-1] if candidates else ""
+
+
+def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_idx: int) -> list[tuple]:
     candidates = []
     for atoms in _ring_systems(mol, Chem):
         if attachment_idx not in atoms or parent_idx in atoms:
@@ -90,33 +104,7 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
                         name,
                     )
                 )
-    if candidates:
-        return min(candidates)[-1]
-
-    kekulized = Chem.Mol(mol)
-    try:
-        Chem.Kekulize(kekulized, clearAromaticFlags=True)
-    except Exception:
-        return ""
-    candidates = []
-    for atoms in _ring_systems(kekulized, Chem):
-        if attachment_idx not in atoms or parent_idx in atoms:
-            continue
-        for parent, seq in _polycyclic_parent_sequence_candidates(kekulized, Chem, atoms):
-            if attachment_idx not in seq:
-                continue
-            name = _name_polycyclic_substituent(kekulized, seq, atoms, parent, attachment_idx, parent_idx)
-            if name:
-                loc = seq.index(attachment_idx) + 1
-                candidates.append(
-                    (
-                        0 if loc == 1 else 1,
-                        _hetero_locants(kekulized, seq),
-                        _substituent_locants(kekulized, seq, atoms),
-                        name,
-                    )
-                )
-    return min(candidates)[-1] if candidates else ""
+    return candidates
 
 
 def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:

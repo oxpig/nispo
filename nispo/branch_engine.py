@@ -21,23 +21,13 @@ class BranchRule:
         return self.renderer(mol, idx, parent_idx)
 
 
-@dataclass(frozen=True)
-class BranchRuleSet:
-    """Ordered branch rules for one atom class or generic fallback."""
-
-    rules: tuple[BranchRule, ...]
-
-    def render(self, mol, idx: int, parent_idx: int) -> str:
-        for rule in self.rules:
-            name = rule.render(mol, idx, parent_idx)
-            if name:
-                return name
-        return ""
+BranchRuleSet = tuple[BranchRule, ...]
 
 
 def first_branch_name(rule_sets: Iterable[BranchRuleSet], mol, idx: int, parent_idx: int) -> str:
     for rule_set in rule_sets:
-        name = rule_set.render(mol, idx, parent_idx)
-        if name:
-            return name
+        for rule in rule_set:
+            name = rule.render(mol, idx, parent_idx)
+            if name:
+                return name
     return ""

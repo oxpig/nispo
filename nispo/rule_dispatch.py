@@ -56,9 +56,6 @@ def rule_applies(plan: RulePlan, ctx) -> bool:
     split between token/resource classification and structure construction.
     """
 
-    if not isinstance(plan, RulePlan):
-        plan = compile_rule_plan(plan)
-
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if plan.acyclic_only and ring_count:
         return False

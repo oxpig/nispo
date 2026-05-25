@@ -338,51 +338,41 @@ def _subtree_has_ring(mol, root_idx: int, blocked_idx: int) -> bool:
 def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
     return {
         "I": (
-            BranchRuleSet(
-                (
-                    BranchRule(_iodanyl_acyloxy_prefix),
-                    BranchRule(_constant_prefix(HALO["I"])),
-                )
+            (
+                BranchRule(_iodanyl_acyloxy_prefix),
+                BranchRule(_constant_prefix(HALO["I"])),
             ),
         ),
         "F": (_halogen_rule_set("F"),),
         "Cl": (_halogen_rule_set("Cl"),),
         "Br": (_halogen_rule_set("Br"),),
         "O": (
-            BranchRuleSet(
-                (
-                    BranchRule(_oxygen_prefix),
-                    BranchRule(_resource_prefix),
-                ),
+            (
+                BranchRule(_oxygen_prefix),
+                BranchRule(_resource_prefix),
             ),
         ),
         "N": (
-            BranchRuleSet(
-                (
-                    BranchRule(_constant_prefix("nitro"), _nitro_branch_predicate),
-                    BranchRule(_nitrogen_prefix),
-                    BranchRule(_resource_prefix),
-                ),
+            (
+                BranchRule(_constant_prefix("nitro"), _nitro_branch_predicate),
+                BranchRule(_nitrogen_prefix),
+                BranchRule(_resource_prefix),
             ),
         ),
         "S": (
-            BranchRuleSet(
-                (
-                    BranchRule(_sulfur_prefix),
-                    BranchRule(_resource_prefix),
-                ),
+            (
+                BranchRule(_sulfur_prefix),
+                BranchRule(_resource_prefix),
             ),
         ),
         "*": (
-            BranchRuleSet(
-                (BranchRule(_resource_prefix),),
-            ),
+            (BranchRule(_resource_prefix),),
         ),
     }
 
 
 def _halogen_rule_set(symbol: str) -> BranchRuleSet:
-    return BranchRuleSet((BranchRule(_constant_prefix(HALO[symbol])),))
+    return (BranchRule(_constant_prefix(HALO[symbol])),)
 
 
 def _nitro_branch_predicate(mol, idx: int, parent_idx: int) -> bool:

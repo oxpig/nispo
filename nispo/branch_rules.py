@@ -36,6 +36,14 @@ from .substituent_resource_rules import resource_substituent_prefix as _resource
 from .template_index import candidate_templates as _candidate_templates
 
 
+_HALOSULFUR_OXO_PREFIXES = {
+    2: {"F": "fluorosulfonyl", "Cl": "chlorosulfonyl", "Br": "bromosulfonyl", "I": "iodosulfonyl"},
+    1: {"F": "fluorosulfinyl", "Cl": "chlorosulfinyl", "Br": "bromosulfinyl", "I": "iodosulfinyl"},
+}
+
+_SULFUR_OXO_SUBSTITUENT_SUFFIX = {2: "sulfonyl", 1: "sulfinyl", 0: "sulfanyl"}
+
+
 def _can_be_in_parent_skeleton(mol, idx: int) -> bool:
     cache = getattr(mol, "_nispo_parent_skeleton_atom_cache", None)
     if cache is None:
@@ -2069,12 +2077,9 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     sulfonimidoyl = _sulfonimidoyl_prefix(mol, idx, parent_idx, double_o)
     if sulfonimidoyl:
         return sulfonimidoyl
-    if double_o == 2 and len(halogens) == 1:
-        return {"F": "fluorosulfonyl", "Cl": "chlorosulfonyl", "Br": "bromosulfonyl", "I": "iodosulfonyl"}.get(halogens[0], "")
-    if double_o == 1 and len(halogens) == 1:
-        return {"F": "fluorosulfinyl", "Cl": "chlorosulfinyl", "Br": "bromosulfinyl", "I": "iodosulfinyl"}.get(halogens[0], "")
-    if double_o == 0 and len(non_parent) == 1 and halogens:
-        return HALO[halogens[0]] + "sulfanyl"
+    halosulfur = _halosulfur_prefix(double_o, halogens, len(non_parent))
+    if halosulfur:
+        return halosulfur
     heavy = [
         n.GetIdx()
         for n in atom.GetNeighbors()
@@ -2089,11 +2094,8 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             ring = _ring_substituent_prefix(mol, heavy[0], idx)
             if not ring:
                 return ""
-            if double_o == 2:
-                return ring + "sulfonyl"
-            if double_o == 1:
-                return ring + "sulfinyl"
-            return ring + "sulfanyl"
+            suffix = _sulfur_oxo_substituent_suffix(double_o)
+            return ring + suffix if suffix else ""
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "N" and double_o == 2:
             amino = _nitrogen_prefix(mol, heavy[0], idx)
             if not amino:
@@ -2114,12 +2116,22 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         alk = _substituent_from_root(mol, heavy[0], idx)
         if not alk:
             return ""
-        if double_o == 2:
-            return alk + "sulfonyl"
-        if double_o == 1:
-            return alk + "sulfinyl"
-        return alk + "sulfanyl"
+        suffix = _sulfur_oxo_substituent_suffix(double_o)
+        return alk + suffix if suffix else ""
     return ""
+
+
+def _halosulfur_prefix(double_o: int, halogens: Sequence[str], non_parent_count: int) -> str:
+    if len(halogens) != 1:
+        return ""
+    if double_o == 0 and non_parent_count == 1:
+        return HALO[halogens[0]] + "sulfanyl"
+    return _HALOSULFUR_OXO_PREFIXES.get(double_o, {}).get(halogens[0], "")
+
+
+def _sulfur_oxo_substituent_suffix(double_o: int) -> str:
+    return _SULFUR_OXO_SUBSTITUENT_SUFFIX.get(double_o, "sulfanyl")
+
 
 def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if double_o != 1:

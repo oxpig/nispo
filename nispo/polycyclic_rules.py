@@ -15,7 +15,7 @@ def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, .
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_bicyclic_ring_system_candidate_records(mol, Chem, ring_system))
-    return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
+    return candidates
 
 
 def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -23,7 +23,7 @@ def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_dispiro_ring_system_candidate_records(mol, Chem, ring_system))
         candidates.extend(_spiro_ring_system_candidate_records(mol, Chem, ring_system))
-    return sorted(candidates, key=lambda item: (len(item[0]), item[0]))
+    return candidates
 
 
 def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -304,7 +304,8 @@ def _decorated_polycyclic_records(
         name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
         if not name:
             continue
-        key = (_hetero_locants(mol, seq), _substituent_locants(mol, seq, atoms), name)
+        hetero_locants = _hetero_locants(mol, seq)
+        key = (1 in hetero_locants, _substituent_locants(mol, seq, atoms), hetero_locants, name)
         candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]

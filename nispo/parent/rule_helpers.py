@@ -1262,6 +1262,20 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
     ):
         return True
     if (
+        "cyclo" in name
+        and re.search(r"(?:prop|but|pent|hex|hept)-\d+(?:,\d+)*-ene", name)
+        and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+    ):
+        return True
+    if (
+        "amino" in name
+        and "carbonyl" in name
+        and any(term in name for term in ("carboxy", "hydroxy", "azamethylcarbonyl", "oxo"))
+        and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+        and not any(term in name for term in ("phospha", "bora", "sila"))
+    ):
+        return True
+    if (
         "yne" in name
         and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
         and any(

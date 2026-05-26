@@ -439,9 +439,9 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
             if not name:
                 continue
             key = (
-                _bridge_sort_key(bracket),
-                _hetero_locants(mol, seq),
+                _dominant_bridge_sort_key(bracket),
                 _substituent_locants(mol, seq, atoms),
+                _hetero_locants(mol, seq),
                 name,
             )
             candidates.append((key, name, tuple(seq)))
@@ -780,6 +780,10 @@ def _bridge_sort_key(bracket: Sequence[int | str]) -> tuple:
         left, right = locants.split(",", 1)
         values.append((int(length), int(left), int(right)))
     return tuple(values)
+
+
+def _dominant_bridge_sort_key(bracket: Sequence[int | str]) -> tuple:
+    return tuple((-length, left, right) for length, left, right in _bridge_sort_key(bracket))
 
 
 def _spiro_numbering_sequences(

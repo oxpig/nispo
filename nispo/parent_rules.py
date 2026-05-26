@@ -743,6 +743,20 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
+    family = "chain-dominant-acyclic-skeleton-with-ring-substituents"
+    priority = parent_priority("generated-parent")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        profile = ctx.profile
+        if profile.ring_count != 1:
+            return
+        name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _chain_dominates_single_ring(mol, name):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "charged-ring-acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("polycyclic-functional-skeleton")
@@ -824,6 +838,16 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             and _prefer_acyclic_skeleton_name(name)
         ):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _chain_dominates_single_ring(mol, name: str) -> bool:
+    if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[", "phospha", "bora", "sila")):
+        return False
+    ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
+    nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
+    if not ring_atoms or len(nonring_atoms) < len(ring_atoms):
+        return False
+    return any(term in name for term in ("cyclo", "phenyl", "pyridin", "pyrimidin", "thiophen", "furan", "benz"))
 
 
 class WholeMoleculeRetainedParentRule:
@@ -1412,6 +1436,7 @@ def parent_rules(Chem) -> tuple:
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
+    chain_dominant_acyclic = ChainDominantAcyclicSkeletonWithRingSubstituentsRule()
     charged_ring_acyclic = ChargedRingAcyclicSkeletonWithRingSubstituentsRule()
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
@@ -1452,6 +1477,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("polycyclic-functional-skeleton"),
             (acyclic_preference_signal,),
             preferred_acyclic.candidates,
+        ),
+        RuleSpec(
+            "chain-dominant-acyclic-skeleton-with-ring-substituents",
+            parent_priority("generated-parent"),
+            (min_ring_count(1),),
+            chain_dominant_acyclic.candidates,
         ),
         RuleSpec(
             "charged-ring-acyclic-skeleton-with-ring-substituents",

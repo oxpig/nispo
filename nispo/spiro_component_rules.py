@@ -61,7 +61,7 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                 rank = _cycle_rank_for_atoms(graph, sub_atoms)
                 sides.append((rank, sub_atoms))
             for simple_rank, simple_atoms, poly_rank, poly_atoms in _simple_poly_side_orders(sides):
-                if simple_rank != 1 or poly_rank not in {2, 3}:
+                if simple_rank != 1 or poly_rank not in {2, 3, 4, 5}:
                     continue
                 candidates.extend(
                     _component_spiro_candidates_for_split(
@@ -123,8 +123,8 @@ def _component_spiro_candidates_for_split(
             prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
             spiro_name = (
                 "spiro["
-                f"{simple_component.parent_name}-{simple_component.spiro_locant},"
-                f"{_prime_locant(poly_component.spiro_locant)}-{poly_component.parent_name}"
+                f"{_component_parent_text(simple_component.parent_name)}-{simple_component.spiro_locant},"
+                f"{_prime_locant(poly_component.spiro_locant)}-{_component_parent_text(poly_component.parent_name)}"
                 "]"
             )
             if _has_unpromoted_component_replacement(spiro_name):
@@ -257,6 +257,10 @@ def _strip_leading_replacement_prefixes(name: str) -> tuple[str, list[tuple[str,
         for locant in locant_text[:-1].split(","):
             prefixes.append((locant, replacement))
     return rest.lstrip("-"), prefixes
+
+
+def _component_parent_text(name: str) -> str:
+    return re.sub(r"^(\d+(?:,\d+)+)-([A-Za-z])", r"[\1]\2", name)
 
 
 def _external_substituent_prefixes(

@@ -66,6 +66,7 @@ def test_representative_names_roundtrip_through_opsin(tmp_path):
         "COc1ccc(C=CC(=O)[O-])cc1",
         "[NH3+]c1cccc([NH3+])c1",
         "[Br-].c1ccc(C[P+](Cc2ccccc2)(Cc2ccccc2)Cc2ccccc2)cc1",
+        "CCOC(=O)C(c1ccc(Cl)cc1)[C@@H](C)C(F)(F)F",
     ]
     names = smiles_to_iupac_batch(smiles)
     names_file = tmp_path / "names.txt"

@@ -1098,6 +1098,8 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         return True
     if _has_substituted_carboxylato_ethene(name):
         return True
+    if _has_main_chain_trifluoro_oxo_alkane(name):
+        return True
     if (
         "trifluoro" in name
         and "carbonyl" in name
@@ -1135,6 +1137,30 @@ def _has_substituted_carboxylato_ethene(name: str) -> bool:
 
 def _strip_leading_descriptors(name: str) -> str:
     return re.sub(r"^(?:\([^)]*\)-)+", "", name)
+
+
+def _has_main_chain_trifluoro_oxo_alkane(name: str) -> bool:
+    if _leading_descriptor_has_alkene_geometry(name):
+        return False
+    name = _strip_leading_descriptors(name)
+    if not name.startswith("1,1,1-trifluoro-") or "oxo" not in name:
+        return False
+    if re.search(r"(?:^|-)\d+-amino(?:-|$)", name):
+        return False
+    if "1-phenyl-methyl" in name:
+        return False
+    if "azabicyclo[3.3.0]" in name or "spiro[" in name:
+        return False
+    if re.search(r"methyl\d", name):
+        return False
+    return bool(re.search(r"(?:pent|hex|hept|oct)ane$", name))
+
+
+def _leading_descriptor_has_alkene_geometry(name: str) -> bool:
+    match = re.match(r"^\(([^)]*)\)-", name)
+    if not match:
+        return False
+    return any(part in {"E", "Z"} for part in match.group(1).split(","))
 
 
 def _functional_term_score(name: str) -> int:

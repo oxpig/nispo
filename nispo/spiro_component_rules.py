@@ -306,7 +306,7 @@ def _component_spiro_candidates_for_split(
     candidates: list[NameCandidate] = []
     for simple_component in simple_components[:4]:
         for poly_component in poly_components[:12]:
-            parent_prefixes = [
+            parent_prefixes = list(simple_component.replacement_prefixes) + [
                 (_prime_locant(locant), prefix)
                 for locant, prefix in poly_component.replacement_prefixes
             ]
@@ -389,14 +389,27 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         if spiro_idx not in seq:
             continue
         locants = {atom_idx: str(index) for index, atom_idx in enumerate(seq, start=1)}
+        component_name, replacement_prefixes = _strip_leading_replacement_prefixes(parent_name)
+        if component_name.startswith("cyclo"):
+            parent_name = component_name
+        else:
+            replacement_prefixes = []
         components.append(
             _Component(
                 parent_name=parent_name,
                 spiro_locant=locants[spiro_idx],
                 locants=locants,
+                replacement_prefixes=tuple(replacement_prefixes),
             )
         )
-    components.sort(key=lambda item: (len(item.parent_name), item.parent_name, item.spiro_locant))
+    components.sort(
+        key=lambda item: (
+            len(item.replacement_prefixes),
+            len(item.parent_name),
+            item.parent_name,
+            item.spiro_locant,
+        )
+    )
     return components
 
 

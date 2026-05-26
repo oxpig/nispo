@@ -7,6 +7,7 @@ from itertools import combinations
 from functools import lru_cache
 
 from .branch_rules import branch_prefix
+from .branch.hetero_atoms import _imine_carbon_ylidene
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
@@ -48,6 +49,12 @@ from .rule_dispatch import (
 from .rule_priority import parent_priority
 from .rule_engine import NameCandidate
 from .template_access import template_record_locants, template_record_mol, template_record_name
+
+
+def _parenthesized_if_complex(name: str) -> str:
+    if name.startswith("(") and name.endswith(")"):
+        return name
+    return f"({name})" if "-" in name or name.startswith("(") else name
 
 
 class AcyclicParentRule:
@@ -595,6 +602,117 @@ class GuanidineRetainedParentRule:
                 )
 
 
+class SulfonohydrazideRetainedParentRule:
+    family = "sulfonohydrazide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        for sulfur_idx, aryl_idx, distal_n_idx, imine_carbon_idx in _sulfonohydrazide_motifs(mol, self._Chem):
+            base = _phenyl_sulfonohydrazide_base(mol, aryl_idx, sulfur_idx)
+            ylidene = _hydrazone_ylidene_name(mol, imine_carbon_idx, distal_n_idx)
+            if not base or not ylidene:
+                continue
+            ylidene_text = ylidene if ylidene.startswith("(") and ylidene.endswith(")") else f"({ylidene})"
+            name = f"N'-{ylidene_text}-{base}sulfonohydrazide"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _sulfonohydrazide_motifs(mol, Chem) -> list[tuple[int, int, int, int]]:
+    motifs = []
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0:
+            continue
+        sulfur_idx = sulfur.GetIdx()
+        double_oxygens = {
+            nbr.GetIdx()
+            for nbr in sulfur.GetNeighbors()
+            if nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(sulfur_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+        }
+        if len(double_oxygens) != 2:
+            continue
+        single_heavy = [nbr.GetIdx() for nbr in sulfur.GetNeighbors() if nbr.GetIdx() not in double_oxygens]
+        aryl = [
+            idx
+            for idx in single_heavy
+            if mol.GetAtomWithIdx(idx).GetSymbol() == "C" and mol.GetAtomWithIdx(idx).IsInRing()
+        ]
+        sulfonamide_n = [idx for idx in single_heavy if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
+        if len(aryl) != 1 or len(sulfonamide_n) != 1:
+            continue
+        nidx = sulfonamide_n[0]
+        n_heavy = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(nidx).GetNeighbors()
+            if nbr.GetAtomicNum() > 1
+        ]
+        distal = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(nidx).GetNeighbors()
+            if nbr.GetIdx() != sulfur_idx
+            and nbr.GetSymbol() == "N"
+            and mol.GetBondBetweenAtoms(nidx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+        ]
+        if len(distal) != 1 or sorted(n_heavy) != sorted((sulfur_idx, distal[0])):
+            continue
+        distal_n_idx = distal[0]
+        distal_heavy = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(distal_n_idx).GetNeighbors()
+            if nbr.GetAtomicNum() > 1
+        ]
+        imine_carbons = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(distal_n_idx).GetNeighbors()
+            if nbr.GetIdx() != nidx
+            and nbr.GetSymbol() == "C"
+            and mol.GetBondBetweenAtoms(distal_n_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+        ]
+        if len(imine_carbons) == 1 and sorted(distal_heavy) == sorted((nidx, imine_carbons[0])):
+            motifs.append((sulfur_idx, aryl[0], distal_n_idx, imine_carbons[0]))
+    return motifs
+
+
+def _phenyl_sulfonohydrazide_base(mol, aryl_idx: int, sulfur_idx: int) -> str:
+    aryl = branch_prefix(mol, aryl_idx, sulfur_idx)
+    if aryl == "phenyl":
+        return "benzene"
+    if aryl.endswith("phenyl"):
+        return aryl[: -len("phenyl")] + "benzene"
+    return ""
+
+
+def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
+    existing = _imine_carbon_ylidene(mol, carbon_idx, nitrogen_idx)
+    if existing:
+        return existing
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.IsInRing():
+        ring = branch_prefix(mol, carbon_idx, nitrogen_idx)
+        if ring.endswith("yl"):
+            return ring[: -len("yl")] + "ylidene"
+        return ""
+    substituents = [nbr.GetIdx() for nbr in carbon.GetNeighbors() if nbr.GetIdx() != nitrogen_idx]
+    if len(substituents) == 1:
+        name = branch_prefix(mol, substituents[0], carbon_idx)
+        if name == "1-oxo-2-oxaethyl":
+            return "carboxymethylidene"
+        return name + "methylidene" if name and not name.endswith("ylidene") else name
+    if len(substituents) == 2:
+        names = [branch_prefix(mol, idx, carbon_idx) for idx in substituents]
+        if any(not name for name in names):
+            return ""
+        if names.count("methyl") == 1:
+            other = names[1] if names[0] == "methyl" else names[0]
+            other_text = _parenthesized_if_complex(other)
+            return f"1-{other_text}ethylidene"
+    return ""
+
+
 class AcyclicSkeletonWithRingSubstituentsRule:
     family = "acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("acyclic-with-ring-substituents")
@@ -1062,6 +1180,7 @@ def parent_rules(Chem) -> tuple:
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
     n_halo_imine = NHaloImineParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
+    sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
@@ -1099,6 +1218,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("oxo-sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), oxo_sulfanium.candidates),
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
+        RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",

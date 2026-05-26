@@ -71,15 +71,41 @@ def _candidate_key(candidate: NameCandidate) -> tuple:
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
-        return f"({candidate.stereo_prefix})-{name}"
+        return _apply_uniform_isotope_label(mol, f"({candidate.stereo_prefix})-{name}")
     if candidate.family in {"whole-molecule-retained-parent"}:
-        return name
-    return apply_stereochemical_prefix(
+        return _apply_uniform_isotope_label(mol, name)
+    return _apply_uniform_isotope_label(
         mol,
-        Chem,
-        name,
-        atom_order=_fallback_stereo_atom_order(candidate.family),
+        apply_stereochemical_prefix(
+            mol,
+            Chem,
+            name,
+            atom_order=_fallback_stereo_atom_order(candidate.family),
+        ),
     )
+
+
+def _apply_uniform_isotope_label(mol, name: str) -> str:
+    if not name:
+        return name
+    labels: list[tuple[str, int, int]] = []
+    for symbol in sorted({atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetSymbol() != "H"}):
+        atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == symbol]
+        isotopes = {atom.GetIsotope() for atom in atoms}
+        if len(isotopes) != 1:
+            continue
+        isotope = next(iter(isotopes))
+        if isotope:
+            labels.append((symbol, isotope, len(atoms)))
+    if len(labels) != 1:
+        return name
+    symbol, isotope, count = labels[0]
+    if symbol == "C" and isotope in {13, 14}:
+        count_text = str(count) if count > 1 else ""
+        return f"{name}-{isotope}{symbol}{count_text}"
+    if symbol in {"F", "N"} and count == 1 and not name.startswith("("):
+        return f"[{isotope}{symbol}]{name}"
+    return name
 
 
 def _fallback_stereo_atom_order(family: str) -> str:

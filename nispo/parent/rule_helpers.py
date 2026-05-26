@@ -1017,14 +1017,14 @@ def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         for atom in mol.GetAtoms()
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     ]
-    if len(tagged_atoms) < 2:
+    if not tagged_atoms:
         return ""
     if any(idx not in seq_set for idx in tagged_atoms):
         return ""
     if _has_assigned_bond_stereo(mol, Chem):
         return ""
     centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
-    if len(centers) < 2:
+    if not centers:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     if any(idx not in locants for idx, _descriptor in centers):

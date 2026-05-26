@@ -750,7 +750,7 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
     def candidates(self, ctx):
         mol = ctx.mol
         profile = ctx.profile
-        if profile.ring_count != 1:
+        if profile.ring_count == 0:
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and _chain_dominates_single_ring(mol, name):
@@ -841,13 +841,35 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
 
 
 def _chain_dominates_single_ring(mol, name: str) -> bool:
-    if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[", "phospha", "bora", "sila")):
+    if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[", "diazaeth")):
         return False
     ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
     nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
-    if not ring_atoms or len(nonring_atoms) < len(ring_atoms):
+    if not ring_atoms:
         return False
-    return any(term in name for term in ("cyclo", "phenyl", "pyridin", "pyrimidin", "thiophen", "furan", "benz"))
+    cyclic_substituent = any(
+        term in name for term in ("cyclo", "phenyl", "pyridin", "pyrimidin", "thiophen", "furan", "benz")
+    )
+    if not cyclic_substituent:
+        return False
+    if len(nonring_atoms) >= len(ring_atoms):
+        return True
+    return any(
+        term in name
+        for term in (
+            "bora",
+            "sila",
+            "phospha",
+            "carbonyl",
+            "sulfonyl",
+            "imino",
+            "trithia",
+            "disulfanyl",
+            "dioxo",
+            "hydroxy",
+            "carboxy",
+        )
+    )
 
 
 class WholeMoleculeRetainedParentRule:

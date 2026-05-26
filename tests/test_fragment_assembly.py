@@ -54,6 +54,22 @@ def test_common_counterions_and_hydrides_are_named():
     ]
 
 
+def test_organotrifluoroborate_salts_use_functional_fragment_names():
+    names = smiles_to_iupac_batch(
+        [
+            "C[B-](F)(F)F.[K+]",
+            "CC[B-](F)(F)F.[K+]",
+            "CC(C)(C)OC(=O)NC[B-](F)(F)F.[K+]",
+        ]
+    )
+
+    assert names == [
+        "potassium methyltrifluoroborate",
+        "potassium ethyltrifluoroborate",
+        "potassium (5,5-dimethyl-3-oxo-2-aza-4-oxahexyl)trifluoroborate",
+    ]
+
+
 def test_phosphonium_salts_use_substituted_phosphanium_parent():
     names = smiles_to_iupac_batch(["CCCCCCC[P+](CCCCCCC)(CCCCCCC)CCCCCCC.[Br-]"])
 

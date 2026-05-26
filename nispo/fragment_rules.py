@@ -268,6 +268,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         return ""
     return (
         _substituted_borohydride_name(mol, Chem)
+        or _organotrifluoroborate_name(mol, Chem)
         or _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
@@ -350,6 +351,37 @@ def _is_acetoxy_group(mol, Chem, oxygen_idx: int, boron_idx: int) -> bool:
         else:
             return False
     return double_oxygen_count == 1 and methyl_count == 1
+
+
+def _organotrifluoroborate_name(mol, Chem) -> str:
+    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if len(borons) != 1 or _total_charge(mol) != -1:
+        return ""
+    boron = borons[0]
+    bidx = boron.GetIdx()
+    carbon_neighbors = []
+    fluorine_count = 0
+    for nbr in boron.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(bidx, nidx)
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if nbr.GetSymbol() == "F":
+            fluorine_count += 1
+        elif nbr.GetSymbol() == "C":
+            carbon_neighbors.append(nidx)
+        else:
+            return ""
+    if fluorine_count != 3 or len(carbon_neighbors) != 1:
+        return ""
+    from .branch_rules import branch_prefix
+
+    prefix = branch_prefix(mol, carbon_neighbors[0], bidx)
+    if not prefix:
+        return ""
+    if _needs_fragment_parentheses(prefix):
+        prefix = f"({prefix})"
+    return prefix + "trifluoroborate"
 
 
 def _perfluoro_counterion_name(mol, Chem) -> str:

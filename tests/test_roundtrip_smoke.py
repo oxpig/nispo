@@ -126,6 +126,8 @@ def test_representative_names_roundtrip_through_opsin(tmp_path):
         "C1=CO[CH-]CC1",
         "c1c[n-]cn1",
         "[c-]1cccc2ccccc12",
+        "O=c1ccocc1",
+        "O=c1occo1",
     ]
     names = smiles_to_iupac_batch(smiles)
     names_file = tmp_path / "names.txt"

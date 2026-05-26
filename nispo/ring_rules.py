@@ -314,7 +314,8 @@ def _six_membered_aromatic_candidates(
     if counts == Counter({"N": 6}):
         return [("hexazine", seq) for seq in _ring_numberings(ordered)]
     if counts == Counter({"C": 5, "O": 1}):
-        return [("2H-pyran", seq) for seq in _pyran_numberings(ordered, mol)]
+        parent = "pyran" if _ring_has_exocyclic_oxo(mol, ordered) else "2H-pyran"
+        return [(parent, seq) for seq in _pyran_numberings(ordered, mol)]
     return []
 
 
@@ -325,6 +326,17 @@ def _five_membered_aromatic_candidates(
     for hetero, parent in _AROMATIC_5_SINGLE_HETERO_NAMES.items():
         if counts == Counter({"C": 4, hetero: 1}):
             return [(parent, seq) for seq in _numberings_with_atom_at(ordered, mol, hetero)]
+
+    if counts == Counter({"C": 3, "O": 2}) and _ring_has_exocyclic_oxo(mol, ordered):
+        locant_names = {
+            (1, 2): "1,2-dioxole",
+            (1, 3): "1,3-dioxole",
+        }
+        for seq in _numberings_with_atom_at(ordered, mol, "O"):
+            name = locant_names.get(tuple(_symbol_locants(mol, seq, "O")))
+            if name:
+                candidates.append((name, seq))
+        return candidates
 
     if counts == Counter({"C": 3, "N": 2}):
         return _aromatic_nitrogen_ring_candidates(
@@ -595,6 +607,11 @@ def _pyran_numberings(ordered: Sequence[int], mol) -> list[tuple[int, ...]]:
         if _has_exocyclic_oxo(mol, second, set(ordered)):
             oxo_at_2.append(seq)
     return oxo_at_2 or seqs
+
+
+def _ring_has_exocyclic_oxo(mol, ordered: Sequence[int]) -> bool:
+    ring_set = set(ordered)
+    return any(_has_exocyclic_oxo(mol, idx, ring_set) for idx in ordered)
 
 
 def _has_exocyclic_oxo(mol, idx: int, ring_set: set[int]) -> bool:

@@ -102,6 +102,16 @@ PARENT_RULE_PRIORITIES = {
         specificity="high",
         rationale="OPSIN-validated component-spiro parents should outrank generic skeletal-replacement aliases for the same spiro ring system.",
     ),
+    "component-spiro-parent": RulePriority(
+        19,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=1,
+        seniority="component-composed spiro parent",
+        parent_class="spiro fused/bridged component",
+        specificity="high",
+        rationale="Graph-composed spiro parents with generic bicyclo/tricyclo components should outrank aromatic skeletal-replacement aliases for saturated spiro systems.",
+    ),
     "retained-fused-parent": RulePriority(
         20,
         seniority_score=2,

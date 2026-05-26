@@ -24,6 +24,7 @@ from .ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
     ring_parent_candidates as _ring_parent_candidates,
 )
+from .spiro_component_rules import component_spiro_parent_candidates
 from .rule_dispatch import (
     RuleSpec,
     acyclic,
@@ -1100,6 +1101,15 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
                 return
 
 
+class ComponentSpiroParentRule:
+    family = "component-spiro-parent"
+    priority = parent_priority("component-spiro-parent")
+    min_ring_system_ring_count = 3
+
+    def candidates(self, ctx):
+        yield from component_spiro_parent_candidates(ctx, self.priority)
+
+
 _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
     "androst",
     "campest",
@@ -1397,6 +1407,7 @@ def parent_rules(Chem) -> tuple:
     generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
     generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
     generated_spiro_partial_hydro = GeneratedSpiroPartialHydroParentRule(Chem)
+    component_spiro = ComponentSpiroParentRule()
     natural_product_topology = NaturalProductTopologyParentRule(Chem)
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
@@ -1468,6 +1479,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("generated-spiro-component-parent"),
             (min_ring_system_ring_count(2),),
             generated_spiro_partial_hydro.candidates,
+        ),
+        RuleSpec(
+            "component-spiro-parent",
+            parent_priority("component-spiro-parent"),
+            (min_ring_system_ring_count(3),),
+            component_spiro.candidates,
         ),
         RuleSpec(
             "oxido-fused-retained-parent",

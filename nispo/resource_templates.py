@@ -627,6 +627,7 @@ def build_fusion_component_parent_templates(Chem, min_rings: int = 2, max_atoms:
                 min_rings=min_rings,
                 max_atoms=max_atoms,
                 name_override=name,
+                allow_dot_ring_closures=True,
             )
             if not template:
                 continue
@@ -771,6 +772,7 @@ def _template_from_token(
     max_rings: int | None = None,
     max_atoms: int = 32,
     name_override: str | None = None,
+    allow_dot_ring_closures: bool = False,
 ) -> dict | None:
     record = record_or_token if isinstance(record_or_token, OpsinTokenRecord) else None
     token = record.token if record is not None else record_or_token
@@ -780,7 +782,7 @@ def _template_from_token(
     labels_text = token.attrib.get("labels", "")
     if not smiles or not labels_text:
         return None
-    if "." in smiles:
+    if "." in smiles and not allow_dot_ring_closures:
         return None
     name = name_override or preferred_token_name(token.text or "", PARENT_NAME_NORMALIZATIONS)
     if not name:

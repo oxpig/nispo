@@ -40,7 +40,7 @@ class StructuralProfile:
             or self.sulfone_like_count > 0
             or self.exocyclic_carbonyl_count > 0
             or self.halogenated_alkene_count > 0
-            or self.nonring_multiple_bond_count >= 2
+            or self.nonring_multiple_bond_count >= 1
         )
 
     @property

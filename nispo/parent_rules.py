@@ -741,6 +741,24 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
+    family = "charged-ring-acyclic-skeleton-with-ring-substituents"
+    priority = parent_priority("polycyclic-functional-skeleton")
+    requires_charged_ring_atom = True
+
+    def candidates(self, ctx):
+        profile = ctx.profile
+        if profile.ring_count == 0 or not profile.has_charged_ring_atom:
+            return
+        name = ctx.acyclic_name(allow_ring_atoms=False)
+        if (
+            name
+            and "ium" in name
+            and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+        ):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "functional-acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("polycyclic-functional-skeleton")
@@ -1331,6 +1349,7 @@ def parent_rules(Chem) -> tuple:
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
+    charged_ring_acyclic = ChargedRingAcyclicSkeletonWithRingSubstituentsRule()
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
 
@@ -1370,6 +1389,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("polycyclic-functional-skeleton"),
             (acyclic_preference_signal,),
             preferred_acyclic.candidates,
+        ),
+        RuleSpec(
+            "charged-ring-acyclic-skeleton-with-ring-substituents",
+            parent_priority("polycyclic-functional-skeleton"),
+            (charged_ring_atom,),
+            charged_ring_acyclic.candidates,
         ),
         RuleSpec(
             "whole-molecule-retained-parent",

@@ -37,6 +37,7 @@ from .rule_dispatch import (
     min_ring_system_ring_count,
     no_charged_ring_atom,
     no_exocyclic_charged_fused_parent,
+    nonring_neutral_phosphorus,
     nonring_positive_nitrogen,
     nonring_positive_phosphorus,
     nonring_positive_sulfur,
@@ -138,6 +139,47 @@ class PhosphaniumParentRule:
                 return
             names.append(prefix)
         name = _phosphanium_name(names)
+        if name:
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class PhosphaneParentRule:
+    family = "phosphane-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        pidx = phosphorus.GetIdx()
+        neighbors = [nbr.GetIdx() for nbr in phosphorus.GetNeighbors()]
+        implicit_hydrogens = phosphorus.GetTotalNumHs()
+        if len(neighbors) + implicit_hydrogens != 3 or not 1 <= len(neighbors) <= 3:
+            return
+        if any(mol.GetAtomWithIdx(nidx).GetSymbol() not in {"C", "Si"} for nidx in neighbors):
+            return
+        if any(
+            mol.GetBondBetweenAtoms(pidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
+            for nidx in neighbors
+        ):
+            return
+        names = []
+        for nidx in neighbors:
+            prefix = branch_prefix(mol, nidx, pidx)
+            if not prefix:
+                return
+            names.append(prefix)
+        name = _phosphane_name(names)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -751,6 +793,7 @@ class GeneratedExactParentRule(ExactRetainedParentRule):
 def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
+    phosphane = PhosphaneParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
     n_halo_imine = NHaloImineParentRule(Chem)
@@ -777,6 +820,7 @@ def parent_rules(Chem) -> tuple:
     return (
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
+        RuleSpec("phosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphane.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",
             parent_priority("senior-functional-exception"),
@@ -883,6 +927,7 @@ from .parent.rule_helpers import (
     _max_nonoxo_ring_double_bond_locs,
     _sulfanium_name,
     _phosphanium_name,
+    _phosphane_name,
     _needs_substituent_parentheses,
     _n_halo_atom,
     _n_halo_prefix,

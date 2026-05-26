@@ -60,6 +60,20 @@ def test_phosphonium_salts_use_substituted_phosphanium_parent():
     assert names == ["tetraheptylphosphanium bromide"]
 
 
+def test_neutral_phosphines_use_substituted_phosphane_parent():
+    names = smiles_to_iupac_batch(
+        [
+            "P(c1ccccc1)(c1ccccc1)c1ccccc1",
+            "P(C1CCCCC1)(C1CCCCC1)C1CCCCC1",
+        ]
+    )
+
+    assert names == [
+        "triphenylphosphane",
+        "tricyclohexylphosphane",
+    ]
+
+
 def test_repeated_complex_onium_substituents_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

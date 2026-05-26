@@ -873,6 +873,10 @@ def _phosphanium_name(names: Sequence[str]) -> str:
     return _substituted_onium_name(names, "phosphanium")
 
 
+def _phosphane_name(names: Sequence[str]) -> str:
+    return _substituted_onium_name(names, "phosphane")
+
+
 def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     counts = Counter(names)
     terms = []

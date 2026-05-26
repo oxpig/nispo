@@ -63,6 +63,8 @@ def test_representative_names_roundtrip_through_opsin(tmp_path):
         "O=C(O)CP(=O)(c1ccccc1)c1ccccc1",
         "O=P(Cl)(Cl)CP(=O)(Cl)Cl",
         "B1=CC=C1",
+        "B1C2CCCC1CCC2",
+        "P12CCCC(CCC1)C2",
         "C#CCN=C=Nc1ccccc1",
         "O=C([O-])C=Cc1ccccc1",
         "COc1ccc(C=CC(=O)[O-])cc1",

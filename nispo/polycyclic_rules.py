@@ -453,7 +453,7 @@ def _unsuitable_ring_atom(mol, idx: int) -> bool:
         atom.GetSymbol() not in SKELETON_ATOMS
         or atom.GetIsAromatic()
         or not charge_allowed
-        or atom.GetSymbol() not in {"C", "N", "O", "S", "Se", "Te"}
+        or atom.GetSymbol() not in {"C", "N", "O", "S", "Se", "Te", "B", "Si", "P"}
     )
 
 

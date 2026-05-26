@@ -280,6 +280,10 @@ def _skeletal_replacement_saturation_penalty(mol, match: Sequence[int], parent_n
             break
     if not has_unsaturation:
         return 0
+    if "indan" in parent_name:
+        return 2
+    if "naphthalen" in parent_name and "dihydronaphthalen" not in parent_name:
+        return 2
     saturated_terms = (
         "decalin",
         "norbornan",
@@ -300,8 +304,6 @@ def _skeletal_replacement_saturation_penalty(mol, match: Sequence[int], parent_n
     )
     if any(term in parent_name for term in unsaturated_terms):
         return 0
-    if "indan" in parent_name and _has_nonaromatic_core_imine(mol, core_atoms):
-        return 2
     if any(term in parent_name for term in saturated_terms):
         return 2
     return 0

@@ -143,6 +143,47 @@ class PhosphaniumParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class AzaniumParentRule:
+    family = "azanium-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_positive_nitrogen = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        nitrogen_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
+        ]
+        if len(nitrogen_atoms) != 1:
+            return
+        nitrogen = nitrogen_atoms[0]
+        nidx = nitrogen.GetIdx()
+        neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors()]
+        implicit_hydrogens = nitrogen.GetTotalNumHs()
+        if len(neighbors) + implicit_hydrogens != 4 or not 1 <= len(neighbors) <= 4:
+            return
+        if any(mol.GetAtomWithIdx(nbr_idx).GetSymbol() not in {"C", "Si"} for nbr_idx in neighbors):
+            return
+        if any(
+            mol.GetBondBetweenAtoms(nidx, nbr_idx).GetBondType() != self._Chem.BondType.SINGLE
+            for nbr_idx in neighbors
+        ):
+            return
+        names = []
+        for nbr_idx in neighbors:
+            prefix = branch_prefix(mol, nbr_idx, nidx)
+            if not prefix:
+                return
+            names.append(prefix)
+        name = _azanium_name(names)
+        if name:
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 PNICTOGEN_HYDRIDE_PARENTS = {
     "P": "phosphane",
     "As": "arsane",
@@ -803,6 +844,7 @@ class GeneratedExactParentRule(ExactRetainedParentRule):
 def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
+    azanium = AzaniumParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -830,6 +872,7 @@ def parent_rules(Chem) -> tuple:
     return (
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
+        RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",
@@ -937,6 +980,7 @@ from .parent.rule_helpers import (
     _max_nonoxo_ring_double_bond_locs,
     _sulfanium_name,
     _phosphanium_name,
+    _azanium_name,
     _pnictogen_hydride_name,
     _needs_substituent_parentheses,
     _n_halo_atom,

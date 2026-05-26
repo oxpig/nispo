@@ -9,7 +9,7 @@ def test_existing_fragment_assembly_smoke():
     assert names == [
         "hydrogen chloride",
         "chloride",
-        "1-azaniumyl-ethane hydrochloride",
+        "ethylazanium hydrochloride",
         "sodium chloride",
     ]
 
@@ -58,6 +58,28 @@ def test_phosphonium_salts_use_substituted_phosphanium_parent():
     names = smiles_to_iupac_batch(["CCCCCCC[P+](CCCCCCC)(CCCCCCC)CCCCCCC.[Br-]"])
 
     assert names == ["tetraheptylphosphanium bromide"]
+
+
+def test_ammonium_salts_use_substituted_azanium_parent():
+    names = smiles_to_iupac_batch(
+        [
+            "CCCC[NH3+].[Cl-]",
+            "C[N+](C)(C)C",
+            "C[N+](C)(C)Cc1ccccc1.[Cl-]",
+            "CCCCCCCCCCCC[NH+](C)C.[Br-]",
+            "OCC[N+](C)(C)CCO.[Cl-]",
+            "[O-]C(=O)CC[N+](C)(C)C",
+        ]
+    )
+
+    assert names == [
+        "butylazanium chloride",
+        "tetramethylazanium",
+        "trimethylphenylmethylazanium chloride",
+        "dodecyldimethylazanium bromide",
+        "dimethylbis(3-oxapropyl)azanium chloride",
+        "trimethyl(1-(1-carboxylato-methyl)-methyl)azanium",
+    ]
 
 
 def test_neutral_phosphines_use_substituted_phosphane_parent():

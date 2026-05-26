@@ -31,12 +31,12 @@ def main() -> int:
 
     from rdkit import Chem, RDLogger
     from nispo.fused_template_families import generated_template_key
-    from nispo.template_index import _ring_system_feature_key, molecule_features
+    from nispo.template_index import ring_system_feature_key, molecule_features
 
     RDLogger.DisableLog("rdApp.*")
 
     records = json.loads(args.input.read_text(encoding="utf-8"))
-    selected = _select_records(Chem, records, args.per_skeleton, molecule_features, _ring_system_feature_key, generated_template_key)
+    selected = _select_records(Chem, records, args.per_skeleton, molecule_features, ring_system_feature_key, generated_template_key)
     _fill_cml_locants(Chem, selected, generated_template_key)
     buckets = _bucket_records(selected)
     for items in buckets.values():

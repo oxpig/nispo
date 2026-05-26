@@ -49,6 +49,7 @@ class StructuralProfile:
             self.nonring_multiple_bond_count >= 1
             or self.nitrile_like_count >= 1
             or self.sulfone_like_count >= 1
+            or self.exocyclic_carbonyl_count >= 1
         )
 
     @property

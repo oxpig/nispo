@@ -1041,6 +1041,8 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         return True
     if "imino" in name and "cyano" in name:
         return True
+    if "1-oxo-2-" in name and "2-azaethyl" in name:
+        return True
     if "diaza" in name and "ene" in name and any(term in name for term in ("carbonyl", "sulfonyl", "nitro")):
         return True
     if "hydroxy" in name and "dioxo" in name and any(term in name for term in ("prop-2-ene", "but-")):

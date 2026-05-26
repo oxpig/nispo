@@ -70,6 +70,24 @@ def test_organotrifluoroborate_salts_use_functional_fragment_names():
     ]
 
 
+def test_tetraorganoborates_use_substituted_borate_names():
+    names = smiles_to_iupac_batch(
+        [
+            "c1ccc([B-](c2ccccc2)(c2ccccc2)c2ccccc2)cc1",
+            "Fc1cc([B-](c2ccccc2)(c2ccccc2)c2ccccc2)cc(F)c1F",
+            "CC[B-](CC)(CC)CC.[Na+]",
+            "N#C[B-](C#N)(C#N)C#N",
+        ]
+    )
+
+    assert names == [
+        "tetraphenylborate",
+        "(3,4,5-trifluorophenyl)triphenylborate",
+        "sodium tetraethylborate",
+        "tetracyanoborate",
+    ]
+
+
 def test_azanide_fragments_use_substituted_parent_names():
     names = smiles_to_iupac_batch(
         [

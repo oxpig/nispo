@@ -269,6 +269,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
     return (
         _substituted_borohydride_name(mol, Chem)
         or _organotrifluoroborate_name(mol, Chem)
+        or _tetraorganoborate_name(mol, Chem)
         or _azanide_name(mol, Chem)
         or _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
@@ -383,6 +384,53 @@ def _organotrifluoroborate_name(mol, Chem) -> str:
     if _needs_fragment_parentheses(prefix):
         prefix = f"({prefix})"
     return prefix + "trifluoroborate"
+
+
+def _tetraorganoborate_name(mol, Chem) -> str:
+    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if len(borons) != 1 or _total_charge(mol) != -1:
+        return ""
+    boron = borons[0]
+    bidx = boron.GetIdx()
+    names = []
+    for nbr in boron.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(bidx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        from .branch_rules import branch_prefix
+
+        prefix = branch_prefix(mol, nidx, bidx)
+        if not prefix:
+            return ""
+        names.append(prefix)
+    if len(names) != 4:
+        return ""
+    prefix_text = _substituted_borate_prefix_text(names)
+    return prefix_text + "borate" if prefix_text else ""
+
+
+def _substituted_borate_prefix_text(names: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for name in names:
+        counts[name] = counts.get(name, 0) + 1
+    terms = []
+    for name, count in counts.items():
+        is_complex = _needs_fragment_parentheses(name)
+        if count > 1 and is_complex:
+            multiplier = COMPLEX_MULTIPLIERS.get(count, "")
+            term = f"{multiplier}({name})" if multiplier else ""
+        elif count > 1:
+            multiplier = MULTIPLIERS.get(count, "")
+            term = multiplier + name if multiplier else ""
+        elif is_complex:
+            term = f"({name})"
+        else:
+            term = name
+        if not term:
+            return ""
+        terms.append((0 if is_complex else 1, name, term))
+    return "".join(term for _complex_order, _name, term in sorted(terms))
 
 
 def _azanide_name(mol, Chem) -> str:

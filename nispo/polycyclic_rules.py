@@ -424,8 +424,6 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     rank = _graph_cycle_rank(graph)
     if rank not in {4, 5}:
         return []
-    if _has_stereochemical_evidence(mol, Chem):
-        return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 

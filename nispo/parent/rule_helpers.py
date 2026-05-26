@@ -51,7 +51,8 @@ def _single_ring_candidate_sort_key(name: str) -> tuple:
     charged_parent_rank = 0 if re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name) else 1
     ylidene_rank = 0 if "ylidene" in name else 1
     aromatic_parent_rank = 0 if _has_aromatic_single_ring_parent_stem(name) else 1
-    return (charged_parent_rank, ylidene_rank, aromatic_parent_rank, len(name), name)
+    functional_unsaturation_rank = 0 if _has_functional_unsaturated_substituent(name) else 1
+    return (charged_parent_rank, ylidene_rank, aromatic_parent_rank, functional_unsaturation_rank, len(name), name)
 
 
 def _has_aromatic_single_ring_parent_stem(name: str) -> bool:
@@ -64,6 +65,16 @@ def _has_aromatic_single_ring_parent_stem(name: str) -> bool:
             r"thiazole|isothiazole|triazole|tetrazole"
             r")$",
             bare_name,
+        )
+    )
+
+
+def _has_functional_unsaturated_substituent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:aza|diaza|oxa|thia)[a-z]*"
+            r"(?:prop|but|pent|hex)-\d+(?:,\d+)*-(?:en|yn)e?",
+            name,
         )
     )
 

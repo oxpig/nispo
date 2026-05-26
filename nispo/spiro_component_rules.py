@@ -13,6 +13,7 @@ from .formatting import format_prefixes as _format_prefixes
 from .naming_context import MoleculeContext
 from .parent.rule_helpers import (
     _adjust_fused_parent_for_charge,
+    _has_assigned_bond_stereo,
     _iter_fused_template_matches,
     _partial_hydro_parent_names,
 )
@@ -25,6 +26,7 @@ from .ring_rules import ring_parent_candidates
 from .ring_resource_rules import resource_ring_parent_candidates
 from .ring_topology import ring_system_graph
 from .rule_engine import NameCandidate
+from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
@@ -230,6 +232,7 @@ def _component_dispiro_candidates_for_blocks(
                             len(name),
                             name,
                         ),
+                        stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, ctx.Chem, locants),
                     )
                 )
     return candidates
@@ -363,6 +366,7 @@ def _component_spiro_candidates_for_split(
                         len(name),
                         name,
                     ),
+                    stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
                 )
             )
     return candidates
@@ -426,6 +430,7 @@ def _poly_component_spiro_candidates_for_split(
                         len(name),
                         name,
                     ),
+                    stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
                 )
             )
     return candidates
@@ -449,6 +454,26 @@ def _component_spiro_prefix_text(
     if substituent_text and replacement_text:
         return f"{substituent_text}-{replacement_text}"
     return substituent_text or replacement_text
+
+
+def _component_spiro_stereo_prefix(mol, Chem, locants: dict[int, str]) -> str:
+    if _has_assigned_bond_stereo(mol, Chem):
+        return ""
+    centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if not centers:
+        return ""
+    pieces = []
+    seen = set()
+    for idx, descriptor in centers:
+        locant = locants.get(idx, "")
+        if not re.match(r"^\d+'*$", locant):
+            return ""
+        text = f"{locant}{descriptor}"
+        if text in seen:
+            continue
+        seen.add(text)
+        pieces.append((_locant_key(locant), text))
+    return ",".join(text for _sort_key, text in sorted(pieces))
 
 
 class _Component:

@@ -1340,6 +1340,29 @@ class GenericBicyclicParentRule(_PolycyclicRecordParentRule):
     requires_generic_bicyclic_topology = True
 
 
+_FUNCTIONAL_GENERIC_BICYCLIC_TERMS = (
+    "carbonyl",
+    "carboxy",
+    "cyano",
+    "amino",
+    "hydroxy",
+    "imino",
+    "methylidene",
+    "oxo",
+    "oxy",
+    "sulfonyl",
+    "thioxo",
+)
+
+
+class FunctionalGenericBicyclicParentRule(GenericBicyclicParentRule):
+    family = "functional-generic-bicyclic-parent"
+    priority = parent_priority("polycyclic-functional-skeleton")
+
+    def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
+        return any(term in name for term in _FUNCTIONAL_GENERIC_BICYCLIC_TERMS)
+
+
 class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
     family = "preferred-generic-bicyclic-parent"
     priority = parent_priority("preferred-generic-bicyclic")
@@ -1446,6 +1469,7 @@ def parent_rules(Chem) -> tuple:
     hydro_fused = HydroFusedParentRule(Chem)
     oxido_fused = OxidoFusedParentRule(Chem)
     generic_bicyclic = GenericBicyclicParentRule(Chem)
+    functional_generic_bicyclic = FunctionalGenericBicyclicParentRule(Chem)
     generic_spiro = GenericSpiroParentRule(Chem)
     single_ring = SingleRingParentRule(Chem)
     generated_exact = GeneratedExactParentRule(Chem)
@@ -1493,6 +1517,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("functional-acyclic-skeleton"),
             (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
             conjugated_carbonyl_acyclic.candidates,
+        ),
+        RuleSpec(
+            "functional-generic-bicyclic-parent",
+            parent_priority("polycyclic-functional-skeleton"),
+            (generic_bicyclic_topology,),
+            functional_generic_bicyclic.candidates,
         ),
         RuleSpec(
             "preferred-acyclic-skeleton-with-ring-substituents",

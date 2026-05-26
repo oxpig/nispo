@@ -1066,6 +1066,20 @@ class GeneratedFusedParentRule(FusedParentRule):
         return (_generated_fusion_preference(template_record_name(template)), *_fused_candidate_preference(name), -len(match), name)
 
 
+class GeneratedSpiroFusedParentRule(GeneratedFusedParentRule):
+    """Promote OPSIN-derived component-spiro templates over retained spiro aliases."""
+
+    family = "generated-spiro-fused-parent"
+    priority = parent_priority("generated-spiro-component-parent")
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return tuple(
+            template
+            for template in ctx.generated_fused_templates
+            if template_record_name(template).startswith("spiro[")
+        )
+
+
 class SingleRingParentRule:
     family = "single-ring-parent"
     priority = parent_priority("single-ring-parent")
@@ -1557,6 +1571,7 @@ def parent_rules(Chem) -> tuple:
     single_ring = SingleRingParentRule(Chem)
     generated_exact = GeneratedExactParentRule(Chem)
     generated_fused = GeneratedFusedParentRule(Chem)
+    generated_spiro_fused = GeneratedSpiroFusedParentRule(Chem)
     generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
     generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
     generated_spiro_partial_hydro = GeneratedSpiroPartialHydroParentRule(Chem)
@@ -1651,6 +1666,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("component-spiro-parent"),
             (min_ring_system_ring_count(3),),
             component_spiro.candidates,
+        ),
+        RuleSpec(
+            "generated-spiro-fused-parent",
+            parent_priority("generated-spiro-component-parent"),
+            (min_ring_system_ring_count(2), spiro_topology),
+            generated_spiro_fused.candidates,
         ),
         RuleSpec(
             "oxido-fused-retained-parent",

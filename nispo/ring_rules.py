@@ -615,6 +615,9 @@ def _has_exocyclic_oxo(mol, idx: int, ring_set: set[int]) -> bool:
 def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw_subs) -> str:
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
+        if atom.GetFormalCharge() < 0:
+            stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+            return f"{stem}-{loc}-ide"
         if atom.GetFormalCharge() <= 0:
             continue
         if atom.GetSymbol() in {"O", "S"}:

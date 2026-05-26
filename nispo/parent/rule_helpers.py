@@ -858,13 +858,26 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
                 return "quinuclidin-1-ium"
     charged_locs = []
     charged_has_hydrogen = False
+    anion_locs = []
+    template_mol = template_record_mol(template)
     for mol_idx, template_idx in reverse.items():
         locant = template_record_locants(template).get(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        if (
+            locant
+            and locant.isdigit()
+            and atom.GetFormalCharge() < 0
+            and template_atom.GetFormalCharge() == 0
+        ):
+            anion_locs.append(int(locant))
         if locant and locant.isdigit() and atom.GetSymbol() in {"N", "S"} and atom.GetFormalCharge() > 0:
             charged_locs.append(int(locant))
             if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0:
                 charged_has_hydrogen = True
+    if len(anion_locs) == 1 and not charged_locs:
+        stem = name[:-1] if name.endswith("e") else name
+        return f"{stem}-{anion_locs[0]}-ide"
     if len(charged_locs) == 1:
         locant = charged_locs[0]
         if not charged_has_hydrogen:

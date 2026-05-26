@@ -19,3 +19,7 @@ def test_batch_does_not_abort_on_unsupported_molecule():
 
     assert outputs[0] == "ethane"
     assert outputs[2] == "benzene"
+
+
+def test_fluorine_18_label_marks_fluoro_substituent():
+    assert smiles_to_iupac("[18F]C1CCC1") == "1-[18F]fluoro-cyclobutane"

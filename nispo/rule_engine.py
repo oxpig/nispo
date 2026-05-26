@@ -111,9 +111,15 @@ def _apply_uniform_isotope_label(mol, name: str) -> str:
     if symbol == "C" and isotope in {13, 14}:
         count_text = str(count) if count > 1 else ""
         return f"{name}-{isotope}{symbol}{count_text}"
-    if symbol in {"F", "N"} and count == 1 and not name.startswith("("):
+    if symbol == "F" and isotope == 18 and count == 1:
+        return _inline_single_fluorine_isotope(name)
+    if symbol == "N" and count == 1 and not name.startswith("("):
         return f"[{isotope}{symbol}]{name}"
     return name
+
+
+def _inline_single_fluorine_isotope(name: str) -> str:
+    return name.replace("fluoro", "[18F]fluoro", 1) if "fluoro" in name else name
 
 
 def _fallback_stereo_atom_order(family: str) -> str:

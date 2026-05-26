@@ -527,4 +527,6 @@ def _multiplied_fragment_suffix(name: str, count: int) -> str:
 def _needs_complex_fragment_multiplier(name: str) -> bool:
     if "(" in name or ")" in name:
         return True
+    if " " in name:
+        return True
     return name.startswith(("bis", "tris", "tetrakis", "tetra", "penta", "hexa"))

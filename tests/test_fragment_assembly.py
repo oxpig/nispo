@@ -78,7 +78,15 @@ def test_repeated_complex_onium_substituents_use_complex_multipliers():
 
 def test_complex_counterions_use_complex_multipliers():
     names = smiles_to_iupac_batch(
-        ["O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.[Cu+2]"]
+        [
+            "O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.O=S(=O)([N-]S(=O)(=O)C(F)(F)F)C(F)(F)F.[Cu+2]",
+            "O=P([O-])(O)O.O=P([O-])(O)O.[Ca+2]",
+            "O=S(=O)(O)[O-].O=S(=O)(O)[O-].[Zn+2]",
+        ]
     )
 
-    assert names == ["copper(2+) bis(bis(trifluoromethylsulfonyl)azanide)"]
+    assert names == [
+        "copper(2+) bis(bis(trifluoromethylsulfonyl)azanide)",
+        "calcium bis(dihydrogen phosphate)",
+        "zinc bis(hydrogen sulfate)",
+    ]

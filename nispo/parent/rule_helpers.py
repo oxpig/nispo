@@ -666,18 +666,34 @@ def _natural_product_topology_parent_name(mol, Chem, template: dict, match: Sequ
     parent = template_record_name(template)
     ene_locs = _natural_product_extra_double_bond_locs(mol, Chem, template, match)
     if ene_locs:
-        return loc_unsat(parent, ene_locs, "ene")
+        return _format_natural_product_unsaturated_parent(parent, ene_locs)
     return parent + "ane"
 
 
-def _natural_product_extra_double_bond_locs(mol, Chem, template: dict, match: Sequence[int]) -> list[int]:
+def _format_natural_product_unsaturated_parent(parent: str, ene_locs: Sequence[str]) -> str:
+    locs = sorted(set(ene_locs), key=_natural_product_unsaturation_sort_key)
+    if len(locs) == 1:
+        return f"{parent}-{locs[0]}-ene"
+    return f"{parent}a-{','.join(locs)}-{MULT.get(len(locs), '')}ene"
+
+
+def _natural_product_unsaturation_sort_key(locant: str) -> tuple[int, str]:
+    digits = "".join(ch for ch in locant if ch.isdigit())
+    return (int(digits) if digits else 0, locant)
+
+
+def _natural_product_extra_double_bond_locs(mol, Chem, template: dict, match: Sequence[int]) -> list[str]:
     locants = template_record_locants(template)
     template_mol = template_record_mol(template)
-    ene_locs = set()
+    ene_locs, aromatic_bond_keys = _natural_product_aromatic_unsaturations(mol, template, match)
     for bond in template_mol.GetBonds():
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
-        mol_bond = mol.GetBondBetweenAtoms(match[begin], match[end])
+        mol_begin = match[begin]
+        mol_end = match[end]
+        if frozenset((mol_begin, mol_end)) in aromatic_bond_keys:
+            continue
+        mol_bond = mol.GetBondBetweenAtoms(mol_begin, mol_end)
         if mol_bond is None:
             continue
         if mol_bond.GetBondType() != Chem.BondType.DOUBLE or bond.GetBondType() == Chem.BondType.DOUBLE:
@@ -688,28 +704,97 @@ def _natural_product_extra_double_bond_locs(mol, Chem, template: dict, match: Se
             if locants.get(idx, "").isdigit()
         ]
         if numeric:
-            ene_locs.add(min(numeric))
-    return sorted(ene_locs)
+            ene_locs.add(_natural_product_double_bond_locant(numeric))
+    return sorted(ene_locs, key=_natural_product_unsaturation_sort_key)
+
+
+def _natural_product_aromatic_unsaturations(
+    mol, template: dict, match: Sequence[int]
+) -> tuple[set[str], set[frozenset[int]]]:
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    locants = template_record_locants(template)
+    ene_locs: set[str] = set()
+    aromatic_bond_keys: set[frozenset[int]] = set()
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = set(ring)
+        if not ring_set <= set(reverse):
+            continue
+        ring_bonds = [
+            mol.GetBondBetweenAtoms(ring[idx], ring[(idx + 1) % len(ring)])
+            for idx in range(len(ring))
+        ]
+        if not ring_bonds or not all(bond is not None and bond.GetIsAromatic() for bond in ring_bonds):
+            continue
+        ring_locants = {locants.get(reverse[idx], "") for idx in ring}
+        if ring_locants == {"1", "2", "3", "4", "5", "10"}:
+            ene_locs.update({"1", "3", "5(10)"})
+            aromatic_bond_keys.update(frozenset((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())) for bond in ring_bonds)
+    return ene_locs, aromatic_bond_keys
+
+
+def _natural_product_double_bond_locant(numeric_locants: Sequence[int]) -> str:
+    pair = frozenset(numeric_locants)
+    special = {
+        frozenset((5, 10)): "5(10)",
+        frozenset((8, 14)): "8(14)",
+        frozenset((9, 11)): "9(11)",
+        frozenset((13, 17)): "13(17)",
+    }.get(pair)
+    if special:
+        return special
+    return str(min(numeric_locants))
 
 
 def _locanted_template_stereo_prefix(mol, Chem, template: dict, match: Sequence[int]) -> str:
-    descriptors = _fresh_atom_stereochemistry(mol, Chem)
-    if not descriptors:
-        return ""
+    atom_descriptors = _fresh_atom_stereochemistry(mol, Chem)
     locants = template_record_locants(template)
     pieces = []
     seen = set()
     for template_idx, mol_idx in enumerate(match):
-        descriptor = descriptors.get(mol_idx)
+        descriptor = atom_descriptors.get(mol_idx)
         locant = locants.get(template_idx, "")
         if descriptor is None or not locant.isdigit():
             continue
-        key = (int(locant), descriptor)
-        if key in seen:
+        text = f"{locant}{descriptor}"
+        if text in seen:
             continue
-        seen.add(key)
-        pieces.append(key)
-    return ",".join(f"{locant}{descriptor}" for locant, descriptor in sorted(pieces))
+        seen.add(text)
+        pieces.append(((int(locant), locant), text))
+    for locant, descriptor in _locanted_template_bond_stereo(mol, Chem, template, match):
+        text = f"{locant}{descriptor}"
+        if text in seen:
+            continue
+        seen.add(text)
+        pieces.append((_natural_product_unsaturation_sort_key(locant), text))
+    return ",".join(text for _sort_key, text in sorted(pieces))
+
+
+def _locanted_template_bond_stereo(mol, Chem, template: dict, match: Sequence[int]) -> list[tuple[str, str]]:
+    locants = template_record_locants(template)
+    descriptors = []
+    for bond in template_record_mol(template).GetBonds():
+        mol_bond = mol.GetBondBetweenAtoms(match[bond.GetBeginAtomIdx()], match[bond.GetEndAtomIdx()])
+        if mol_bond is None or mol_bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = mol_bond.GetStereo()
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        numeric = [
+            int(locants[idx])
+            for idx in (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+            if locants.get(idx, "").isdigit()
+        ]
+        if not numeric:
+            continue
+        locant = _natural_product_double_bond_locant(numeric)
+        if "(" in locant:
+            continue
+        descriptors.append((locant, descriptor))
+    return descriptors
 
 
 def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:

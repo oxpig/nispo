@@ -465,12 +465,49 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
         if descriptor in {"R", "S"} and idx in seq_set
     ]
     if not centers:
-        return ""
+        return _simple_ring_relative_cis_trans_prefix(mol, seq)
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     return ",".join(
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
     )
+
+
+def _simple_ring_relative_cis_trans_prefix(mol, seq: Sequence[int]) -> str:
+    """Return a relative cis/trans descriptor for tagged disubstituted rings.
+
+    RDKit reports some symmetric cycloalkane stereocentres as lowercase
+    relative ``r/s`` rather than absolute ``R/S``.  OPSIN does not reliably
+    apply unlocanted ``(r,s)`` descriptors to substituent groups, but it does
+    roundtrip conventional ``(cis)-``/``(trans)-`` prefixes for simple
+    disubstituted cycloalkyl substituents.
+    """
+
+    seq_set = set(seq)
+    tagged = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetIdx() in seq_set and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged) != 2:
+        return ""
+    if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
+        return ""
+    if any(_ring_atom_external_degree(mol, atom.GetIdx(), seq_set) != 1 for atom in tagged):
+        return ""
+    ring_bonds = [
+        bond
+        for bond in mol.GetBonds()
+        if bond.GetBeginAtomIdx() in seq_set and bond.GetEndAtomIdx() in seq_set
+    ]
+    if any(bond.GetBondType() != Chem.BondType.SINGLE for bond in ring_bonds):
+        return ""
+    tags = [atom.GetChiralTag() for atom in tagged]
+    return "cis" if tags[0] == tags[1] else "trans"
+
+
+def _ring_atom_external_degree(mol, atom_idx: int, ring_atoms: set[int]) -> int:
+    return sum(1 for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors() if nbr.GetIdx() not in ring_atoms)
 
 
 def _ring_substituent_unsaturated_suffix(

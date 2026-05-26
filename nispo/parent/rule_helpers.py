@@ -1259,6 +1259,29 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         r"(?:prop|but|pent|hex|hept)-\d+(?:,\d+)*-ene", name
     ):
         return True
+    if (
+        "yne" in name
+        and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+        and any(
+            term in name
+            for term in (
+                "amino",
+                "carboxy",
+                "carbonyl",
+                "cyano",
+                "fluoro",
+                "chloro",
+                "bromo",
+                "iodo",
+                "hydroxy",
+                "imino",
+                "phenyl",
+            )
+        )
+    ):
+        return True
+    if "imino" in name and any(term in name for term in ("cyclo", "phenyl", "pyridin", "imidazol")):
+        return True
     if _has_substituted_carboxylato_ethene(name):
         return True
     if _has_main_chain_trifluoro_oxo_alkane(name):

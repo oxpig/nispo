@@ -141,6 +141,46 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     return ""
 
 
+def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "P" or atom.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    double_oxygen_count = 0
+    hydroxy_count = 0
+    oxido_count = 0
+    other_heavy = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and len(nbr.GetNeighbors()) == 1
+        ):
+            if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                hydroxy_count += 1
+            elif nbr.GetFormalCharge() < 0:
+                oxido_count += 1
+            else:
+                return ""
+        elif nbr.GetAtomicNum() > 1:
+            other_heavy.append(nidx)
+    if other_heavy or double_oxygen_count != 1:
+        return ""
+    if hydroxy_count == 2 and oxido_count == 0:
+        return "phosphono"
+    if hydroxy_count == 0 and oxido_count == 2:
+        return "phosphonato"
+    return ""
+
+
 def _halosulfur_prefix(double_o: int, halogens: Sequence[str], non_parent_count: int) -> str:
     if len(halogens) != 1:
         return ""

@@ -25,6 +25,7 @@ from .functional_groups import (
     _is_nitrile_carbon,
     _is_nitro_nitrogen,
     _is_terminal_carbonyl_oxygen,
+    _phosphorus_prefix,
     _sulfur_prefix,
     collect_subtree,
     is_carbonyl_carbon,
@@ -238,6 +239,12 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         "S": (
             (
                 BranchRuleSpec(_sulfur_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "P": (
+            (
+                BranchRuleSpec(_phosphorus_prefix),
                 BranchRuleSpec(_resource_prefix),
             ),
         ),

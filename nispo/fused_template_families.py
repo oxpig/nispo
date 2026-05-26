@@ -65,6 +65,7 @@ def curated_fused_templates(Chem) -> tuple[dict, ...]:
         build_fused_templates(Chem)
         + catalog.static_retained
         + catalog.opsin_test_scaffolds
+        + catalog.generated_spiro_scaffolds
         + catalog.opsin_retained_fused
         + catalog.fusion_component_parents
     )

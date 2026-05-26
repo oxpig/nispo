@@ -18,6 +18,7 @@ from .fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
     hydrocarbon_replacement_parent_templates_for_graph as _hydrocarbon_replacement_parent_templates_for_graph,
 )
+from .scaffold_catalog import parent_scaffold_catalog
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from .ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
@@ -1049,6 +1050,56 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                 return
 
 
+class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule):
+    family = "generated-spiro-partial-hydro-parent"
+    priority = parent_priority("generated-spiro-component-parent")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() < 2:
+            return
+        candidates = []
+        templates = ctx.candidate_templates(
+            parent_scaffold_catalog(self._Chem).generated_spiro_scaffolds,
+            exact_atom_count=True,
+        )
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            templates,
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+        ):
+            for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
+                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+                if not name:
+                    continue
+                sort_key = (
+                    _partial_hydro_spiro_alias_penalty(parent_name),
+                    hydro_key,
+                    -len(match),
+                    name,
+                )
+                candidates.append(
+                    NameCandidate(
+                        name=name,
+                        family=self.family,
+                        priority=self.priority,
+                        sort_key=sort_key,
+                    )
+                )
+        seen = set()
+        yielded = 0
+        for candidate in sorted(candidates, key=lambda item: item.sort_key):
+            if candidate.name in seen:
+                continue
+            seen.add(candidate.name)
+            yield candidate
+            yielded += 1
+            if yielded >= 16:
+                return
+
+
 _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
     "androst",
     "campest",
@@ -1345,6 +1396,7 @@ def parent_rules(Chem) -> tuple:
     generated_fused = GeneratedFusedParentRule(Chem)
     generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
     generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
+    generated_spiro_partial_hydro = GeneratedSpiroPartialHydroParentRule(Chem)
     natural_product_topology = NaturalProductTopologyParentRule(Chem)
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
@@ -1411,6 +1463,12 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_count(2),), fused.candidates),
         RuleSpec("hydro-fused-retained-parent", parent_priority("hydro-retained-fused-parent"), (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
+        RuleSpec(
+            "generated-spiro-partial-hydro-parent",
+            parent_priority("generated-spiro-component-parent"),
+            (min_ring_system_ring_count(2),),
+            generated_spiro_partial_hydro.candidates,
+        ),
         RuleSpec(
             "oxido-fused-retained-parent",
             parent_priority("charged-retained-fused-parent"),

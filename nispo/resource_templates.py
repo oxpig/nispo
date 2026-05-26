@@ -567,6 +567,7 @@ def build_opsin_parent_templates(Chem) -> tuple[dict, ...]:
     return (
         build_static_parent_templates(Chem)
         + build_opsin_test_scaffold_templates(Chem)
+        + build_generated_spiro_scaffold_templates(Chem)
         + build_opsin_resource_templates(Chem)
         + build_fusion_component_parent_templates(Chem)
         + build_generated_fused_parent_templates(Chem)
@@ -599,6 +600,15 @@ def build_opsin_test_scaffold_templates(Chem) -> tuple[dict, ...]:
         _read_json_records("opsin_test_scaffold_templates.json"),
         source_family="opsin-test-scaffold",
         default_source_file="opsin_test_scaffold_templates.json",
+    )
+
+
+def build_generated_spiro_scaffold_templates(Chem) -> tuple[dict, ...]:
+    return _build_json_scaffold_templates(
+        Chem,
+        _read_json_records("generated_spiro_scaffold_templates.json"),
+        source_family="generated-spiro-scaffold",
+        default_source_file="generated_spiro_scaffold_templates.json",
     )
 
 

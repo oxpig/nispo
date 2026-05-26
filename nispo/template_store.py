@@ -7,6 +7,7 @@ from typing import Mapping
 from .resource_templates import (
     build_fusion_component_parent_templates,
     build_generated_fused_parent_templates,
+    build_generated_spiro_scaffold_templates,
     build_opsin_resource_templates,
     build_opsin_test_scaffold_templates,
     build_retained_parent_templates,
@@ -70,6 +71,7 @@ class ParentScaffoldCatalog:
 
     static_retained: tuple[dict, ...]
     opsin_test_scaffolds: tuple[dict, ...]
+    generated_spiro_scaffolds: tuple[dict, ...]
     opsin_retained_fused: tuple[dict, ...]
     fusion_component_parents: tuple[dict, ...]
     fused: tuple[dict, ...]
@@ -89,19 +91,28 @@ class TemplateStore:
     def catalog(self) -> ParentScaffoldCatalog:
         static_retained = self.static_retained()
         opsin_test_scaffolds = self.opsin_test_scaffolds()
+        generated_spiro_scaffolds = self.generated_spiro_scaffolds()
         opsin_retained_fused = self.opsin_retained_fused()
         fusion_component_parents = self.fusion_component_parents()
         exact = self._dedupe_templates(
             build_retained_parent_templates(self.Chem, min_rings=0, max_atoms=48)
             + static_retained
             + opsin_test_scaffolds
+            + generated_spiro_scaffolds
             + fusion_component_parents
         )
         single_ring = build_retained_parent_templates(self.Chem, min_rings=1, max_rings=1)
-        fused = static_retained + opsin_test_scaffolds + opsin_retained_fused + fusion_component_parents
+        fused = (
+            static_retained
+            + opsin_test_scaffolds
+            + generated_spiro_scaffolds
+            + opsin_retained_fused
+            + fusion_component_parents
+        )
         return ParentScaffoldCatalog(
             static_retained=static_retained,
             opsin_test_scaffolds=opsin_test_scaffolds,
+            generated_spiro_scaffolds=generated_spiro_scaffolds,
             opsin_retained_fused=opsin_retained_fused,
             fusion_component_parents=fusion_component_parents,
             fused=fused,
@@ -115,6 +126,9 @@ class TemplateStore:
 
     def opsin_test_scaffolds(self) -> tuple[dict, ...]:
         return build_opsin_test_scaffold_templates(self.Chem)
+
+    def generated_spiro_scaffolds(self) -> tuple[dict, ...]:
+        return build_generated_spiro_scaffold_templates(self.Chem)
 
     def opsin_retained_fused(self) -> tuple[dict, ...]:
         return build_opsin_resource_templates(self.Chem)

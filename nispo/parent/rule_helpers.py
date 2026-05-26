@@ -221,7 +221,7 @@ def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
 def _skeletal_replacement_query(template_mol, Chem):
     query = Chem.RWMol()
     for _atom in template_mol.GetAtoms():
-        query.AddAtom(Chem.AtomFromSmarts("[#5,#6,#7,#8,#15,#16]"))
+        query.AddAtom(Chem.AtomFromSmarts("[#5,#6,#7,#8,#14,#15,#16,#32,#33,#34,#50,#52]"))
     for bond in template_mol.GetBonds():
         query.AddBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), Chem.BondType.UNSPECIFIED)
     return query.GetMol()
@@ -330,11 +330,17 @@ def _locant_sort_key(locant: str) -> tuple[int, str]:
 
 
 _SKELETAL_REPLACEMENT_PREFIXES = {
+    "As": "arsa",
     "B": "bora",
+    "Ge": "germa",
     "N": "aza",
     "O": "oxa",
     "P": "phospha",
     "S": "thia",
+    "Se": "selena",
+    "Si": "sila",
+    "Sn": "stanna",
+    "Te": "tellura",
 }
 
 
@@ -413,12 +419,12 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
             continue
         if _has_unsaturated_core_bond(mol, mol_idx, match):
             continue
-        if not locant.isdigit():
+        if not _is_hydro_locant(locant):
             return ""
-        hydro_locs.append(int(locant))
+        hydro_locs.append(locant)
     if not hydro_locs:
         return ""
-    hydro_locs = sorted(set(hydro_locs))
+    hydro_locs = sorted(set(hydro_locs), key=_locant_sort_key)
     hydro = {
         2: "dihydro",
         4: "tetrahydro",
@@ -439,27 +445,41 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     return name
 
 
+def _is_hydro_locant(locant: str) -> bool:
+    return bool(locant) and locant[0].isdigit() and not locant.endswith("a")
+
+
 def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     candidate_locs = []
+    scored_hydro_atoms = 0
+    scored_hydro_total = 0
     for template_idx, mol_idx in enumerate(match):
         template_atom = template_record_mol(template).GetAtomWithIdx(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
         if template_atom.GetFormalCharge() != atom.GetFormalCharge():
             return
         locant = template_record_locants(template).get(template_idx, "")
-        if not locant or locant.endswith("a"):
-            continue
         score = _partial_hydro_atom_score(mol, template_record_mol(template), mol_idx, template_idx, match)
         if score <= 0:
+            continue
+        scored_hydro_atoms += 1
+        scored_hydro_total += score
+        if not locant or locant.endswith("a"):
             continue
         candidate_locs.append((locant, score))
     by_locant = {}
     for locant, score in candidate_locs:
         by_locant[locant] = max(score, by_locant.get(locant, 0))
     candidate_locs = sorted(by_locant.items(), key=lambda item: _locant_sort_key(item[0]))
-    if len(candidate_locs) < 2:
-        return
     candidates = []
+    if template_record_name(template).startswith("spiro["):
+        for count, hydro in ((2, "dihydro"), (4, "tetrahydro"), (6, "hexahydro")):
+            if scored_hydro_atoms >= count:
+                candidates.append(((2, count, -scored_hydro_total, 0, ()), f"{hydro}{template_record_name(template)}"))
+    if len(candidate_locs) < 2:
+        for hydro_key, parent_name in sorted(candidates)[:12]:
+            yield parent_name, hydro_key
+        return
     for count, hydro in ((2, "dihydro"), (4, "tetrahydro"), (6, "hexahydro")):
         if len(candidate_locs) < count:
             continue

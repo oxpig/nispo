@@ -97,6 +97,14 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
         carbonyl = _carbonyl_substituent_prefix(mol, heavy[0], idx)
         if carbonyl:
             return carbonyl + "oxy"
+        if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "S":
+            sulfur = _sulfur_prefix(mol, heavy[0], idx)
+            if (
+                sulfur.endswith("sulfonyl")
+                and _sulfur_has_ring_carbon_ligand(mol, heavy[0], idx)
+                and not _sulfur_has_nitroaryl_ligand(mol, heavy[0], idx)
+            ):
+                return sulfur + "oxy"
         if mol.GetAtomWithIdx(heavy[0]).IsInRing():
             ring = _ring_substituent_prefix(mol, heavy[0], idx)
             if not ring:
@@ -107,6 +115,40 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
         alk = substituent_from_root(mol, heavy[0], idx)
         return _alkyl_to_alkoxy(alk)
     return ""
+
+
+def _sulfur_has_ring_carbon_ligand(mol, sulfur_idx: int, oxygen_idx: int) -> bool:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    return any(
+        nbr.GetIdx() != oxygen_idx and nbr.GetSymbol() == "C" and nbr.IsInRing()
+        for nbr in sulfur.GetNeighbors()
+    )
+
+
+def _sulfur_has_nitroaryl_ligand(mol, sulfur_idx: int, oxygen_idx: int) -> bool:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    ring_starts = [
+        nbr.GetIdx()
+        for nbr in sulfur.GetNeighbors()
+        if nbr.GetIdx() != oxygen_idx and nbr.GetSymbol() == "C" and nbr.IsInRing()
+    ]
+    seen: set[int] = set()
+    stack = list(ring_starts)
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        atom = mol.GetAtomWithIdx(current)
+        for nbr in atom.GetNeighbors():
+            nbr_idx = nbr.GetIdx()
+            if nbr_idx == sulfur_idx:
+                continue
+            if _is_nitro_nitrogen(mol, nbr_idx):
+                return True
+            if nbr.IsInRing() and nbr_idx not in seen:
+                stack.append(nbr_idx)
+    return False
 
 
 def _ylidene_oxidaniumyl_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:

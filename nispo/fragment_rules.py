@@ -270,6 +270,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         _substituted_borohydride_name(mol, Chem)
         or _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
+        or _organophosphorus_oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
         or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
         or _trifluoromethanesulfonate_name(mol, Chem)
@@ -381,6 +382,57 @@ def _oxoanion_name(mol, Chem) -> str:
         return ""
     hydroxy_count = sum(oxygen.GetTotalNumHs() for oxygen in oxygens)
     return OXOANIONS.get((center.GetSymbol(), len(oxygens), _total_charge(mol), hydroxy_count), "")
+
+
+def _organophosphorus_oxoanion_name(mol, Chem) -> str:
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    pidx = phosphorus.GetIdx()
+    carbon_neighbors = []
+    double_oxygen_count = 0
+    hydroxy_count = 0
+    oxido_count = 0
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and len(nbr.GetNeighbors()) == 1:
+            if nbr.GetFormalCharge() < 0:
+                oxido_count += 1
+            elif nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                hydroxy_count += 1
+            else:
+                return ""
+        else:
+            return ""
+    if len(carbon_neighbors) != 1 or double_oxygen_count != 1:
+        return ""
+    implicit_hydrogens = phosphorus.GetTotalNumHs()
+    total_charge = _total_charge(mol)
+    if implicit_hydrogens == 1 and oxido_count == 1 and hydroxy_count == 0 and total_charge == -1:
+        suffix = "phosphinate"
+        hydrogen_prefix = ""
+    elif implicit_hydrogens == 0 and oxido_count == 2 and hydroxy_count == 0 and total_charge == -2:
+        suffix = "phosphonate"
+        hydrogen_prefix = ""
+    elif implicit_hydrogens == 0 and oxido_count == 1 and hydroxy_count == 1 and total_charge == -1:
+        suffix = "phosphonate"
+        hydrogen_prefix = "hydrogen "
+    else:
+        return ""
+    from .branch_rules import branch_prefix
+
+    prefix = branch_prefix(mol, carbon_neighbors[0], pidx)
+    if not prefix:
+        return ""
+    if _needs_fragment_parentheses(prefix):
+        prefix = f"({prefix})"
+    return hydrogen_prefix + prefix + suffix
 
 
 def _pseudohalide_name(mol, Chem) -> str:
@@ -529,4 +581,10 @@ def _needs_complex_fragment_multiplier(name: str) -> bool:
         return True
     if " " in name:
         return True
-    return name.startswith(("bis", "tris", "tetrakis", "tetra", "penta", "hexa"))
+    return name.startswith(("bis", "tris", "tetrakis", "tetra", "penta", "hexa")) or name.endswith(
+        ("phosphinate", "phosphonate")
+    )
+
+
+def _needs_fragment_parentheses(name: str) -> bool:
+    return name[:1].isdigit() or "-" in name or "," in name or name.startswith("(")

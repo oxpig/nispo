@@ -142,6 +142,22 @@ def test_neutral_organophosphorus_acids_use_functional_parent_names():
     ]
 
 
+def test_organophosphorus_oxoanion_salts_use_functional_fragment_names():
+    names = smiles_to_iupac_batch(
+        [
+            "CCCCCC[PH](=O)[O-].CCCCCC[PH](=O)[O-].[Fe+2]",
+            "CP(=O)([O-])[O-].[Ca+2]",
+            "CP(=O)(O)[O-].[Na+]",
+        ]
+    )
+
+    assert names == [
+        "iron(2+) bis(hexylphosphinate)",
+        "calcium methylphosphonate",
+        "sodium hydrogen methylphosphonate",
+    ]
+
+
 def test_repeated_complex_onium_substituents_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

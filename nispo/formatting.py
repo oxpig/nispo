@@ -77,7 +77,7 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
     grouped: dict[str, list[str]] = defaultdict(list)
     complex_items: list[str] = []
     for loc, name in prefixes:
-        if name.startswith("(") or ")" in name or "-" in name:
+        if _prefix_needs_parentheses(name):
             complex_items.append(f"{loc}-({name})")
         else:
             grouped[name].append(loc)
@@ -91,6 +91,22 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
             parts.append(f"{','.join(locs)}-{MULT.get(len(locs), '')}{name}")
     parts.extend(sorted(complex_items))
     return "-".join(parts)
+
+
+def _prefix_needs_parentheses(name: str) -> bool:
+    if name.startswith("(") or ")" in name or "-" in name:
+        return True
+    return _is_composite_substituent_name(name)
+
+
+def _is_composite_substituent_name(name: str) -> bool:
+    if name.endswith("diazenyl") and name != "diazenyl":
+        return True
+    return name.endswith("amino") and _has_leading_multiplier(name)
+
+
+def _has_leading_multiplier(name: str) -> bool:
+    return any(name.startswith(multiplier) for count, multiplier in MULT.items() if count > 1)
 
 
 

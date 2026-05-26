@@ -894,7 +894,13 @@ def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
 
 
 def _needs_substituent_parentheses(name: str) -> bool:
-    return name[:1].isdigit() or "-" in name or "," in name or name.startswith("(")
+    return (
+        name[:1].isdigit()
+        or "-" in name
+        or "," in name
+        or name.startswith("(")
+        or _is_composite_onium_substituent(name)
+    )
 
 
 _COMPLEX_MULTIPLIERS = {
@@ -904,6 +910,16 @@ _COMPLEX_MULTIPLIERS = {
     5: "pentakis",
     6: "hexakis",
 }
+
+
+def _is_composite_onium_substituent(name: str) -> bool:
+    if name.endswith("diazenyl") and name != "diazenyl":
+        return True
+    return name.endswith("amino") and any(
+        name.startswith(multiplier)
+        for count, multiplier in MULT.items()
+        if count > 1
+    )
 
 
 def _n_halo_atom(mol, nitrogen_idx: int, carbon_idx: int) -> int:

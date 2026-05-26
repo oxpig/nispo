@@ -40,6 +40,20 @@ def test_high_multiplicity_prefixes_use_extended_multipliers():
     )
 
 
+def test_composite_substituent_prefixes_are_parenthesized():
+    names = smiles_to_iupac_batch(
+        [
+            "CN(C)c1ccccc1N=Nc1ccccc1",
+            "Oc1cc(N=Nc2ccccc2)cc(O)c1N=Nc1ccccc1",
+        ]
+    )
+
+    assert names == [
+        "1-(2-(dimethylamino)phenyldiazenyl)-benzene",
+        "1-(2,6-dihydroxy-4-(phenyldiazenyl)phenyldiazenyl)-benzene",
+    ]
+
+
 def test_extracted_hetero_branch_family_keeps_nitrooxy_wiring():
     mol = Chem.MolFromSmiles("CO[N+](=O)[O-]")
 

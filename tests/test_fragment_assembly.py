@@ -65,12 +65,14 @@ def test_repeated_complex_onium_substituents_use_complex_multipliers():
         [
             "C[S+](c1ccc(C)cc1)c1ccc(C)cc1",
             "[P+](c1ccc(C)cc1)(c1ccc(C)cc1)(c1ccccc1)c1ccccc1",
+            "CN(C)[P+](N(C)C)(N(C)C)ON1N=NC=C1.F[P-](F)(F)(F)(F)F",
         ]
     )
 
     assert names == [
         "methylbis(4-methylphenyl)sulfanium",
         "diphenylbis(4-methylphenyl)phosphanium",
+        "((1,2,3-triazol-1-yl)oxy)tris(dimethylamino)phosphanium hexafluorophosphate",
     ]
 
 

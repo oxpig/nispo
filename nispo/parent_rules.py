@@ -754,7 +754,7 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and _chain_dominates_single_ring(mol, name):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(name, self.family, self.priority, sort_key=((750, 999, (), 999, name), len(name), name))
 
 
 class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):

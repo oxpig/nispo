@@ -246,6 +246,7 @@ def _secondary_zero_bridge_tricyclic_candidate_records(
             _bridge_sort_key(bracket),
             _hetero_locants(mol, seq),
             _substituent_locants(mol, seq, atoms),
+            _unsaturation_contiguity_key(mol, seq),
             name,
         )
         candidates.append((key, name, tuple(seq)))
@@ -309,7 +310,13 @@ def _decorated_polycyclic_records(
         if not name:
             continue
         hetero_locants = _hetero_locants(mol, seq)
-        key = (1 in hetero_locants, _substituent_locants(mol, seq, atoms), hetero_locants, name)
+        key = (
+            1 in hetero_locants,
+            _substituent_locants(mol, seq, atoms),
+            hetero_locants,
+            _unsaturation_contiguity_key(mol, seq),
+            name,
+        )
         candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]
@@ -402,6 +409,7 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
                         sorted(bracket),
                         _hetero_locants(mol, seq),
                         _substituent_locants(mol, seq, atoms),
+                        _unsaturation_contiguity_key(mol, seq),
                         name,
                     )
                     candidates.append((key, name, tuple(seq)))
@@ -442,6 +450,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 _dominant_bridge_sort_key(bracket),
                 _substituent_locants(mol, seq, atoms),
                 _hetero_locants(mol, seq),
+                _unsaturation_contiguity_key(mol, seq),
                 name,
             )
             candidates.append((key, name, tuple(seq)))
@@ -1002,6 +1011,30 @@ def _poly_parent_with_unsaturation(
 def _bond_locant(left: int, right: int, atom_count: int) -> str:
     low, high = sorted((left, right))
     return f"{low}({high})"
+
+
+def _unsaturation_contiguity_key(mol, seq: Sequence[int]) -> tuple[int, tuple[tuple[int, int], ...]]:
+    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    locants = []
+    noncontiguous = 0
+    seen = set()
+    for idx in seq:
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in pos:
+                continue
+            key = tuple(sorted((idx, nidx)))
+            if key in seen:
+                continue
+            seen.add(key)
+            bond = mol.GetBondBetweenAtoms(idx, nidx)
+            if bond.GetBondTypeAsDouble() <= 1.0:
+                continue
+            low, high = sorted((pos[idx], pos[nidx]))
+            locants.append((low, high))
+            if high != low + 1:
+                noncontiguous += 1
+    return noncontiguous, tuple(sorted(locants))
 
 
 def _poly_loc_unsat(root: str, locs: list[str], suffix: str, terminal_e: bool = True) -> str:

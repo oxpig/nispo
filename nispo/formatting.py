@@ -102,6 +102,8 @@ def _prefix_needs_parentheses(name: str) -> bool:
 def _is_composite_substituent_name(name: str) -> bool:
     if name.endswith("diazenyl") and name != "diazenyl":
         return True
+    if name.endswith("phosphoryl") and _has_leading_multiplier(name):
+        return True
     return name.endswith("amino") and _has_leading_multiplier(name)
 
 

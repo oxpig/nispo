@@ -171,14 +171,101 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
             else:
                 return ""
         elif nbr.GetAtomicNum() > 1:
+            if nbr.GetSymbol() not in {"C", "O", "F", "Cl", "Br", "I"}:
+                return ""
             other_heavy.append(nidx)
-    if other_heavy or double_oxygen_count != 1:
+    if double_oxygen_count != 1:
         return ""
-    if hydroxy_count == 2 and oxido_count == 0:
-        return "phosphono"
-    if hydroxy_count == 0 and oxido_count == 2:
-        return "phosphonato"
-    return ""
+    if not other_heavy:
+        if hydroxy_count == 2 and oxido_count == 0:
+            return "phosphono"
+        if hydroxy_count == 0 and oxido_count == 2:
+            return "phosphonato"
+        return ""
+    if hydroxy_count or oxido_count:
+        return ""
+    ligand_names = []
+    for nidx in other_heavy:
+        ligand = branch_prefix(mol, nidx, idx)
+        if not ligand:
+            return ""
+        ligand_names.append(ligand)
+    if len(ligand_names) < 2:
+        return ""
+    if mol.GetAtomWithIdx(parent_idx).GetSymbol() == "N":
+        return ""
+    if len(set(ligand_names)) > 1 and any(_is_simple_phosphoryl_alkyl_or_alkoxy(name) for name in ligand_names):
+        return ""
+    ligand_text = _phosphoryl_ligand_text(ligand_names)
+    return ligand_text + "phosphoryl" if ligand_text else ""
+
+
+def _phosphoryl_ligand_text(ligands: Sequence[str]) -> str:
+    counts = Counter(ligands)
+    parts = []
+    for ligand in sorted(counts, key=_phosphoryl_ligand_sort_key):
+        count = counts[ligand]
+        if count == 1:
+            parts.append(_phosphoryl_ligand_unit(ligand))
+        elif _needs_complex_phosphoryl_ligand(ligand):
+            parts.append(f"{MULT.get(count, '')}({_phosphoryl_ligand_unit(ligand)})")
+        else:
+            parts.append(MULT.get(count, "") + ligand)
+    return "".join(parts)
+
+
+def _phosphoryl_ligand_unit(ligand: str) -> str:
+    return f"({ligand})" if _needs_complex_phosphoryl_ligand(ligand) else ligand
+
+
+def _needs_complex_phosphoryl_ligand(ligand: str) -> bool:
+    return "-" in ligand or ligand[:1].isdigit() or ligand.startswith("(")
+
+
+def _phosphoryl_ligand_sort_key(ligand: str) -> tuple[int, str]:
+    simple_alkyl = {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "butyl",
+        "pentyl",
+        "hexyl",
+        "heptyl",
+        "octyl",
+        "nonyl",
+        "decyl",
+    }
+    if ligand in simple_alkyl:
+        return (0, ligand)
+    if _needs_complex_phosphoryl_ligand(ligand):
+        return (2, ligand)
+    return (1, ligand)
+
+
+def _is_simple_phosphoryl_alkyl_or_alkoxy(ligand: str) -> bool:
+    simple = {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "butyl",
+        "pentyl",
+        "hexyl",
+        "heptyl",
+        "octyl",
+        "nonyl",
+        "decyl",
+        "methoxy",
+        "ethoxy",
+        "propoxy",
+        "butoxy",
+        "pentoxy",
+        "hexoxy",
+        "heptoxy",
+        "octoxy",
+        "nonoxy",
+        "decoxy",
+    }
+    return ligand in simple
 
 
 def _halosulfur_prefix(double_o: int, halogens: Sequence[str], non_parent_count: int) -> str:

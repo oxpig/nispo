@@ -1580,7 +1580,7 @@ class _PolycyclicRecordParentRule:
                 family=self.family,
                 priority=priority,
                 sort_key=(record_order, len(name), name),
-                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
+                stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem, name=name),
             )
 
 

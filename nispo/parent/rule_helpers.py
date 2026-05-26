@@ -992,8 +992,6 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     ]
     if len(tagged_atoms) < 2:
         return ""
-    if any(idx not in seq_set for idx in tagged_atoms):
-        return ""
     if _has_assigned_bond_stereo(mol, Chem):
         return ""
     centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
@@ -1008,7 +1006,7 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     )
 
 
-def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
+def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
     if not seq:
         return ""
     seq_set = set(seq)
@@ -1019,20 +1017,26 @@ def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     ]
     if not tagged_atoms:
         return ""
-    if any(idx not in seq_set for idx in tagged_atoms):
-        return ""
     if _has_assigned_bond_stereo(mol, Chem):
         return ""
     centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     if not centers:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
-    if any(idx not in locants for idx, _descriptor in centers):
+    locanted_centers = [(idx, descriptor) for idx, descriptor in centers if idx in locants]
+    if not locanted_centers:
+        return ""
+    outside_count = len(centers) - len(locanted_centers)
+    if outside_count and len(_locanted_stereo_descriptors_in_text(name)) < outside_count:
         return ""
     return ",".join(
         f"{locants[idx]}{descriptor}"
-        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+        for idx, descriptor in sorted(locanted_centers, key=lambda item: locants[item[0]])
     )
+
+
+def _locanted_stereo_descriptors_in_text(name: str) -> list[str]:
+    return re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name)
 
 
 def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

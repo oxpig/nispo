@@ -429,29 +429,30 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
 
     candidates = []
     branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
+    allow_relaxed_base_paths = _ring_multiple_bond_count(mol, atoms) <= 4
     for left, right in combinations(branch_atoms, 2):
-        base_paths = _bridge_paths(graph, atoms, left, right)
-        if not base_paths:
-            continue
-        for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
-            completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
-            if completed is None:
-                continue
-            seq, bracket = completed
-            parent = _generic_polycyclic_parent(mol, seq, bracket)
-            if not parent:
-                continue
-            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-            if not name:
-                continue
-            key = (
-                _dominant_bridge_sort_key(bracket),
-                _substituent_locants(mol, seq, atoms),
-                _hetero_locants(mol, seq),
-                _unsaturation_contiguity_key(mol, seq),
-                name,
-            )
-            candidates.append((key, name, tuple(seq)))
+        for base_paths in _secondary_bridge_base_path_sets(
+            graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
+        ):
+            for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
+                completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
+                if completed is None:
+                    continue
+                seq, bracket = completed
+                parent = _generic_polycyclic_parent(mol, seq, bracket)
+                if not parent:
+                    continue
+                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                if not name:
+                    continue
+                key = (
+                    _dominant_bridge_sort_key(bracket),
+                    _substituent_locants(mol, seq, atoms),
+                    _hetero_locants(mol, seq),
+                    _unsaturation_contiguity_key(mol, seq),
+                    name,
+                )
+                candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates[:24]]
 
@@ -511,6 +512,45 @@ def _secondary_bridge_completion(
     if len(bracket) != rank + 1:
         return None
     return seq, tuple(bracket)
+
+
+def _secondary_bridge_base_path_sets(
+    graph: dict[int, set[int]], atoms: set[int], a: int, b: int, *, allow_relaxed: bool
+) -> list[tuple[tuple[int, ...], ...]]:
+    exact = _bridge_paths(graph, atoms, a, b)
+    if exact:
+        return [tuple(exact)]
+    if not allow_relaxed:
+        return []
+
+    paths = _simple_paths(graph, a, b, max_paths=36)
+    candidates = []
+    for selected in combinations(paths, 3):
+        internals = [set(path[1:-1]) for path in selected]
+        if any(left & right for i, left in enumerate(internals) for right in internals[i + 1 :]):
+            continue
+        covered = set().union(*internals, {a, b})
+        if not covered <= atoms:
+            continue
+        candidates.append(selected)
+    candidates.sort(
+        key=lambda item: (
+            -len(set().union(*(set(path[1:-1]) for path in item), {a, b})),
+            sorted((len(path) - 2 for path in item), reverse=True),
+            item,
+        )
+    )
+    return list(dict.fromkeys(candidates))[:12]
+
+
+def _ring_multiple_bond_count(mol, atoms: set[int]) -> int:
+    count = 0
+    for bond in mol.GetBonds():
+        left = bond.GetBeginAtomIdx()
+        right = bond.GetEndAtomIdx()
+        if left in atoms and right in atoms and bond.GetBondTypeAsDouble() > 1.0:
+            count += 1
+    return count
 
 
 def _secondary_bridge_paths(

@@ -226,7 +226,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
 
     if (
         all_aliphatic
-        and 5 <= n <= 20
+        and 3 <= n <= 20
         and all(sym in SKELETON_ATOMS for sym in symbols)
         and any(sym != "C" for sym in symbols)
         and not all_single_bonds

@@ -62,6 +62,7 @@ def test_representative_names_roundtrip_through_opsin(tmp_path):
         "CCCOOP(=O)([O-])[O-]",
         "O=C(O)CP(=O)(c1ccccc1)c1ccccc1",
         "O=P(Cl)(Cl)CP(=O)(Cl)Cl",
+        "B1=CC=C1",
         "O=C([O-])C=Cc1ccccc1",
         "COc1ccc(C=CC(=O)[O-])cc1",
         "[NH3+]c1cccc([NH3+])c1",

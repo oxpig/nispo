@@ -1255,6 +1255,10 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         return True
     if "cyano" in name and re.search(r"(?:prop|but|pent|hex)-\d+(?:,\d+)*-ene", name):
         return True
+    if any(term in name for term in ("fluoro", "chloro", "bromo", "iodo")) and re.search(
+        r"(?:prop|but|pent|hex|hept)-\d+(?:,\d+)*-ene", name
+    ):
+        return True
     if _has_substituted_carboxylato_ethene(name):
         return True
     if _has_main_chain_trifluoro_oxo_alkane(name):

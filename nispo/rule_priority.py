@@ -123,14 +123,14 @@ PARENT_RULE_PRIORITIES = {
         rationale="Charged retained fused adjustments are tried after neutral retained fused names.",
     ),
     "generic-bicyclic-parent": RulePriority(
-        25,
+        19,
         seniority_score=3,
         parent_class_score=2,
         specificity_score=2,
         seniority="generic bicyclic parent",
         parent_class="bicyclic",
         specificity="medium",
-        rationale="Generic bicyclic nomenclature covers systems without stronger retained parents.",
+        rationale="Generic bicyclic graph nomenclature is preferred for bridged systems before retained fused fallbacks.",
     ),
     "generic-spiro-parent": RulePriority(
         26,

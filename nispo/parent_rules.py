@@ -727,6 +727,20 @@ class AcyclicSkeletonWithRingSubstituentsRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
+    family = "preferred-acyclic-skeleton-with-ring-substituents"
+    priority = parent_priority("polycyclic-functional-skeleton")
+    requires_acyclic_preference_signal = True
+
+    def candidates(self, ctx):
+        profile = ctx.profile
+        if profile.ring_count == 0 or not profile.may_prefer_acyclic_skeleton:
+            return
+        name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _prefer_acyclic_skeleton_name(name):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "functional-acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("polycyclic-functional-skeleton")
@@ -1316,6 +1330,7 @@ def parent_rules(Chem) -> tuple:
     natural_product_topology = NaturalProductTopologyParentRule(Chem)
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
+    preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
 
@@ -1349,6 +1364,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("functional-acyclic-skeleton"),
             (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
             conjugated_carbonyl_acyclic.candidates,
+        ),
+        RuleSpec(
+            "preferred-acyclic-skeleton-with-ring-substituents",
+            parent_priority("polycyclic-functional-skeleton"),
+            (acyclic_preference_signal,),
+            preferred_acyclic.candidates,
         ),
         RuleSpec(
             "whole-molecule-retained-parent",

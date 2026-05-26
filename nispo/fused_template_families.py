@@ -64,6 +64,7 @@ def curated_fused_templates(Chem) -> tuple[dict, ...]:
     return (
         build_fused_templates(Chem)
         + catalog.static_retained
+        + catalog.opsin_test_scaffolds
         + catalog.opsin_retained_fused
         + catalog.fusion_component_parents
     )
@@ -78,6 +79,7 @@ def preferred_generated_fused_templates(Chem) -> tuple[dict, ...]:
 def hydrocarbon_replacement_parent_templates(Chem) -> tuple[dict, ...]:
     templates = (
         generated_fused_parent_templates(Chem)
+        + parent_scaffold_catalog(Chem).opsin_test_scaffolds
         + parent_scaffold_catalog(Chem).opsin_retained_fused
         + parent_scaffold_catalog(Chem).fusion_component_parents
         + parent_scaffold_catalog(Chem).static_retained
@@ -110,7 +112,8 @@ def hydrocarbon_replacement_parent_templates_for_graph(
     retained = tuple(
         template
         for template in (
-            parent_scaffold_catalog(Chem).opsin_retained_fused
+            parent_scaffold_catalog(Chem).opsin_test_scaffolds
+            + parent_scaffold_catalog(Chem).opsin_retained_fused
             + parent_scaffold_catalog(Chem).fusion_component_parents
             + parent_scaffold_catalog(Chem).static_retained
         )
@@ -193,17 +196,20 @@ def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skelet
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_index() -> dict[str, tuple[dict, ...]]:
-    return _load_generated_record_index("generated_fused_template_index.json")
+    return _load_generated_record_index("generated_fused_template_index.json", _generated_fused_record_table())
 
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_graph_index() -> dict[str, dict[str, tuple[dict, ...]]]:
-    return _load_generated_record_index("generated_fused_template_graph_index.json")
+    return _load_generated_record_index("generated_fused_template_graph_index.json", _generated_fused_record_table())
 
 
 @lru_cache(maxsize=1)
 def _generated_fused_template_element_graph_index() -> dict[str, dict[str, dict[str, tuple[dict, ...]]]]:
-    return _load_generated_record_index("generated_fused_template_element_graph_index.json")
+    return _load_generated_record_index(
+        "generated_fused_template_element_graph_index.json",
+        _generated_fused_record_table(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -216,21 +222,20 @@ def _generated_fused_record_table() -> tuple[dict, ...]:
     return tuple(record for record in raw if isinstance(record, dict))
 
 
-def _load_generated_record_index(filename: str):
+def _load_generated_record_index(filename: str, table: tuple[dict, ...]):
     try:
         path = resources.files(__package__).joinpath("resources", filename)
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return _resolve_generated_record_refs(raw)
+    return _resolve_generated_record_refs(raw, table)
 
 
-def _resolve_generated_record_refs(value):
+def _resolve_generated_record_refs(value, table: tuple[dict, ...]):
     if isinstance(value, dict):
-        return {str(key): _resolve_generated_record_refs(item) for key, item in value.items()}
+        return {str(key): _resolve_generated_record_refs(item, table) for key, item in value.items()}
     if not isinstance(value, list):
         return ()
-    table = _generated_fused_record_table()
     records = []
     for item in value:
         if isinstance(item, int):

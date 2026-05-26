@@ -245,7 +245,10 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
         locants = sorted(grouped[replacement], key=_locant_sort_key)
         multiplier = MULT.get(len(locants), "")
         parts.append(f"{','.join(locants)}-{multiplier}{replacement}")
-    return "-".join(parts) + template_record_name(template)
+    parent_name = template_record_name(template)
+    if parent_name == "gon":
+        parent_name = "cyclopenta[a]phenanthren"
+    return "-".join(parts) + parent_name
 
 
 def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) -> tuple:

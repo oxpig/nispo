@@ -566,6 +566,7 @@ FUSION_COMPONENT_PARENT_BLOCKLIST = {
 def build_opsin_parent_templates(Chem) -> tuple[dict, ...]:
     return (
         build_static_parent_templates(Chem)
+        + build_opsin_test_scaffold_templates(Chem)
         + build_opsin_resource_templates(Chem)
         + build_fusion_component_parent_templates(Chem)
         + build_generated_fused_parent_templates(Chem)
@@ -590,6 +591,15 @@ def build_static_parent_templates(Chem) -> tuple[dict, ...]:
             }
         )
     return tuple(templates)
+
+
+def build_opsin_test_scaffold_templates(Chem) -> tuple[dict, ...]:
+    return _build_json_scaffold_templates(
+        Chem,
+        _read_json_records("opsin_test_scaffold_templates.json"),
+        source_family="opsin-test-scaffold",
+        default_source_file="opsin_test_scaffold_templates.json",
+    )
 
 
 def build_opsin_resource_templates(Chem) -> tuple[dict, ...]:
@@ -629,6 +639,21 @@ def build_generated_fused_parent_templates(Chem) -> tuple[dict, ...]:
 def build_generated_fused_parent_templates_from_records(
     Chem, records: tuple[dict, ...] | list[dict], source_file: str
 ) -> tuple[dict, ...]:
+    return _build_json_scaffold_templates(
+        Chem,
+        records,
+        source_family="generated-fused",
+        default_source_file=source_file,
+    )
+
+
+def _build_json_scaffold_templates(
+    Chem,
+    records: tuple[dict, ...] | list[dict],
+    *,
+    source_family: str,
+    default_source_file: str,
+) -> tuple[dict, ...]:
     templates = []
     seen: set[tuple[str, str]] = set()
     for record in records:
@@ -648,9 +673,9 @@ def build_generated_fused_parent_templates_from_records(
             continue
         template.update(
             {
-                "source_family": "generated-fused",
-                "source_file": source_file,
-                "source_subtype": "",
+                "source_family": source_family,
+                "source_file": record.get("source_file") or default_source_file,
+                "source_subtype": record.get("source_subtype", ""),
                 "stereochemical": _has_stereochemical_smiles(record.get("smiles", "")),
             }
         )
@@ -682,6 +707,17 @@ def _read_generated_fused_records() -> tuple[dict, ...]:
         return _resolve_generated_record_refs(json.loads(index_path.read_text(encoding="utf-8")), table)
     except Exception:
         return ()
+
+
+def _read_json_records(filename: str) -> tuple[dict, ...]:
+    try:
+        path = resources.files(__package__).joinpath("resources", filename)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ()
+    if not isinstance(raw, list):
+        return ()
+    return tuple(record for record in raw if isinstance(record, dict))
 
 
 def _resolve_generated_record_refs(value, table: list[dict]) -> tuple[dict, ...]:

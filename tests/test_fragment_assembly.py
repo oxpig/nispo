@@ -102,6 +102,24 @@ def test_neutral_phosphines_use_substituted_phosphane_parent():
     ]
 
 
+def test_group14_hydrides_use_substituted_parent_names():
+    names = smiles_to_iupac_batch(
+        [
+            "C[SiH](C)C",
+            "C[GeH](C)C",
+            "CC[SnH](CC)CC",
+            "BrC(Br)[SiH2]c1cccc(C=C)c1",
+        ]
+    )
+
+    assert names == [
+        "trimethylsilane",
+        "trimethylgermane",
+        "triethylstannane",
+        "(1,1-dibromo-methyl)(3-(eth-1-ene-1-yl)phenyl)silane",
+    ]
+
+
 def test_repeated_complex_onium_substituents_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

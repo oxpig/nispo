@@ -37,6 +37,7 @@ from .rule_dispatch import (
     min_ring_system_ring_count,
     no_charged_ring_atom,
     no_exocyclic_charged_fused_parent,
+    nonring_neutral_group14,
     nonring_neutral_pnictogen,
     nonring_positive_nitrogen,
     nonring_positive_phosphorus,
@@ -190,6 +191,57 @@ PNICTOGEN_HYDRIDE_PARENTS = {
     "Sb": "stibane",
     "Bi": "bismuthane",
 }
+
+
+GROUP14_HYDRIDE_PARENTS = {
+    "Si": "silane",
+    "Ge": "germane",
+    "Sn": "stannane",
+    "Pb": "plumbane",
+}
+
+
+class Group14HydrideParentRule:
+    family = "group14-hydride-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_group14 = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        centers = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() in GROUP14_HYDRIDE_PARENTS
+            and atom.GetFormalCharge() == 0
+            and not atom.IsInRing()
+        ]
+        if len(centers) != 1:
+            return
+        center = centers[0]
+        cidx = center.GetIdx()
+        neighbors = [nbr.GetIdx() for nbr in center.GetNeighbors()]
+        implicit_hydrogens = center.GetTotalNumHs()
+        if len(neighbors) + implicit_hydrogens != 4 or not 1 <= len(neighbors) <= 4:
+            return
+        if any(mol.GetAtomWithIdx(nidx).GetSymbol() != "C" for nidx in neighbors):
+            return
+        if any(
+            mol.GetBondBetweenAtoms(cidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
+            for nidx in neighbors
+        ):
+            return
+        names = []
+        for nidx in neighbors:
+            prefix = branch_prefix(mol, nidx, cidx)
+            if not prefix:
+                return
+            names.append(prefix)
+        name = _group14_hydride_name(names, GROUP14_HYDRIDE_PARENTS[center.GetSymbol()])
+        if name:
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
 class PnictogenHydrideParentRule:
@@ -845,6 +897,7 @@ def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
+    group14_hydride = Group14HydrideParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -873,6 +926,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
+        RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",
@@ -982,6 +1036,7 @@ from .parent.rule_helpers import (
     _phosphanium_name,
     _azanium_name,
     _pnictogen_hydride_name,
+    _group14_hydride_name,
     _needs_substituent_parentheses,
     _n_halo_atom,
     _n_halo_prefix,

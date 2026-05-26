@@ -881,6 +881,10 @@ def _pnictogen_hydride_name(names: Sequence[str], parent: str) -> str:
     return _substituted_onium_name(names, parent)
 
 
+def _group14_hydride_name(names: Sequence[str], parent: str) -> str:
+    return _substituted_onium_name(names, parent)
+
+
 def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     counts = Counter(names)
     terms = []

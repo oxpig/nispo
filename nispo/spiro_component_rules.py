@@ -5,7 +5,17 @@ from collections.abc import Sequence
 
 from .branch_rules import branch_prefix
 from .cycle_utils import ordered_ring
+from .fused_template_families import (
+    candidate_generated_fused_templates,
+    curated_fused_templates,
+)
 from .formatting import format_prefixes as _format_prefixes
+from .naming_context import MoleculeContext
+from .parent.rule_helpers import (
+    _adjust_fused_parent_for_charge,
+    _iter_fused_template_matches,
+    _partial_hydro_parent_names,
+)
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
     kekulized_polycyclic_parent_candidate_records,
@@ -15,6 +25,7 @@ from .ring_rules import ring_parent_candidates
 from .ring_resource_rules import resource_ring_parent_candidates
 from .ring_topology import ring_system_graph
 from .rule_engine import NameCandidate
+from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
 _REPLACEMENT_TERMS = (
@@ -200,6 +211,7 @@ def _component_dispiro_candidates_for_blocks(
                         family="component-dispiro-parent",
                         priority=priority,
                         sort_key=(
+                            left.component_rank + center.component_rank + right.component_rank,
                             len(replacement_prefixes),
                             _locant_key_for_text(name),
                             len(name),
@@ -247,10 +259,12 @@ def _mapped_component_names(ctx, atoms: set[int], spiro_atoms: Sequence[int]) ->
                 spiro_locant=locants[spiro_atoms[0]],
                 locants=locants,
                 replacement_prefixes=component.replacement_prefixes,
+                component_rank=component.component_rank,
             )
         )
     components.sort(
         key=lambda item: (
+            item.component_rank,
             len(item.replacement_prefixes),
             tuple(_locant_key(item.locants[idx]) for idx in spiro_atoms),
             len(item.parent_name),
@@ -330,6 +344,7 @@ def _component_spiro_candidates_for_split(
                     family="component-spiro-parent",
                     priority=priority,
                     sort_key=(
+                        simple_component.component_rank + poly_component.component_rank,
                         len(parent_prefixes),
                         _locant_key_for_text(name),
                         len(name),
@@ -367,11 +382,13 @@ class _Component:
         spiro_locant: str,
         locants: dict[int, str],
         replacement_prefixes: tuple[tuple[str, str], ...] = (),
+        component_rank: int = 0,
     ) -> None:
         self.parent_name = parent_name
         self.spiro_locant = spiro_locant
         self.locants = locants
         self.replacement_prefixes = replacement_prefixes
+        self.component_rank = component_rank
 
 
 def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
@@ -418,7 +435,7 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     records.extend(bicyclic_parent_candidate_records(mol, Chem))
     records.extend(spiro_parent_candidate_records(mol, Chem))
     records.extend(kekulized_polycyclic_parent_candidate_records(mol, Chem))
-    components = []
+    components: list[_Component] = []
     seen = set()
     for raw_name, seq in records:
         if spiro_idx not in seq:
@@ -441,13 +458,127 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         )
     components.sort(
         key=lambda item: (
+            item.component_rank,
             len(item.replacement_prefixes),
             _locant_key(item.spiro_locant),
             len(item.parent_name),
             item.parent_name,
         )
     )
-    return components
+    components.extend(_fused_component_names(mol, Chem, spiro_idx, seen))
+    components.sort(
+        key=lambda item: (
+            item.component_rank,
+            len(item.replacement_prefixes),
+            _locant_key(item.spiro_locant),
+            len(item.parent_name),
+            item.parent_name,
+        )
+    )
+    return components[:16]
+
+
+def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -> list[_Component]:
+    if mol.GetRingInfo().NumRings() < 2:
+        return []
+    seen = seen if seen is not None else set()
+    ctx = MoleculeContext(mol, Chem)
+    templates = (
+        tuple(
+            sorted(
+                curated_fused_templates(Chem),
+                key=lambda item: (template_record_mol(item).GetNumAtoms(), template_record_name(item)),
+            )
+        )
+        + candidate_generated_fused_templates(mol, Chem, ctx.features)
+    )
+    components: list[_Component] = []
+    for template, match in _iter_fused_template_matches(
+        ctx,
+        templates,
+        Chem,
+        reject_extra_core_bonds=True,
+    ):
+        component = _component_from_fused_template(mol, template, match, spiro_idx)
+        if component is None:
+            continue
+        key = (
+            component.parent_name,
+            tuple(component.replacement_prefixes),
+            component.spiro_locant,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        components.append(component)
+    for template, match in _iter_fused_template_matches(
+        ctx,
+        templates,
+        Chem,
+        topology_query=True,
+        require_one_ring_system=True,
+    ):
+        if len(match) != mol.GetNumAtoms() or set(match) != set(range(mol.GetNumAtoms())):
+            continue
+        for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
+            component = _component_from_fused_template(mol, template, match, spiro_idx, parent_name=parent_name)
+            if component is None:
+                continue
+            key = (
+                component.parent_name,
+                tuple(component.replacement_prefixes),
+                component.spiro_locant,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            components.append(component)
+            if len(components) >= 12:
+                break
+    components.sort(
+        key=lambda item: (
+            _fused_component_parent_rank(item.parent_name),
+            _locant_key(item.spiro_locant),
+            len(item.parent_name),
+            item.parent_name,
+        )
+    )
+    return components[:12]
+
+
+def _component_from_fused_template(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    spiro_idx: int,
+    *,
+    parent_name: str | None = None,
+) -> _Component | None:
+    if len(match) != mol.GetNumAtoms() or set(match) != set(range(mol.GetNumAtoms())):
+        return None
+    if spiro_idx not in match:
+        return None
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    template_idx = reverse[spiro_idx]
+    locants = {
+        mol_idx: str(template_record_locants(template).get(template_idx, ""))
+        for template_idx, mol_idx in enumerate(match)
+    }
+    locants = {idx: locant for idx, locant in locants.items() if locant}
+    spiro_locant = locants.get(spiro_idx, "")
+    if not spiro_locant or spiro_locant.endswith("a"):
+        return None
+    parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
+    if not parent_name:
+        return None
+    return _Component(parent_name=parent_name, spiro_locant=spiro_locant, locants=locants, component_rank=1)
+
+
+def _fused_component_parent_rank(name: str) -> tuple:
+    generic = 1 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", name) else 0
+    generated = 1 if "[" in name and re.search(r"\[[0-9,'a-z .-]+-[a-z]\]", name) else 0
+    hydro = 1 if "hydro" in name else 0
+    return (generic, generated, hydro)
 
 
 def _strip_leading_replacement_prefixes(name: str) -> tuple[str, list[tuple[str, str]]]:

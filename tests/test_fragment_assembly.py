@@ -109,6 +109,9 @@ def test_group14_hydrides_use_substituted_parent_names():
             "C[GeH](C)C",
             "CC[SnH](CC)CC",
             "BrC(Br)[SiH2]c1cccc(C=C)c1",
+            "C[SiH](O)O",
+            "C[SiH2]Cl",
+            "Cl[SiH](Cl)c1ccccc1",
         ]
     )
 
@@ -117,6 +120,9 @@ def test_group14_hydrides_use_substituted_parent_names():
         "trimethylgermane",
         "triethylstannane",
         "(1,1-dibromo-methyl)(3-(eth-1-ene-1-yl)phenyl)silane",
+        "methylsilanediol",
+        "methylchlorosilane",
+        "phenyldichlorosilane",
     ]
 
 

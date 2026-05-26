@@ -885,6 +885,23 @@ def _group14_hydride_name(names: Sequence[str], parent: str) -> str:
     return _substituted_onium_name(names, parent)
 
 
+def _group14_halohydride_name(carbon_names: Sequence[str], halo_names: Sequence[str], parent: str) -> str:
+    carbon_text = _substituted_onium_name(carbon_names, "") if carbon_names else ""
+    halo_text = _substituted_onium_name(halo_names, "") if halo_names else ""
+    return carbon_text + halo_text + parent if carbon_text or halo_text else ""
+
+
+def _group14_hydroxyhydride_name(carbon_names: Sequence[str], parent: str, hydroxy_count: int) -> str:
+    if hydroxy_count < 1:
+        return ""
+    carbon_text = _substituted_onium_name(carbon_names, "") if carbon_names else ""
+    if hydroxy_count == 1:
+        stem = parent[:-1] if parent.endswith("e") else parent
+        return carbon_text + stem + "ol"
+    multiplier = MULT.get(hydroxy_count, "")
+    return carbon_text + parent + multiplier + "ol" if multiplier else ""
+
+
 def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     counts = Counter(names)
     terms = []

@@ -226,20 +226,42 @@ class Group14HydrideParentRule:
         implicit_hydrogens = center.GetTotalNumHs()
         if len(neighbors) + implicit_hydrogens != 4 or not 1 <= len(neighbors) <= 4:
             return
-        if any(mol.GetAtomWithIdx(nidx).GetSymbol() != "C" for nidx in neighbors):
-            return
         if any(
             mol.GetBondBetweenAtoms(cidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
             for nidx in neighbors
         ):
             return
-        names = []
+        carbon_names = []
+        halo_names = []
+        hydroxy_count = 0
         for nidx in neighbors:
-            prefix = branch_prefix(mol, nidx, cidx)
-            if not prefix:
+            neighbor = mol.GetAtomWithIdx(nidx)
+            symbol = neighbor.GetSymbol()
+            if symbol == "C":
+                prefix = branch_prefix(mol, nidx, cidx)
+                if not prefix:
+                    return
+                carbon_names.append(prefix)
+            elif symbol in HALO:
+                halo_names.append(HALO[symbol])
+            elif (
+                symbol == "O"
+                and center.GetSymbol() == "Si"
+                and neighbor.GetFormalCharge() == 0
+                and len(neighbor.GetNeighbors()) == 1
+            ):
+                hydroxy_count += 1
+            else:
                 return
-            names.append(prefix)
-        name = _group14_hydride_name(names, GROUP14_HYDRIDE_PARENTS[center.GetSymbol()])
+        if hydroxy_count and halo_names:
+            return
+        parent = GROUP14_HYDRIDE_PARENTS[center.GetSymbol()]
+        if hydroxy_count:
+            name = _group14_hydroxyhydride_name(carbon_names, parent, hydroxy_count)
+        elif halo_names:
+            name = _group14_halohydride_name(carbon_names, halo_names, parent)
+        else:
+            name = _group14_hydride_name(carbon_names, parent)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -1037,6 +1059,8 @@ from .parent.rule_helpers import (
     _azanium_name,
     _pnictogen_hydride_name,
     _group14_hydride_name,
+    _group14_halohydride_name,
+    _group14_hydroxyhydride_name,
     _needs_substituent_parentheses,
     _n_halo_atom,
     _n_halo_prefix,

@@ -82,7 +82,6 @@ class TemplateStore:
     def __init__(self, Chem):
         self.Chem = Chem
         self._compiled: dict[int, CompiledTemplate] = {}
-        self._template_candidates: dict[tuple[int, int, bool], tuple[dict, ...]] = {}
 
     @property
     def catalog(self) -> ParentScaffoldCatalog:
@@ -126,10 +125,6 @@ class TemplateStore:
         *,
         exact_atom_count: bool = False,
     ) -> tuple[dict, ...]:
-        cache_key = (id(mol), id(templates), exact_atom_count)
-        cached = self._template_candidates.get(cache_key)
-        if cached is not None:
-            return cached
         result = _candidate_templates(
             mol,
             templates,
@@ -137,7 +132,6 @@ class TemplateStore:
             features=features,
             exact_atom_count=exact_atom_count,
         )
-        self._template_candidates[cache_key] = result
         for template in result:
             self.compiled_template(template)
         return result

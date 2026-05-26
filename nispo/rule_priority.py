@@ -132,15 +132,15 @@ PARENT_RULE_PRIORITIES = {
         specificity="medium",
         rationale="Spiro graph names are more specific than single-ring fallback.",
     ),
-    "nonaromatic-polycyclic-parent": RulePriority(
+    "generic-polycyclic-parent": RulePriority(
         28,
         seniority_score=3,
         parent_class_score=2,
         specificity_score=3,
-        seniority="nonaromatic generic polycyclic parent",
+        seniority="generic polycyclic parent",
         parent_class="polycyclic",
         specificity="medium",
-        rationale="Nonaromatic polycyclic graph names run after spiro/bicyclic preferences and before generated templates.",
+        rationale="Generic polycyclic graph names run after retained fused, bicyclic, and spiro preferences and before generated templates.",
     ),
     "generated-parent": RulePriority(
         29,

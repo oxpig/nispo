@@ -36,6 +36,12 @@ def test_template_store_candidate_selection_is_stable():
     assert any(template["name"] == "naphthalene" for template in candidates)
 
 
+def test_template_store_does_not_cache_candidates_by_molecule_id():
+    store = template_store(Chem)
+
+    assert "_template_candidates" not in store.__dict__
+
+
 def test_template_index_does_not_mutate_template_records():
     store = template_store(Chem)
     mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")

@@ -974,7 +974,7 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         aromatic = any(atom.GetIsAromatic() for atom in mol.GetAtoms())
         if not aromatic and ring_count < 3:
             return None
-        return self.priority if aromatic else parent_priority("nonaromatic-polycyclic-parent")
+        return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
 
 
 class ExactRetainedParentRule:

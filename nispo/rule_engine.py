@@ -72,6 +72,8 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
         return f"({candidate.stereo_prefix})-{name}"
+    if candidate.family in {"whole-molecule-retained-parent"}:
+        return name
     return apply_stereochemical_prefix(
         mol,
         Chem,
@@ -96,6 +98,11 @@ def _normalize_terminal_parent_stem(name: str) -> str:
     terminal_stems = {
         "androst": "androstane",
         "chol": "cholane",
+        "cholest": "cholestane",
+        "campest": "campestane",
+        "ergost": "ergostane",
+        "poriferast": "poriferastane",
+        "stigmast": "stigmastane",
         "gon": "gonane",
         "pregn": "pregnane",
     }

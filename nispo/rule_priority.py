@@ -82,6 +82,16 @@ PARENT_RULE_PRIORITIES = {
         specificity="high",
         rationale="Preferred generic bicyclic names are tried just before retained fused systems.",
     ),
+    "whole-molecule-retained-parent": RulePriority(
+        19,
+        seniority_score=2,
+        parent_class_score=2,
+        specificity_score=0,
+        seniority="exact retained whole molecule",
+        parent_class="retained ring or natural product",
+        specificity="very high",
+        rationale="Standalone exact retained names should outrank generic ring-core decompositions.",
+    ),
     "retained-fused-parent": RulePriority(
         20,
         seniority_score=2,

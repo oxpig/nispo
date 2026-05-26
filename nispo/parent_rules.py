@@ -792,6 +792,58 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class WholeMoleculeRetainedParentRule:
+    family = "whole-molecule-retained-parent"
+    priority = parent_priority("whole-molecule-retained-parent")
+    min_ring_count = 1
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def _templates(self) -> tuple[dict, ...]:
+        return _curated_exact_parent_templates(self._Chem)
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() == 0:
+            return
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
+            name = _standalone_whole_molecule_retained_name(template)
+            if not name:
+                continue
+            if template_record_mol(template).GetNumAtoms() != atom_count:
+                continue
+            if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
+                continue
+            for match in ctx.template_matches(template):
+                if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
+                    continue
+                yield NameCandidate(
+                    name=name,
+                    family=_whole_molecule_retained_candidate_family(name),
+                    priority=self.priority,
+                    sort_key=(len(name), template.get("source_family", ""), name),
+                )
+
+
+def _standalone_whole_molecule_retained_name(template: dict) -> str:
+    name = template_record_name(template)
+    source_file = template.get("source_file", "")
+    if source_file == "naturalProducts.xml" and "'" not in name and not name.endswith("ylic"):
+        return name
+    if name in {"benzyn", "tropylium"}:
+        return name
+    return ""
+
+
+def _whole_molecule_retained_candidate_family(name: str) -> str:
+    if name in {"aporphin"}:
+        return "whole-molecule-retained-parent-with-stereo"
+    return WholeMoleculeRetainedParentRule.family
+
+
 class FusedParentRule:
     family = "fused-retained-parent"
     priority = parent_priority("retained-fused-parent")
@@ -1184,6 +1236,7 @@ def parent_rules(Chem) -> tuple:
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
+    whole_molecule_retained = WholeMoleculeRetainedParentRule(Chem)
     exact_retained = ExactRetainedParentRule(Chem)
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
@@ -1231,6 +1284,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("functional-acyclic-skeleton"),
             (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
             conjugated_carbonyl_acyclic.candidates,
+        ),
+        RuleSpec(
+            "whole-molecule-retained-parent",
+            parent_priority("whole-molecule-retained-parent"),
+            (min_ring_count(1),),
+            whole_molecule_retained.candidates,
         ),
         RuleSpec("exact-retained-parent", parent_priority("exact-retained-parent"), (min_ring_count(1), exact_ring_system), exact_retained.candidates),
         RuleSpec(

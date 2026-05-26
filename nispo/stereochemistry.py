@@ -105,17 +105,15 @@ def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") ->
     )
     if not has_chiral_tag:
         return mol_cache_set(mol, cache_key, [])
-    assigned = _atom_cip_stereochemistry_from_props(mol)
-    if assigned:
-        reverse = atom_order != "idx"
-        return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
-    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
     centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False)
     assigned = [
         (idx, descriptor)
         for idx, descriptor in centers
         if descriptor in {"R", "S"}
     ]
+    if not assigned:
+        assigned = _atom_cip_stereochemistry_from_props(mol)
     reverse = atom_order != "idx"
     return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
 

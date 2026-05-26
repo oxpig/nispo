@@ -112,6 +112,22 @@ def test_phosphonium_salts_use_substituted_phosphanium_parent():
     assert names == ["tetraheptylphosphanium bromide"]
 
 
+def test_sulfanium_salts_allow_sulfanyl_and_hydrosulfanium_substituents():
+    names = smiles_to_iupac_batch(
+        [
+            "CS[S+](C)C.F[B-](F)(F)F",
+            "CC(C)(C)[SH+]c1ccccc1.O=S(=O)([O-])C(F)(F)F",
+            "CS[SH+]C",
+        ]
+    )
+
+    assert names == [
+        "dimethylmethylsulfanylsulfanium tetrafluoroborate",
+        "phenyl(1,1-dimethyl-ethyl)sulfanium trifluoromethanesulfonate",
+        "methylmethylsulfanylsulfanium",
+    ]
+
+
 def test_ammonium_salts_use_substituted_azanium_parent():
     names = smiles_to_iupac_batch(
         [

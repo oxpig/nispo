@@ -84,9 +84,10 @@ class SulfaniumParentRule:
         sulfur = sulfur_atoms[0]
         sidx = sulfur.GetIdx()
         neighbors = [nbr.GetIdx() for nbr in sulfur.GetNeighbors()]
-        if len(neighbors) != 3:
+        implicit_hydrogens = sulfur.GetTotalNumHs()
+        if len(neighbors) + implicit_hydrogens != 3 or len(neighbors) not in {2, 3}:
             return
-        if any(mol.GetAtomWithIdx(nidx).GetSymbol() == "S" for nidx in neighbors):
+        if any(mol.GetAtomWithIdx(nidx).GetSymbol() not in {"C", "S"} for nidx in neighbors):
             return
         if any(
             mol.GetBondBetweenAtoms(sidx, nidx).GetBondType() != self._Chem.BondType.SINGLE

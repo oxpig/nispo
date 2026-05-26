@@ -33,6 +33,11 @@ def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = True) 
             return f"{locs[0]}-{suffix}"
         return f"{root}-{locs[0]}-{suffix}"
     mult = MULT.get(len(locs), "")
+    if not root:
+        ending = f"{mult}{suffix}"
+        if not terminal_e and ending.endswith("e"):
+            ending = ending[:-1]
+        return f"{join_locants(locs)}-{ending}"
     joiner = "a-" if root and suffix in {"ene", "yne"} else "-"
     ending = f"{mult}{suffix}"
     if not terminal_e and ending.endswith("e"):

@@ -65,12 +65,18 @@ def test_neutral_phosphines_use_substituted_phosphane_parent():
         [
             "P(c1ccccc1)(c1ccccc1)c1ccccc1",
             "P(C1CCCCC1)(C1CCCCC1)C1CCCCC1",
+            "C[As](C)C",
+            "[Sb](c1ccccc1)(c1ccccc1)c1ccccc1",
+            "CC[Bi](CC)CC",
         ]
     )
 
     assert names == [
         "triphenylphosphane",
         "tricyclohexylphosphane",
+        "trimethylarsane",
+        "triphenylstibane",
+        "triethylbismuthane",
     ]
 
 

@@ -873,8 +873,8 @@ def _phosphanium_name(names: Sequence[str]) -> str:
     return _substituted_onium_name(names, "phosphanium")
 
 
-def _phosphane_name(names: Sequence[str]) -> str:
-    return _substituted_onium_name(names, "phosphane")
+def _pnictogen_hydride_name(names: Sequence[str], parent: str) -> str:
+    return _substituted_onium_name(names, parent)
 
 
 def _substituted_onium_name(names: Sequence[str], parent: str) -> str:

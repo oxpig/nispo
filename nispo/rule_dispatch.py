@@ -59,6 +59,10 @@ def nonring_neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_phosphorus
 
 
+def nonring_neutral_pnictogen(ctx) -> bool:
+    return ctx.profile.has_nonring_neutral_pnictogen
+
+
 def charged_ring_atom(ctx) -> bool:
     return ctx.profile.has_charged_ring_atom
 

@@ -661,6 +661,7 @@ def _strip_leading_replacement_prefixes(name: str) -> tuple[str, list[tuple[str,
     prefixes: list[tuple[str, str]] = []
     rest = name.lstrip("-")
     while True:
+        rest = rest.lstrip("-")
         match = re.match(
             rf"^(\d+(?:,\d+)*-)(?:di|tri|tetra|penta|hexa)?({'|'.join(_REPLACEMENT_TERMS)})(.+)$",
             rest,

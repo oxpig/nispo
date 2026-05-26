@@ -10,11 +10,11 @@ def test_template_store_owns_parent_resource_counts():
     store = template_store(Chem)
     catalog = parent_scaffold_catalog(Chem)
 
-    assert len(catalog.static_retained) == 79
+    assert len(catalog.static_retained) == 80
     assert len(catalog.opsin_retained_fused) == 377
     assert len(catalog.fusion_component_parents) == 114
-    assert len(catalog.fused) == 570
-    assert len(catalog.exact) == 1142
+    assert len(catalog.fused) == 571
+    assert len(catalog.exact) == 1143
     assert len(catalog.single_ring) == 246
     assert len(generated_fused_parent_templates(Chem)) == 65705
 

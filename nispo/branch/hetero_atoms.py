@@ -69,7 +69,7 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     parent = mol.GetAtomWithIdx(parent_idx)
-    heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
+    heavy = _nonplain_hydrogen_neighbor_indices(atom, parent_idx)
     if atom.GetFormalCharge() < 0 and parent.GetSymbol() == "N" and parent.GetFormalCharge() > 0:
         if bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
             return "oxido"
@@ -92,6 +92,8 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
     if len(heavy) == 1:
         if _is_nitro_nitrogen(mol, heavy[0]):
             return "nitrooxy"
+        if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "H":
+            return _isotopic_hydrogen_oxy_prefix(mol.GetAtomWithIdx(heavy[0]))
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() in HALO:
             return HALO[mol.GetAtomWithIdx(heavy[0]).GetSymbol()] + "oxy"
         carbonyl = _carbonyl_substituent_prefix(mol, heavy[0], idx)
@@ -151,6 +153,29 @@ def _sulfur_has_nitroaryl_ligand(mol, sulfur_idx: int, oxygen_idx: int) -> bool:
     return False
 
 
+def _nonplain_hydrogen_neighbor_indices(atom, parent_idx: int) -> list[int]:
+    return [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
+    ]
+
+
+def _isotopic_hydrogen_prefix(atom) -> str:
+    if atom.GetSymbol() != "H":
+        return ""
+    if atom.GetIsotope() == 2:
+        return "deuterio"
+    if atom.GetIsotope() == 3:
+        return "tritio"
+    return ""
+
+
+def _isotopic_hydrogen_oxy_prefix(atom) -> str:
+    isotope = _isotopic_hydrogen_prefix(atom)
+    return isotope + "oxy" if isotope else ""
+
+
 def _ylidene_oxidaniumyl_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
     carbon = mol.GetAtomWithIdx(carbon_idx)
     if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
@@ -206,7 +231,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
     if _is_nitroso_attachment(mol, idx, parent_idx):
         return "nitroso"
     if atom.GetFormalCharge() > 0:
-        heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
+        heavy = _nonplain_hydrogen_neighbor_indices(atom, parent_idx)
         if not heavy:
             return suffix_supported_term("ium", "azaniumyl")
         names = []
@@ -233,7 +258,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
             return azanidyl
     if atom.GetFormalCharge() != 0:
         return ""
-    heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
+    heavy = _nonplain_hydrogen_neighbor_indices(atom, parent_idx)
     if heavy and all(mol.GetAtomWithIdx(nidx).GetSymbol() in HALO for nidx in heavy):
         names = [HALO[mol.GetAtomWithIdx(nidx).GetSymbol()] for nidx in heavy]
         counts = Counter(names)
@@ -252,6 +277,8 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
 def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     symbol = atom.GetSymbol()
+    if symbol == "H":
+        return _isotopic_hydrogen_prefix(atom)
     if symbol in HALO:
         return HALO[symbol]
     if atom.IsInRing():
@@ -310,7 +337,7 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
     parent = mol.GetAtomWithIdx(parent_idx)
     if parent.GetFormalCharge() <= 0:
         return ""
-    heavy = [n.GetIdx() for n in mol.GetAtomWithIdx(idx).GetNeighbors() if n.GetIdx() != parent_idx]
+    heavy = _nonplain_hydrogen_neighbor_indices(mol.GetAtomWithIdx(idx), parent_idx)
     if not heavy:
         return "azanidyl"
     if len(heavy) != 1:

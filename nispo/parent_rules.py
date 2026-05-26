@@ -202,6 +202,14 @@ GROUP14_HYDRIDE_PARENTS = {
 }
 
 
+MAGNESIUM_HALIDE_NAMES = {
+    "F": "fluoride",
+    "Cl": "chloride",
+    "Br": "bromide",
+    "I": "iodide",
+}
+
+
 class Group14HydrideParentRule:
     family = "group14-hydride-parent"
     priority = parent_priority("senior-functional-exception")
@@ -321,6 +329,51 @@ class PhosphorusAcidParentRule:
         if _needs_substituent_parentheses(prefix):
             prefix = f"({prefix})"
         name = prefix + parent
+        yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class OrganomagnesiumHalideParentRule:
+    family = "organomagnesium-halide-parent"
+    priority = parent_priority("senior-functional-exception")
+    acyclic_only = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() != 0 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 0:
+            return
+        magnesium_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "Mg" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+        ]
+        if len(magnesium_atoms) != 1:
+            return
+        magnesium = magnesium_atoms[0]
+        midx = magnesium.GetIdx()
+        carbon_neighbors = []
+        halogen_names = []
+        for nbr in magnesium.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(midx, nidx)
+            if bond.GetBondType() != self._Chem.BondType.SINGLE:
+                return
+            if nbr.GetSymbol() == "C":
+                carbon_neighbors.append(nidx)
+            elif nbr.GetSymbol() in MAGNESIUM_HALIDE_NAMES:
+                halogen_names.append(MAGNESIUM_HALIDE_NAMES[nbr.GetSymbol()])
+            else:
+                return
+        if len(carbon_neighbors) != 1 or len(halogen_names) != 1:
+            return
+        prefix = branch_prefix(mol, carbon_neighbors[0], midx)
+        if not prefix:
+            return
+        if _needs_substituent_parentheses(prefix):
+            prefix = f"({prefix})"
+        name = f"{prefix}magnesium {halogen_names[0]}"
         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -979,6 +1032,7 @@ def parent_rules(Chem) -> tuple:
     azanium = AzaniumParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
+    organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -1009,6 +1063,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
         RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
+        RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",

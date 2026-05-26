@@ -158,6 +158,20 @@ def test_organophosphorus_oxoanion_salts_use_functional_fragment_names():
     ]
 
 
+def test_organomagnesium_halides_use_grignard_names():
+    names = smiles_to_iupac_batch(
+        [
+            "CCC[CH2][Mg][Br]",
+            "CCCCOCOCCC[CH](C)[Mg][I]",
+        ]
+    )
+
+    assert names == [
+        "butylmagnesium bromide",
+        "(1-methyl-5,7-dioxaundecyl)magnesium iodide",
+    ]
+
+
 def test_repeated_complex_onium_substituents_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

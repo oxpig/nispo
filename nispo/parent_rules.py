@@ -848,7 +848,31 @@ def _chain_dominates_single_ring(mol, name: str) -> bool:
     if not ring_atoms:
         return False
     cyclic_substituent = any(
-        term in name for term in ("cyclo", "phenyl", "pyridin", "pyrimidin", "thiophen", "furan", "benz")
+        term in name
+        for term in (
+            "cyclo",
+            "phenyl",
+            "benz",
+            "pyridin",
+            "pyrimidin",
+            "pyrazin",
+            "pyrazol",
+            "imidazol",
+            "thiazol",
+            "oxazol",
+            "thiophen",
+            "furan",
+            "pyrrol",
+            "pyrrolidin",
+            "piperidin",
+            "azetidin",
+            "morpholin",
+            "thietan",
+            "oxetan",
+            "oxolan",
+            "oxan",
+            "dioxan",
+        )
     )
     if not cyclic_substituent:
         return False

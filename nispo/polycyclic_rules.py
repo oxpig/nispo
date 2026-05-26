@@ -56,6 +56,10 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
                 _tricyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
                 _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
             )
+        elif rank in {4, 5}:
+            record_sets = (
+                _secondary_bridge_polycyclic_candidate_records(kekulized, Chem, ring_system),
+            )
         else:
             continue
         for records in record_sets:
@@ -405,6 +409,135 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
     return [(name, seq) for _key, name, seq in candidates]
 
 
+def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
+    graph = _ring_system_graph(mol, Chem, atoms)
+    if not graph:
+        return []
+    rank = _graph_cycle_rank(graph)
+    if rank not in {4, 5}:
+        return []
+    if _has_stereochemical_evidence(mol, Chem):
+        return []
+    if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
+        return []
+
+    candidates = []
+    branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
+    for left, right in combinations(branch_atoms, 2):
+        base_paths = _bridge_paths(graph, atoms, left, right)
+        if not base_paths:
+            continue
+        for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
+            completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
+            if completed is None:
+                continue
+            seq, bracket = completed
+            parent = _generic_polycyclic_parent(mol, seq, bracket)
+            if not parent:
+                continue
+            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+            if not name:
+                continue
+            key = (
+                _bridge_sort_key(bracket),
+                _hetero_locants(mol, seq),
+                _substituent_locants(mol, seq, atoms),
+                name,
+            )
+            candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates[:24]]
+
+
+def _has_stereochemical_evidence(mol, Chem) -> bool:
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+        return True
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+
+
+def _secondary_bridge_completion(
+    graph: dict[int, set[int]],
+    atoms: set[int],
+    base_paths: Sequence[tuple[int, ...]],
+    base_seq: Sequence[int],
+    base_bracket: Sequence[int],
+    rank: int,
+) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
+    base_edges = set()
+    for path in base_paths:
+        for left, right in zip(path, path[1:]):
+            base_edges.add(tuple(sorted((left, right))))
+    extra_edges = [edge for edge in _graph_edges(graph) if edge not in base_edges]
+    base_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
+    used_edges: set[tuple[int, int]] = set()
+    bridges = []
+    for left, right in extra_edges:
+        edge = (left, right)
+        if edge in used_edges:
+            continue
+        if left in base_positions and right in base_positions:
+            low, high = sorted((base_positions[left], base_positions[right]))
+            bridges.append((0, low, high, ()))
+            used_edges.add(edge)
+            continue
+        paths = _secondary_bridge_paths(graph, base_positions.keys(), extra_edges, used_edges, left, right)
+        if len(paths) != 1:
+            return None
+        path = paths[0]
+        start, end = path[0], path[-1]
+        if start not in base_positions or end not in base_positions:
+            return None
+        bridge_edges = {tuple(sorted((a, b))) for a, b in zip(path, path[1:])}
+        used_edges.update(bridge_edges)
+        low, high = sorted((base_positions[start], base_positions[end]))
+        internals = tuple(path[1:-1])
+        bridges.append((len(internals), low, high, internals))
+
+    if used_edges != set(extra_edges):
+        return None
+    seq = tuple(base_seq) + tuple(idx for bridge in bridges for idx in bridge[3])
+    if len(seq) != len(atoms) or set(seq) != atoms:
+        return None
+    bracket = list(base_bracket)
+    for length, low, high, _internals in sorted(bridges, key=lambda item: (-item[0], item[1], item[2])):
+        bracket.append(f"{length}^{low},{high}")
+    if len(bracket) != rank + 1:
+        return None
+    return seq, tuple(bracket)
+
+
+def _secondary_bridge_paths(
+    graph: dict[int, set[int]],
+    base_atoms,
+    extra_edges: Sequence[tuple[int, int]],
+    used_edges: set[tuple[int, int]],
+    left: int,
+    right: int,
+) -> list[tuple[int, ...]]:
+    base_atoms = set(base_atoms)
+    available = set(extra_edges) - used_edges
+    if left in base_atoms and right not in base_atoms:
+        starts = [(left, right)]
+    elif right in base_atoms and left not in base_atoms:
+        starts = [(right, left)]
+    else:
+        return []
+    paths = []
+    for start, first in starts:
+        stack = [(first, (start, first))]
+        while stack:
+            current, path = stack.pop()
+            if current in base_atoms and current != start:
+                paths.append(path)
+                continue
+            for nbr in sorted(graph[current]):
+                edge = tuple(sorted((current, nbr)))
+                if edge not in available or nbr in path:
+                    continue
+                stack.append((nbr, path + (nbr,)))
+    return paths
+
+
 def _ring_systems(mol, Chem) -> list[set[int]]:
     return [set(topology.atoms) for topology in _cached_ring_system_topologies(mol, Chem)]
 
@@ -716,6 +849,42 @@ def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, ...]) -> str:
         else:
             parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
     return "-".join(parts) + parent if parts else parent
+
+
+def _generic_polycyclic_parent(mol, seq: Sequence[int], bracket: Sequence[int | str]) -> str:
+    root = ROOTS.get(len(seq))
+    prefix = _generic_polycyclic_prefix(len(bracket) - 1)
+    if not root or not prefix:
+        return ""
+    parent = _poly_parent_with_unsaturation(
+        mol,
+        seq,
+        f"{prefix}[{'.'.join(str(value) for value in bracket)}]{root}",
+        allow_unsaturation=True,
+    )
+    if not parent:
+        return ""
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for loc, idx in enumerate(seq, start=1):
+        replacement = _polycyclic_replacement_term(mol, idx)
+        if not replacement:
+            continue
+        grouped[replacement].append(loc)
+    parts = []
+    for replacement in sorted(grouped):
+        locants = grouped[replacement]
+        if len(locants) == 1:
+            parts.append(f"{locants[0]}-{replacement}")
+        else:
+            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
+    return "-".join(parts) + parent if parts else parent
+
+
+def _generic_polycyclic_prefix(cycle_count: int) -> str:
+    return {
+        4: "tetracyclo",
+        5: "pentacyclo",
+    }.get(cycle_count, "")
 
 
 def _spiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int]) -> str:

@@ -248,10 +248,42 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
                 BranchRuleSpec(_resource_prefix),
             ),
         ),
+        "B": (
+            (
+                BranchRuleSpec(_boron_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
         "*": (
             (BranchRuleSpec(_resource_prefix),),
         ),
     }
+
+
+def _boron_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0:
+        return ""
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1]
+    if not heavy:
+        return "boranyl"
+    if len(heavy) == 2 and all(_is_terminal_hydroxy_oxygen(mol, nidx, idx) for nidx in heavy):
+        return "borono"
+    return ""
+
+
+def _is_terminal_hydroxy_oxygen(mol, oxygen_idx: int, boron_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(oxygen_idx)
+    if atom.GetSymbol() != "O" or atom.GetFormalCharge() != 0:
+        return False
+    bond = mol.GetBondBetweenAtoms(oxygen_idx, boron_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != boron_idx and nbr.GetAtomicNum() > 1]
+    return not heavy
 
 
 def _nitro_branch_predicate(mol, idx: int, parent_idx: int) -> bool:

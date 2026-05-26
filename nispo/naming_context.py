@@ -112,7 +112,7 @@ class MoleculeContext:
     def has_generic_polycyclic_topology(self) -> bool:
         cached = self.cache.topology_flags.get("generic_polycyclic")
         if cached is None:
-            cached = any(topology.cycle_rank in {2, 3} for topology in self.ring_topologies)
+            cached = any(topology.cycle_rank in {2, 3, 4, 5} for topology in self.ring_topologies)
             self.cache.topology_flags["generic_polycyclic"] = cached
         return cached
 

@@ -84,6 +84,19 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                         priority,
                     )
                 )
+            for left_rank, left_atoms, right_rank, right_atoms in _poly_poly_side_orders(sides):
+                if left_rank not in {2, 3, 4, 5} or right_rank not in {2, 3, 4, 5}:
+                    continue
+                candidates.extend(
+                    _poly_component_spiro_candidates_for_split(
+                        ctx,
+                        set(atom_set),
+                        spiro_idx,
+                        left_atoms,
+                        right_atoms,
+                        priority,
+                    )
+                )
         candidates.extend(_component_dispiro_candidates(ctx, set(atom_set), graph, priority))
     candidates.sort(key=lambda item: item.sort_key)
     seen: set[str] = set()
@@ -345,6 +358,69 @@ def _component_spiro_candidates_for_split(
                     priority=priority,
                     sort_key=(
                         simple_component.component_rank + poly_component.component_rank,
+                        len(parent_prefixes),
+                        _locant_key_for_text(name),
+                        len(name),
+                        name,
+                    ),
+                )
+            )
+    return candidates
+
+
+def _poly_component_spiro_candidates_for_split(
+    ctx,
+    ring_system_atoms: set[int],
+    spiro_idx: int,
+    left_atoms: set[int],
+    right_atoms: set[int],
+    priority: int,
+) -> list[NameCandidate]:
+    """Compose spiro names where both sides are named ring components."""
+
+    Chem = ctx.Chem
+    left = _submol_for_atoms(ctx.mol, Chem, left_atoms)
+    right = _submol_for_atoms(ctx.mol, Chem, right_atoms)
+    if left is None or right is None:
+        return []
+    left_mol, left_to_parent, left_to_sub = left
+    right_mol, right_to_parent, right_to_sub = right
+    left_spiro = left_to_sub[spiro_idx]
+    right_spiro = right_to_sub[spiro_idx]
+
+    left_components = _poly_component_names(left_mol, Chem, left_spiro)
+    right_components = _poly_component_names(right_mol, Chem, right_spiro)
+    if not left_components or not right_components:
+        return []
+
+    candidates: list[NameCandidate] = []
+    for left_component in left_components[:12]:
+        for right_component in right_components[:12]:
+            parent_prefixes = list(left_component.replacement_prefixes) + [
+                (_prime_locant(locant), prefix)
+                for locant, prefix in right_component.replacement_prefixes
+            ]
+            locants = _combined_locants(left_component, left_to_parent, right_component, right_to_parent)
+            substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
+            if substituent_prefixes is None:
+                continue
+            prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
+            spiro_name = (
+                "spiro["
+                f"{_component_parent_text(left_component.parent_name)}-{left_component.spiro_locant},"
+                f"{_prime_locant(right_component.spiro_locant)}-{_component_parent_text(right_component.parent_name)}"
+                "]"
+            )
+            if _has_unpromoted_component_replacement(spiro_name):
+                continue
+            name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+            candidates.append(
+                NameCandidate(
+                    name=name,
+                    family="poly-component-spiro-parent",
+                    priority=priority,
+                    sort_key=(
+                        left_component.component_rank + right_component.component_rank,
                         len(parent_prefixes),
                         _locant_key_for_text(name),
                         len(name),
@@ -689,6 +765,16 @@ def _cycle_rank_for_atoms(graph: dict[int, set[int]], atoms: set[int]) -> int:
 
 
 def _simple_poly_side_orders(sides: Sequence[tuple[int, set[int]]]):
+    if len(sides) != 2:
+        return ()
+    left, right = sides
+    return (
+        (left[0], left[1], right[0], right[1]),
+        (right[0], right[1], left[0], left[1]),
+    )
+
+
+def _poly_poly_side_orders(sides: Sequence[tuple[int, set[int]]]):
     if len(sides) != 2:
         return ()
     left, right = sides

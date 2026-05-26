@@ -865,8 +865,9 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
 
 
 def _chain_dominates_single_ring(mol, name: str) -> bool:
-    if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[", "diazaeth")):
+    if "diazaeth" in name:
         return False
+    has_polycyclic_substituent = any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
     ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
     nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
     if not ring_atoms:
@@ -902,6 +903,10 @@ def _chain_dominates_single_ring(mol, name: str) -> bool:
     )
     if not cyclic_substituent:
         return False
+    if has_polycyclic_substituent:
+        if len(nonring_atoms) < 4:
+            return False
+        return _polycyclic_substituent_chain_signal(name)
     if len(nonring_atoms) >= len(ring_atoms):
         return True
     return any(
@@ -927,6 +932,27 @@ def _chain_dominates_single_ring(mol, name: str) -> bool:
             "carboxy",
         )
     )
+
+
+def _polycyclic_substituent_chain_signal(name: str) -> bool:
+    """Return whether a functional chain should outrank a polycyclic substituent.
+
+    Polycyclic ring fragments are usually good parents, so we only promote an
+    acyclic skeleton when the generated name shows senior chain chemistry that
+    OPSIN parses more faithfully as the parent: carbonyl/carboxy/amino/hydroxy
+    chains, main-chain unsaturation, or heavily halogenated/heteroatom chains.
+    """
+
+    if any(term in name for term in ("carbonyl", "carboxy", "dioxo", "trioxo", "tetraoxo", "oxo")):
+        return True
+    if any(term in name for term in ("amino", "hydroxy", "imino")) and any(
+        term in name for term in ("aza", "oxa", "thia", "sulfonyl", "sulfinyl", "sulfanyl")
+    ):
+        return True
+    if re.search(r"(?:prop|but|pent|hex|hept|oct|non|dec)-\d+(?:,\d+)*-(?:en|yn)", name):
+        return True
+    halo_count = sum(name.count(term) for term in ("fluoro", "chloro", "bromo", "iodo"))
+    return halo_count >= 2 and any(term in name for term in ("bora", "sila", "phospha", "aza", "oxa", "thia"))
 
 
 class WholeMoleculeRetainedParentRule:
@@ -1229,7 +1255,7 @@ _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
 
 class NaturalProductTopologyParentRule(FusedParentRule):
     family = "natural-product-topology-parent"
-    priority = parent_priority("exact-retained-parent")
+    priority = parent_priority("whole-molecule-retained-parent")
     min_ring_system_ring_count = 4
 
     def _templates(self) -> tuple[dict, ...]:
@@ -1639,7 +1665,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates),
         RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
         RuleSpec("generated-partial-hydro-fused-parent", parent_priority("generated-partial-hydro-parent"), (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
-        RuleSpec("natural-product-topology-parent", parent_priority("exact-retained-parent"), (min_ring_system_ring_count(4),), natural_product_topology.candidates),
+        RuleSpec("natural-product-topology-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_system_ring_count(4),), natural_product_topology.candidates),
         RuleSpec("skeletal-replacement-fused-parent", parent_priority("skeletal-replacement-parent"), (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
         RuleSpec(
             "kekulized-generic-polycyclic-parent",

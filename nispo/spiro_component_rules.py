@@ -120,8 +120,7 @@ def _component_spiro_candidates_for_split(
             substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
             if substituent_prefixes is None:
                 continue
-            prefixes = parent_prefixes + substituent_prefixes
-            prefix_text = _format_prefixes(prefixes)
+            prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
             spiro_name = (
                 "spiro["
                 f"{simple_component.parent_name}-{simple_component.spiro_locant},"
@@ -145,6 +144,26 @@ def _component_spiro_candidates_for_split(
                 )
             )
     return candidates
+
+
+def _component_spiro_prefix_text(
+    substituent_prefixes: list[tuple[str, str]],
+    replacement_prefixes: list[tuple[str, str]],
+) -> str:
+    """Format component-spiro prefixes in the order OPSIN tokenizes reliably.
+
+    ``format_prefixes`` sorts prefix names alphabetically, which puts skeletal
+    replacement terms such as ``aza`` before ordinary substituents.  OPSIN
+    accepts component-spiro names much more consistently when substituents are
+    applied before replacement prefixes, e.g.
+    ``3'-ethoxycarbonyl-1',2',4'-triaza-spiro[...]``.
+    """
+
+    substituent_text = _format_prefixes(substituent_prefixes)
+    replacement_text = _format_prefixes(replacement_prefixes)
+    if substituent_text and replacement_text:
+        return f"{substituent_text}-{replacement_text}"
+    return substituent_text or replacement_text
 
 
 class _Component:

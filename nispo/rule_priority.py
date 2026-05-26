@@ -162,6 +162,16 @@ PARENT_RULE_PRIORITIES = {
         specificity="medium",
         rationale="Spiro graph names are more specific than single-ring fallback.",
     ),
+    "spiro-functional-chain-substituent": RulePriority(
+        25,
+        seniority_score=3,
+        parent_class_score=3,
+        specificity_score=3,
+        seniority="functional chain with spiro substituent",
+        parent_class="chain with spiro ring substituent",
+        specificity="medium",
+        rationale="Functional chains bearing spiro substituents can be more OPSIN-stable than generic spiro parents.",
+    ),
     "generic-polycyclic-parent": RulePriority(
         28,
         seniority_score=3,

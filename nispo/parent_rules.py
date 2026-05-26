@@ -917,6 +917,24 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             yield NameCandidate(name, self.family, self.priority, sort_key=((750, 999, (), 999, name), len(name), name))
 
 
+class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRule):
+    family = "spiro-functional-chain-substituent"
+    priority = parent_priority("spiro-functional-chain-substituent")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        profile = ctx.profile
+        if profile.ring_count == 0 or not ctx.has_spiro_topology:
+            return
+        ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
+        nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
+        if len(nonring_atoms) < 4 or len(nonring_atoms) < len(ring_atoms) // 2:
+            return
+        name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and "spiro[" in name and _polycyclic_substituent_chain_signal(name):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "charged-ring-acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("polycyclic-functional-skeleton")
@@ -1719,6 +1737,7 @@ def parent_rules(Chem) -> tuple:
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
     chain_dominant_acyclic = ChainDominantAcyclicSkeletonWithRingSubstituentsRule()
+    spiro_functional_chain = SpiroFunctionalChainSubstituentRule()
     charged_ring_acyclic = ChargedRingAcyclicSkeletonWithRingSubstituentsRule()
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
@@ -1773,6 +1792,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("generated-parent"),
             (min_ring_count(1),),
             chain_dominant_acyclic.candidates,
+        ),
+        RuleSpec(
+            "spiro-functional-chain-substituent",
+            parent_priority("spiro-functional-chain-substituent"),
+            (min_ring_count(1), spiro_topology),
+            spiro_functional_chain.candidates,
         ),
         RuleSpec(
             "charged-ring-acyclic-skeleton-with-ring-substituents",

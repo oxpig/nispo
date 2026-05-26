@@ -211,6 +211,22 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
+    if (
+        all_aromatic
+        and 3 <= n <= max(ROOTS)
+        and all(sym in SKELETON_ATOMS for sym in symbols)
+        and any(sym != "C" for sym in symbols)
+        and _aromatic_replacement_ring_supported(mol, ordered)
+    ):
+        for seq in _ring_numberings(ordered):
+            if mol.GetAtomWithIdx(seq[0]).GetSymbol() == "C":
+                continue
+            parent = _aromatic_heterocycle_parent(mol, seq)
+            if parent:
+                candidates.append((parent, seq))
+        if candidates:
+            return candidates
+
     if n == 6 and symbols.count("N") == 2 and symbols.count("C") == 4 and not all_aromatic:
         candidates.extend(_unsaturated_diazine_candidates(mol, ordered))
         if candidates:
@@ -471,6 +487,18 @@ def _aromatic_carbocycle_has_supported_valence(mol, ordered: Sequence[int]) -> b
     return True
 
 
+def _aromatic_replacement_ring_supported(mol, ordered: Sequence[int]) -> bool:
+    ring_set = set(ordered)
+    for idx in ordered:
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            if nbr.GetIdx() in ring_set:
+                continue
+            bond = mol.GetBondBetweenAtoms(idx, nbr.GetIdx())
+            if bond is not None and bond.GetBondTypeAsDouble() > 1.0:
+                return False
+    return True
+
+
 def _unsaturated_diazine_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
     for seq in _numberings_with_atom_at(ordered, mol, "N"):
@@ -509,10 +537,26 @@ def _heterocycloalkane_parent(mol, seq: Sequence[int]) -> str:
     return parent if parent.endswith("ane") else ""
 
 
+def _aromatic_heterocycle_parent(mol, seq: Sequence[int]) -> str:
+    parent = _aromatic_carbocycle_parent(seq)
+    if not parent:
+        return ""
+    replacement_prefix = _replacement_prefix(mol, seq)
+    return f"{replacement_prefix}{parent}" if replacement_prefix else ""
+
+
 def _heterocycle_parent(mol, seq: Sequence[int]) -> str:
     root = ROOTS.get(len(seq))
     if not root:
         return ""
+    replacement_prefix = _replacement_prefix(mol, seq)
+    if not replacement_prefix:
+        return ""
+    parent = _carbocycle_parent(mol, seq)
+    return f"{replacement_prefix}{parent}" if parent else ""
+
+
+def _replacement_prefix(mol, seq: Sequence[int]) -> str:
     grouped: dict[str, list[int]] = defaultdict(list)
     for loc, idx in enumerate(seq, start=1):
         symbol = mol.GetAtomWithIdx(idx).GetSymbol()
@@ -531,10 +575,7 @@ def _heterocycle_parent(mol, seq: Sequence[int]) -> str:
             parts.append(f"{locants[0]}-{term}")
         else:
             parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{term}")
-    parent = _carbocycle_parent(mol, seq)
-    if not parent:
-        return ""
-    return "-".join(parts) + parent
+    return "-".join(parts)
 
 
 

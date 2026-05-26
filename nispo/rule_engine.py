@@ -80,7 +80,7 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
         return _apply_uniform_isotope_label(mol, f"({candidate.stereo_prefix})-{name}")
-    if candidate.family in {"whole-molecule-retained-parent"}:
+    if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
         return _apply_uniform_isotope_label(mol, name)
     return _apply_uniform_isotope_label(
         mol,

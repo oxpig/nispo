@@ -652,6 +652,80 @@ def _name_fused_core_match(
     return prefix_text + "-" + parent_name
 
 
+def _name_natural_product_topology_match(mol, Chem, template: dict, match: Sequence[int]) -> tuple[str, str] | None:
+    parent_name = _natural_product_topology_parent_name(mol, Chem, template, match)
+    if not parent_name:
+        return None
+    name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+    if not name:
+        return None
+    return name, _locanted_template_stereo_prefix(mol, Chem, template, match)
+
+
+def _natural_product_topology_parent_name(mol, Chem, template: dict, match: Sequence[int]) -> str:
+    parent = template_record_name(template)
+    ene_locs = _natural_product_extra_double_bond_locs(mol, Chem, template, match)
+    if ene_locs:
+        return loc_unsat(parent, ene_locs, "ene")
+    return parent + "ane"
+
+
+def _natural_product_extra_double_bond_locs(mol, Chem, template: dict, match: Sequence[int]) -> list[int]:
+    locants = template_record_locants(template)
+    template_mol = template_record_mol(template)
+    ene_locs = set()
+    for bond in template_mol.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        mol_bond = mol.GetBondBetweenAtoms(match[begin], match[end])
+        if mol_bond is None:
+            continue
+        if mol_bond.GetBondType() != Chem.BondType.DOUBLE or bond.GetBondType() == Chem.BondType.DOUBLE:
+            continue
+        numeric = [
+            int(locants[idx])
+            for idx in (begin, end)
+            if locants.get(idx, "").isdigit()
+        ]
+        if numeric:
+            ene_locs.add(min(numeric))
+    return sorted(ene_locs)
+
+
+def _locanted_template_stereo_prefix(mol, Chem, template: dict, match: Sequence[int]) -> str:
+    descriptors = _fresh_atom_stereochemistry(mol, Chem)
+    if not descriptors:
+        return ""
+    locants = template_record_locants(template)
+    pieces = []
+    seen = set()
+    for template_idx, mol_idx in enumerate(match):
+        descriptor = descriptors.get(mol_idx)
+        locant = locants.get(template_idx, "")
+        if descriptor is None or not locant.isdigit():
+            continue
+        key = (int(locant), descriptor)
+        if key in seen:
+            continue
+        seen.add(key)
+        pieces.append(key)
+    return ",".join(f"{locant}{descriptor}" for locant, descriptor in sorted(pieces))
+
+
+def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
+    work = Chem.Mol(mol)
+    Chem.AssignStereochemistry(work, cleanIt=True, force=True)
+    return {
+        idx: descriptor
+        for idx, descriptor in Chem.FindMolChiralCenters(
+            work,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"R", "S"}
+    }
+
+
 def _fused_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
     oxo_locs = sorted((loc for loc, prefix in prefixes if prefix == "oxo" and loc.isdigit()), key=int)
     if parent_name == "pteridine" and oxo_locs == ["4", "7"]:

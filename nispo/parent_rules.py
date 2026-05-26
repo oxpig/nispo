@@ -1017,6 +1017,70 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                 return
 
 
+_NATURAL_PRODUCT_TOPOLOGY_STEMS = {
+    "androst",
+    "campest",
+    "chol",
+    "cholest",
+    "ergost",
+    "estr",
+    "gon",
+    "poriferast",
+    "pregn",
+    "stigmast",
+}
+
+
+class NaturalProductTopologyParentRule(FusedParentRule):
+    family = "natural-product-topology-parent"
+    priority = parent_priority("exact-retained-parent")
+    min_ring_system_ring_count = 4
+
+    def _templates(self) -> tuple[dict, ...]:
+        return tuple(
+            template
+            for template in _curated_fused_templates(self._Chem)
+            if template.get("source_file") == "naturalProducts.xml"
+            and template_record_name(template) in _NATURAL_PRODUCT_TOPOLOGY_STEMS
+        )
+
+    def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
+        return (
+            -template_record_mol(template).GetNumAtoms(),
+            _substituent_locant_tuple(name),
+            len(name),
+            name,
+        )
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() < 4:
+            return
+        seen = set()
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            ctx.candidate_templates(self._templates()),
+            self._Chem,
+            topology_query=True,
+            reject_extra_core_bonds=True,
+        ):
+            named = _name_natural_product_topology_match(mol, self._Chem, template, match)
+            if not named:
+                continue
+            name, stereo_prefix = named
+            key = (name, stereo_prefix)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=self._candidate_sort_key(template, match, name),
+                stereo_prefix=stereo_prefix,
+            )
+
+
 class SkeletalReplacementFusedParentRule(FusedParentRule):
     family = "skeletal-replacement-fused-parent"
     priority = parent_priority("skeletal-replacement-parent")
@@ -1249,6 +1313,7 @@ def parent_rules(Chem) -> tuple:
     generated_fused = GeneratedFusedParentRule(Chem)
     generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
     generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
+    natural_product_topology = NaturalProductTopologyParentRule(Chem)
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
@@ -1313,6 +1378,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates),
         RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
         RuleSpec("generated-partial-hydro-fused-parent", parent_priority("generated-partial-hydro-parent"), (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
+        RuleSpec("natural-product-topology-parent", parent_priority("exact-retained-parent"), (min_ring_system_ring_count(4),), natural_product_topology.candidates),
         RuleSpec("skeletal-replacement-fused-parent", parent_priority("skeletal-replacement-parent"), (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
         RuleSpec(
             "kekulized-generic-polycyclic-parent",
@@ -1367,6 +1433,7 @@ from .parent.rule_helpers import (
     _benzimidazole_orientation_preference,
     _has_n_oxide_on_match,
     _name_fused_core_match,
+    _name_natural_product_topology_match,
     _fused_oxo_suffix_name,
     _adjust_fused_parent_for_charge,
     _drop_indicated_hydrogen_prefix,

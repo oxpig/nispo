@@ -216,7 +216,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
-    if all_aliphatic and all(sym == "C" for sym in symbols) and 3 <= n <= 20:
+    if all_aliphatic and all(sym == "C" for sym in symbols) and 3 <= n <= max(ROOTS):
         for seq in _ring_numberings(ordered):
             parent = _carbocycle_parent(mol, seq)
             if parent:
@@ -226,7 +226,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
 
     if (
         all_aliphatic
-        and 3 <= n <= 20
+        and 3 <= n <= max(ROOTS)
         and all(sym in SKELETON_ATOMS for sym in symbols)
         and any(sym != "C" for sym in symbols)
         and not all_single_bonds
@@ -581,13 +581,14 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         if atom.GetSymbol() != "N":
             continue
-        if parent_name == "pyridine" and loc == 1:
+        charge_base = _drop_indicated_hydrogen_prefix(parent_name)
+        if charge_base == "pyridine" and loc == 1:
             return "pyridin-1-ium"
-        if parent_name in {"pyrimidine", "pyrazine", "pyridazine"}:
-            stem = parent_name[:-1]
+        if charge_base in {"pyrimidine", "pyrazine", "pyridazine"}:
+            stem = charge_base[:-1]
             return f"{stem}-{loc}-ium"
-        if parent_name.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
-            stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+        if charge_base.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
+            stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
             return f"{stem}-{loc}-ium"
         if parent_name == "1H-imidazole":
             base = parent_name if atom.GetTotalNumHs() > 0 else _drop_indicated_hydrogen_prefix(parent_name)

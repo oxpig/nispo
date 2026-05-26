@@ -5,6 +5,14 @@ from collections.abc import Sequence
 
 from .constants import MULT
 
+COMPLEX_MULT = {
+    2: "bis",
+    3: "tris",
+    4: "tetrakis",
+    5: "pentakis",
+    6: "hexakis",
+}
+
 
 def unsaturated_parent(root: str, ene_locs: list[int], yne_locs: list[int]) -> str:
     if not ene_locs and not yne_locs:
@@ -87,6 +95,9 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
         locs = sorted(grouped[name], key=_locant_sort_key)
         if len(locs) == 1:
             parts.append(f"{locs[0]}-{name}")
+        elif _multiplied_prefix_needs_parentheses(name):
+            multiplier = COMPLEX_MULT.get(len(locs), MULT.get(len(locs), ""))
+            parts.append(f"{','.join(locs)}-{multiplier}({name})")
         else:
             parts.append(f"{','.join(locs)}-{MULT.get(len(locs), '')}{name}")
     parts.extend(sorted(complex_items))
@@ -105,6 +116,10 @@ def _is_composite_substituent_name(name: str) -> bool:
     if name.endswith("phosphoryl") and _has_leading_multiplier(name):
         return True
     return name.endswith("amino") and _has_leading_multiplier(name)
+
+
+def _multiplied_prefix_needs_parentheses(name: str) -> bool:
+    return name.endswith("aniumyl") or name.endswith("oniumyl")
 
 
 def _has_leading_multiplier(name: str) -> bool:

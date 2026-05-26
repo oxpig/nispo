@@ -280,6 +280,117 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
     )
 
 
+def standalone_polyatomic_fragment_name(mol, Chem) -> str:
+    """Name retained neutral/cationic simple fragments outside salt assembly."""
+
+    if mol.GetNumAtoms() < 2:
+        return ""
+    return (
+        _peracetate_name(mol, Chem)
+        or _isothiouronium_name(mol, Chem)
+        or _isouronium_name(mol, Chem)
+        or _selenocysteamine_name(mol, Chem)
+    )
+
+
+def _peracetate_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 2, "O": 3} or _total_charge(mol) != -1:
+        return ""
+    carbonyl_carbons = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+            for nbr in atom.GetNeighbors()
+        )
+    ]
+    if len(carbonyl_carbons) != 1:
+        return ""
+    carbonyl = mol.GetAtomWithIdx(carbonyl_carbons[0])
+    has_methyl = False
+    has_anionic_peroxy = False
+    for nbr in carbonyl.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbonyl.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetDegree() == 1:
+            has_methyl = True
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            terminal_oxygen = [
+                other
+                for other in nbr.GetNeighbors()
+                if other.GetIdx() != carbonyl.GetIdx()
+                and other.GetSymbol() == "O"
+                and mol.GetBondBetweenAtoms(nbr.GetIdx(), other.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+                and other.GetFormalCharge() == -1
+            ]
+            has_anionic_peroxy = len(terminal_oxygen) == 1
+    return "peracetate" if has_methyl and has_anionic_peroxy else ""
+
+
+def _isothiouronium_name(mol, Chem) -> str:
+    return _chalcogenouronium_name(mol, Chem, "S", "isothiouronium")
+
+
+def _isouronium_name(mol, Chem) -> str:
+    return _chalcogenouronium_name(mol, Chem, "O", "isouronium")
+
+
+def _chalcogenouronium_name(mol, Chem, chalcogen: str, name: str) -> str:
+    if _element_counts(mol) != {"C": 1, "N": 2, chalcogen: 1} or _total_charge(mol) != 1:
+        return ""
+    carbon = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C"), None)
+    if carbon is None:
+        return ""
+    single_n = double_n = single_chalcogen = 0
+    for nbr in carbon.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_n += 1
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() > 0:
+            double_n += 1
+        elif nbr.GetSymbol() == chalcogen and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_chalcogen += 1
+        else:
+            return ""
+    return name if single_n == 1 and double_n == 1 and single_chalcogen == 1 else ""
+
+
+def _selenocysteamine_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 2, "N": 1, "Se": 1} or _total_charge(mol) != 0:
+        return ""
+    selenium = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "Se"), None)
+    nitrogen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"), None)
+    if selenium is None or nitrogen is None or selenium.GetTotalNumHs() != 1:
+        return ""
+    carbon_graph = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+    }
+    if len(carbon_graph) != 2:
+        return ""
+    carbon_neighbors = {
+        atom.GetIdx(): {
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetSymbol() in {"C", "N", "Se"}
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+        }
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+    }
+    nidx = nitrogen.GetIdx()
+    seidx = selenium.GetIdx()
+    return (
+        "selenocysteamine"
+        if any(nidx in nbrs for nbrs in carbon_neighbors.values())
+        and any(seidx in nbrs for nbrs in carbon_neighbors.values())
+        and any(len(nbrs & carbon_graph) == 1 for nbrs in carbon_neighbors.values())
+        else ""
+    )
+
+
 def _hydride_anion_name(atom) -> str:
     if atom.GetSymbol() != "H" or atom.GetFormalCharge() >= 0:
         return ""

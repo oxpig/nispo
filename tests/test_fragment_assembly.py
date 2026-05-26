@@ -54,6 +54,24 @@ def test_common_counterions_and_hydrides_are_named():
     ]
 
 
+def test_standalone_retained_polyatomic_fragments():
+    names = smiles_to_iupac_batch(
+        [
+            "CC(=O)O[O-]",
+            "NC(=[NH2+])S",
+            "NC(=[NH2+])O",
+            "NCC[SeH]",
+        ]
+    )
+
+    assert names == [
+        "peracetate",
+        "isothiouronium",
+        "isouronium",
+        "selenocysteamine",
+    ]
+
+
 def test_organotrifluoroborate_salts_use_functional_fragment_names():
     names = smiles_to_iupac_batch(
         [

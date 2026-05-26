@@ -1118,14 +1118,14 @@ class _PolycyclicRecordParentRule:
         priority = self._candidate_priority(mol)
         if priority is None:
             return
-        for name, seq in ctx.polycyclic_parent_records(self.record_family):
+        for record_order, (name, seq) in enumerate(ctx.polycyclic_parent_records(self.record_family)):
             if not self._accept_record(name, seq):
                 continue
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=priority,
-                sort_key=(len(name), name),
+                sort_key=(record_order, len(name), name),
                 stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem),
             )
 

@@ -62,7 +62,7 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
             candidates.extend(records)
     seen = set()
     unique = []
-    for name, seq in sorted(candidates, key=lambda item: (len(item[0]), item[0], item[1])):
+    for name, seq in candidates:
         key = (name, seq)
         if key in seen:
             continue

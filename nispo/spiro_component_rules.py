@@ -73,6 +73,7 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                         priority,
                     )
                 )
+        candidates.extend(_component_dispiro_candidates(ctx, set(atom_set), graph, priority))
     candidates.sort(key=lambda item: item.sort_key)
     seen: set[str] = set()
     unique = []
@@ -84,6 +85,199 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
         if len(unique) >= 24:
             break
     return unique
+
+
+def _component_dispiro_candidates(
+    ctx,
+    ring_system_atoms: set[int],
+    graph: dict[int, set[int]],
+    priority: int,
+) -> list[NameCandidate]:
+    """Compose dispiro names from a chain of fused/simple ring components.
+
+    Generic dispiro naming handles three simple rings.  Patent scaffolds often
+    contain a simple middle ring connecting a simple terminal ring to a fused
+    or bridged terminal component, which OPSIN parses as component-dispiro
+    syntax.  Build that name from fused-ring blocks so this covers whole
+    scaffold families rather than individual retained names.
+    """
+
+    blocks = _fused_ring_blocks(ctx.mol, ring_system_atoms)
+    if len(blocks) < 3:
+        return []
+    edges: list[tuple[int, int, int]] = []
+    for left_idx, left in enumerate(blocks):
+        for right_idx in range(left_idx + 1, len(blocks)):
+            shared = left & blocks[right_idx]
+            if len(shared) == 1:
+                edges.append((left_idx, right_idx, next(iter(shared))))
+    if len(edges) < 2:
+        return []
+    adjacency: dict[int, list[tuple[int, int]]] = {idx: [] for idx in range(len(blocks))}
+    for left_idx, right_idx, spiro_idx in edges:
+        adjacency[left_idx].append((right_idx, spiro_idx))
+        adjacency[right_idx].append((left_idx, spiro_idx))
+
+    candidates: list[NameCandidate] = []
+    for center_idx, links in adjacency.items():
+        if len(links) < 2:
+            continue
+        for left_pos, (left_idx, left_spiro) in enumerate(links):
+            for right_idx, right_spiro in links[left_pos + 1 :]:
+                if left_spiro == right_spiro:
+                    continue
+                for terminal_left, terminal_right, spiro_left, spiro_right in (
+                    (left_idx, right_idx, left_spiro, right_spiro),
+                    (right_idx, left_idx, right_spiro, left_spiro),
+                ):
+                    candidates.extend(
+                        _component_dispiro_candidates_for_blocks(
+                            ctx,
+                            ring_system_atoms,
+                            blocks[terminal_left],
+                            blocks[center_idx],
+                            blocks[terminal_right],
+                            spiro_left,
+                            spiro_right,
+                            priority,
+                        )
+                    )
+    return candidates
+
+
+def _component_dispiro_candidates_for_blocks(
+    ctx,
+    ring_system_atoms: set[int],
+    left_atoms: set[int],
+    center_atoms: set[int],
+    right_atoms: set[int],
+    left_spiro: int,
+    right_spiro: int,
+    priority: int,
+) -> list[NameCandidate]:
+    left_components = _mapped_component_names(ctx, left_atoms, (left_spiro,))
+    center_components = _mapped_component_names(ctx, center_atoms, (left_spiro, right_spiro))
+    right_components = _mapped_component_names(ctx, right_atoms, (right_spiro,))
+    if not left_components or not center_components or not right_components:
+        return []
+
+    candidates: list[NameCandidate] = []
+    for left in left_components[:6]:
+        for center in center_components[:6]:
+            if left_spiro not in center.locants or right_spiro not in center.locants:
+                continue
+            for right in right_components[:6]:
+                locants = {}
+                locants.update(left.locants)
+                locants.update({idx: _prime_locant(locant) for idx, locant in center.locants.items()})
+                locants.update({idx: _double_prime_locant(locant) for idx, locant in right.locants.items()})
+                substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
+                if substituent_prefixes is None:
+                    continue
+                replacement_prefixes = []
+                replacement_prefixes.extend(left.replacement_prefixes)
+                replacement_prefixes.extend(
+                    (_prime_locant(locant), prefix) for locant, prefix in center.replacement_prefixes
+                )
+                replacement_prefixes.extend(
+                    (_double_prime_locant(locant), prefix) for locant, prefix in right.replacement_prefixes
+                )
+                prefix_text = _component_spiro_prefix_text(substituent_prefixes, replacement_prefixes)
+                dispiro_name = (
+                    "dispiro["
+                    f"{_component_parent_text(left.parent_name)}-{left.locants[left_spiro]},"
+                    f"{_prime_locant(center.locants[left_spiro])}-{_component_parent_text(center.parent_name)}-"
+                    f"{_prime_locant(center.locants[right_spiro])},"
+                    f"{_double_prime_locant(right.locants[right_spiro])}-{_component_parent_text(right.parent_name)}"
+                    "]"
+                )
+                if _has_unpromoted_component_replacement(dispiro_name):
+                    continue
+                name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
+                candidates.append(
+                    NameCandidate(
+                        name=name,
+                        family="component-dispiro-parent",
+                        priority=priority,
+                        sort_key=(
+                            len(replacement_prefixes),
+                            _locant_key_for_text(name),
+                            len(name),
+                            name,
+                        ),
+                    )
+                )
+    return candidates
+
+
+def _mapped_component_names(ctx, atoms: set[int], spiro_atoms: Sequence[int]) -> list[_Component]:
+    Chem = ctx.Chem
+    submol_data = _submol_for_atoms(ctx.mol, Chem, atoms)
+    if submol_data is None:
+        return []
+    submol, sub_to_parent, parent_to_sub = submol_data
+    try:
+        sub_spiros = tuple(parent_to_sub[idx] for idx in spiro_atoms)
+    except KeyError:
+        return []
+
+    raw_components: list[_Component] = []
+    if submol.GetRingInfo().NumRings() == 1:
+        raw_components.extend(_simple_component_names(submol, Chem, sub_spiros[0]))
+    if len(spiro_atoms) == 1:
+        raw_components.extend(_poly_component_names(submol, Chem, sub_spiros[0]))
+
+    components: list[_Component] = []
+    seen = set()
+    for component in raw_components:
+        locants = {sub_to_parent[sub_idx]: locant for sub_idx, locant in component.locants.items()}
+        if any(spiro_idx not in locants for spiro_idx in spiro_atoms):
+            continue
+        key = (
+            component.parent_name,
+            tuple(component.replacement_prefixes),
+            tuple(locants[spiro_idx] for spiro_idx in spiro_atoms),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        components.append(
+            _Component(
+                parent_name=component.parent_name,
+                spiro_locant=locants[spiro_atoms[0]],
+                locants=locants,
+                replacement_prefixes=component.replacement_prefixes,
+            )
+        )
+    components.sort(
+        key=lambda item: (
+            len(item.replacement_prefixes),
+            tuple(_locant_key(item.locants[idx]) for idx in spiro_atoms),
+            len(item.parent_name),
+            item.parent_name,
+        )
+    )
+    return components
+
+
+def _fused_ring_blocks(mol, ring_system_atoms: set[int]) -> list[set[int]]:
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= ring_system_atoms]
+    blocks: list[set[int]] = []
+    for ring in rings:
+        merged = set(ring)
+        changed = True
+        while changed:
+            changed = False
+            remaining = []
+            for block in blocks:
+                if len(merged & block) > 1:
+                    merged |= block
+                    changed = True
+                else:
+                    remaining.append(block)
+            blocks = remaining
+        blocks.append(merged)
+    return blocks
 
 
 def _component_spiro_candidates_for_split(
@@ -362,6 +556,10 @@ def _simple_poly_side_orders(sides: Sequence[tuple[int, set[int]]]):
 
 def _prime_locant(locant: str) -> str:
     return locant if locant.endswith("'") else locant + "'"
+
+
+def _double_prime_locant(locant: str) -> str:
+    return locant if locant.endswith("''") else locant.rstrip("'") + "''"
 
 
 def _locant_key(locant: str) -> tuple[int, str]:

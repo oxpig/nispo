@@ -27,6 +27,7 @@ _SATURATED_HETEROCYCLE_SPECS: tuple[_SaturatedHeterocycleSpec, ...] = (
     _SaturatedHeterocycleSpec(4, (("C", 3), ("O", 1)), "O", "oxetane"),
     _SaturatedHeterocycleSpec(4, (("C", 3), ("S", 1)), "S", "thietane"),
     _SaturatedHeterocycleSpec(5, (("C", 3), ("O", 2)), "O", "1,3-dioxolane", "O", (1, 3)),
+    _SaturatedHeterocycleSpec(5, (("C", 3), ("N", 2)), "N", "imidazolidine", "N", (1, 3)),
     _SaturatedHeterocycleSpec(5, (("C", 4), ("N", 1)), "N", "pyrrolidine"),
     _SaturatedHeterocycleSpec(5, (("C", 4), ("O", 1)), "O", "oxolane"),
     _SaturatedHeterocycleSpec(6, (("C", 4), ("O", 2)), "O", "1,3-dioxane", "O", (1, 3)),
@@ -70,6 +71,7 @@ _CHARGEABLE_SUBSTITUENT_STEMS = {
     "thiophene": "thiophen",
     "thiazole": "thiazol",
     "isothiazole": "isothiazol",
+    "imidazolidine": "imidazolidin",
     "piperidine": "piperidin",
     "piperazine": "piperazin",
     "morpholine": "morpholin",
@@ -238,7 +240,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
-    if n == 5 and symbols.count("N") == 2 and symbols.count("C") == 3:
+    if n == 5 and symbols.count("N") == 2 and symbols.count("C") == 3 and not all_single_bonds:
         charged_n = [
             idx
             for idx in ordered
@@ -608,6 +610,9 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
         ):
             base = parent_name if atom.GetTotalNumHs() > 0 else _drop_indicated_hydrogen_prefix(parent_name)
             stem = base[:-1] if base.endswith("e") else base
+            return f"{stem}-{loc}-ium"
+        stem = _CHARGEABLE_SUBSTITUENT_STEMS.get(parent_name)
+        if stem:
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name

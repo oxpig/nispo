@@ -651,6 +651,29 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubstituentsRule):
+    family = "conjugated-carbonyl-acyclic-skeleton-with-ring-substituents"
+    priority = parent_priority("functional-acyclic-skeleton")
+
+    def candidates(self, ctx):
+        profile = ctx.profile
+        if (
+            profile.ring_count == 0
+            or profile.has_charged_ring_atom
+            or not profile.has_functional_skeleton_signal
+            or not profile.may_prefer_acyclic_skeleton
+        ):
+            return
+        name = ctx.acyclic_name(allow_ring_atoms=False)
+        if (
+            name
+            and "carbonyl" in name
+            and "buta-1,3-diene" in name
+            and _prefer_acyclic_skeleton_name(name)
+        ):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class FusedParentRule:
     family = "fused-retained-parent"
     priority = parent_priority("retained-fused-parent")
@@ -1041,6 +1064,7 @@ def parent_rules(Chem) -> tuple:
     guanidine = GuanidineRetainedParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
+    conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
     exact_retained = ExactRetainedParentRule(Chem)
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
@@ -1081,6 +1105,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("functional-acyclic-skeleton"),
             (imino_skeleton_signal, no_exocyclic_charged_fused_parent),
             imino_functional_acyclic.candidates,
+        ),
+        RuleSpec(
+            "conjugated-carbonyl-acyclic-skeleton-with-ring-substituents",
+            parent_priority("functional-acyclic-skeleton"),
+            (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
+            conjugated_carbonyl_acyclic.candidates,
         ),
         RuleSpec("exact-retained-parent", parent_priority("exact-retained-parent"), (min_ring_count(1), exact_ring_system), exact_retained.candidates),
         RuleSpec(

@@ -961,7 +961,7 @@ def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     for name in sorted(counts):
         count = counts[name]
         is_complex = _needs_substituent_parentheses(name)
-        if count > 1 and is_complex:
+        if count > 1 and (is_complex or _needs_repeated_onium_substituent_parentheses(name)):
             multiplier = _COMPLEX_MULTIPLIERS.get(count, "")
             term = f"{multiplier}({name})" if multiplier else ""
         else:
@@ -984,6 +984,10 @@ def _needs_substituent_parentheses(name: str) -> bool:
         or (name.endswith("silyl") and name != "silyl")
         or _is_composite_onium_substituent(name)
     )
+
+
+def _needs_repeated_onium_substituent_parentheses(name: str) -> bool:
+    return name.endswith("ylmethyl")
 
 
 _COMPLEX_MULTIPLIERS = {

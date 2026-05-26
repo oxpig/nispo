@@ -50,7 +50,22 @@ def _generated_exact_parent_sort_key(template: dict) -> tuple:
 def _single_ring_candidate_sort_key(name: str) -> tuple:
     charged_parent_rank = 0 if re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name) else 1
     ylidene_rank = 0 if "ylidene" in name else 1
-    return (charged_parent_rank, ylidene_rank, len(name), name)
+    aromatic_parent_rank = 0 if _has_aromatic_single_ring_parent_stem(name) else 1
+    return (charged_parent_rank, ylidene_rank, aromatic_parent_rank, len(name), name)
+
+
+def _has_aromatic_single_ring_parent_stem(name: str) -> bool:
+    bare_name = re.sub(r"^\([^)]+\)-", "", name)
+    return bool(
+        re.search(
+            r"(?:^|-)(?:"
+            r"benzene|pyridine|pyridin-\d+-one|pyrimidine|pyrazine|pyridazine|"
+            r"pyrrole|furan|thiophene|imidazole|pyrazole|oxazole|isoxazole|"
+            r"thiazole|isothiazole|triazole|tetrazole"
+            r")$",
+            bare_name,
+        )
+    )
 
 
 def _fusion_base_name(name: str) -> str:

@@ -650,7 +650,8 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
     h_azine = _azine_indicated_hydrogen_substituent_suffix(parent_name, loc, charge_loc)
     if h_azine:
         return h_azine
-    stem = _CHARGEABLE_SUBSTITUENT_STEMS.get(parent_name)
+    charge_base = _drop_indicated_hydrogen_prefix(parent_name) if charge_loc is not None else parent_name
+    stem = _CHARGEABLE_SUBSTITUENT_STEMS.get(charge_base)
     if stem:
         return _substituent_suffix_from_stem(stem, loc, charge_loc)
     stem = _NEUTRAL_SUBSTITUENT_STEMS.get(parent_name)

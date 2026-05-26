@@ -1061,6 +1061,8 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         return True
     if name.count("cyano") >= 2:
         return True
+    if "cyano" in name and re.search(r"(?:prop|but|pent|hex)-\d+(?:,\d+)*-ene", name):
+        return True
     if any(term in name for term in ("diene", "triene", "but-3-ene")):
         return True
     if "eth-1-ene" in name and any(term in name for term in ("nitro", "difluoro", "cyano")):

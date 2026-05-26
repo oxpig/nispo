@@ -1276,6 +1276,31 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
     ):
         return True
     if (
+        not any(
+            term in name
+            for term in (
+                "bicyclo[",
+                "tricyclo[",
+                "spiro[",
+                "phospha",
+                "bora",
+                "sila",
+                "norbornene",
+                "indolizidin",
+                "quinuclidine",
+                "penam",
+                "cephem",
+                "azacycloprop",
+            )
+        )
+        and (
+            "carbonyl" in name
+            or ("hydroxy" in name and "oxa" in name and "ium" not in name)
+            or ("amino" in name and "carboxy" in name)
+        )
+    ):
+        return True
+    if (
         "yne" in name
         and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
         and any(

@@ -1092,6 +1092,8 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         return True
     if "cyano" in name and re.search(r"(?:prop|but|pent|hex)-\d+(?:,\d+)*-ene", name):
         return True
+    if _has_substituted_carboxylato_ethene(name):
+        return True
     if (
         "trifluoro" in name
         and "carbonyl" in name
@@ -1107,6 +1109,28 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
         re.search(r"(?:^|-)\d+(?:,\d+)*-(?:en|yn)|[a-z]-\d+(?:,\d+)*-(?:en|yn)|(?:en|yn)e(?:$|-)", name)
     )
     return functional_terms >= 3 and has_chain_unsaturation
+
+
+def _has_substituted_carboxylato_ethene(name: str) -> bool:
+    """Prefer the chain parent for substituted carboxylato ethenes.
+
+    Simple ethene-carboxylates and dicarboxylates are already handled better by
+    ring/retained fallbacks; this gate is for cinnamate-like carboxylato alkenes
+    where the substituted acyclic parent gives OPSIN a faithful chain.
+    """
+
+    if "carboxylato" not in name or "eth-1-ene" not in name:
+        return False
+    name = _strip_leading_descriptors(name)
+    if re.search(r"(?:^|-)1-carboxylato-2-(?!2,)", name):
+        return True
+    if re.search(r"(?:^|-)2-carboxylato-1,1-", name):
+        return True
+    return bool(re.search(r"(?:^|-)1,2-dicarboxylato-(?:1|2)-", name))
+
+
+def _strip_leading_descriptors(name: str) -> str:
+    return re.sub(r"^(?:\([^)]*\)-)+", "", name)
 
 
 def _functional_term_score(name: str) -> int:

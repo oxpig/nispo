@@ -39,6 +39,7 @@ from .rule_dispatch import (
     no_exocyclic_charged_fused_parent,
     nonring_neutral_group14,
     nonring_neutral_pnictogen,
+    nonring_neutral_phosphorus,
     nonring_positive_nitrogen,
     nonring_positive_phosphorus,
     nonring_positive_sulfur,
@@ -264,6 +265,63 @@ class Group14HydrideParentRule:
             name = _group14_hydride_name(carbon_names, parent)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class PhosphorusAcidParentRule:
+    family = "phosphorus-acid-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        pidx = phosphorus.GetIdx()
+        carbon_neighbors = []
+        double_oxygen_count = 0
+        hydroxy_count = 0
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == self._Chem.BondType.SINGLE:
+                carbon_neighbors.append(nidx)
+            elif nbr.GetSymbol() == "O" and bond.GetBondType() == self._Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+            elif (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == self._Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and len(nbr.GetNeighbors()) == 1
+                and nbr.GetTotalNumHs() == 1
+            ):
+                hydroxy_count += 1
+            else:
+                return
+        if len(carbon_neighbors) != 1 or double_oxygen_count != 1:
+            return
+        implicit_hydrogens = phosphorus.GetTotalNumHs()
+        if hydroxy_count == 2 and implicit_hydrogens == 0:
+            parent = "phosphonic acid"
+        elif hydroxy_count == 1 and implicit_hydrogens == 1:
+            parent = "phosphinic acid"
+        else:
+            return
+        prefix = branch_prefix(mol, carbon_neighbors[0], pidx)
+        if not prefix:
+            return
+        if _needs_substituent_parentheses(prefix):
+            prefix = f"({prefix})"
+        name = prefix + parent
+        yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
 class PnictogenHydrideParentRule:
@@ -920,6 +978,7 @@ def parent_rules(Chem) -> tuple:
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
+    phosphorus_acid = PhosphorusAcidParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -949,6 +1008,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
         RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
+        RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",

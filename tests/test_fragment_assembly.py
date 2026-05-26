@@ -126,6 +126,22 @@ def test_group14_hydrides_use_substituted_parent_names():
     ]
 
 
+def test_neutral_organophosphorus_acids_use_functional_parent_names():
+    names = smiles_to_iupac_batch(
+        [
+            "CCP(=O)(O)O",
+            "CP(=O)O",
+            "O=P(O)(O)CC(=O)O",
+        ]
+    )
+
+    assert names == [
+        "ethylphosphonic acid",
+        "methylphosphinic acid",
+        "(2-oxo-3-oxapropyl)phosphonic acid",
+    ]
+
+
 def test_repeated_complex_onium_substituents_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

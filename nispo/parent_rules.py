@@ -274,6 +274,8 @@ class Group14HydrideParentRule:
                 return
         if hydroxy_count and halo_names:
             return
+        if _should_defer_group14_hydride_to_polycycle(ctx, carbon_names):
+            return
         parent = GROUP14_HYDRIDE_PARENTS[center.GetSymbol()]
         if hydroxy_count:
             name = _group14_hydroxyhydride_name(carbon_names, parent, hydroxy_count)
@@ -283,6 +285,28 @@ class Group14HydrideParentRule:
             name = _group14_hydride_name(carbon_names, parent)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _should_defer_group14_hydride_to_polycycle(ctx, carbon_names: Sequence[str]) -> bool:
+    if ctx.profile.ring_count < 2 or not ctx.has_generic_polycyclic_topology:
+        return False
+    if not ctx.polycyclic_parent_records("kekulized"):
+        return False
+    return any(
+        term in name
+        for name in carbon_names
+        for term in (
+            "benzimidazol",
+            "isoindolin",
+            "bicyclo[",
+            "tricyclo[",
+            "diazabicyclo[",
+            "azabicyclo[",
+            "oxabicyclo[",
+            "thiabicyclo[",
+            "phosphabicyclo[",
+        )
+    )
 
 
 class PhosphorusAcidParentRule:

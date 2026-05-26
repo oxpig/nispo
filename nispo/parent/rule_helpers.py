@@ -550,10 +550,37 @@ def _fused_candidate_preference(name: str) -> tuple:
     return (
         1 if re.search(r"(?:^|-|,)\d+[a-z]-", name) else 0,
         1 if "ind-1-ene" in name else 0,
+        _fused_parent_carbonyl_rank(name),
         _substituent_locant_tuple(name),
         oxo_locs or (99,),
         _benzimidazole_orientation_preference(name),
     )
+
+
+def _fused_parent_carbonyl_rank(name: str) -> int:
+    if _has_carboxyl_like_oxo_locant(name):
+        return 1
+    if name.endswith("one"):
+        return 0
+    if re.search(r"(?:^|-)\d+(?:,\d+)*-(?:di|tri|tetra)?oxo-", name):
+        return 0
+    return 1
+
+
+def _has_carboxyl_like_oxo_locant(name: str) -> bool:
+    oxo_locants = _functional_locants(name, "oxo")
+    if not oxo_locants:
+        return False
+    hetero_locants = _functional_locants(name, "hydroxy") | _functional_locants(name, "amino")
+    return bool(oxo_locants & hetero_locants)
+
+
+def _functional_locants(name: str, term: str) -> set[int]:
+    locants: set[int] = set()
+    pattern = rf"(?<![\d^])(\d+(?:,\d+)*)-(?:di|tri|tetra)?{term}"
+    for locant_text in re.findall(pattern, name):
+        locants.update(int(locant) for locant in locant_text.split(",") if locant)
+    return locants
 
 
 def _substituent_locant_tuple(name: str) -> tuple[int, ...]:

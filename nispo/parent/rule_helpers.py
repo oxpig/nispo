@@ -1343,6 +1343,65 @@ def _prefer_acyclic_skeleton_name(name: str) -> bool:
     ):
         return True
     if (
+        not any(
+            term in name
+            for term in (
+                "bicyclo[",
+                "tricyclo[",
+                "spiro[",
+                "phospha",
+                "bora",
+                "sila",
+                "norbornene",
+                "indolizidin",
+                "quinuclidine",
+                "penam",
+                "cephem",
+                "azacycloprop",
+                "benzimidazol",
+                "oxacyclobut",
+                "pyrrolizidine",
+                "decalin",
+                "diazaeth",
+            )
+        )
+        and "ium" not in name
+        and (
+            ("cyclo" in name and "carboxy" in name)
+            or ("cyclo" in name and "amino" in name)
+            or (
+                "amino" in name
+                and not any(
+                    term in name
+                    for term in (
+                        "phenyl",
+                        "pyridin",
+                        "pyrimidin",
+                        "pyrazin",
+                        "thiophen",
+                        "furan",
+                        "imidazol",
+                        "oxazol",
+                        "thiazol",
+                        "indole",
+                        "benz",
+                        "carbonyl",
+                        "carboxy",
+                        "hydroxy",
+                        "oxa",
+                        "thia",
+                    )
+                )
+            )
+            or (
+                "hydroxy" in name
+                and re.search(r"pyridin|pyrimidin|pyrazin|thiophen|furan|imidazol|oxazol|thiazol|indole|benz", name)
+            )
+            or ("carboxy" in name and "oxa" in name)
+        )
+    ):
+        return True
+    if (
         "yne" in name
         and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
         and any(

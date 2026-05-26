@@ -70,6 +70,24 @@ def test_organotrifluoroborate_salts_use_functional_fragment_names():
     ]
 
 
+def test_azanide_fragments_use_substituted_parent_names():
+    names = smiles_to_iupac_batch(
+        [
+            "C=C[N-]C(C)C",
+            "C[Si](C)(C)[N-][Si](C)(C)C",
+            "C[Si](C)(C)[N-][Si](C)(C)C.[Li+]",
+            "CC[N-]C.CC[N-]C.CC[N-]C.CC[N-]C.[Zr+4]",
+        ]
+    )
+
+    assert names == [
+        "(1-methyl-ethyl)(eth-1-ene-1-yl)azanide",
+        "bis(trimethylsilyl)azanide",
+        "lithium bis(trimethylsilyl)azanide",
+        "zirconium(4+) tetrakis(ethylmethylazanide)",
+    ]
+
+
 def test_phosphonium_salts_use_substituted_phosphanium_parent():
     names = smiles_to_iupac_batch(["CCCCCCC[P+](CCCCCCC)(CCCCCCC)CCCCCCC.[Br-]"])
 

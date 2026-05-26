@@ -269,6 +269,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
     return (
         _substituted_borohydride_name(mol, Chem)
         or _organotrifluoroborate_name(mol, Chem)
+        or _azanide_name(mol, Chem)
         or _perfluoro_counterion_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
@@ -382,6 +383,67 @@ def _organotrifluoroborate_name(mol, Chem) -> str:
     if _needs_fragment_parentheses(prefix):
         prefix = f"({prefix})"
     return prefix + "trifluoroborate"
+
+
+def _azanide_name(mol, Chem) -> str:
+    nitrogens = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N"
+        and atom.GetFormalCharge() == -1
+        and not atom.IsInRing()
+    ]
+    if len(nitrogens) != 1 or _total_charge(mol) != -1:
+        return ""
+    nitrogen = nitrogens[0]
+    nidx = nitrogen.GetIdx()
+    neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors()]
+    implicit_hydrogens = nitrogen.GetTotalNumHs()
+    if len(neighbors) + implicit_hydrogens != 2 or len(neighbors) > 2:
+        return ""
+    names = []
+    for nbr_idx in neighbors:
+        bond = mol.GetBondBetweenAtoms(nidx, nbr_idx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        prefix = _azanide_substituent_prefix(mol, Chem, nbr_idx, nidx)
+        if not prefix:
+            return ""
+        names.append(prefix)
+    if not names:
+        return "azanide"
+    from .parent.rule_helpers import _substituted_onium_name
+
+    return _substituted_onium_name(names, "azanide")
+
+
+def _azanide_substituent_prefix(mol, Chem, atom_idx: int, nitrogen_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() == "C":
+        from .branch_rules import branch_prefix
+
+        return branch_prefix(mol, atom_idx, nitrogen_idx)
+    if atom.GetSymbol() != "Si" or atom.GetFormalCharge() != 0:
+        return ""
+    names = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        from .branch_rules import branch_prefix
+
+        prefix = branch_prefix(mol, nidx, atom_idx)
+        if not prefix:
+            return ""
+        names.append(prefix)
+    if len(names) + atom.GetTotalNumHs() != 3:
+        return ""
+    from .parent.rule_helpers import _substituted_onium_name
+
+    return _substituted_onium_name(names, "silyl")
 
 
 def _perfluoro_counterion_name(mol, Chem) -> str:
@@ -614,7 +676,7 @@ def _needs_complex_fragment_multiplier(name: str) -> bool:
     if " " in name:
         return True
     return name.startswith(("bis", "tris", "tetrakis", "tetra", "penta", "hexa")) or name.endswith(
-        ("phosphinate", "phosphonate")
+        ("azanide", "phosphinate", "phosphonate")
     )
 
 

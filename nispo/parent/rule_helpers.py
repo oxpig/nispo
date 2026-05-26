@@ -928,6 +928,7 @@ def _needs_substituent_parentheses(name: str) -> bool:
         or "-" in name
         or "," in name
         or name.startswith("(")
+        or (name.endswith("silyl") and name != "silyl")
         or _is_composite_onium_substituent(name)
     )
 

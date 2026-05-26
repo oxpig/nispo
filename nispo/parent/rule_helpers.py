@@ -221,7 +221,7 @@ def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
 def _skeletal_replacement_query(template_mol, Chem):
     query = Chem.RWMol()
     for _atom in template_mol.GetAtoms():
-        query.AddAtom(Chem.AtomFromSmarts("[#6,#7,#8,#16]"))
+        query.AddAtom(Chem.AtomFromSmarts("[#5,#6,#7,#8,#15,#16]"))
     for bond in template_mol.GetBonds():
         query.AddBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), Chem.BondType.UNSPECIFIED)
     return query.GetMol()
@@ -327,8 +327,10 @@ def _locant_sort_key(locant: str) -> tuple[int, str]:
 
 
 _SKELETAL_REPLACEMENT_PREFIXES = {
+    "B": "bora",
     "N": "aza",
     "O": "oxa",
+    "P": "phospha",
     "S": "thia",
 }
 

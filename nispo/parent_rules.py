@@ -1124,7 +1124,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
             return
         yielded = 0
         for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
-            if feature["ring_count"] != 3 or set(feature["elements"]) <= {"C"}:
+            if feature["ring_count"] not in {3, 4} or set(feature["elements"]) <= {"C"}:
                 continue
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
             for template in _hydrocarbon_replacement_parent_templates_for_graph(*key, self._Chem):

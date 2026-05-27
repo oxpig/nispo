@@ -148,6 +148,7 @@ def _opsin_stability_penalty(name: str) -> int:
         "dioxaundecane",
         "dithia",
         "dioxocyclobuta",
+        "4-oxabutyl)amino",
         "methan-1-thione",
         "phosphane",
         "phenyl)-methyl",

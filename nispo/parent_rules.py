@@ -909,7 +909,7 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
 
 class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "chain-dominant-acyclic-skeleton-with-ring-substituents"
-    priority = parent_priority("generated-parent")
+    priority = parent_priority("spiro-functional-chain-substituent")
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -2287,7 +2287,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec(
             "chain-dominant-acyclic-skeleton-with-ring-substituents",
-            parent_priority("generated-parent"),
+            parent_priority("spiro-functional-chain-substituent"),
             (min_ring_count(1),),
             chain_dominant_acyclic.candidates,
         ),

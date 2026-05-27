@@ -195,3 +195,12 @@ def test_halogenated_sulfonimidoyl_methane_keeps_acyclic_parent():
     assert name.endswith("-methane")
     assert "trifluoro" in name
     assert "S-pyridin-2-ylsulfonimidoyl" in name
+
+
+def test_functional_chain_beats_fragile_oxabutyl_spiro_parent():
+    name = smiles_to_iupac(
+        "CNS(=O)(=O)c1cccc(OC[C@@H](O)CNC2COC3(CCN(S(=O)(=O)c4ccccc4Cl)CC3)C2)c1"
+    )
+
+    assert name.endswith("-propane")
+    assert "4-oxabutyl)amino" not in name

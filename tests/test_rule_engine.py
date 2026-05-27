@@ -36,3 +36,12 @@ def test_cyclohexatrienyl_substituent_does_not_penalize_polycyclic_parent():
         == 0
     )
     assert _opsin_stability_penalty("cyclohexa-1,3,5-trien-1-ylmethane") > 0
+
+
+def test_oxabutyl_amino_spiro_substituent_is_opsin_fragile_shape():
+    assert (
+        _opsin_stability_penalty(
+            "3-((2-hydroxy-4-(3-methylaminosulfonylphenyl)-4-oxabutyl)amino)-8-aza-1-oxaspiro[4.5]decane"
+        )
+        > 0
+    )

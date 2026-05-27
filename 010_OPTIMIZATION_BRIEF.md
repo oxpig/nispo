@@ -1,37 +1,51 @@
-# NISPO 010 Optimization Brief
+# NISPO Active Failure Optimization Brief
 
 Date: 2026-05-27
 
-This is the compact operating brief for the next benchmark optimization loop.
-Use `BLUE_BOOK_REFACTOR_AUDIT.md` only when deeper design context is needed.
+This is the compact operating brief for the current benchmark optimization
+loop. The filename is kept for existing agent instructions, but the contents
+track the active benchmark in `benchmark/curriculum_state.json`.
+
+Use `BLUE_BOOK_REFACTOR_AUDIT.md` as the detailed roadmap and
+`NISPO_IMPLEMENTATION_PRINCIPLES.md` as the compact architecture guide.
 
 ## Active Benchmark
 
-Read the active set and command from:
+Read the authoritative active set and command from:
 
 `/Users/nicholas/projects/iupac_naming/benchmark/curriculum_state.json`
 
 Current active set:
 
-`/Users/nicholas/projects/iupac_naming/benchmark/sets/010_failed_largest_fused_1_2`
+`/Users/nicholas/projects/iupac_naming/benchmark/sets/011_latest_failures_from_010`
 
 Current command:
 
 ```bash
-conda run -n rdkit python benchmark/run_benchmark.py benchmark/sets/010_failed_largest_fused_1_2 --workers 8
+conda run -n rdkit python benchmark/run_benchmark.py benchmark/sets/011_latest_failures_from_010 --workers 8
 ```
 
-Baseline:
+Source run:
 
-- molecules: `65355`
-- largest fused system = 1 ring: `24464`
-- largest fused system = 2 fused rings: `40891`
-- success rate: `0.0%`
-- failures: `17651 empty_name`, `40845 mismatch`, `6859 opsin_parse_failed`
-- speed: `7.84` ms/molecule/worker
+`benchmark/sets/010_failed_largest_fused_1_2/runs/20260527T173003Z`
 
-This is a failure-only set. Treat gains as recovered successes on this set,
-not as overall NISPO population accuracy.
+Source run summary:
+
+- source molecules: `65355`
+- source matches: `35112`
+- source success rate: `53.725%`
+- source failures: `30243`
+- source speed: `9.914` ms/molecule/worker
+
+Active set composition:
+
+- molecules: `30243`
+- `empty_name`: `6191`
+- `mismatch`: `19543`
+- `opsin_parse_failed`: `4509`
+
+This is a failure-only set made from the latest current failures. Treat gains
+as recovered successes on this set, not as overall NISPO population accuracy.
 
 ## Objective
 
@@ -43,54 +57,36 @@ Implement general deterministic naming-engine improvements. The benchmark is a
 search guide, not a source of row-specific answers. Prefer changes that explain
 families of failures through reusable IUPAC/Blue Book rules.
 
-## Search Strategy
+## Broad Rule Sources
 
-Keep the search broad. Let current evidence decide the next mechanism.
+Use the audit and Blue Book for general implementation ideas:
 
-Useful mechanisms include:
+- `BLUE_BOOK_REFACTOR_AUDIT.md`: implementation fixes and phase roadmap,
+- `NISPO_IMPLEMENTATION_PRINCIPLES.md`: descriptor-driven architecture,
+- `iupac_blue_book/`: parent selection, ring systems, characteristic groups,
+  locants, unsaturation, substituent naming, and stereo rules,
+- `opsin/`: parser behavior, resource vocabulary, and batched diagnostics.
 
-- parent/core selection,
-- typed name candidates and ranking traces,
-- ring-system descriptors,
-- fused, spiro, bridged, and ring-assembly classification,
-- retained fused-parent resources,
-- replacement heterocycle coverage,
+OPSIN is a benchmark oracle and diagnostic reference only. Do not add OPSIN as
+a runtime dependency.
+
+## Useful Mechanism Families
+
+Keep discovery broad. High-value mechanisms may include:
+
+- typed candidates and ranking traces,
+- descriptor-driven parent/core selection,
+- ring-system classification,
+- fused, spiro, bridged, and ring-assembly naming,
+- retained and systematic resource ranking,
 - characteristic-group seniority,
-- locants and unsaturation,
+- locant maps and unsaturation,
 - cyclic and fused substituent naming,
-- stereo locant mapping,
+- stereo mapping through selected parent locants,
 - OPSIN-parseable rendering and local validity checks.
 
 Prefer mechanisms that can move many rows. Avoid optimizing isolated rows unless
 the fix is a clear instance of a general rule.
-
-## Current High-Value Areas
-
-The active set is dominated by:
-
-1. two-fused-ring mismatches, where NISPO emits a name but parent choice,
-   locants, heteroatom handling, suffix handling, or rendering is wrong;
-2. one-ring or unfused multi-ring empty names, which likely need better parent
-   selection and ring-as-substituent/ring-assembly handling;
-3. characteristic-group conflicts, where suffix seniority must guide parent
-   selection instead of being patched late;
-4. OPSIN parse failures, where malformed names should be prevented by renderer
-   validity checks;
-5. stereo-bearing mismatches, where descriptors must be mapped through the
-   selected parent locants.
-
-## Suggested First Moves
-
-Before large behavior changes, improve observability if it is missing:
-
-- candidate descriptors,
-- ring-system descriptors,
-- seniority vectors,
-- shared locant maps,
-- ranking traces,
-- selected-row diagnostics.
-
-Then change one broad rule family at a time and measure transitions.
 
 ## Validation
 
@@ -111,6 +107,8 @@ For meaningful changes:
 ## Rules
 
 - Preserve `from nispo import smiles_to_iupac, smiles_to_iupac_batch`.
+- `smiles_to_iupac_batch` must return exactly one output per input.
+- Return `""` for unsupported molecules instead of aborting.
 - Do not use exact-SMILES special cases.
 - Do not use benchmark row labels as runtime data.
 - Do not use generated names or OPSIN outputs as lookup tables.
@@ -122,4 +120,5 @@ For meaningful changes:
 
 Every score-improving change should be explainable as a reusable nomenclature
 rule: parent selection, ring-system classification, characteristic-group
-seniority, locants, unsaturation, substituent naming, rendering, or stereo.
+seniority, locants, unsaturation, substituent naming, rendering, resources, or
+stereo.

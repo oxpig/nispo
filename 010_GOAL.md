@@ -12,12 +12,8 @@ Maximize OPSIN roundtrip success:
 
 `SMILES -> NISPO name -> OPSIN -> SMILES`
 
-The active set is currently a failure-focused benchmark, so report recovered
-success rate on that set. Aim first for `>=10%`, then `>=25%`, `>=50%`,
-`>=60%`, `>=75%`, and `>=90%` success while preserving general behavior.
-
-Accuracy comes first. Speed is secondary during discovery; up to about
-`25 ms/molecule/worker` is acceptable for substantial gains.
+The active set is failure-focused, so report recovered success rate on that set.
+Accuracy is primary. Track speed and avoid unnecessary slowdowns.
 
 ## Useful Paths
 
@@ -25,6 +21,7 @@ Accuracy comes first. Speed is secondary during discovery; up to about
 - NISPO repo/package: `/Users/nicholas/projects/iupac_naming/nispo`
 - Active state: `/Users/nicholas/projects/iupac_naming/benchmark/curriculum_state.json`
 - Short brief: `/Users/nicholas/projects/iupac_naming/nispo/010_OPTIMIZATION_BRIEF.md`
+- Principles: `/Users/nicholas/projects/iupac_naming/nispo/NISPO_IMPLEMENTATION_PRINCIPLES.md`
 - Full audit: `/Users/nicholas/projects/iupac_naming/nispo/BLUE_BOOK_REFACTOR_AUDIT.md`
 - OPSIN: `/Users/nicholas/projects/iupac_naming/opsin`
 - Blue Book refs: `/Users/nicholas/projects/iupac_naming/iupac_blue_book`
@@ -45,25 +42,21 @@ Accuracy comes first. Speed is secondary during discovery; up to about
 - NISPO may adapt public/reference rules into deterministic resources, but must
   not depend on OPSIN internals at runtime.
 
-## Search Strategy
+## Search Policy
 
-Keep discovery broad. Use current benchmark evidence, selected regenerated
-diagnostics, RDKit graph analysis, local batched OPSIN diagnostics, NISPO
-resources, OPSIN behavior, the Blue Book, and broad SureChEMBL patterns to find
-the highest-upside mechanism.
+Prioritize broad, reusable, deterministic naming-engine improvements. Use the
+Blue Book directory and `BLUE_BOOK_REFACTOR_AUDIT.md` for general rule ideas and
+implementation fixes. Prefer changes that can be explained as nomenclature
+rules: parent selection, ring-system classification, characteristic-group
+seniority, locants, unsaturation, substituent naming, retained/systematic
+resource use, rendering, or stereo.
 
-Prioritize general mechanisms that can move many rows: parent/core selection,
-ring-system classification, fused/spiro/bridged/ring-assembly naming,
-characteristic-group seniority, retained parent resources, heteroatom
-replacement coverage, locants, unsaturation, substituent naming, stereo mapping,
-candidate ranking, and OPSIN-parseable rendering.
-
-## Validation And Pause
+## Validation
 
 For meaningful changes, run focused tests or probes plus the exact active
 benchmark. Judge transition counts, success rate, regressions, parse-failure
 churn, and speed.
 
-At natural checkpoints report score, speed, run path, tests, commits, dominant
-remaining failures, and the next broad mechanism. If progress stalls, stop small
-patching and reset strategy against the brief and audit.
+At checkpoints or when blocked, report files changed, validation run, benchmark
+run path, score, speed, dominant remaining failures, and next intended
+direction.

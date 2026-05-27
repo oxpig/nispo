@@ -230,6 +230,12 @@ def test_free_hydroxy_aminosulfinyl_spiro_chain_defers_to_ring_parent():
     assert name == "(S,R)-3-hydroxy-5-((1,1-dimethyl-ethylsulfinyl)amino)-spiro[cyclopentane-1,4'-piperidin]"
 
 
+def test_phosphane_oxide_parent_beats_silane_parent():
+    name = smiles_to_iupac("O=[PH2]c1ccc([Si](c2ccccc2)(c2ccccc2)c2ccccc2)cc1")
+
+    assert name == "(4-triphenylsilylphenyl)phosphane oxide"
+
+
 def test_disubstituted_carbocycle_parent_uses_relative_stereo():
     name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
 

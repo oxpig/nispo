@@ -203,6 +203,7 @@ def _is_stable_hydride_parent_name(name: str) -> bool:
             "dichlorosilane",
             "germane",
             "phosphane",
+            "phosphane oxide",
             "silane",
             "silanediol",
             "stannane",

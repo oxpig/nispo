@@ -274,6 +274,8 @@ class Group14HydrideParentRule:
                 return
         if hydroxy_count and halo_names:
             return
+        if _has_organophosphorus_oxide_center(mol, self._Chem):
+            return
         if _should_defer_group14_hydride_to_polycycle(ctx, carbon_names):
             return
         parent = GROUP14_HYDRIDE_PARENTS[center.GetSymbol()]
@@ -307,6 +309,35 @@ def _should_defer_group14_hydride_to_polycycle(ctx, carbon_names: Sequence[str])
             "phosphabicyclo[",
         )
     )
+
+
+def _has_organophosphorus_oxide_center(mol, Chem) -> bool:
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+            continue
+        pidx = phosphorus.GetIdx()
+        double_oxygen_count = 0
+        carbon_neighbor_count = 0
+        unsupported = False
+        for nbr in phosphorus.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(pidx, nbr.GetIdx())
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                carbon_neighbor_count += 1
+            elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+            elif (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and len(nbr.GetNeighbors()) == 1
+            ):
+                continue
+            else:
+                unsupported = True
+                break
+        if not unsupported and double_oxygen_count == 1 and carbon_neighbor_count:
+            return True
+    return False
 
 
 class PhosphorusAcidParentRule:

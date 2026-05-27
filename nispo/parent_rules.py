@@ -1873,6 +1873,9 @@ class _PolycyclicRecordParentRule:
     def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
         return True
 
+    def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
+        return False
+
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
@@ -1882,6 +1885,8 @@ class _PolycyclicRecordParentRule:
             return
         for record_order, (name, seq) in enumerate(ctx.polycyclic_parent_records(self.record_family)):
             if not self._accept_record(name, seq):
+                continue
+            if self._defer_record(ctx, name, seq):
                 continue
             yield NameCandidate(
                 name=name,
@@ -1920,6 +1925,11 @@ class FunctionalGenericBicyclicParentRule(GenericBicyclicParentRule):
 
     def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
         return any(term in name for term in _FUNCTIONAL_GENERIC_BICYCLIC_TERMS)
+
+    def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
+        if not ctx.polycyclic_parent_records("kekulized"):
+            return False
+        return _has_retained_fused_parent_substituent_name(name)
 
 
 class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):

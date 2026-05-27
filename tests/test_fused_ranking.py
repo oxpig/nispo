@@ -109,3 +109,19 @@ def test_systematic_polycyclic_parent_can_beat_retained_fused_amide():
 
     assert "diazabicyclo[4.3.0]" in name
     assert "benzimidazole" not in name
+
+
+def test_functional_bicyclic_parent_defers_to_fused_isoindolin_parent():
+    name = smiles_to_iupac("O=C(O)C1C2CC(N3Cc4c(Br)cccc4C3=O)CC21")
+
+    assert "azabicyclo[4.3.0]" in name
+    assert "isoindolin" not in name
+
+
+def test_functional_bicyclic_parent_defers_to_fused_imide_parent():
+    name = smiles_to_iupac(
+        "CC1(C)C2CCC1(COC(=O)NCc1ccc3c(c1)C(=O)N(C1CCC(=O)NC1=O)C3)CC2"
+    )
+
+    assert "azabicyclo[4.3.0]" in name
+    assert "isoindolin" not in name

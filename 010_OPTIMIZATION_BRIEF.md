@@ -44,6 +44,13 @@ Active set composition:
 - `mismatch`: `19543`
 - `opsin_parse_failed`: `4509`
 
+Active baseline run:
+
+- run path: `benchmark/sets/011_latest_failures_from_010/runs/20260527T173507Z`
+- success rate: `0.0%`
+- matches: `0 / 30243`
+- speed: `15.66` ms/molecule/worker
+
 This is a failure-only set made from the latest current failures. Treat gains
 as recovered successes on this set, not as overall NISPO population accuracy.
 

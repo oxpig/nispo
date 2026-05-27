@@ -244,9 +244,7 @@ def _secondary_zero_bridge_tricyclic_candidate_records(
             continue
         key = (
             _bridge_sort_key(bracket),
-            _hetero_locants(mol, seq),
-            _substituent_locants(mol, seq, atoms),
-            _unsaturation_contiguity_key(mol, seq),
+            *_polycyclic_numbering_preference_key(mol, seq, atoms),
             name,
         )
         candidates.append((key, name, tuple(seq)))
@@ -309,14 +307,7 @@ def _decorated_polycyclic_records(
         name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
         if not name:
             continue
-        hetero_locants = _hetero_locants(mol, seq)
-        key = (
-            1 in hetero_locants,
-            _substituent_locants(mol, seq, atoms),
-            hetero_locants,
-            _unsaturation_contiguity_key(mol, seq),
-            name,
-        )
+        key = (*_polycyclic_numbering_preference_key(mol, seq, atoms), name)
         candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]
@@ -407,9 +398,7 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
                         continue
                     key = (
                         sorted(bracket),
-                        _hetero_locants(mol, seq),
-                        _substituent_locants(mol, seq, atoms),
-                        _unsaturation_contiguity_key(mol, seq),
+                        *_polycyclic_numbering_preference_key(mol, seq, atoms),
                         name,
                     )
                     candidates.append((key, name, tuple(seq)))
@@ -452,9 +441,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                         bracket,
                         saturated_alicyclic=use_saturated_bridge_selection,
                     ),
-                    _substituent_locants(mol, seq, atoms),
-                    _hetero_locants(mol, seq),
-                    _unsaturation_contiguity_key(mol, seq),
+                    *_polycyclic_numbering_preference_key(mol, seq, atoms),
                     name,
                 )
                 candidates.append((key, name, tuple(seq)))
@@ -1206,6 +1193,16 @@ def _polycyclic_substituent_suffix(parent: str, locant: int) -> str:
 
 def _hetero_locants(mol, seq: Sequence[int]) -> list[int]:
     return [loc for loc, idx in enumerate(seq, start=1) if mol.GetAtomWithIdx(idx).GetSymbol() != "C"]
+
+
+def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: set[int]) -> tuple:
+    hetero_locants = _hetero_locants(mol, seq)
+    return (
+        1 in hetero_locants,
+        hetero_locants,
+        _unsaturation_contiguity_key(mol, seq),
+        _substituent_locants(mol, seq, core_atoms),
+    )
 
 
 def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:

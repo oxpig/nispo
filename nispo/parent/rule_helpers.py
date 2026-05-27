@@ -1374,7 +1374,7 @@ def _needs_substituent_parentheses(name: str) -> bool:
 
 
 def _needs_repeated_onium_substituent_parentheses(name: str) -> bool:
-    return name.endswith("ylmethyl")
+    return name.endswith(("ylethynyl", "ylmethyl"))
 
 
 _COMPLEX_MULTIPLIERS = {

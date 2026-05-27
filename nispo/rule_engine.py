@@ -324,6 +324,8 @@ def _apply_uniform_isotope_label(mol, name: str) -> str:
 
 
 def _inline_single_fluorine_isotope(name: str) -> str:
+    if "[18F]fluoro" in name:
+        return name
     return name.replace("fluoro", "[18F]fluoro", 1) if "fluoro" in name else name
 
 

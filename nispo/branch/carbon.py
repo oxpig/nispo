@@ -73,6 +73,26 @@ def _carbon_prefix(mol, idx: int, parent_idx: int) -> str:
     return substituent_from_root(mol, idx, parent_idx)
 
 
+def _with_root_carbon_isotope(mol, idx: int, name: str) -> str:
+    if not name:
+        return name
+    atom = mol.GetAtomWithIdx(idx)
+    isotope = atom.GetIsotope()
+    if atom.GetSymbol() == "C" and isotope:
+        return f"{name}-{isotope}C"
+    return name
+
+
+def _halogen_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    symbol = atom.GetSymbol()
+    name = HALO.get(symbol, "")
+    if not name:
+        return ""
+    isotope = atom.GetIsotope()
+    return f"[{isotope}{symbol}]{name}" if isotope else name
+
+
 def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     """Dispatch carbon substituent rules from local structure before rendering.
 
@@ -83,7 +103,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     """
 
     if _is_nitrile_carbon(mol, idx):
-        return suffix_prefix_term("nitrile", "cyano")
+        return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("nitrile", "cyano"))
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
     if deuterated_methyl:
         return deuterated_methyl
@@ -104,64 +124,64 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
             ):
                 name = renderer(mol, idx, parent_idx)
                 if name:
-                    return name
+                    return _with_root_carbon_isotope(mol, idx, name)
         if _is_isocyano_carbon(mol, idx):
-            return "isocyano"
+            return _with_root_carbon_isotope(mol, idx, "isocyano")
         if _is_carboxylate_carbon(mol, idx):
-            return suffix_prefix_term("oate", "carboxylato")
+            return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("oate", "carboxylato"))
         if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.DOUBLE):
             name = _acyl_halide_prefix(mol, idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
             name = _carbonyl_substituent_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "N", Chem.BondType.DOUBLE):
             name = _iminomethyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "N", Chem.BondType.SINGLE):
             name = _sulfonamidomethyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.TRIPLE):
             name = _ring_ethynyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
             name = _alkynyl_substituent_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.DOUBLE):
             name = _dicyanoethenyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.SINGLE):
             name = _aryloxy_methyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
         name = _di_ring_methyl_prefix(mol, idx, parent_idx)
         if name:
-            return name
+            return _with_root_carbon_isotope(mol, idx, name)
         name = _difluoro_substituted_methyl_prefix(mol, idx, parent_idx)
         if name:
-            return name
+            return _with_root_carbon_isotope(mol, idx, name)
         if mol.GetRingInfo().NumRings() and _subtree_has_ring(mol, idx, parent_idx):
             name = _ring_alkyl_prefix(mol, idx, parent_idx)
             if name:
-                return name
+                return _with_root_carbon_isotope(mol, idx, name)
     elif parent_order == Chem.BondType.DOUBLE:
         name = _alkylidene_prefix(mol, idx, parent_idx)
         if name:
-            return name
+            return _with_root_carbon_isotope(mol, idx, name)
     else:
         if _is_isocyano_carbon(mol, idx):
-            return "isocyano"
+            return _with_root_carbon_isotope(mol, idx, "isocyano")
         if _is_carboxylate_carbon(mol, idx):
-            return suffix_prefix_term("oate", "carboxylato")
+            return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("oate", "carboxylato"))
 
     name = _carbon_prefix(mol, idx, parent_idx)
     if name:
-        return name
+        return _with_root_carbon_isotope(mol, idx, name)
     return _resource_prefix(mol, idx, parent_idx)
 
 
@@ -224,12 +244,12 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         "I": (
             (
                 BranchRuleSpec(_iodanyl_acyloxy_prefix),
-                BranchRuleSpec(HALO["I"]),
+                BranchRuleSpec(_halogen_prefix),
             ),
         ),
-        "F": ((BranchRuleSpec(HALO["F"]),),),
-        "Cl": ((BranchRuleSpec(HALO["Cl"]),),),
-        "Br": ((BranchRuleSpec(HALO["Br"]),),),
+        "F": ((BranchRuleSpec(_halogen_prefix),),),
+        "Cl": ((BranchRuleSpec(_halogen_prefix),),),
+        "Br": ((BranchRuleSpec(_halogen_prefix),),),
         "O": (
             (
                 BranchRuleSpec(_oxygen_prefix),

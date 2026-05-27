@@ -27,6 +27,26 @@ def test_branch_smoke_names_remain_stable():
     ]
 
 
+def test_branch_root_isotopes_are_rendered_on_substituent_prefixes():
+    names = smiles_to_iupac_batch(
+        [
+            "[13CH3]c1ccccc1",
+            "[13CH3]N1CCCCC1=O",
+            "C[13C](=O)N1CCCC1",
+            "c1ccc([125I])cc1",
+            "c1ccc([18F])cc1",
+        ]
+    )
+
+    assert names == [
+        "1-(methyl-13C)-benzene",
+        "1-(methyl-13C)-piperidin-2-one",
+        "1-(methylcarbonyl-13C)-pyrrolidine",
+        "1-[125I]iodo-benzene",
+        "1-[18F]fluoro-benzene",
+    ]
+
+
 def test_high_multiplicity_prefixes_use_extended_multipliers():
     name = smiles_to_iupac_batch(
         [

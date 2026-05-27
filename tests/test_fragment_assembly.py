@@ -274,6 +274,20 @@ def test_repeated_complex_onium_substituents_use_complex_multipliers():
     ]
 
 
+def test_repeated_ethynyl_hydride_substituents_use_complex_multipliers():
+    names = smiles_to_iupac_batch(
+        [
+            "C(#C[Si](C#Cc1ccccc1)(C#Cc1ccccc1)C#Cc1ccccc1)c1ccccc1",
+            "C(#CP(C#Cc1ccccc1)C#Cc1ccccc1)c1ccccc1",
+        ]
+    )
+
+    assert names == [
+        "tetrakis(phenylethynyl)silane",
+        "tris(phenylethynyl)phosphane",
+    ]
+
+
 def test_complex_counterions_use_complex_multipliers():
     names = smiles_to_iupac_batch(
         [

@@ -280,7 +280,8 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
     if symbol == "H":
         return _isotopic_hydrogen_prefix(atom)
     if symbol in HALO:
-        return HALO[symbol]
+        isotope = atom.GetIsotope()
+        return f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     if atom.IsInRing():
         return _ring_substituent_prefix(mol, idx, parent_idx)
     if symbol == "N":

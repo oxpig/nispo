@@ -305,16 +305,16 @@ def _inline_single_fluorine_isotope(name: str) -> str:
 
 
 def _fallback_stereo_atom_order(family: str) -> str:
-    idx_order_families = {
-        "acyclic-parent",
-        "fused-retained-parent",
-        "functional-acyclic-skeleton-with-ring-substituents",
-        "imino-functional-acyclic-skeleton-with-ring-substituents",
-        "preferred-acyclic-skeleton-with-ring-substituents",
-        "single-ring-parent",
-        "skeletal-replacement-fused-parent",
+    spiro_parent_families = {
+        "component-dispiro-parent",
+        "component-spiro-parent",
+        "generated-spiro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "generic-spiro-parent",
+        "poly-component-spiro-parent",
+        "spiro-functional-chain-substituent",
     }
-    return "idx" if family in idx_order_families else "idx_desc"
+    return "idx_desc" if family in spiro_parent_families else "idx"
 
 
 def _normalize_terminal_parent_stem(name: str) -> str:

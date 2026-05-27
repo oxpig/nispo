@@ -230,6 +230,15 @@ def test_free_hydroxy_aminosulfinyl_spiro_chain_defers_to_ring_parent():
     assert name == "(S,R)-3-hydroxy-5-((1,1-dimethyl-ethylsulfinyl)amino)-spiro[cyclopentane-1,4'-piperidin]"
 
 
+def test_ring_assembly_stereo_prefix_uses_atom_order_fallback():
+    name = smiles_to_iupac(
+        "Cc1ccc(C)c(-c2ccc([C@@H](Oc3cc(N4CCC5(CC4)CN[C@H](C(=O)O)C5)nc(N)n3)C(F)(F)F)cc2)c1"
+    )
+
+    assert name.startswith("(R,S)-")
+    assert "3-carboxy-2,8-diazaspiro[4.5]decan-8-yl" in name
+
+
 def test_phosphane_oxide_parent_beats_silane_parent():
     name = smiles_to_iupac("O=[PH2]c1ccc([Si](c2ccccc2)(c2ccccc2)c2ccccc2)cc1")
 

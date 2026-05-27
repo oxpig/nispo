@@ -1064,7 +1064,10 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     if not seq:
         return ""
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
-        return _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
+        relative_prefix = _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
+        if relative_prefix:
+            return relative_prefix
+        return _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem)
     seq_set = set(seq)
     tagged_atoms = [
         atom.GetIdx()
@@ -1085,6 +1088,23 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
     )
+
+
+def _single_carbocycle_locanted_absolute_prefix(mol, seq: Sequence[int], Chem) -> str:
+    if _has_assigned_bond_stereo(mol, Chem):
+        return ""
+    seq_set = set(seq)
+    centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if len(centers) != 1:
+        return ""
+    idx, descriptor = centers[0]
+    if idx not in seq_set:
+        return ""
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetIsAromatic():
+        return ""
+    locants = {ring_idx: loc for loc, ring_idx in enumerate(seq, start=1)}
+    return f"{locants[idx]}{descriptor}"
 
 
 def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) -> str:

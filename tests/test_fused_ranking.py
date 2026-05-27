@@ -252,3 +252,9 @@ def test_multisubstituted_carbocycle_parent_keeps_absolute_stereo():
     name = smiles_to_iupac("N[C@H]1C(O)CC[C@H](O)C1")
 
     assert name == "(R,S)-2-amino-1,4-dihydroxy-cyclohexane"
+
+
+def test_single_carbocycle_stereocenter_uses_locanted_absolute_stereo():
+    name = smiles_to_iupac("NC1CCCC[C@H]1O")
+
+    assert name == "(2R)-1-amino-2-hydroxy-cyclohexane"

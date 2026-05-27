@@ -1318,19 +1318,67 @@ class SingleRingParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 1 or mol.GetRingInfo().NumRings() > 2:
+        ring_count = mol.GetRingInfo().NumRings()
+        if ring_count < 1:
+            return
+        parent_rings = tuple(mol.GetRingInfo().AtomRings())
+        candidate_priority = self.priority
+        if ring_count > 2:
+            parent_rings = _unfused_assembly_monocycle_parent_rings(ctx)
+            if not parent_rings:
+                return
+            if not _is_all_monocycle_ring_assembly(ctx):
+                candidate_priority = parent_priority("acyclic-with-ring-substituents") + 1
+        if ring_count > 2 and not parent_rings:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        for ring in mol.GetRingInfo().AtomRings():
+        for ring in parent_rings:
             for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
                 yield NameCandidate(
                     name=name,
                     family=self.family,
-                    priority=self.priority,
+                    priority=candidate_priority,
                     sort_key=_single_ring_candidate_sort_key(name),
                     stereo_prefix=stereo_prefix,
                     )
+
+
+def _unfused_assembly_monocycle_parent_rings(ctx) -> tuple[tuple[int, ...], ...]:
+    """Return monocyclic parent components for P-44 ring assemblies.
+
+    Independent monocycles joined through exocyclic bonds are ring assemblies
+    rather than fused/spiro systems.  Letting the monocycle renderer propose
+    parents for these systems gives the parent selector a senior ring candidate
+    and renders the other ring systems as substituents.  For mixed assemblies,
+    only standalone monocyclic components are exposed here; fused/spiro systems
+    remain owned by their dedicated parent rules.
+    """
+
+    mol = ctx.mol
+    ring_count = mol.GetRingInfo().NumRings()
+    if ring_count < 3:
+        return ()
+    monocyclic_systems = {
+        topology.atoms
+        for topology in ctx.ring_topologies
+        if topology.cycle_rank == 1
+    }
+    if not monocyclic_systems:
+        return ()
+    parent_rings = []
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = frozenset(ring)
+        if ring_set in monocyclic_systems:
+            parent_rings.append(tuple(ring))
+    return tuple(parent_rings)
+
+
+def _is_all_monocycle_ring_assembly(ctx) -> bool:
+    ring_count = ctx.mol.GetRingInfo().NumRings()
+    return len(ctx.ring_topologies) == ring_count and all(
+        topology.cycle_rank == 1 for topology in ctx.ring_topologies
+    )
 
 
 class HydroFusedParentRule:

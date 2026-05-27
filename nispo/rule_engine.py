@@ -113,8 +113,21 @@ def _opsin_stability_penalty(name: str) -> int:
         "cyclohexa-1,3,5-trien",
         "cyclohexa-2,4,6-trien",
         "cyclohepta-1,3,5-trien",
+        "cyclobuta-1,3-dien",
+        "dioxaheptane",
+        "dioxaoctane",
+        "dioxanonane",
+        "dioxadecane",
+        "dioxaundecane",
+        "dithia",
         "dioxocyclobuta",
+        "methan-1-thione",
+        "phosphane",
+        "phenyl)-methyl",
+        "phenyl-methyl",
         "phenylidene",
+        "silan",
+        "thioamide",
     )
     for fragment in unstable_fragments:
         if fragment in name:
@@ -128,7 +141,7 @@ def _opsin_stability_penalty(name: str) -> int:
     )
     if any(fragment in name for fragment in retained_phosphate_shorthands):
         penalty += 25
-    if " ethylene ketal" in name and "spiro" not in name:
+    if " ethylene ketal" in name and "dioxaspiro" not in name:
         penalty += 25
     return penalty
 
@@ -185,6 +198,7 @@ def _fallback_stereo_atom_order(family: str) -> str:
         "fused-retained-parent",
         "functional-acyclic-skeleton-with-ring-substituents",
         "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
         "single-ring-parent",
         "skeletal-replacement-fused-parent",
     }

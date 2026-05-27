@@ -21,6 +21,7 @@ _HALOSULFUR_OXO_PREFIXES = {
     1: {"F": "fluorosulfinyl", "Cl": "chlorosulfinyl", "Br": "bromosulfinyl", "I": "iodosulfinyl"},
 }
 _SULFUR_OXO_SUBSTITUENT_SUFFIX = {2: "sulfonyl", 1: "sulfinyl", 0: "sulfanyl"}
+_GROUP14_SUBSTITUENT_SUFFIX = {"Si": "silyl", "Ge": "germyl", "Sn": "stannyl", "Pb": "plumbyl"}
 
 
 def _branch_rules():
@@ -107,6 +108,12 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     ]
     if double_o == 2 and not heavy:
         return suffix_prefix_term("sulfone", "sulfonyl")
+    if double_o == 2 and len(heavy) == 1 and _is_nitrile_carbon(mol, heavy[0]):
+        return "cyanosulfonyl"
+    if double_o == 0:
+        sulfimidoyl = _sulfimidoyl_prefix(mol, idx, parent_idx)
+        if sulfimidoyl:
+            return sulfimidoyl
     if not heavy:
         return "sulfanyl"
     if len(heavy) == 1:
@@ -138,6 +145,51 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)
         return alk + suffix if suffix else ""
+    return ""
+
+
+def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    imino = []
+    single_groups = []
+    for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            imino.append(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE:
+            single_groups.append(nidx)
+    if len(imino) != 1 or len(single_groups) != 1:
+        return ""
+    s_group = substituent_from_root(mol, single_groups[0], idx)
+    if not s_group:
+        return ""
+    n_group = _imino_n_substituent_name(mol, imino[0], idx)
+    if n_group is None:
+        return ""
+    if not n_group:
+        return f"{s_group}sulfinimidoyl"
+    return f"N-({n_group})-S-{s_group}sulfinimidoyl"
+
+
+def _metal_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    symbol = atom.GetSymbol()
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if symbol in {"Li", "Na", "K"} and not heavy:
+        return {"Li": "lithio", "Na": "sodio", "K": "potassio"}[symbol]
+    if symbol == "Mg" and len(heavy) == 1:
+        ligand = mol.GetAtomWithIdx(heavy[0])
+        if ligand.GetSymbol() in HALO:
+            return HALO[ligand.GetSymbol()] + "magnesio"
     return ""
 
 
@@ -174,6 +226,9 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
             if nbr.GetSymbol() not in {"C", "O", "F", "Cl", "Br", "I"}:
                 return ""
             other_heavy.append(nidx)
+    if double_oxygen_count == 0 and hydroxy_count == 0 and oxido_count == 0:
+        name = _substituted_hydride_prefix(mol, other_heavy, idx, "phosphanyl")
+        return "phosphino" if name == "phosphanyl" else name
     if double_oxygen_count != 1:
         return ""
     if not other_heavy:
@@ -200,18 +255,79 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     return ligand_text + "phosphoryl" if ligand_text else ""
 
 
-def _phosphoryl_ligand_text(ligands: Sequence[str]) -> str:
+def _group14_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    suffix = _GROUP14_SUBSTITUENT_SUFFIX.get(atom.GetSymbol())
+    if not suffix or atom.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    return _substituted_hydride_prefix(mol, heavy, idx, suffix)
+
+
+def _selenium_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "Se" or atom.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None:
+        return ""
+    if parent_bond.GetBondType() == Chem.BondType.DOUBLE:
+        heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
+        return "selenoxo" if not heavy else ""
+    if parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if not heavy:
+        return "selanyl"
+    ligand_text = _substituent_ligand_text(mol, heavy, idx)
+    return ligand_text + "selanyl" if ligand_text else ""
+
+
+def _substituted_hydride_prefix(mol, ligand_indices: Sequence[int], center_idx: int, suffix: str) -> str:
+    ligand_text = _substituent_ligand_text(mol, ligand_indices, center_idx)
+    if ligand_indices and not ligand_text:
+        return ""
+    return ligand_text + suffix
+
+
+def _substituent_ligand_text(mol, ligand_indices: Sequence[int], center_idx: int) -> str:
+    ligands = []
+    for nidx in ligand_indices:
+        ligand = branch_prefix(mol, nidx, center_idx)
+        if not ligand:
+            return ""
+        ligands.append(ligand)
+    return _ligand_text(ligands)
+
+
+def _ligand_text(ligands: Sequence[str]) -> str:
     counts = Counter(ligands)
     parts = []
     for ligand in sorted(counts, key=_phosphoryl_ligand_sort_key):
         count = counts[ligand]
+        unit = _phosphoryl_ligand_unit(ligand)
         if count == 1:
-            parts.append(_phosphoryl_ligand_unit(ligand))
+            parts.append(unit)
         elif _needs_complex_phosphoryl_ligand(ligand):
-            parts.append(f"{MULT.get(count, '')}({_phosphoryl_ligand_unit(ligand)})")
+            parts.append(f"{MULT.get(count, '')}({unit})")
         else:
             parts.append(MULT.get(count, "") + ligand)
     return "".join(parts)
+
+
+def _phosphoryl_ligand_text(ligands: Sequence[str]) -> str:
+    return _ligand_text(ligands)
 
 
 def _phosphoryl_ligand_unit(ligand: str) -> str:

@@ -25,7 +25,10 @@ from .functional_groups import (
     _is_nitrile_carbon,
     _is_nitro_nitrogen,
     _is_terminal_carbonyl_oxygen,
+    _group14_prefix,
+    _metal_prefix,
     _phosphorus_prefix,
+    _selenium_prefix,
     _sulfur_prefix,
     collect_subtree,
     is_carbonyl_carbon,
@@ -251,6 +254,54 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
         "B": (
             (
                 BranchRuleSpec(_boron_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Si": (
+            (
+                BranchRuleSpec(_group14_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Ge": (
+            (
+                BranchRuleSpec(_group14_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Sn": (
+            (
+                BranchRuleSpec(_group14_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Se": (
+            (
+                BranchRuleSpec(_selenium_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Li": (
+            (
+                BranchRuleSpec(_metal_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Na": (
+            (
+                BranchRuleSpec(_metal_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "K": (
+            (
+                BranchRuleSpec(_metal_prefix),
+                BranchRuleSpec(_resource_prefix),
+            ),
+        ),
+        "Mg": (
+            (
+                BranchRuleSpec(_metal_prefix),
                 BranchRuleSpec(_resource_prefix),
             ),
         ),

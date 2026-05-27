@@ -591,6 +591,7 @@ def _fused_candidate_preference(name: str) -> tuple:
         1 if re.search(r"(?:^|-|,)\d+[a-z]-", name) else 0,
         1 if "ind-1-ene" in name else 0,
         _fused_parent_carbonyl_rank(name),
+        _greek_functional_locant_preference(name),
         _substituent_locant_tuple(name),
         oxo_locs or (99,),
         _benzimidazole_orientation_preference(name),
@@ -621,6 +622,24 @@ def _functional_locants(name: str, term: str) -> set[int]:
     for locant_text in re.findall(pattern, name):
         locants.update(int(locant) for locant in locant_text.split(",") if locant)
     return locants
+
+
+def _greek_functional_locant_preference(name: str) -> tuple[int, ...]:
+    locant_rank = {"alpha": 0, "alpha'": 1, "beta": 2, "beta'": 3}
+    prefix_rank = {
+        "amino": 0,
+        "hydroxy": 1,
+        "mercapto": 2,
+        "oxo": 3,
+        "thioxo": 4,
+    }
+    pairs = []
+    for locant, prefix in re.findall(r"(alpha'?|beta'?)-(amino|hydroxy|mercapto|oxo|thioxo)", name):
+        if locant in locant_rank:
+            pairs.append((prefix_rank[prefix], locant_rank[locant]))
+    if len(pairs) < 2:
+        return ()
+    return tuple(locant for _prefix, locant in sorted(pairs))
 
 
 def _substituent_locant_tuple(name: str) -> tuple[int, ...]:

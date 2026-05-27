@@ -420,6 +420,8 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     single_atom = mol.GetAtomWithIdx(single_groups[0])
     if single_atom.GetSymbol() in HALO:
         s_group = HALO[single_atom.GetSymbol()]
+    elif single_atom.IsInRing():
+        s_group = _ring_substituent_prefix(mol, single_groups[0], idx)
     else:
         s_group = substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
@@ -442,6 +444,9 @@ def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:
     carbamoyl = _carbamoyl_substituent_name(mol, attached, nidx)
     if carbamoyl:
         return carbamoyl
+    if mol.GetAtomWithIdx(attached).IsInRing():
+        name = _ring_substituent_prefix(mol, attached, nidx)
+        return name if name else None
     name = substituent_from_root(mol, attached, nidx)
     if not name:
         return None

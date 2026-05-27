@@ -175,3 +175,23 @@ def test_short_functional_chain_defers_to_spiro_ring_parent():
 
     assert "spiro[5.5]undec" in name
     assert "prop-1-en" in name
+
+
+def test_cyclic_sulfonimidoyl_methane_defers_to_ring_parent():
+    name = smiles_to_iupac(
+        "CS(=O)(=Nc1ccc(-c2noc(C(F)(F)F)n2)cc1)c1ccc(F)cc1F"
+    )
+
+    assert name.endswith("-benzene")
+    assert "S-methylsulfonimidoyl" in name
+    assert not name.endswith("-methane")
+
+
+def test_halogenated_sulfonimidoyl_methane_keeps_acyclic_parent():
+    name = smiles_to_iupac(
+        "O=S(=Nc1ccc(-c2noc(C(F)(F)F)n2)c(F)c1)(c1ccccn1)C(F)(F)F"
+    )
+
+    assert name.endswith("-methane")
+    assert "trifluoro" in name
+    assert "S-pyridin-2-ylsulfonimidoyl" in name

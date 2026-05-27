@@ -1197,6 +1197,8 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         )
     ):
         return True
+    if _has_unsubstituted_sulfonimidoyl_methane_parent(name):
+        return True
     if name.endswith("-propane") and "carbonyloxy" in name:
         return True
     if (
@@ -1235,6 +1237,8 @@ def _has_substituent_like_monocyclic_parent_name(name: str) -> bool:
         )
     ):
         return True
+    if _has_unsubstituted_sulfonimidoyl_methane_parent(name):
+        return True
     if re.search(r"(?:^|-)(?:di|tri)?(?:oxa|aza|thia)[a-z]*(?:eth|prop|but|pent|hex|hept|oct|non|dec)ane$", name):
         return True
     if (
@@ -1264,6 +1268,13 @@ def _has_ringless_short_functional_parent_for_cyclic_molecule(name: str) -> bool
             "thioxo",
         )
     )
+
+
+def _has_unsubstituted_sulfonimidoyl_methane_parent(name: str) -> bool:
+    if not name.endswith("-methane") or "sulfonimidoyl" not in name:
+        return False
+    parent_prefix = name.split("(", 1)[0]
+    return parent_prefix in {"", "1-"}
 
 
 def _has_monocyclic_substituent_stem(name: str) -> bool:

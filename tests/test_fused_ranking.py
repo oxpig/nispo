@@ -62,3 +62,20 @@ def test_kekulized_polycyclic_parent_can_beat_short_functional_chain():
 
     assert "bicyclo[4.3.0]" in name
     assert "oxapropane" not in name
+
+
+def test_retained_fused_substituent_chain_defers_to_generic_ring_parent():
+    name = smiles_to_iupac("O=c1cc(C2CC2)[nH]c2nc(NCc3ccc(Cl)cc3Cl)nn12")
+
+    assert "tetraazabicyclo[4.3.0]" in name
+    assert "triazolo[1,5-a]pyrimidine" not in name
+    assert not name.endswith("-methane")
+
+
+def test_chain_dominant_retained_fused_name_can_defer_to_polycyclic_parent():
+    name = smiles_to_iupac(
+        "Cc1ccc(NC(=O)C[C@H]2CCC[C@@H](C(F)(F)F)C2)cc1Nc1ncccc1-c1ncnc2[nH]cnc12"
+    )
+
+    assert "tetraazabicyclo[4.3.0]" in name
+    assert "purine-6-yl" not in name

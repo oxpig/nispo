@@ -917,6 +917,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
         if profile.ring_count == 0:
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
+            return
         if name and _chain_dominates_single_ring(mol, name):
             yield NameCandidate(name, self.family, self.priority, sort_key=((750, 999, (), 999, name), len(name), name))
 
@@ -1183,31 +1185,44 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         return True
     if (
         _has_retained_fused_parent_substituent_name(name)
-        and any(term in name for term in ("carbonyl", "carboxy", "oxo", "aza", "oxa", "thia"))
-        and re.search(r"(?:meth|eth|prop|but|pent|hex)ane$", name)
+        and any(term in name for term in ("amino", "carbonyl", "carboxy", "cyano", "imino", "oxo", "aza", "oxa", "thia"))
+        and _has_short_functional_acyclic_parent_suffix(name)
     ):
         return True
     return False
+
+
+def _has_short_functional_acyclic_parent_suffix(name: str) -> bool:
+    return bool(
+        re.search(r"(?:meth|eth|prop|but|pent|hex|hept|oct)ane$", name)
+        or re.search(r"(?:eth|prop|but|pent|hex|hept|oct)-\d+(?:,\d+)*-(?:en|yn)e?$", name)
+    )
 
 
 def _has_retained_fused_parent_substituent_name(name: str) -> bool:
     return any(
         term in name
         for term in (
+            "anthranil",
             "benzimidazol",
             "benzofuran",
             "benzothiazol",
             "benzoxazol",
             "coumarin",
+            "imidazo[",
             "indazol",
             "indolin",
             "indol",
             "isoindolin",
             "isoquinolin",
             "naphth",
+            "pyrazolo[",
+            "pyrimido[",
+            "pyrrolo[",
             "purin",
             "quinazolin",
             "quinolin",
+            "triazolo[",
             "xanthen",
         )
     )

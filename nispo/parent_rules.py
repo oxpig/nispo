@@ -1231,6 +1231,8 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 1:
         return False
+    if _has_unrendered_ring_isotope(mol, name):
+        return True
     if _has_ringless_short_functional_parent_for_cyclic_molecule(name):
         return True
     if ring_count == 1:
@@ -1340,6 +1342,16 @@ def _has_ringless_short_functional_parent_for_cyclic_molecule(name: str) -> bool
             "thioxo",
         )
     )
+
+
+def _has_unrendered_ring_isotope(mol, name: str) -> bool:
+    for atom in mol.GetAtoms():
+        isotope = atom.GetIsotope()
+        if isotope and atom.IsInRing():
+            symbol = atom.GetSymbol()
+            if f"{isotope}{symbol}" not in name and f"[{isotope}{symbol}]" not in name:
+                return True
+    return False
 
 
 def _has_unsubstituted_sulfonimidoyl_methane_parent(name: str) -> bool:

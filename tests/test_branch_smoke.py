@@ -69,11 +69,13 @@ def test_isotopic_single_ring_parent_is_preferred_over_unlabeled_ring_parent():
     names = smiles_to_iupac_batch(
         [
             "O=[13C]1CCCN1c1ccc([N+](=O)[O-])cc1",
+            "CO[13c]1[13cH][13c](O[C@@H]2C[C@H](C)N(C(=O)OC(C)(C)C)C2)ncn1",
         ]
     )
 
     assert names == [
         "1-(4-nitrophenyl)-pyrrolidine-2-13C-2-one",
+        "4-methoxy-6-(((2S,4R)-2-methyl-1-((1,1-dimethyl-ethyl)oxycarbonyl)pyrrolidin-4-yl)oxy)-pyrimidine-4,5,6-13C3",
     ]
 
 

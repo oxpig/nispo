@@ -45,3 +45,8 @@ def test_oxabutyl_amino_spiro_substituent_is_opsin_fragile_shape():
         )
         > 0
     )
+
+
+def test_mixed_ring_alkyl_silane_parent_is_opsin_fragile_shape():
+    assert _opsin_stability_penalty("phenylpropylsilane") > 0
+    assert _opsin_stability_penalty("triphenylsilane") == 0

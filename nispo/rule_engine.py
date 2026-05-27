@@ -161,6 +161,9 @@ def _opsin_stability_penalty(name: str) -> int:
         if stable_small_ring_carbonyl_parent and fragment in {"phenyl)-methyl", "phenyl-methyl"}:
             continue
         if fragment in {"phosphane", "silan"} and _is_stable_hydride_parent_name(name):
+            if fragment == "silan" and _is_mixed_ring_alkyl_silane_name(name):
+                penalty += 25
+                continue
             continue
         if fragment in name:
             if fragment.startswith("cyclohexa") and _has_polycyclic_parent_descriptor(name):
@@ -202,6 +205,41 @@ def _is_stable_hydride_parent_name(name: str) -> bool:
             "silanediol",
             "stannane",
             "stibane",
+        )
+    )
+
+
+def _is_mixed_ring_alkyl_silane_name(name: str) -> bool:
+    if not name.endswith("silane"):
+        return False
+    ring_stems = (
+        "phenyl",
+        "cyclopropyl",
+        "cyclobutyl",
+        "cyclopentyl",
+        "cyclohexyl",
+        "cycloheptyl",
+        "cyclooctyl",
+    )
+    if not any(stem in name for stem in ring_stems):
+        return False
+    prefix = name[: -len("silane")]
+    for stem in ring_stems:
+        prefix = prefix.replace(stem, "")
+    return any(
+        stem in prefix
+        for stem in (
+            "methyl",
+            "ethyl",
+            "propyl",
+            "butyl",
+            "pentyl",
+            "hexyl",
+            "heptyl",
+            "octyl",
+            "nonyl",
+            "decyl",
+            "dodecyl",
         )
     )
 

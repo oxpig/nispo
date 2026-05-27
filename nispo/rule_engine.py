@@ -92,15 +92,33 @@ class NamingEngine:
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:
-    return (candidate.priority, candidate.sort_key, candidate.name)
+    return (candidate.priority, _comparable_sort_key(candidate.sort_key), candidate.name)
 
 
 def _candidate_key(candidate: NameCandidate) -> tuple:
     return (
         candidate.priority + _opsin_stability_penalty(candidate.name),
-        candidate.sort_key,
+        _comparable_sort_key(candidate.sort_key),
         candidate.name,
     )
+
+
+def _comparable_sort_key(value) -> tuple:
+    if isinstance(value, tuple):
+        return (3, tuple(_comparable_sort_key(item) for item in value))
+    if isinstance(value, list):
+        return (3, tuple(_comparable_sort_key(item) for item in value))
+    if isinstance(value, bool):
+        return (0, int(value))
+    if isinstance(value, int):
+        return (0, value)
+    if isinstance(value, float):
+        return (1, value)
+    if isinstance(value, str):
+        return (2, value)
+    if value is None:
+        return (-1,)
+    return (4, repr(value))
 
 
 def _candidate_is_stable_priority_winner(candidate: NameCandidate, priority: int) -> bool:

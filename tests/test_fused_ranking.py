@@ -139,3 +139,25 @@ def test_spiro_acetal_benzoyl_chain_uses_ring_system_parent():
 
     assert "dioxaspiro[4.5]decane" in name
     assert "diamyl" not in name
+
+
+def test_spiro_azetidine_parent_beats_diamyl_acyclic_carbamate_name():
+    name = smiles_to_iupac("O=C(OCc1ccccc1)N1CC2(CCCCC2)C1")
+
+    assert "azaspiro[3.5]nonane" in name
+    assert "diamylazetidin" not in name
+
+
+def test_spiro_oxetane_parent_beats_methoxyl_methylol_acyclic_amide_name():
+    name = smiles_to_iupac("O=C(N1CCC2(CC1)CO2)C1(C2CC2)CC1")
+
+    assert "oxaspiro[2.5]octane" in name
+    assert "methoxyl" not in name
+    assert "methylol" not in name
+
+
+def test_short_functional_chain_defers_to_spiro_ring_parent():
+    name = smiles_to_iupac("CC1=CCCC2(CCCCC2)[C@H]1/C=C/C=O")
+
+    assert "spiro[5.5]undec" in name
+    assert "prop-1-en" in name

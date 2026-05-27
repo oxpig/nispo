@@ -1166,6 +1166,14 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         return False
     if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[")):
         return False
+    if _has_ring_substituent_artifact_name(name):
+        return True
+    if (
+        ctx.polycyclic_parent_records("kekulized")
+        and _has_short_functional_acyclic_parent_suffix(name)
+        and _has_functional_ring_substituent_chain_shape(name)
+    ):
+        return True
     if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
         return True
     if "diamyl" in name and "dioxolan" in name:
@@ -1192,6 +1200,65 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     ):
         return True
     return False
+
+
+def _has_functional_ring_substituent_chain_shape(name: str) -> bool:
+    if not any(
+        term in name
+        for term in (
+            "amino",
+            "carbonyl",
+            "carbonyloxy",
+            "carboxy",
+            "cyano",
+            "imino",
+            "oxo",
+            "oxy",
+            "sulfonyl",
+        )
+    ):
+        return False
+    return any(
+        term in name
+        for term in (
+            "cyclo",
+            "phenyl",
+            "pyrid",
+            "pyraz",
+            "imidaz",
+            "oxaz",
+            "thiaz",
+            "triaz",
+        )
+    )
+
+
+def _has_ring_substituent_artifact_name(name: str) -> bool:
+    """Detect acyclic renderings that flattened a cyclic parent to substituents."""
+
+    if any(term in name for term in ("active-amyl", "dicrotyl", "dimethallyl", "methoxyl", "methylol")):
+        return True
+    if "diamyl" not in name:
+        return False
+    return any(
+        term in name
+        for term in (
+            "azetidin",
+            "cyclobut",
+            "cyclopent",
+            "cycloprop",
+            "diazacyclopent",
+            "diazaspiro",
+            "dioxolan",
+            "imidazolidin",
+            "oxacyclopent",
+            "oxan",
+            "oxetan",
+            "oxolan",
+            "piperidin",
+            "pyrrolidin",
+        )
+    )
 
 
 def _has_short_functional_acyclic_parent_suffix(name: str) -> bool:

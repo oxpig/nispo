@@ -1159,6 +1159,8 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 1:
         return False
+    if _has_ringless_short_functional_parent_for_cyclic_molecule(name):
+        return True
     if ring_count == 1:
         return _has_substituent_like_monocyclic_parent_name(name)
     has_polycyclic_parent_record = (
@@ -1242,6 +1244,26 @@ def _has_substituent_like_monocyclic_parent_name(name: str) -> bool:
     ):
         return True
     return False
+
+
+def _has_ringless_short_functional_parent_for_cyclic_molecule(name: str) -> bool:
+    if _has_monocyclic_substituent_stem(name):
+        return False
+    if not _has_short_functional_acyclic_parent_suffix(name):
+        return False
+    return any(
+        term in name
+        for term in (
+            "carbonyl",
+            "carboxy",
+            "carbonyloxy",
+            "isocyano",
+            "methanoyl",
+            "oxamethyl",
+            "sulfonyl",
+            "thioxo",
+        )
+    )
 
 
 def _has_monocyclic_substituent_stem(name: str) -> bool:

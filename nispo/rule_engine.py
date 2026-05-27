@@ -55,7 +55,14 @@ class NamingEngine:
         ctx = MoleculeContext(mol, self._Chem)
         best: NameCandidate | None = None
         best_key: tuple | None = None
+        current_priority: int | None = None
         for rule in self._rules:
+            if current_priority is None:
+                current_priority = rule.priority
+            elif rule.priority != current_priority:
+                if best is not None and _candidate_is_stable_priority_winner(best, current_priority):
+                    return _finalize_candidate_name(mol, self._Chem, best)
+                current_priority = rule.priority
             if not rule.applies(ctx):
                 continue
             rule_best: NameCandidate | None = None
@@ -77,11 +84,8 @@ class NamingEngine:
             if best_key is None or adjusted_key < best_key:
                 best = rule_best
                 best_key = adjusted_key
-            if (
-                rule_best.priority == rule.priority
-                and _opsin_stability_penalty(rule_best.name) == 0
-            ):
-                return _finalize_candidate_name(mol, self._Chem, best)
+        if best is not None and current_priority is not None and _candidate_is_stable_priority_winner(best, current_priority):
+            return _finalize_candidate_name(mol, self._Chem, best)
         if best is None:
             return ""
         return _finalize_candidate_name(mol, self._Chem, best)
@@ -97,6 +101,10 @@ def _candidate_key(candidate: NameCandidate) -> tuple:
         candidate.sort_key,
         candidate.name,
     )
+
+
+def _candidate_is_stable_priority_winner(candidate: NameCandidate, priority: int) -> bool:
+    return candidate.priority == priority and _opsin_stability_penalty(candidate.name) == 0
 
 
 def _opsin_stability_penalty(name: str) -> int:
@@ -133,8 +141,13 @@ def _opsin_stability_penalty(name: str) -> int:
     for fragment in unstable_fragments:
         if stable_small_ring_carbonyl_parent and fragment in {"phenyl)-methyl", "phenyl-methyl"}:
             continue
+        if fragment in {"phosphane", "silan"} and _is_stable_hydride_parent_name(name):
+            continue
         if fragment in name:
-            penalty += 25
+            if fragment.startswith("cyclohexa") and _has_polycyclic_parent_descriptor(name):
+                penalty += 10
+            else:
+                penalty += 25
     retained_phosphate_shorthands = (
         "adenylic",
         "cytidylic",
@@ -151,6 +164,27 @@ def _opsin_stability_penalty(name: str) -> int:
 
 def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:
     return "cyclobut-1-en-3,4-dione" in name or "cycloprop-1-en-3-one" in name
+
+
+def _has_polycyclic_parent_descriptor(name: str) -> bool:
+    return any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+
+
+def _is_stable_hydride_parent_name(name: str) -> bool:
+    return name.endswith(
+        (
+            "arsane",
+            "bismuthane",
+            "chlorosilane",
+            "dichlorosilane",
+            "germane",
+            "phosphane",
+            "silane",
+            "silanediol",
+            "stannane",
+            "stibane",
+        )
+    )
 
 
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:

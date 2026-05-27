@@ -901,6 +901,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
+            return
         if name and _prefer_acyclic_skeleton_name(name):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -975,6 +977,8 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
+            return
         if name and _prefer_acyclic_skeleton_name(name):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -998,6 +1002,8 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
+            return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -1019,6 +1025,8 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
+            return
         if (
             name
             and "carbonyl" in name
@@ -1133,6 +1141,75 @@ def _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx) -> bool:
         ctx.polycyclic_parent_records("bicyclic")
         or ctx.polycyclic_parent_records("spiro")
         or ctx.polycyclic_parent_records("kekulized")
+    )
+
+
+def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -> bool:
+    """Prefer ring-system parents over tiny functional-chain decompositions.
+
+    P-44 parent selection should not let a one-carbon carbonyl/heteroatom
+    fragment become the senior parent when the ring system is the real skeleton.
+    These string predicates describe renderer shape, while the ring-parent
+    requirement comes from graph-derived polycyclic descriptors.
+    """
+
+    mol = ctx.mol
+    if mol.GetRingInfo().NumRings() < 2:
+        return False
+    if not (
+        ctx.polycyclic_parent_records("bicyclic")
+        or ctx.polycyclic_parent_records("spiro")
+        or ctx.polycyclic_parent_records("kekulized")
+    ):
+        return False
+    if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[")):
+        return False
+    if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
+        return True
+    if "azamethylcarbonyl" in name:
+        return True
+    if name.endswith("-methane") and any(
+        term in name
+        for term in (
+            "carbonyl",
+            "carboxy",
+            "isocyano",
+            "oxomethyl",
+            "sulfonyl",
+        )
+    ):
+        return True
+    if name.endswith("-propane") and "carbonyloxy" in name:
+        return True
+    if (
+        _has_retained_fused_parent_substituent_name(name)
+        and any(term in name for term in ("carbonyl", "carboxy", "oxo", "aza", "oxa", "thia"))
+        and re.search(r"(?:meth|eth|prop|but|pent|hex)ane$", name)
+    ):
+        return True
+    return False
+
+
+def _has_retained_fused_parent_substituent_name(name: str) -> bool:
+    return any(
+        term in name
+        for term in (
+            "benzimidazol",
+            "benzofuran",
+            "benzothiazol",
+            "benzoxazol",
+            "coumarin",
+            "indazol",
+            "indolin",
+            "indol",
+            "isoindolin",
+            "isoquinolin",
+            "naphth",
+            "purin",
+            "quinazolin",
+            "quinolin",
+            "xanthen",
+        )
     )
 
 

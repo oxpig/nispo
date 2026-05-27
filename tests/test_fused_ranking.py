@@ -32,3 +32,33 @@ def test_cyclobutenedione_suffix_parent_beats_cyclobutadiene_dioxo_prefix():
 
     assert "cyclobut-1-en-3,4-dione" in name
     assert "cyclobuta-1,3-dien" not in name
+
+
+def test_equal_priority_ring_system_candidate_can_beat_functional_chain_candidate():
+    name = smiles_to_iupac("[C-]#[N+]c1c(F)cc(C2=CCCO2)c2c1OCC2")
+
+    assert "bicyclo[4.3.0]" in name
+    assert "azoniamethane" not in name
+
+
+def test_substituent_like_functional_chain_defers_to_spiro_parent():
+    name = smiles_to_iupac("O=C(NC1CC12CCCCC2)c1ccnc(-n2ccnc2)c1")
+
+    assert "spiro[2.5]octane" in name
+    assert "diamylcyclopropyl" not in name
+
+
+def test_carbamate_side_chain_defers_to_component_spiro_parent():
+    name = smiles_to_iupac("O=CC1CN(C(=O)OC(C)(C)C)CCC12CCCCC2")
+
+    assert "spiro[cyclohexane-1,4'-piperidin]" in name
+    assert "carbonyloxy)-propane" not in name
+
+
+def test_kekulized_polycyclic_parent_can_beat_short_functional_chain():
+    name = smiles_to_iupac(
+        "O=C1CCC(N2Cc3ccc(COC(=O)Nc4c(F)ccc(Cl)c4F)cc3C2=O)C(=O)N1"
+    )
+
+    assert "bicyclo[4.3.0]" in name
+    assert "oxapropane" not in name

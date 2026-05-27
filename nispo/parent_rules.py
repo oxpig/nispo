@@ -1200,6 +1200,8 @@ def _has_short_functional_acyclic_parent_suffix(name: str) -> bool:
 
 
 def _has_retained_fused_parent_substituent_name(name: str) -> bool:
+    if _has_fused_bracket_descriptor(name):
+        return True
     return any(
         term in name
         for term in (
@@ -1209,6 +1211,7 @@ def _has_retained_fused_parent_substituent_name(name: str) -> bool:
             "benzothiazol",
             "benzoxazol",
             "coumarin",
+            "hypoxanthin",
             "imidazo[",
             "indazol",
             "indolin",
@@ -1226,6 +1229,10 @@ def _has_retained_fused_parent_substituent_name(name: str) -> bool:
             "xanthen",
         )
     )
+
+
+def _has_fused_bracket_descriptor(name: str) -> bool:
+    return bool(re.search(r"[a-z]+o\[\d+(?:,\d+)*-[a-z]\][a-z]+", name))
 
 
 def _nonring_atoms_are_terminal_exocyclic_multiples(mol, Chem) -> bool:

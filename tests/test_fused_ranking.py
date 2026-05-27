@@ -79,3 +79,19 @@ def test_chain_dominant_retained_fused_name_can_defer_to_polycyclic_parent():
 
     assert "tetraazabicyclo[4.3.0]" in name
     assert "purine-6-yl" not in name
+
+
+def test_fused_bracket_descriptor_in_short_chain_defers_to_ring_parent():
+    name = smiles_to_iupac("COc1cc(OC)c(Cl)c(Nc2nc3cccnc3[nH]c2=O)c1Cl")
+
+    assert "triazabicyclo[4.4.0]" in name
+    assert "pyrazino[2,3-b]pyridine" not in name
+    assert not name.endswith("-methane")
+
+
+def test_thienopyridine_short_chain_defers_to_generic_parent():
+    name = smiles_to_iupac("Cc1cccc(-c2c(O)c3scc(Br)c3[nH]c2=O)c1")
+
+    assert "thiabicyclo[4.3.0]" in name
+    assert "thieno[3,2-b]pyridine" not in name
+    assert not name.endswith("-methane")

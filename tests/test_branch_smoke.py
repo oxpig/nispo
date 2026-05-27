@@ -47,6 +47,24 @@ def test_branch_root_isotopes_are_rendered_on_substituent_prefixes():
     ]
 
 
+def test_single_ring_parent_isotopes_use_parent_locant_suffixes():
+    names = smiles_to_iupac_batch(
+        [
+            "N[13c]1ccccc1",
+            "[13c]1[13cH]cccc1",
+            "[15n]1ccccc1",
+            "[18o]1cccc1",
+        ]
+    )
+
+    assert names == [
+        "1-amino-benzene-1-13C",
+        "benzene-1,2-13C2",
+        "pyridine-1-15N",
+        "furan-1-18O",
+    ]
+
+
 def test_high_multiplicity_prefixes_use_extended_multipliers():
     name = smiles_to_iupac_batch(
         [

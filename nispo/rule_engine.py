@@ -313,6 +313,8 @@ def _apply_uniform_isotope_label(mol, name: str) -> str:
     if len(labels) != 1:
         return name
     symbol, isotope, count = labels[0]
+    if f"{isotope}{symbol}" in name:
+        return name
     if symbol == "C" and isotope in {13, 14}:
         count_text = str(count) if count > 1 else ""
         return f"{name}-{isotope}{symbol}{count_text}"

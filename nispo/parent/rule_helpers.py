@@ -1018,6 +1018,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
         adjusted_parent = _adjust_ring_parent_for_charge(mol, parent_name, seq, raw_subs)
         if not adjusted_parent:
             continue
+        adjusted_parent = _append_ring_parent_isotope_suffixes(mol, adjusted_parent, seq)
         if not raw_subs:
             name = adjusted_parent
             key = ([], name)
@@ -1058,6 +1059,23 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     if not best_name:
         return []
     return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem))]
+
+
+def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -> str:
+    grouped: dict[tuple[str, int], list[int]] = {}
+    for locant, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        isotope = atom.GetIsotope()
+        if not isotope:
+            continue
+        grouped.setdefault((atom.GetSymbol(), isotope), []).append(locant)
+    if not grouped:
+        return parent
+    suffixes = []
+    for (symbol, isotope), locants in sorted(grouped.items()):
+        count_text = str(len(locants)) if len(locants) > 1 else ""
+        suffixes.append(f"{','.join(str(locant) for locant in locants)}-{isotope}{symbol}{count_text}")
+    return parent + "-" + "-".join(suffixes)
 
 
 def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:

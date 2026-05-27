@@ -1689,6 +1689,31 @@ class SingleRingParentRule:
                     )
 
 
+class PositiveSingleRingParentRule(SingleRingParentRule):
+    family = "positive-single-ring-parent"
+    priority = parent_priority("polycyclic-functional-skeleton")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() != 1 or _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        for ring in mol.GetRingInfo().AtomRings():
+            for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
+                if not _has_positive_ring_parent_name(name):
+                    continue
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=_single_ring_candidate_sort_key(name),
+                    stereo_prefix=stereo_prefix,
+                )
+
+
+def _has_positive_ring_parent_name(name: str) -> bool:
+    return bool(re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name))
+
+
 def _unfused_assembly_monocycle_parent_rings(ctx) -> tuple[tuple[int, ...], ...]:
     """Return monocyclic parent components for P-44 ring assemblies.
 
@@ -2295,6 +2320,7 @@ def parent_rules(Chem) -> tuple:
     functional_generic_bicyclic = FunctionalGenericBicyclicParentRule(Chem)
     generic_spiro = GenericSpiroParentRule(Chem)
     single_ring = SingleRingParentRule(Chem)
+    positive_single_ring = PositiveSingleRingParentRule(Chem)
     generated_exact = GeneratedExactParentRule(Chem)
     generated_fused = GeneratedFusedParentRule(Chem)
     generated_spiro_fused = GeneratedSpiroFusedParentRule(Chem)
@@ -2356,6 +2382,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("polycyclic-functional-skeleton"),
             (acyclic_preference_signal,),
             preferred_acyclic.candidates,
+        ),
+        RuleSpec(
+            "positive-single-ring-parent",
+            parent_priority("polycyclic-functional-skeleton"),
+            (charged_ring_atom,),
+            positive_single_ring.candidates,
         ),
         RuleSpec(
             "chain-dominant-acyclic-skeleton-with-ring-substituents",

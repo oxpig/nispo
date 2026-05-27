@@ -251,6 +251,7 @@ class Group14HydrideParentRule:
         ):
             return
         carbon_names = []
+        carbon_neighbor_indices = []
         halo_names = []
         hydroxy_count = 0
         for nidx in neighbors:
@@ -261,6 +262,7 @@ class Group14HydrideParentRule:
                 if not prefix:
                     return
                 carbon_names.append(prefix)
+                carbon_neighbor_indices.append(nidx)
             elif symbol in HALO:
                 halo_names.append(HALO[symbol])
             elif (
@@ -275,6 +277,8 @@ class Group14HydrideParentRule:
         if hydroxy_count and halo_names:
             return
         if _has_organophosphorus_oxide_center(mol, self._Chem):
+            return
+        if any(_is_charged_ring_ligand(mol, nidx) for nidx in carbon_neighbor_indices):
             return
         if _should_defer_group14_hydride_to_polycycle(ctx, carbon_names):
             return
@@ -336,6 +340,16 @@ def _has_organophosphorus_oxide_center(mol, Chem) -> bool:
                 unsupported = True
                 break
         if not unsupported and double_oxygen_count == 1 and carbon_neighbor_count:
+            return True
+    return False
+
+
+def _is_charged_ring_ligand(mol, atom_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if not atom.IsInRing():
+        return False
+    for ring in mol.GetRingInfo().AtomRings():
+        if atom_idx in ring and any(mol.GetAtomWithIdx(idx).GetFormalCharge() > 0 for idx in ring):
             return True
     return False
 

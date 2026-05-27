@@ -236,6 +236,12 @@ def test_phosphane_oxide_parent_beats_silane_parent():
     assert name == "(4-triphenylsilylphenyl)phosphane oxide"
 
 
+def test_charged_ring_parent_beats_silane_parent():
+    name = smiles_to_iupac("CCC[SiH2]C1=CC=[O+]OO1")
+
+    assert name == "2-propylsilyl-1,5,6-trioxacyclohexa-2,4-dien-5-ium"
+
+
 def test_disubstituted_carbocycle_parent_uses_relative_stereo():
     name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
 

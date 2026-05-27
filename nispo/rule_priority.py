@@ -172,6 +172,16 @@ PARENT_RULE_PRIORITIES = {
         specificity="medium",
         rationale="Functional chains bearing spiro substituents can be more OPSIN-stable than generic spiro parents.",
     ),
+    "senior-spiro-functional-chain-substituent": RulePriority(
+        13,
+        seniority_score=1,
+        parent_class_score=1,
+        specificity_score=2,
+        seniority="senior functional chain with spiro substituent",
+        parent_class="chain with spiro ring substituent",
+        specificity="high",
+        rationale="Senior functional chains bearing spiro substituents can outrank generic polycyclic parents when the chain carries the characteristic group.",
+    ),
     "generic-polycyclic-parent": RulePriority(
         28,
         seniority_score=3,

@@ -925,7 +925,7 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
 
 class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "spiro-functional-chain-substituent"
-    priority = parent_priority("spiro-functional-chain-substituent")
+    priority = parent_priority("senior-spiro-functional-chain-substituent")
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -937,7 +937,12 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
         if len(nonring_atoms) < 4 or len(nonring_atoms) < len(ring_atoms) // 2:
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
-        if name and "spiro[" in name and _polycyclic_substituent_chain_signal(name):
+        if (
+            name
+            and "spiro[" in name
+            and _polycyclic_substituent_chain_signal(name)
+            and not _fragile_senior_spiro_chain_name(name)
+        ):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -1139,6 +1144,16 @@ def _fragile_polycyclic_substituent_chain_name(name: str) -> bool:
     if "2-oxaethyl" in name and "aminosulfinyl" in name:
         return True
     return "hydroxyspiro" in name and "aminosulfinyl" in name and "carbonyl" not in name
+
+
+def _fragile_senior_spiro_chain_name(name: str) -> bool:
+    if _fragile_polycyclic_substituent_chain_name(name):
+        return True
+    if "pyrrolidin" in name and "aminosulfinyl" in name:
+        return True
+    if "sulfonylamino" in name:
+        return True
+    return "imidazo[" in name
 
 
 def _nonring_heavy_atom_count(mol) -> int:
@@ -2305,7 +2320,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec(
             "spiro-functional-chain-substituent",
-            parent_priority("spiro-functional-chain-substituent"),
+            parent_priority("senior-spiro-functional-chain-substituent"),
             (min_ring_count(1), spiro_topology),
             spiro_functional_chain.candidates,
         ),

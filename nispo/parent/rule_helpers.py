@@ -1034,7 +1034,7 @@ def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> 
         return ""
     centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     if not centers:
-        return ""
+        return _relative_bicyclic_stereo_prefix(mol, seq, Chem, name)
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     locanted_centers = [(idx, descriptor) for idx, descriptor in centers if idx in locants]
     if not locanted_centers:
@@ -1050,6 +1050,28 @@ def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> 
 
 def _locanted_stereo_descriptors_in_text(name: str) -> list[str]:
     return re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name)
+
+
+def _relative_bicyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str) -> str:
+    """Use OPSIN's relative cis prefix for pseudoasymmetric bicyclo parents."""
+
+    if "bicyclo[" not in name or "spiro[" in name:
+        return ""
+    seq_set = set(seq)
+    work = Chem.Mol(mol)
+    Chem.AssignStereochemistry(work, cleanIt=True, force=True)
+    centers = [
+        (idx, descriptor)
+        for idx, descriptor in Chem.FindMolChiralCenters(
+            work,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"r", "s"} and idx in seq_set
+    ]
+    if len(centers) != 2:
+        return ""
+    return "cis"
 
 
 def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

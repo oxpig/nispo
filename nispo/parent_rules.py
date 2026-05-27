@@ -898,6 +898,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         profile = ctx.profile
         if profile.ring_count == 0 or not profile.may_prefer_acyclic_skeleton:
             return
+        if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
+            return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and _prefer_acyclic_skeleton_name(name):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
@@ -970,6 +972,8 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             or not profile.may_prefer_acyclic_skeleton
         ):
             return
+        if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
+            return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and _prefer_acyclic_skeleton_name(name):
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
@@ -988,7 +992,10 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             profile.ring_count == 0
             or not profile.has_imino_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
+            or _nonring_heavy_atom_count(mol) < 2
         ):
+            return
+        if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
@@ -1006,7 +1013,10 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             or profile.has_charged_ring_atom
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
+            or not _has_carbonyl_group(ctx.mol, ctx.Chem)
         ):
+            return
+        if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if (
@@ -1109,6 +1119,56 @@ def _polycyclic_substituent_chain_signal(name: str) -> bool:
     return halo_count >= 2 and any(term in name for term in ("bora", "sila", "phospha", "aza", "oxa", "thia"))
 
 
+def _nonring_heavy_atom_count(mol) -> int:
+    return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+
+
+def _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx) -> bool:
+    mol = ctx.mol
+    if mol.GetRingInfo().NumRings() < 2:
+        return False
+    if not _nonring_atoms_are_terminal_exocyclic_multiples(mol, ctx.Chem):
+        return False
+    return bool(
+        ctx.polycyclic_parent_records("bicyclic")
+        or ctx.polycyclic_parent_records("spiro")
+        or ctx.polycyclic_parent_records("kekulized")
+    )
+
+
+def _nonring_atoms_are_terminal_exocyclic_multiples(mol, Chem) -> bool:
+    nonring_atoms = [
+        atom for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing()
+    ]
+    if not nonring_atoms or len(nonring_atoms) > 3:
+        return False
+    for atom in nonring_atoms:
+        if atom.GetSymbol() not in {"C", "N", "O", "S"}:
+            return False
+        heavy_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy_neighbors) != 1:
+            return False
+        neighbor = heavy_neighbors[0]
+        if not neighbor.IsInRing():
+            return False
+        bond = mol.GetBondBetweenAtoms(atom.GetIdx(), neighbor.GetIdx())
+        if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+            return False
+    return True
+
+
+def _has_carbonyl_group(mol, Chem) -> bool:
+    return any(
+        atom.GetSymbol() == "C"
+        and any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+            for nbr in atom.GetNeighbors()
+        )
+        for atom in mol.GetAtoms()
+    )
+
+
 class WholeMoleculeRetainedParentRule:
     family = "whole-molecule-retained-parent"
     priority = parent_priority("whole-molecule-retained-parent")
@@ -1124,11 +1184,17 @@ class WholeMoleculeRetainedParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0:
             return
+        if _too_many_rings_for_whole_molecule_retained_parent(mol):
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
         for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
             name = _standalone_whole_molecule_retained_name(template)
             if not name:
+                continue
+            if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                 continue
             if template_record_mol(template).GetNumAtoms() != atom_count:
                 continue
@@ -1188,11 +1254,19 @@ class FusedParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _has_positive_charged_ring_atom(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
+            return
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
         ):
             name = _name_fused_core_match(mol, template, match)
             if name:
+                if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
+                    continue
                 yield NameCandidate(
                     name=name,
                     family=self.family,
@@ -1244,7 +1318,9 @@ class SingleRingParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 1:
+        if mol.GetRingInfo().NumRings() < 1 or mol.GetRingInfo().NumRings() > 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         for ring in mol.GetRingInfo().AtomRings():
             for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
@@ -1275,6 +1351,10 @@ class HydroFusedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
         for template, match in _iter_fused_template_matches(
             ctx,
@@ -1313,6 +1393,10 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
         candidates = []
         for template, match in _iter_fused_template_matches(
@@ -1355,6 +1439,8 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         candidates = []
         templates = ctx.candidate_templates(
@@ -1421,6 +1507,29 @@ _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
 }
 
 
+_MAX_EXHAUSTIVE_RING_PARENT_HEAVY_ATOMS = 54
+_MAX_WHOLE_MOLECULE_RETAINED_RINGS = 1
+
+
+def _too_large_for_exhaustive_ring_parent_search(mol) -> bool:
+    return mol.GetNumHeavyAtoms() > _MAX_EXHAUSTIVE_RING_PARENT_HEAVY_ATOMS
+
+
+def _too_many_rings_for_whole_molecule_retained_parent(mol) -> bool:
+    return mol.GetRingInfo().NumRings() > _MAX_WHOLE_MOLECULE_RETAINED_RINGS
+
+
+def _high_rank_hetero_retained_fused_search_unpromising(mol) -> bool:
+    return mol.GetRingInfo().NumRings() >= 4 and mol.GetNumHeavyAtoms() > 12 and any(
+        atom.IsInRing() and atom.GetAtomicNum() not in {1, 6}
+        for atom in mol.GetAtoms()
+    )
+
+
+def _has_positive_charged_ring_atom(mol) -> bool:
+    return any(atom.IsInRing() and atom.GetFormalCharge() > 0 for atom in mol.GetAtoms())
+
+
 class NaturalProductTopologyParentRule(FusedParentRule):
     family = "natural-product-topology-parent"
     priority = parent_priority("whole-molecule-retained-parent")
@@ -1444,7 +1553,13 @@ class NaturalProductTopologyParentRule(FusedParentRule):
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 4:
+        if mol.GetRingInfo().NumRings() != 4:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
+            return
+        if _has_generic_polycyclic_stereo_fallback(ctx, mol, self._Chem):
             return
         seen = set()
         for template, match in _iter_fused_template_matches(
@@ -1471,6 +1586,46 @@ class NaturalProductTopologyParentRule(FusedParentRule):
             )
 
 
+def _should_defer_natural_product_to_generic_polycycle(ctx, mol, Chem, template: dict) -> bool:
+    return (
+        template.get("source_file") == "naturalProducts.xml"
+        and template_record_name(template) in _NATURAL_PRODUCT_TOPOLOGY_STEMS
+        and _has_generic_polycyclic_stereo_fallback(ctx, mol, Chem)
+    )
+
+
+def _has_generic_polycyclic_stereo_fallback(ctx, mol, Chem) -> bool:
+    return (
+        _has_explicit_stereochemistry(mol, Chem)
+        and not _has_nonring_carbon_substituent_chain(mol, Chem)
+        and bool(ctx.polycyclic_parent_records("kekulized"))
+    )
+
+
+def _has_explicit_stereochemistry(mol, Chem) -> bool:
+    return any(
+        atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()
+    ) or any(
+        bond.GetStereo() != Chem.BondStereo.STEREONONE
+        for bond in mol.GetBonds()
+    )
+
+
+def _has_nonring_carbon_substituent_chain(mol, Chem) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or atom.IsInRing():
+            continue
+        ring_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.IsInRing()]
+        if len(ring_neighbors) != 1:
+            return True
+        ring_neighbor = ring_neighbors[0]
+        bond = mol.GetBondBetweenAtoms(atom.GetIdx(), ring_neighbor.GetIdx())
+        if bond.GetBondType() == Chem.BondType.DOUBLE and atom.GetDegree() == 1:
+            continue
+        return True
+    return False
+
+
 class SkeletalReplacementFusedParentRule(FusedParentRule):
     family = "skeletal-replacement-fused-parent"
     priority = parent_priority("skeletal-replacement-parent")
@@ -1479,6 +1634,10 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
         yielded = 0
         for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
@@ -1527,6 +1686,8 @@ class OxidoFusedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         templates = ctx.candidate_templates(_curated_fused_templates(self._Chem))
         for template, match in _iter_fused_template_matches(
@@ -1640,6 +1801,8 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
     requires_generic_polycyclic_topology = True
 
     def _candidate_priority(self, mol) -> int | None:
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return None
         ring_count = mol.GetRingInfo().NumRings()
         aromatic = any(atom.GetIsAromatic() for atom in mol.GetAtoms())
         if not aromatic and ring_count < 3:
@@ -1668,6 +1831,10 @@ class ExactRetainedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0 or not ctx.features["all_atoms_in_one_ring_system"]:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
@@ -1823,7 +1990,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "generated-spiro-partial-hydro-parent",
             parent_priority("generated-spiro-component-parent"),
-            (min_ring_system_ring_count(2),),
+            (min_ring_system_ring_count(2), spiro_topology),
             generated_spiro_partial_hydro.candidates,
         ),
         RuleSpec(

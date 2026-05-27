@@ -56,7 +56,7 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
                 _tricyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
                 _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
             )
-        elif rank in {4, 5}:
+        elif 4 <= rank <= 7:
             record_sets = (
                 _secondary_bridge_polycyclic_candidate_records(kekulized, Chem, ring_system),
             )
@@ -422,14 +422,16 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     if not graph:
         return []
     rank = _graph_cycle_rank(graph)
-    if rank not in {4, 5}:
+    if not (4 <= rank <= 7):
         return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 
     candidates = []
     branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
-    allow_relaxed_base_paths = _ring_multiple_bond_count(mol, atoms) <= 4
+    multiple_bond_count = _ring_multiple_bond_count(mol, atoms)
+    allow_relaxed_base_paths = multiple_bond_count <= 4
+    use_saturated_bridge_selection = multiple_bond_count == 0 and mol.GetRingInfo().NumRings() >= 7
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
@@ -446,13 +448,19 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 if not name:
                     continue
                 key = (
-                    _secondary_bridge_preference_key(bracket),
+                    _secondary_bridge_preference_key(
+                        bracket,
+                        saturated_alicyclic=use_saturated_bridge_selection,
+                    ),
                     _substituent_locants(mol, seq, atoms),
                     _hetero_locants(mol, seq),
                     _unsaturation_contiguity_key(mol, seq),
                     name,
                 )
                 candidates.append((key, name, tuple(seq)))
+                if len(candidates) >= _secondary_bridge_candidate_limit(rank):
+                    candidates.sort(key=lambda item: item[0])
+                    return [(name, seq) for _key, name, seq in candidates[:24]]
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates[:24]]
 
@@ -461,6 +469,14 @@ def _has_stereochemical_evidence(mol, Chem) -> bool:
     if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
         return True
     return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+
+
+def _secondary_bridge_candidate_limit(rank: int) -> int:
+    if rank <= 6:
+        return 48
+    if rank == 7:
+        return 36
+    return 24
 
 
 def _secondary_bridge_completion(
@@ -833,12 +849,48 @@ def _dominant_bridge_sort_key(bracket: Sequence[int | str]) -> tuple:
     return tuple((-length, left, right) for length, left, right in _bridge_sort_key(bracket))
 
 
-def _secondary_bridge_preference_key(bracket: Sequence[int | str]) -> tuple:
+def _secondary_bridge_preference_key(
+    bracket: Sequence[int | str], *, saturated_alicyclic: bool = False
+) -> tuple:
+    if saturated_alicyclic:
+        return (0, _blue_book_secondary_bridge_selection_key(bracket))
+
     nonzero_locant_one = 0
     for length, left, right in _bridge_sort_key(bracket):
         if length > 0 and left == 1:
             nonzero_locant_one += 1
-    return (nonzero_locant_one, _dominant_bridge_sort_key(bracket))
+    return (1, nonzero_locant_one, _dominant_bridge_sort_key(bracket))
+
+
+def _blue_book_secondary_bridge_selection_key(bracket: Sequence[int | str]) -> tuple:
+    """Approximate P-23.2.6.2 selection for saturated von Baeyer systems."""
+
+    parsed = _bridge_sort_key(bracket)
+    if len(parsed) < 4:
+        return (_dominant_bridge_sort_key(bracket),)
+
+    first, second, main_bridge = (item[0] for item in parsed[:3])
+    base_atom_count = first + second + main_bridge + 2
+    secondary = parsed[3:]
+    independent = [
+        (length, left, right)
+        for length, left, right in secondary
+        if left <= base_atom_count and right <= base_atom_count
+    ]
+    dependent = [item for item in secondary if item not in independent]
+    all_secondary_locants = tuple(sorted(locant for _length, left, right in secondary for locant in (left, right)))
+    citation_locants = tuple(locant for _length, left, right in secondary for locant in (left, right))
+    return (
+        -(first + second + 2),
+        main_bridge == 0,
+        abs(first - second),
+        tuple(-length for length, _left, _right in independent),
+        len(dependent),
+        tuple(-length for length, _left, _right in dependent),
+        all_secondary_locants,
+        citation_locants,
+        _dominant_bridge_sort_key(bracket),
+    )
 
 
 def _spiro_numbering_sequences(
@@ -940,10 +992,8 @@ def _generic_polycyclic_parent(mol, seq: Sequence[int], bracket: Sequence[int | 
 
 
 def _generic_polycyclic_prefix(cycle_count: int) -> str:
-    return {
-        4: "tetracyclo",
-        5: "pentacyclo",
-    }.get(cycle_count, "")
+    multiplier = MULT.get(cycle_count)
+    return f"{multiplier}cyclo" if multiplier and cycle_count >= 4 else ""
 
 
 def _spiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int]) -> str:

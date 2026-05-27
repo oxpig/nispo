@@ -60,10 +60,17 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
     mol = ctx.mol
     Chem = ctx.Chem
     candidates: list[NameCandidate] = []
+    component_cache: dict[tuple, list[_Component]] = {}
     for atom_set in ctx.ring_systems:
-        graph = ring_system_graph(mol, Chem, set(atom_set))
+        ring_system_atoms = set(atom_set)
+        graph = ring_system_graph(mol, Chem, ring_system_atoms)
         if not graph:
             continue
+        if _cycle_rank_for_atoms(graph, ring_system_atoms) > 7 and _has_ring_peroxide(mol, Chem, ring_system_atoms):
+            continue
+        spiro_split_count = sum(
+            1 for idx in ring_system_atoms if len(_components_without_atom(graph, idx)) == 2
+        )
         for spiro_idx in sorted(atom_set):
             parts = _components_without_atom(graph, spiro_idx)
             if len(parts) != 2:
@@ -79,27 +86,31 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                 candidates.extend(
                     _component_spiro_candidates_for_split(
                         ctx,
-                        set(atom_set),
+                        ring_system_atoms,
                         spiro_idx,
                         simple_atoms,
                         poly_atoms,
                         priority,
+                        component_cache,
                     )
                 )
             for left_rank, left_atoms, right_rank, right_atoms in _poly_poly_side_orders(sides):
+                if spiro_split_count != 1 and _has_ring_system_carbonyl(mol, Chem, ring_system_atoms):
+                    continue
                 if left_rank not in {2, 3, 4, 5} or right_rank not in {2, 3, 4, 5}:
                     continue
                 candidates.extend(
                     _poly_component_spiro_candidates_for_split(
                         ctx,
-                        set(atom_set),
+                        ring_system_atoms,
                         spiro_idx,
                         left_atoms,
                         right_atoms,
                         priority,
+                        component_cache,
                     )
                 )
-        candidates.extend(_component_dispiro_candidates(ctx, set(atom_set), graph, priority))
+        candidates.extend(_component_dispiro_candidates(ctx, ring_system_atoms, graph, priority, component_cache))
     candidates.sort(key=lambda item: item.sort_key)
     seen: set[str] = set()
     unique = []
@@ -118,6 +129,7 @@ def _component_dispiro_candidates(
     ring_system_atoms: set[int],
     graph: dict[int, set[int]],
     priority: int,
+    component_cache: dict[tuple, list[_Component]],
 ) -> list[NameCandidate]:
     """Compose dispiro names from a chain of fused/simple ring components.
 
@@ -127,6 +139,9 @@ def _component_dispiro_candidates(
     syntax.  Build that name from fused-ring blocks so this covers whole
     scaffold families rather than individual retained names.
     """
+
+    if _cycle_rank_for_atoms(graph, ring_system_atoms) > 4:
+        return []
 
     blocks = _fused_ring_blocks(ctx.mol, ring_system_atoms)
     if len(blocks) < 3:
@@ -166,9 +181,35 @@ def _component_dispiro_candidates(
                             spiro_left,
                             spiro_right,
                             priority,
+                            component_cache,
                         )
                     )
     return candidates
+
+
+def _has_ring_peroxide(mol, Chem, atoms: set[int]) -> bool:
+    return any(
+        bond.GetBondType() == Chem.BondType.SINGLE
+        and bond.GetBeginAtomIdx() in atoms
+        and bond.GetEndAtomIdx() in atoms
+        and bond.GetBeginAtom().GetSymbol() == "O"
+        and bond.GetEndAtom().GetSymbol() == "O"
+        for bond in mol.GetBonds()
+    )
+
+
+def _has_ring_system_carbonyl(mol, Chem, atoms: set[int]) -> bool:
+    for atom_idx in atoms:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "C":
+            continue
+        if any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+            for nbr in atom.GetNeighbors()
+        ):
+            return True
+    return False
 
 
 def _component_dispiro_candidates_for_blocks(
@@ -180,10 +221,11 @@ def _component_dispiro_candidates_for_blocks(
     left_spiro: int,
     right_spiro: int,
     priority: int,
+    component_cache: dict[tuple, list[_Component]],
 ) -> list[NameCandidate]:
-    left_components = _mapped_component_names(ctx, left_atoms, (left_spiro,))
-    center_components = _mapped_component_names(ctx, center_atoms, (left_spiro, right_spiro))
-    right_components = _mapped_component_names(ctx, right_atoms, (right_spiro,))
+    left_components = _mapped_component_names(ctx, left_atoms, (left_spiro,), component_cache)
+    center_components = _mapped_component_names(ctx, center_atoms, (left_spiro, right_spiro), component_cache)
+    right_components = _mapped_component_names(ctx, right_atoms, (right_spiro,), component_cache)
     if not left_components or not center_components or not right_components:
         return []
 
@@ -238,7 +280,15 @@ def _component_dispiro_candidates_for_blocks(
     return candidates
 
 
-def _mapped_component_names(ctx, atoms: set[int], spiro_atoms: Sequence[int]) -> list[_Component]:
+def _mapped_component_names(
+    ctx,
+    atoms: set[int],
+    spiro_atoms: Sequence[int],
+    component_cache: dict[tuple, list[_Component]] | None = None,
+) -> list[_Component]:
+    cache_key = ("mapped", tuple(sorted(atoms)), tuple(spiro_atoms))
+    if component_cache is not None and cache_key in component_cache:
+        return component_cache[cache_key]
     Chem = ctx.Chem
     submol_data = _submol_for_atoms(ctx.mol, Chem, atoms)
     if submol_data is None:
@@ -287,6 +337,8 @@ def _mapped_component_names(ctx, atoms: set[int], spiro_atoms: Sequence[int]) ->
             item.parent_name,
         )
     )
+    if component_cache is not None:
+        component_cache[cache_key] = components
     return components
 
 
@@ -317,6 +369,7 @@ def _component_spiro_candidates_for_split(
     simple_atoms: set[int],
     poly_atoms: set[int],
     priority: int,
+    component_cache: dict[tuple, list[_Component]] | None = None,
 ) -> list[NameCandidate]:
     Chem = ctx.Chem
     simple = _submol_for_atoms(ctx.mol, Chem, simple_atoms)
@@ -328,8 +381,20 @@ def _component_spiro_candidates_for_split(
     simple_spiro = simple_to_sub[spiro_idx]
     poly_spiro = poly_to_sub[spiro_idx]
 
-    simple_components = _simple_component_names(simple_mol, Chem, simple_spiro)
-    poly_components = _poly_component_names(poly_mol, Chem, poly_spiro)
+    simple_key = ("simple", tuple(sorted(simple_atoms)), spiro_idx)
+    poly_key = ("poly", tuple(sorted(poly_atoms)), spiro_idx)
+    if component_cache is not None and simple_key in component_cache:
+        simple_components = component_cache[simple_key]
+    else:
+        simple_components = _simple_component_names(simple_mol, Chem, simple_spiro)
+        if component_cache is not None:
+            component_cache[simple_key] = simple_components
+    if component_cache is not None and poly_key in component_cache:
+        poly_components = component_cache[poly_key]
+    else:
+        poly_components = _poly_component_names(poly_mol, Chem, poly_spiro)
+        if component_cache is not None:
+            component_cache[poly_key] = poly_components
     if not simple_components or not poly_components:
         return []
 
@@ -379,6 +444,7 @@ def _poly_component_spiro_candidates_for_split(
     left_atoms: set[int],
     right_atoms: set[int],
     priority: int,
+    component_cache: dict[tuple, list[_Component]] | None = None,
 ) -> list[NameCandidate]:
     """Compose spiro names where both sides are named ring components."""
 
@@ -392,8 +458,20 @@ def _poly_component_spiro_candidates_for_split(
     left_spiro = left_to_sub[spiro_idx]
     right_spiro = right_to_sub[spiro_idx]
 
-    left_components = _poly_component_names(left_mol, Chem, left_spiro)
-    right_components = _poly_component_names(right_mol, Chem, right_spiro)
+    left_key = ("poly", tuple(sorted(left_atoms)), spiro_idx)
+    right_key = ("poly", tuple(sorted(right_atoms)), spiro_idx)
+    if component_cache is not None and left_key in component_cache:
+        left_components = component_cache[left_key]
+    else:
+        left_components = _poly_component_names(left_mol, Chem, left_spiro)
+        if component_cache is not None:
+            component_cache[left_key] = left_components
+    if component_cache is not None and right_key in component_cache:
+        right_components = component_cache[right_key]
+    else:
+        right_components = _poly_component_names(right_mol, Chem, right_spiro)
+        if component_cache is not None:
+            component_cache[right_key] = right_components
     if not left_components or not right_components:
         return []
 

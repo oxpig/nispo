@@ -41,6 +41,7 @@ from .hetero_atoms import _nitrogen_prefix, _oxygen_prefix
 from .ring_substituents import (
     _alkynyl_substituent_prefix,
     _aryloxy_methyl_prefix,
+    _di_ring_methyl_prefix,
     _dicyanoethenyl_prefix,
     _difluoro_substituted_methyl_prefix,
     _iminomethyl_prefix,
@@ -138,6 +139,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
             name = _aryloxy_methyl_prefix(mol, idx, parent_idx)
             if name:
                 return name
+        name = _di_ring_methyl_prefix(mol, idx, parent_idx)
+        if name:
+            return name
         name = _difluoro_substituted_methyl_prefix(mol, idx, parent_idx)
         if name:
             return name

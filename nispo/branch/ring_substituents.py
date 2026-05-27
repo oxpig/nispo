@@ -105,6 +105,44 @@ def _ring_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     return ring + "methyl"
 
 
+def _di_ring_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    ring_neighbors = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx and n.IsInRing()]
+    other_heavy = [
+        n.GetIdx()
+        for n in atom.GetNeighbors()
+        if n.GetIdx() != parent_idx and not n.IsInRing() and n.GetAtomicNum() > 1
+    ]
+    if len(ring_neighbors) != 2 or other_heavy:
+        return ""
+    names = []
+    for ring_idx in ring_neighbors:
+        name = _ring_substituent_prefix(mol, ring_idx, idx)
+        if not name:
+            return ""
+        names.append(name)
+    counts = {name: names.count(name) for name in set(names)}
+    if len(counts) == 1:
+        name = names[0]
+        if name == "phenyl":
+            return "diphenylmethyl"
+        return f"bis({_methyl_ligand_unit(name)})methyl"
+    ordered = sorted(names)
+    first, second = ordered
+    return _methyl_ligand_unit(first, first=True) + _methyl_ligand_unit(second) + "methyl"
+
+
+def _methyl_ligand_unit(name: str, *, first: bool = False) -> str:
+    if first and "-" not in name and not name[:1].isdigit() and not name.startswith("("):
+        return name
+    return f"({name})"
+
+
 def _aryloxy_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:

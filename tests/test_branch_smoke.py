@@ -77,6 +77,17 @@ def test_oxymethyl_branch_accepts_complex_oxy_prefixes():
     assert branch_prefix(mol, 14, 13) == "(4-methylphenylsulfonyloxy)methyl"
 
 
+def test_methyl_branch_accepts_two_ring_ligands():
+    mol = Chem.MolFromSmiles(
+        "CC(=O)Oc1nnn(C(c2ccccc2)C2CCN(C(=O)OC(C)(C)C)CC2)n1"
+    )
+
+    assert (
+        branch_prefix(mol, 8, 7)
+        == "(1-((1,1-dimethyl-ethyl)oxycarbonyl)piperidin-4-yl)(phenyl)methyl"
+    )
+
+
 def test_extracted_ring_branch_family_keeps_polycyclic_fallback_importable():
     mol = Chem.MolFromSmiles("Cc1ccccc1")
 

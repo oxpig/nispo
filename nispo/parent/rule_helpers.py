@@ -53,12 +53,14 @@ def _single_ring_candidate_sort_key(name: str) -> tuple:
     ylidene_rank = 0 if "ylidene" in name else 1
     aromatic_parent_rank = 0 if _has_aromatic_single_ring_parent_stem(name) else 1
     functional_unsaturation_rank = 0 if _has_functional_unsaturated_substituent(name) else 1
+    relative_stereo_rank = 0 if re.search(r"\((?:cis|trans)\)", name) else 1
     return (
         charged_parent_rank,
         suffix_carbonyl_parent_rank,
         ylidene_rank,
         aromatic_parent_rank,
         functional_unsaturation_rank,
+        relative_stereo_rank,
         len(name),
         name,
     )

@@ -58,22 +58,79 @@ class NamingEngine:
         for rule in self._rules:
             if not rule.applies(ctx):
                 continue
+            rule_best: NameCandidate | None = None
+            rule_best_key: tuple | None = None
+            rule_candidates: list[NameCandidate] = []
             for candidate in rule.candidates(ctx):
                 if not candidate.name:
                     continue
-                candidate_key = _candidate_key(candidate)
-                if best_key is None or candidate_key < best_key:
-                    best = candidate
-                    best_key = candidate_key
-            if best is not None and best.priority == rule.priority:
+                rule_candidates.append(candidate)
+                candidate_key = _candidate_base_key(candidate)
+                if rule_best_key is None or candidate_key < rule_best_key:
+                    rule_best = candidate
+                    rule_best_key = candidate_key
+            if rule_best is None:
+                continue
+            if _opsin_stability_penalty(rule_best.name) > 0:
+                rule_best = min(rule_candidates, key=_candidate_key)
+            adjusted_key = _candidate_key(rule_best)
+            if best_key is None or adjusted_key < best_key:
+                best = rule_best
+                best_key = adjusted_key
+            if (
+                rule_best.priority == rule.priority
+                and _opsin_stability_penalty(rule_best.name) == 0
+            ):
                 return _finalize_candidate_name(mol, self._Chem, best)
         if best is None:
             return ""
         return _finalize_candidate_name(mol, self._Chem, best)
 
 
-def _candidate_key(candidate: NameCandidate) -> tuple:
+def _candidate_base_key(candidate: NameCandidate) -> tuple:
     return (candidate.priority, candidate.sort_key, candidate.name)
+
+
+def _candidate_key(candidate: NameCandidate) -> tuple:
+    return (
+        candidate.priority + _opsin_stability_penalty(candidate.name),
+        candidate.sort_key,
+        candidate.name,
+    )
+
+
+def _opsin_stability_penalty(name: str) -> int:
+    """Prefer alternative candidates over names with unstable OPSIN rendering.
+
+    These are general renderer-shape penalties, not molecule lookups. They
+    catch cases where an earlier parent family emits a formally systematic but
+    OPSIN-fragile substituent form while another candidate renders the same
+    structure with a retained/simple parent that roundtrips more reliably.
+    """
+
+    penalty = 0
+    unstable_fragments = (
+        "cyclohexa-1,3,5-trien",
+        "cyclohexa-2,4,6-trien",
+        "cyclohepta-1,3,5-trien",
+        "dioxocyclobuta",
+        "phenylidene",
+    )
+    for fragment in unstable_fragments:
+        if fragment in name:
+            penalty += 25
+    retained_phosphate_shorthands = (
+        "adenylic",
+        "cytidylic",
+        "guanylic",
+        "thymidylic",
+        "uridylic",
+    )
+    if any(fragment in name for fragment in retained_phosphate_shorthands):
+        penalty += 25
+    if " ethylene ketal" in name and "spiro" not in name:
+        penalty += 25
+    return penalty
 
 
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:

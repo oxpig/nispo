@@ -49,10 +49,23 @@ def _generated_exact_parent_sort_key(template: dict) -> tuple:
 
 def _single_ring_candidate_sort_key(name: str) -> tuple:
     charged_parent_rank = 0 if re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name) else 1
+    suffix_carbonyl_parent_rank = 0 if _has_small_ring_carbonyl_suffix_parent(name) else 1
     ylidene_rank = 0 if "ylidene" in name else 1
     aromatic_parent_rank = 0 if _has_aromatic_single_ring_parent_stem(name) else 1
     functional_unsaturation_rank = 0 if _has_functional_unsaturated_substituent(name) else 1
-    return (charged_parent_rank, ylidene_rank, aromatic_parent_rank, functional_unsaturation_rank, len(name), name)
+    return (
+        charged_parent_rank,
+        suffix_carbonyl_parent_rank,
+        ylidene_rank,
+        aromatic_parent_rank,
+        functional_unsaturation_rank,
+        len(name),
+        name,
+    )
+
+
+def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:
+    return "cyclobut-1-en-3,4-dione" in name or "cycloprop-1-en-3-one" in name
 
 
 def _has_aromatic_single_ring_parent_stem(name: str) -> bool:

@@ -109,6 +109,7 @@ def _opsin_stability_penalty(name: str) -> int:
     """
 
     penalty = 0
+    stable_small_ring_carbonyl_parent = _has_small_ring_carbonyl_suffix_parent(name)
     unstable_fragments = (
         "cyclohexa-1,3,5-trien",
         "cyclohexa-2,4,6-trien",
@@ -130,6 +131,8 @@ def _opsin_stability_penalty(name: str) -> int:
         "thioamide",
     )
     for fragment in unstable_fragments:
+        if stable_small_ring_carbonyl_parent and fragment in {"phenyl)-methyl", "phenyl-methyl"}:
+            continue
         if fragment in name:
             penalty += 25
     retained_phosphate_shorthands = (
@@ -144,6 +147,10 @@ def _opsin_stability_penalty(name: str) -> int:
     if " ethylene ketal" in name and "dioxaspiro" not in name:
         penalty += 25
     return penalty
+
+
+def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:
+    return "cyclobut-1-en-3,4-dione" in name or "cycloprop-1-en-3-one" in name
 
 
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:

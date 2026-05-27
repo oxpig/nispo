@@ -17,3 +17,18 @@ def test_stereospecified_steroid_topology_uses_explicit_polycyclic_parent():
 
     assert "tetracyclo[" in name
     assert "gonane" not in name
+
+
+def test_small_ring_carbonyl_suffix_parent_beats_aromatic_substituent_parent():
+    name = smiles_to_iupac("O=c1c(-c2ccccc2)c1-c1ccccc1")
+
+    assert name == "1,2-diphenyl-cycloprop-1-en-3-one"
+
+
+def test_cyclobutenedione_suffix_parent_beats_cyclobutadiene_dioxo_prefix():
+    name = smiles_to_iupac(
+        "O=c1c(NCc2ccc(-c3noc(C(F)(F)F)n3)c(F)c2)c(Nc2ccc(F)cc2)c1=O"
+    )
+
+    assert "cyclobut-1-en-3,4-dione" in name
+    assert "cyclobuta-1,3-dien" not in name

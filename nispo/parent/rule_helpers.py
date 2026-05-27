@@ -592,6 +592,7 @@ def _fused_candidate_preference(name: str) -> tuple:
         1 if "ind-1-ene" in name else 0,
         _fused_parent_carbonyl_rank(name),
         _greek_functional_locant_preference(name),
+        _primed_functional_locant_preference(name),
         _substituent_locant_tuple(name),
         oxo_locs or (99,),
         _benzimidazole_orientation_preference(name),
@@ -640,6 +641,39 @@ def _greek_functional_locant_preference(name: str) -> tuple[int, ...]:
     if len(pairs) < 2:
         return ()
     return tuple(locant for _prefix, locant in sorted(pairs))
+
+
+def _primed_functional_locant_preference(name: str) -> tuple[tuple[int, tuple[tuple[int, int], ...]], ...]:
+    prefix_rank = {
+        "hydroxy": 0,
+        "amino": 1,
+        "mercapto": 2,
+        "oxo": 3,
+        "thioxo": 4,
+        "oxy": 5,
+        "sulfanyl": 6,
+    }
+    grouped: dict[str, list[tuple[int, int]]] = {}
+    for locant_text, multiplier, prefix in re.findall(
+        r"((?:\d+'*)(?:,\d+'*)*)-(?:(di|tri|tetra|penta|hexa))?"
+        r"(hydroxy|amino|mercapto|oxo|thioxo|oxy|sulfanyl)(?:-|$)",
+        name,
+    ):
+        for locant in locant_text.split(","):
+            grouped.setdefault(prefix, []).append(_primed_locant_rank(locant))
+    if not grouped:
+        return ()
+    return tuple(
+        (prefix_rank[prefix], tuple(sorted(locants)))
+        for prefix, locants in sorted(grouped.items(), key=lambda item: prefix_rank[item[0]])
+    )
+
+
+def _primed_locant_rank(locant: str) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d+)('*?)", locant)
+    if not match:
+        return (999, 999)
+    return (int(match.group(1)), len(match.group(2)))
 
 
 def _substituent_locant_tuple(name: str) -> tuple[int, ...]:

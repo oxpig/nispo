@@ -125,3 +125,17 @@ def test_functional_bicyclic_parent_defers_to_fused_imide_parent():
 
     assert "azabicyclo[4.3.0]" in name
     assert "isoindolin" not in name
+
+
+def test_spiro_acetal_parent_beats_diamyl_acyclic_ketal_name():
+    name = smiles_to_iupac("COC(=O)C1OC2(CCCCC2)O[C@H]1c1ccccc1[N+](=O)[O-]")
+
+    assert "dioxaspiro[4.5]decane" in name
+    assert "diamyl" not in name
+
+
+def test_spiro_acetal_benzoyl_chain_uses_ring_system_parent():
+    name = smiles_to_iupac("O=C(CCC1COC2(CCCCC2)O1)c1ccccc1")
+
+    assert "dioxaspiro[4.5]decane" in name
+    assert "diamyl" not in name

@@ -1168,6 +1168,8 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         return False
     if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
         return True
+    if "diamyl" in name and "dioxolan" in name:
+        return True
     if "azamethylcarbonyl" in name:
         return True
     if name.endswith("-methane") and any(

@@ -65,6 +65,18 @@ def test_single_ring_parent_isotopes_use_parent_locant_suffixes():
     ]
 
 
+def test_isotopic_single_ring_parent_is_preferred_over_unlabeled_ring_parent():
+    names = smiles_to_iupac_batch(
+        [
+            "O=[13C]1CCCN1c1ccc([N+](=O)[O-])cc1",
+        ]
+    )
+
+    assert names == [
+        "1-(4-nitrophenyl)-pyrrolidine-2-13C-2-one",
+    ]
+
+
 def test_polycyclic_parent_isotopes_use_parent_locant_suffixes():
     names = smiles_to_iupac_batch(
         [

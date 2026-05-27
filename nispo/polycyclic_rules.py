@@ -1144,6 +1144,7 @@ def _unsat_sort_key(locant: str) -> tuple[int, int]:
 
 
 def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], parent: str) -> str:
+    parent = _append_polycyclic_parent_isotope_suffixes(mol, seq, parent)
     pos = {idx: str(loc) for loc, idx in enumerate(seq, start=1)}
     prefixes = []
     for idx in seq:
@@ -1158,6 +1159,22 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
     return prefix_text + "-" + parent if prefix_text else parent
+
+
+def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:
+    grouped: dict[tuple[str, int], list[int]] = defaultdict(list)
+    for locant, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        isotope = atom.GetIsotope()
+        if isotope:
+            grouped[(atom.GetSymbol(), isotope)].append(locant)
+    if not grouped:
+        return parent
+    suffixes = []
+    for (symbol, isotope), locants in sorted(grouped.items()):
+        count_text = str(len(locants)) if len(locants) > 1 else ""
+        suffixes.append(f"{_join_locants(locants)}-{isotope}{symbol}{count_text}")
+    return parent + "-" + "-".join(suffixes)
 
 
 def _name_polycyclic_substituent(

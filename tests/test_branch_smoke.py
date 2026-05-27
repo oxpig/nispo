@@ -65,6 +65,20 @@ def test_single_ring_parent_isotopes_use_parent_locant_suffixes():
     ]
 
 
+def test_polycyclic_parent_isotopes_use_parent_locant_suffixes():
+    names = smiles_to_iupac_batch(
+        [
+            "[13CH]12CCC(CC1)C2",
+            "[13CH]12CC[13CH](CC1)C2",
+        ]
+    )
+
+    assert names == [
+        "bicyclo[2.2.1]heptane-1-13C",
+        "bicyclo[2.2.1]heptane-1,4-13C2",
+    ]
+
+
 def test_high_multiplicity_prefixes_use_extended_multipliers():
     name = smiles_to_iupac_batch(
         [

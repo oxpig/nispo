@@ -1198,7 +1198,6 @@ def _hetero_locants(mol, seq: Sequence[int]) -> list[int]:
 def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: set[int]) -> tuple:
     hetero_locants = _hetero_locants(mol, seq)
     return (
-        1 in hetero_locants,
         hetero_locants,
         _unsaturation_contiguity_key(mol, seq),
         _substituent_locants(mol, seq, core_atoms),

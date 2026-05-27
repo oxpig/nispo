@@ -1736,10 +1736,10 @@ def _too_many_rings_for_whole_molecule_retained_parent(mol) -> bool:
 
 
 def _high_rank_hetero_retained_fused_search_unpromising(mol) -> bool:
-    return mol.GetRingInfo().NumRings() >= 4 and mol.GetNumHeavyAtoms() > 12 and any(
-        atom.IsInRing() and atom.GetAtomicNum() not in {1, 6}
-        for atom in mol.GetAtoms()
-    )
+    # Retained fused templates carry the P-25 locant maps for large hetero
+    # fused systems. Skipping them here forces generic bicyclo numbering that
+    # often parses as the wrong fusion orientation.
+    return False
 
 
 def _has_positive_charged_ring_atom(mol) -> bool:

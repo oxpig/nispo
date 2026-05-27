@@ -1,7 +1,21 @@
 from __future__ import annotations
 
+from rdkit import Chem
+
 from nispo import smiles_to_iupac
 from nispo.parent.rule_helpers import _fused_parent_carbonyl_rank
+from nispo.polycyclic_rules import _polycyclic_numbering_preference_key
+
+
+def test_polycyclic_numbering_prefers_low_hetero_locants():
+    mol = Chem.MolFromSmiles("N1CCCCC1")
+    atoms = set(range(mol.GetNumAtoms()))
+    nitrogen_first = tuple(range(mol.GetNumAtoms()))
+    nitrogen_second = (1, 0, 5, 4, 3, 2)
+
+    assert _polycyclic_numbering_preference_key(
+        mol, nitrogen_first, atoms
+    ) < _polycyclic_numbering_preference_key(mol, nitrogen_second, atoms)
 
 
 def test_fused_carbonyl_rank_avoids_carboxyl_like_side_chains():

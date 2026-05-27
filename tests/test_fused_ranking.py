@@ -204,3 +204,15 @@ def test_functional_chain_beats_fragile_oxabutyl_spiro_parent():
 
     assert name.endswith("-propane")
     assert "4-oxabutyl)amino" not in name
+
+
+def test_disubstituted_carbocycle_parent_uses_relative_stereo():
+    name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
+
+    assert name == "(trans)-1,4-diamino-cyclohexane"
+
+
+def test_multisubstituted_carbocycle_parent_keeps_absolute_stereo():
+    name = smiles_to_iupac("N[C@H]1C(O)CC[C@H](O)C1")
+
+    assert name == "(R,S)-2-amino-1,4-dihydroxy-cyclohexane"

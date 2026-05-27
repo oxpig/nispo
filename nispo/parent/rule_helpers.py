@@ -1064,7 +1064,7 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     if not seq:
         return ""
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
-        return ""
+        return _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
     seq_set = set(seq)
     tagged_atoms = [
         atom.GetIdx()
@@ -1085,6 +1085,80 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
     )
+
+
+def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) -> str:
+    if _has_assigned_bond_stereo(mol, Chem):
+        return ""
+    seq_set = set(seq)
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if any(idx not in seq_set for idx, _descriptor in assigned):
+        return ""
+    tagged = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetIdx() in seq_set and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged) != 2:
+        return ""
+    if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
+        return ""
+    substituted_ring_atoms = {
+        idx
+        for idx in seq
+        if any(nbr.GetIdx() not in seq_set for nbr in mol.GetAtomWithIdx(idx).GetNeighbors())
+    }
+    if substituted_ring_atoms != {atom.GetIdx() for atom in tagged}:
+        return ""
+    external_prefixes = [
+        _simple_relative_stereo_external_prefix(mol, atom.GetIdx(), seq_set) for atom in tagged
+    ]
+    if any(not prefix for prefix in external_prefixes):
+        return ""
+    ring_bonds = [
+        bond
+        for bond in mol.GetBonds()
+        if bond.GetBeginAtomIdx() in seq_set and bond.GetEndAtomIdx() in seq_set
+    ]
+    if any(bond.GetBondType() != Chem.BondType.SINGLE for bond in ring_bonds):
+        return ""
+    tags = [atom.GetChiralTag() for atom in tagged]
+    return "cis" if tags[0] == tags[1] else "trans"
+
+
+_SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
+    "amino",
+    "dimethylamino",
+    "ethyl",
+    "ethylamino",
+    "ethoxy",
+    "fluoro",
+    "hydroxy",
+    "methoxy",
+    "methyl",
+    "methylamino",
+    "propyl",
+    "propoxy",
+    "2-oxaethyl",
+}
+
+
+def _simple_relative_stereo_external_prefix(mol, atom_idx: int, ring_atoms: set[int]) -> str:
+    external = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_atoms
+    ]
+    if len(external) != 1:
+        return ""
+    prefix = branch_prefix(mol, external[0], atom_idx)
+    if prefix in _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS:
+        return prefix
+    if re.fullmatch(r"(?:[1-9]-)?(?:methyl|ethyl|propyl|butyl)oxy", prefix):
+        return prefix
+    if re.fullmatch(r"(?:di)?(?:methyl|ethyl|propyl|butyl)amino", prefix):
+        return prefix
+    return ""
 
 
 def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:

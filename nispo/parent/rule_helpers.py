@@ -48,7 +48,7 @@ def _generated_exact_parent_sort_key(template: dict) -> tuple:
 
 
 def _single_ring_candidate_sort_key(name: str) -> tuple:
-    charged_parent_rank = 0 if re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name) else 1
+    charged_parent_rank = 0 if re.search(r"(?:^|-)[^-]+-\d+-(?:ium|ide?|id)(?:$|-)", name) else 1
     suffix_carbonyl_parent_rank = 0 if _has_small_ring_carbonyl_suffix_parent(name) else 1
     ylidene_rank = 0 if "ylidene" in name else 1
     aromatic_parent_rank = 0 if _has_aromatic_single_ring_parent_stem(name) else 1

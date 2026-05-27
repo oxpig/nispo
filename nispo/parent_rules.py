@@ -1156,14 +1156,18 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     """
 
     mol = ctx.mol
-    if mol.GetRingInfo().NumRings() < 2:
+    ring_count = mol.GetRingInfo().NumRings()
+    if ring_count < 1:
         return False
-    if not (
+    if ring_count == 1:
+        return _has_substituent_like_monocyclic_parent_name(name)
+    has_polycyclic_parent_record = (
         ctx.polycyclic_parent_records("bicyclic")
         or ctx.polycyclic_parent_records("spiro")
         or ctx.polycyclic_parent_records("kekulized")
-    ):
-        return False
+    )
+    if not has_polycyclic_parent_record:
+        return _has_substituent_like_monocyclic_parent_name(name)
     if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[")):
         return False
     if _has_ring_substituent_artifact_name(name):
@@ -1200,6 +1204,74 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     ):
         return True
     return False
+
+
+def _has_substituent_like_monocyclic_parent_name(name: str) -> bool:
+    """Detect acyclic names that should leave a monocycle as the parent.
+
+    This is the monocyclic counterpart of the polycyclic deferral above.  A
+    short or hetero-interrupted chain bearing phenyl/cyclo/heterocycle text is
+    often a renderer artifact: the cyclic component is the stable parent and
+    the chain should be rendered as a substituent.
+    """
+
+    if not _has_monocyclic_substituent_stem(name):
+        return False
+    if _has_ring_substituent_artifact_name(name):
+        return True
+    if _has_short_functional_acyclic_parent_suffix(name) and _has_functional_ring_substituent_chain_shape(name):
+        return True
+    if name.endswith("-methane") and any(
+        term in name
+        for term in (
+            "carbonyl",
+            "carboxy",
+            "isocyano",
+            "oxomethyl",
+            "sulfonyl",
+            "thioxo",
+        )
+    ):
+        return True
+    if re.search(r"(?:^|-)(?:di|tri)?(?:oxa|aza|thia)[a-z]*(?:eth|prop|but|pent|hex|hept|oct|non|dec)ane$", name):
+        return True
+    if (
+        re.search(r"(?:eth|prop|but|pent|hex|hept|oct|non|dec)-\d+(?:,\d+)*-(?:en|yn)", name)
+        and any(term in name for term in ("phenyl", "benz", "pyrid", "thiaz", "oxaz", "diaz"))
+        and any(term in name for term in ("aza", "oxa", "thia", "carbonyl", "carboxy", "cyano", "imino"))
+    ):
+        return True
+    return False
+
+
+def _has_monocyclic_substituent_stem(name: str) -> bool:
+    return any(
+        term in name
+        for term in (
+            "benzene",
+            "phenyl",
+            "cyclo",
+            "furan",
+            "imidazol",
+            "isoxazol",
+            "morpholin",
+            "oxadiazol",
+            "oxazol",
+            "oxetan",
+            "oxolan",
+            "piperazin",
+            "piperidin",
+            "pyraz",
+            "pyrid",
+            "pyrimid",
+            "pyrrol",
+            "s-triazin",
+            "thiadiazol",
+            "thiazol",
+            "thiophen",
+            "triazol",
+        )
+    )
 
 
 def _has_functional_ring_substituent_chain_shape(name: str) -> bool:

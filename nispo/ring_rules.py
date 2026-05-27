@@ -138,6 +138,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble() == 1.0
         for a, b in zip(ordered, ordered[1:] + ordered[:1])
     )
+    kekulized_aromatic = _kekulized_aromatic_ring(mol, ordered, symbols)
     candidates: list[tuple[str, tuple[int, ...]]] = []
 
     if n == 3 and symbols.count("C") == 1 and symbols.count("N") == 2:
@@ -175,7 +176,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
-    if n == 6 and all_aromatic:
+    if n == 6 and (all_aromatic or kekulized_aromatic):
         candidates = _six_membered_aromatic_candidates(mol, ordered, symbols)
         if candidates:
             return candidates
@@ -193,7 +194,7 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
-    if n == 5 and all_aromatic:
+    if n == 5 and (all_aromatic or kekulized_aromatic):
         counts = Counter(symbols)
         if counts == Counter({"C": 2, "N": 1, "O": 2}):
             candidates.extend(
@@ -283,6 +284,32 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
             return candidates
 
     return candidates
+
+
+def _kekulized_aromatic_ring(mol, ordered: Sequence[int], symbols: Sequence[str]) -> bool:
+    if not mol.HasProp("_nispo_kekulized_aromatic_view"):
+        return False
+    if any(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ordered):
+        return False
+    if not all(sym in SKELETON_ATOMS for sym in symbols):
+        return False
+    bonds = [mol.GetBondBetweenAtoms(a, b) for a, b in zip(ordered, ordered[1:] + ordered[:1])]
+    if any(bond is None for bond in bonds):
+        return False
+    orders = [bond.GetBondTypeAsDouble() for bond in bonds]
+    if any(order not in {1.0, 2.0} for order in orders):
+        return False
+    double_positions = [idx for idx, order in enumerate(orders) if order == 2.0]
+    if len(ordered) == 6:
+        return len(double_positions) == 3 and not _has_adjacent_cyclic_positions(double_positions, len(ordered))
+    if len(ordered) == 5 and any(sym != "C" for sym in symbols):
+        return len(double_positions) == 2 and not _has_adjacent_cyclic_positions(double_positions, len(ordered))
+    return False
+
+
+def _has_adjacent_cyclic_positions(positions: Sequence[int], size: int) -> bool:
+    values = set(positions)
+    return any(((pos + 1) % size) in values for pos in values)
 
 
 def _six_membered_aromatic_candidates(

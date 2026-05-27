@@ -38,6 +38,7 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
     kekulized = Chem.Mol(mol)
     try:
         Chem.Kekulize(kekulized, clearAromaticFlags=True)
+        kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
     except Exception:
         kekulized = mol
     candidates = []
@@ -85,6 +86,7 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
     kekulized = Chem.Mol(mol)
     try:
         Chem.Kekulize(kekulized, clearAromaticFlags=True)
+        kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
     except Exception:
         return ""
     candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx)

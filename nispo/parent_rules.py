@@ -1117,6 +1117,8 @@ def _polycyclic_substituent_chain_signal(name: str) -> bool:
     chains, main-chain unsaturation, or heavily halogenated/heteroatom chains.
     """
 
+    if _fragile_polycyclic_substituent_chain_name(name):
+        return False
     if any(term in name for term in ("carbonyl", "carboxy", "dioxo", "trioxo", "tetraoxo", "oxo")):
         return True
     if any(term in name for term in ("amino", "hydroxy", "imino")) and any(
@@ -1127,6 +1129,16 @@ def _polycyclic_substituent_chain_signal(name: str) -> bool:
         return True
     halo_count = sum(name.count(term) for term in ("fluoro", "chloro", "bromo", "iodo"))
     return halo_count >= 2 and any(term in name for term in ("bora", "sila", "phospha", "aza", "oxa", "thia"))
+
+
+def _fragile_polycyclic_substituent_chain_name(name: str) -> bool:
+    if any(marker in name for marker in ("(E)", "(Z)", ",E)", ",Z)")):
+        return True
+    if "methylidene" in name:
+        return True
+    if "2-oxaethyl" in name and "aminosulfinyl" in name:
+        return True
+    return "hydroxyspiro" in name and "aminosulfinyl" in name and "carbonyl" not in name
 
 
 def _nonring_heavy_atom_count(mol) -> int:

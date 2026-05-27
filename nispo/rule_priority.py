@@ -163,7 +163,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Spiro graph names are more specific than single-ring fallback.",
     ),
     "spiro-functional-chain-substituent": RulePriority(
-        25,
+        19,
         seniority_score=3,
         parent_class_score=3,
         specificity_score=3,

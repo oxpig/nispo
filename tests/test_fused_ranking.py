@@ -206,6 +206,30 @@ def test_functional_chain_beats_fragile_oxabutyl_spiro_parent():
     assert "4-oxabutyl)amino" not in name
 
 
+def test_senior_carbonyl_chain_can_outrank_spiro_parent():
+    name = smiles_to_iupac(
+        "COCC1CCN(CC2(O)CCN(C(=O)[C@H](C)CC(F)(F)F)CC23CCCC3)C(=O)C1"
+    )
+
+    assert name.startswith("(3R)-1,1,1-trifluoro-3-")
+    assert name.endswith("-butane")
+
+
+def test_fragile_imino_sulfinyl_spiro_chain_defers_to_ring_parent():
+    name = smiles_to_iupac(
+        "CC(C)(C)OC(=O)N1CCC2(CCC(CO)/C2=N\\[S@](=O)C(C)(C)C)CC1"
+    )
+
+    assert "spiro[cyclopentane-1,4'-piperidin]" in name
+    assert not name.endswith("aminosulfinyl)-propane")
+
+
+def test_free_hydroxy_aminosulfinyl_spiro_chain_defers_to_ring_parent():
+    name = smiles_to_iupac("CC(C)(C)S(=O)N[C@@H]1C[C@@H](O)CC12CCNCC2")
+
+    assert name == "(S,R)-3-hydroxy-5-((1,1-dimethyl-ethylsulfinyl)amino)-spiro[cyclopentane-1,4'-piperidin]"
+
+
 def test_disubstituted_carbocycle_parent_uses_relative_stereo():
     name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
 

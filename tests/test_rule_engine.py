@@ -50,3 +50,12 @@ def test_oxabutyl_amino_spiro_substituent_is_opsin_fragile_shape():
 def test_mixed_ring_alkyl_silane_parent_is_opsin_fragile_shape():
     assert _opsin_stability_penalty("phenylpropylsilane") > 0
     assert _opsin_stability_penalty("triphenylsilane") == 0
+
+
+def test_spiro_methylidene_methane_artifact_is_opsin_fragile_shape():
+    assert (
+        _opsin_stability_penalty(
+            "1-(7-methylidene-1,3-dioxo-2,6-diazaspiro[4.4]nonan-8-yl)-methane"
+        )
+        > 0
+    )

@@ -181,6 +181,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if " ethylene ketal" in name and "dioxaspiro" not in name:
         penalty += 25
+    if _has_spiro_methylidene_methane_artifact(name):
+        penalty += 25
     return penalty
 
 
@@ -242,6 +244,10 @@ def _is_mixed_ring_alkyl_silane_name(name: str) -> bool:
             "dodecyl",
         )
     )
+
+
+def _has_spiro_methylidene_methane_artifact(name: str) -> bool:
+    return name.endswith("-methane") and "spiro[" in name and "methylidene" in name and "yl)-methane" in name
 
 
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:

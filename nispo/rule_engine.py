@@ -145,7 +145,7 @@ def _opsin_stability_penalty(name: str) -> int:
             continue
         if fragment in name:
             if fragment.startswith("cyclohexa") and _has_polycyclic_parent_descriptor(name):
-                penalty += 10
+                penalty += 2
             else:
                 penalty += 25
     retained_phosphate_shorthands = (

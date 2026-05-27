@@ -95,3 +95,17 @@ def test_thienopyridine_short_chain_defers_to_generic_parent():
     assert "thiabicyclo[4.3.0]" in name
     assert "thieno[3,2-b]pyridine" not in name
     assert not name.endswith("-methane")
+
+
+def test_systematic_polycyclic_parent_can_beat_fragile_retained_fused_parent():
+    name = smiles_to_iupac("CC(C)(C)c1nc2ccc([N+](=O)[O-])cc2n1C(=O)c1ccccc1")
+
+    assert "diazabicyclo[4.3.0]" in name
+    assert "benzimidazole" not in name
+
+
+def test_systematic_polycyclic_parent_can_beat_retained_fused_amide():
+    name = smiles_to_iupac("CC(C)n1c(Nc2ccc(C(=O)NO)cc2)nc2ccc(Br)cc21")
+
+    assert "diazabicyclo[4.3.0]" in name
+    assert "benzimidazole" not in name

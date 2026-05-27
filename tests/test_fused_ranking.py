@@ -248,6 +248,12 @@ def test_positive_heterocycle_parent_beats_acyclic_chain_parent():
     assert name == "3-(2-ethyl-hexyl)-oxazol-3-ium"
 
 
+def test_retained_benzil_parent_beats_substituent_fragment_artifact():
+    name = smiles_to_iupac("O=C(C(=O)c1ccc(OCCO)cc1)c1ccc(OCCO)cc1")
+
+    assert name == "4'-((3-oxapropyl)oxy)-4-((3-oxapropyl)oxy)-benzil"
+
+
 def test_disubstituted_carbocycle_parent_uses_relative_stereo():
     name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
 

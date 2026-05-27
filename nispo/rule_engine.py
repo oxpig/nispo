@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import re
 
 from .fragment_rules import (
     FragmentAssemblyRule,
@@ -183,6 +184,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_spiro_methylidene_methane_artifact(name):
         penalty += 25
+    if _has_retained_parent_substituent_artifact(name):
+        penalty += 25
     return penalty
 
 
@@ -249,6 +252,10 @@ def _is_mixed_ring_alkyl_silane_name(name: str) -> bool:
 
 def _has_spiro_methylidene_methane_artifact(name: str) -> bool:
     return name.endswith("-methane") and "spiro[" in name and "methylidene" in name and "yl)-methane" in name
+
+
+def _has_retained_parent_substituent_artifact(name: str) -> bool:
+    return bool(re.search(r"(?:benzil|tolan)-\d+'?-yl\b", name))
 
 
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:

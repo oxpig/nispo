@@ -21,5 +21,22 @@ def test_batch_does_not_abort_on_unsupported_molecule():
     assert outputs[2] == "benzene"
 
 
+def test_batch_matches_scalar_for_mixed_inputs():
+    inputs = [
+        "c1ccccc1",
+        "not-a-smiles",
+        "C1CCCCC1",
+        "",
+        "O=C1NC(=O)CC1",
+        "c1ccc2ccccc2c1",
+    ]
+
+    scalar_outputs = [smiles_to_iupac(smiles) for smiles in inputs]
+    batch_outputs = smiles_to_iupac_batch(inputs)
+
+    assert len(batch_outputs) == len(inputs)
+    assert batch_outputs == scalar_outputs
+
+
 def test_fluorine_18_label_marks_fluoro_substituent():
     assert smiles_to_iupac("[18F]C1CCC1") == "1-[18F]fluoro-cyclobutane"

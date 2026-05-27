@@ -131,13 +131,24 @@ def _aryloxy_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
         if n.GetIdx() != idx and n.IsInRing()
     ]
     if len(ring_neighbors) != 1:
-        return ""
+        return _complex_oxymethyl_prefix(mol, oidx, idx)
     ring = _ring_substituent_prefix(mol, ring_neighbors[0], oidx)
     if not ring:
-        return ""
+        return _complex_oxymethyl_prefix(mol, oidx, idx)
     if ring == "phenyl":
         return "phenoxymethyl"
     return f"({ring}oxy)methyl"
+
+
+def _complex_oxymethyl_prefix(mol, oidx: int, carbon_idx: int) -> str:
+    oxy_prefix = branch_prefix(mol, oidx, carbon_idx)
+    if not oxy_prefix or not oxy_prefix.endswith("oxy"):
+        return ""
+    if "sulfonyloxy" not in oxy_prefix:
+        return ""
+    if "-" in oxy_prefix or oxy_prefix[:1].isdigit():
+        return f"({oxy_prefix})methyl"
+    return oxy_prefix + "methyl"
 
 
 def _iminomethyl_prefix(mol, idx: int, parent_idx: int) -> str:

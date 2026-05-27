@@ -69,6 +69,14 @@ def test_sulfonyl_branch_uses_complex_carbon_ligand_renderer():
     assert "cyclopropylmethylsulfonyl" in branch_prefix(mol, 9, 8)
 
 
+def test_oxymethyl_branch_accepts_complex_oxy_prefixes():
+    mol = Chem.MolFromSmiles(
+        "Cc1ccc(S(=O)(=O)OC[C@H]2CC[C@@H](COS(=O)(=O)c3ccc(C)cc3)O2)cc1"
+    )
+
+    assert branch_prefix(mol, 14, 13) == "(4-methylphenylsulfonyloxy)methyl"
+
+
 def test_extracted_ring_branch_family_keeps_polycyclic_fallback_importable():
     mol = Chem.MolFromSmiles("Cc1ccccc1")
 

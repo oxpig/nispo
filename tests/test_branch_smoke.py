@@ -61,6 +61,14 @@ def test_extracted_hetero_branch_family_keeps_nitrooxy_wiring():
     assert branch_prefix(mol, 1, 0) == "nitrooxy"
 
 
+def test_sulfonyl_branch_uses_complex_carbon_ligand_renderer():
+    mol = Chem.MolFromSmiles(
+        "COC(=O)c1sccc1S(=O)(=O)CC1(NC(=O)OC(C)(C)C)CC1"
+    )
+
+    assert "cyclopropylmethylsulfonyl" in branch_prefix(mol, 9, 8)
+
+
 def test_extracted_ring_branch_family_keeps_polycyclic_fallback_importable():
     mol = Chem.MolFromSmiles("Cc1ccccc1")
 

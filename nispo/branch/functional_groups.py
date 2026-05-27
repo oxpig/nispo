@@ -140,7 +140,7 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             if sulfur.endswith("sulfanyl"):
                 return sulfur[: -len("sulfanyl")] + "disulfanyl"
             return sulfur + "sulfanyl"
-        alk = substituent_from_root(mol, heavy[0], idx)
+        alk = substituent_from_root(mol, heavy[0], idx) or branch_prefix(mol, heavy[0], idx)
         if not alk:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)

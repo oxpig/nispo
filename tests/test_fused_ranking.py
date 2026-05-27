@@ -263,6 +263,12 @@ def test_retained_benzil_parent_beats_substituent_fragment_artifact():
     assert name == "4'-((3-oxapropyl)oxy)-4-((3-oxapropyl)oxy)-benzil"
 
 
+def test_ring_methyl_parent_beats_substituted_methane_artifact():
+    name = smiles_to_iupac("Cc1ccc([IH+])cc1")
+
+    assert name == "1-iodo-4-methyl-benzene"
+
+
 def test_disubstituted_carbocycle_parent_uses_relative_stereo():
     name = smiles_to_iupac("N[C@H]1CC[C@H](N)CC1")
 

@@ -184,6 +184,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_spiro_methylidene_methane_artifact(name):
         penalty += 25
+    if _has_ring_substituted_methane_parent_artifact(name):
+        penalty += 25
     if _has_retained_parent_substituent_artifact(name):
         penalty += 25
     return penalty
@@ -252,6 +254,27 @@ def _is_mixed_ring_alkyl_silane_name(name: str) -> bool:
 
 def _has_spiro_methylidene_methane_artifact(name: str) -> bool:
     return name.endswith("-methane") and "spiro[" in name and "methylidene" in name and "yl)-methane" in name
+
+
+def _has_ring_substituted_methane_parent_artifact(name: str) -> bool:
+    if not name.endswith("-methane"):
+        return False
+    if any(term in name for term in ("sulfonimidoyl", "sulfinimidoyl", "sulfimidoyl")):
+        return False
+    ring_terms = (
+        "benz",
+        "cyclo",
+        "phenyl",
+        "pyrid",
+        "pyrimid",
+        "pyraz",
+        "thiaz",
+        "thien",
+        "fur",
+        "spiro[",
+        "bicyclo[",
+    )
+    return any(term in name for term in ring_terms)
 
 
 def _has_retained_parent_substituent_artifact(name: str) -> bool:

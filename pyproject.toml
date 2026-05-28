@@ -1,6 +1,6 @@
 [project]
 name = "nispo"
-version = "0.1.2"
+version = "0.1.3"
 description = "SMILES to IUPAC naming tool optimized by OPSIN roundtrip benchmarks."
 readme = "README.md"
 requires-python = ">=3.10"

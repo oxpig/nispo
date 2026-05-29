@@ -63,6 +63,9 @@ def test_single_ring_functional_suffix_parents_roundtrip():
         "O=C(Nc1ccccc1)c1ccco1",
         "Nc1ccc(C(=O)Nc2ccccc2)cc1",
         "O=C(Nc1ccccc1)NC1CCCCC1",
+        "B1(OC(C(O1)(C)C)(C)C)c2ccccc2",
+        "CCCCCCCCCCCCCCCCCCCCC(=O)O",
+        "CCCCCC(=O)[O-]",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)

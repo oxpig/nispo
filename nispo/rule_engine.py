@@ -30,8 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 122
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 122
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 128
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 128
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,6 +362,9 @@ _LATE_COMPACTION_TRIGGERS = (
     "tert-butoxycarbonyl",
     "tert-butyloxycarbonyl",
     "isopropyloxy",
+    "dioxaborolan",
+    "1-carboxy-",
+    "1-carboxylato-",
     "phenylcarbonyl",
     "pyridin-",
     "pyrimidin-",
@@ -407,6 +410,75 @@ def _strip_stereochemical_descriptors(name: str, *, preserve_ez: bool = True) ->
         return ""
 
     return re.sub(r"\((?=[0-9RSEZrs,+-]*[RSEZrs])[0-9RSEZrs,+-]+\)-", replace, name)
+
+
+_ROOT_TO_NEXT_ROOT = {ROOTS[index]: ROOTS[index + 1] for index in range(1, max(ROOTS))}
+_TERMINAL_CARBOXY_PARENT_RE = re.compile(
+    rf"(?P<prefix>.*?)(?P<parent>(?P<root>{'|'.join(sorted(map(re.escape, _ROOT_TO_NEXT_ROOT), key=len, reverse=True))})"
+    r"(?P<ending>ane|(?:a?-\d+(?:,\d+)*-(?:di|tri|tetra|penta|hexa)?(?:en|yn)e?)))$"
+)
+
+
+def _compact_terminal_carboxy_suffix_parent(name: str) -> str:
+    """Promote safe terminal carboxy/carboxylato acyclic names to suffix parents."""
+
+    if "1-carboxy-" not in name and "1-carboxylato-" not in name:
+        return name
+    stereo_prefix = ""
+    rest = name
+    if rest.startswith("("):
+        end = rest.find(")-")
+        if end != -1 and re.fullmatch(r"[0-9RSEZrs,+-]+", rest[1:end]):
+            stereo_prefix = _shift_terminal_carboxy_locants(rest[: end + 2])
+            rest = rest[end + 2 :]
+    if (
+        "(" in rest
+        or ")" in rest
+        or "[" in rest
+        or "cyclo" in rest
+        or re.search(r"\d+(?:C|N|O|S|P|F|Cl|Br|I)\b", rest)
+    ):
+        return name
+    match = _TERMINAL_CARBOXY_PARENT_RE.fullmatch(rest)
+    if not match:
+        return name
+    prefix = match.group("prefix")
+    marker = ""
+    for candidate in ("1-carboxylato-", "1-carboxy-"):
+        if re.search(rf"(?<!\d){re.escape(candidate)}", prefix):
+            marker = candidate
+            prefix = re.sub(rf"(?<!\d){re.escape(candidate)}", "", prefix, count=1)
+            break
+    if not marker:
+        return name
+    suffix = _terminal_carboxy_suffix_parent(
+        match.group("root"),
+        match.group("ending"),
+        anion=marker == "1-carboxylato-",
+    )
+    if not suffix:
+        return name
+    return stereo_prefix + _shift_terminal_carboxy_locants(prefix) + suffix
+
+
+def _terminal_carboxy_suffix_parent(root: str, ending: str, *, anion: bool) -> str:
+    next_root = _ROOT_TO_NEXT_ROOT.get(root)
+    if not next_root:
+        return ""
+    if ending == "ane":
+        return next_root + ("anoate" if anion else "anoic acid")
+    shifted = _shift_terminal_carboxy_locants(ending)
+    if anion:
+        return next_root + shifted.replace("ene", "enoate").replace("yne", "ynoate")
+    return next_root + shifted.replace("ene", "enoic acid").replace("yne", "ynoic acid")
+
+
+def _shift_terminal_carboxy_locants(text: str) -> str:
+    return re.sub(
+        r"(?<![A-Za-z\[])(\d+)(?=[A-Za-z,)-]|$)",
+        lambda match: str(int(match.group(1)) + 1),
+        text,
+    )
 
 
 def _compact_common_substituent_terms(name: str) -> str:
@@ -483,6 +555,7 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("pyrimidin-2-yl", "2-pyrimidyl"),
         ("bicyclo[4.4.0]deca-1(10),2(3),4(5),6(7),8(9)-pentaen-1-yl", "1-naphthyl"),
         ("bicyclo[4.4.0]deca-1(10),2(3),4(5),6(7),8(9)-pentaen-2-yl", "2-naphthyl"),
+        ("4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl", "tetramethyl-1,3,2-dioxaborolan-2-yl"),
         ("piperidin-1-yl", "piperidino"),
         ("piperidin-4-yl", "4-piperidyl"),
         ("piperazin-1-yl", "piperazino"),
@@ -503,7 +576,9 @@ def _compact_common_substituent_terms(name: str) -> str:
     )
     for verbose, compact in rewrites:
         name = name.replace(verbose, compact)
+    name = name.replace("isocarbopropoxy", "isopropoxycarbonyl")
     name = _compact_validated_functional_aliases(name)
+    name = _compact_terminal_carboxy_suffix_parent(name)
     for halo_methyl, compact in (
         ("trifluoromethyl", "trifluoromethoxy"),
         ("difluoromethyl", "difluoromethoxy"),

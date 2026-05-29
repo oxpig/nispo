@@ -14,6 +14,7 @@ from .formatting import format_prefixes as _format_prefixes
 from .formatting import loc_unsat
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .fused_template_families import (
+    candidate_generated_fused_templates as _candidate_generated_fused_templates,
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
     hydrocarbon_replacement_parent_templates_for_graph as _hydrocarbon_replacement_parent_templates_for_graph,
@@ -1573,9 +1574,22 @@ def _standalone_whole_molecule_retained_name(template: dict) -> str:
     source_file = template.get("source_file", "")
     if source_file == "naturalProducts.xml" and "'" not in name and not name.endswith("ylic"):
         return name
+    if source_file in _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES:
+        if name.endswith("ylic"):
+            return f"{name} acid"
+        return name
     if name in {"benzyn", "tropylium"}:
         return name
     return ""
+
+
+_EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES = {
+    "aminoAcids.xml",
+    "arylGroups.xml",
+    "carbohydrates.xml",
+    "simpleCyclicGroups.xml",
+    "simpleGroups.xml",
+}
 
 
 def _whole_molecule_retained_candidate_family(name: str) -> str:
@@ -1938,7 +1952,7 @@ _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
 
 
 _MAX_EXHAUSTIVE_RING_PARENT_HEAVY_ATOMS = 54
-_MAX_WHOLE_MOLECULE_RETAINED_RINGS = 1
+_MAX_WHOLE_MOLECULE_RETAINED_RINGS = 6
 
 
 def _too_large_for_exhaustive_ring_parent_search(mol) -> bool:
@@ -1983,7 +1997,7 @@ class NaturalProductTopologyParentRule(FusedParentRule):
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() != 4:
+        if ctx.features.get("max_ring_system_ring_count") != 4:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
@@ -2248,6 +2262,27 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         if not aromatic and ring_count < 3:
             return None
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
+
+    def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
+        return _has_retained_fused_parent_candidate(ctx, self._Chem)
+
+
+def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
+    mol = ctx.mol
+    template_sets = (
+        ctx.candidate_templates(_curated_fused_templates(Chem)),
+        _candidate_generated_fused_templates(mol, Chem),
+    )
+    for templates in template_sets:
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            templates,
+            Chem,
+            reject_extra_core_bonds=True,
+        ):
+            if _name_fused_core_match(mol, template, match):
+                return True
+    return False
 
 
 class ExactRetainedParentRule:

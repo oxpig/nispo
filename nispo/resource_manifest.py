@@ -45,6 +45,7 @@ SUBSTITUENT_FAMILY = OpsinResourceFamily(
     note="OPSIN monovalent and multivalent substituent fragments usable as prefixes.",
     files=(
         "arylSubstituents.xml",
+        "carbohydrates.xml",
         "multiRadicalSubstituents.xml",
         "simpleSubstituents.xml",
         "substituents.xml",

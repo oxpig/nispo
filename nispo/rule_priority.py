@@ -113,7 +113,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Graph-composed spiro parents with generic bicyclo/tricyclo components should outrank aromatic skeletal-replacement aliases for saturated spiro systems.",
     ),
     "retained-fused-parent": RulePriority(
-        20,
+        18,
         seniority_score=2,
         parent_class_score=2,
         specificity_score=2,
@@ -123,7 +123,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Retained fused templates are a general parent family and should precede generated variants.",
     ),
     "hydro-retained-fused-parent": RulePriority(
-        21,
+        18,
         seniority_score=2,
         parent_class_score=2,
         specificity_score=3,
@@ -133,7 +133,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Hydrogenated retained fused forms are a close retained-parent variant.",
     ),
     "charged-retained-fused-parent": RulePriority(
-        22,
+        18,
         seniority_score=2,
         parent_class_score=2,
         specificity_score=3,
@@ -193,7 +193,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Generic polycyclic graph names run after retained fused, bicyclic, and spiro preferences and before generated templates.",
     ),
     "generated-parent": RulePriority(
-        29,
+        28,
         seniority_score=3,
         parent_class_score=3,
         specificity_score=3,
@@ -213,7 +213,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Single-ring parent naming runs after fused and generated ring-system candidates.",
     ),
     "generated-partial-hydro-parent": RulePriority(
-        31,
+        28,
         seniority_score=4,
         parent_class_score=3,
         specificity_score=4,
@@ -223,7 +223,7 @@ PARENT_RULE_PRIORITIES = {
         rationale="Generated partial-hydro variants are fallback candidates after exact generated templates.",
     ),
     "skeletal-replacement-parent": RulePriority(
-        32,
+        28,
         seniority_score=4,
         parent_class_score=3,
         specificity_score=4,

@@ -180,6 +180,16 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
             "locants": {0: "1", 1: "2", 2: "3", 4: "4", 5: "5", 6: "6", 7: "7", 3: "3a", 8: "7a"},
         },
         {
+            "name": "1H-benzotriazole",
+            "mol": Chem.MolFromSmiles("N1N=NC2=C1C=CC=C2"),
+            "locants": {0: "1", 1: "2", 2: "3", 8: "4", 7: "5", 6: "6", 5: "7", 3: "3a", 4: "7a"},
+        },
+        {
+            "name": "2H-benzotriazole",
+            "mol": Chem.MolFromSmiles("N=1NN=C2C1C=CC=C2"),
+            "locants": {0: "1", 1: "2", 2: "3", 8: "4", 7: "5", 6: "6", 5: "7", 3: "3a", 4: "7a"},
+        },
+        {
             "name": "indane",
             "mol": Chem.MolFromSmiles("C1CCC2=CC=CC=C12"),
             "locants": {0: "1", 1: "2", 2: "3", 4: "4", 5: "5", 6: "6", 7: "7", 3: "3a", 8: "7a"},
@@ -287,6 +297,11 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
             "name": "indolizidine",
             "mol": Chem.MolFromSmiles("C1CCN2CCCCC12"),
             "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8", 8: "8a"},
+        },
+        {
+            "name": "pyrrolizidine",
+            "mol": Chem.MolFromSmiles("C1CCN2CCCC12"),
+            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "7a"},
         },
         {
             "name": "phthalide",
@@ -427,6 +442,13 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
 
 FUSED_SUBSTITUENT_STEMS = {
     "naphthalene": "naphthalen",
+    "1,5-naphthyridine": "1,5-naphthyridin",
+    "1,6-naphthyridine": "1,6-naphthyridin",
+    "1,7-naphthyridine": "1,7-naphthyridin",
+    "1,8-naphthyridine": "1,8-naphthyridin",
+    "2,6-naphthyridine": "2,6-naphthyridin",
+    "2,7-naphthyridine": "2,7-naphthyridin",
+    "naphthyridine": "naphthyridin",
     "1H-indole": "1H-indol",
     "quinoline": "quinolin",
     "benzofuran": "benzofuran",
@@ -436,6 +458,8 @@ FUSED_SUBSTITUENT_STEMS = {
     "1,3,4,5-tetrahydro-2H-1,5-benzodiazepine": "1,3,4,5-tetrahydro-2H-1,5-benzodiazepin",
     "5,6,7,8-tetrahydro-1,8-naphthyridine": "5,6,7,8-tetrahydro-1,8-naphthyridin",
     "1H-indazole": "1H-indazol",
+    "1H-benzotriazole": "1H-benzotriazol",
+    "2H-benzotriazole": "2H-benzotriazol",
     "indane": "indan",
     "ind-1-ene": "ind-1-en",
     "isoindole": "isoindol",
@@ -448,6 +472,7 @@ FUSED_SUBSTITUENT_STEMS = {
     "3,4-dihydrocoumarin": "3,4-dihydrocoumarin",
     "flavone": "flavon",
     "indolizidine": "indolizidin",
+    "pyrrolizidine": "pyrrolizidin",
     "phthalide": "phthalid",
     "isoindolin-1-one": "isoindolin",
     "quinazoline": "quinazolin",

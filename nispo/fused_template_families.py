@@ -181,7 +181,8 @@ def generated_fusion_preference(name: str) -> tuple:
 
 
 def generated_template_key(template: dict) -> tuple:
-    return (generated_fusion_preference(template_record_name(template)), template_record_name(template))
+    name = template_record_name(template)
+    return (len(name), generated_fusion_preference(name), name)
 
 
 def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skeleton: int) -> tuple[dict, ...]:
@@ -303,13 +304,13 @@ def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ..
         selected.extend(
             sorted(
                 scaffold_records,
-                key=lambda record: generated_fusion_preference(str(record.get("name", ""))),
+                key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
             )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
         )
     return tuple(
         sorted(
             selected,
-            key=lambda record: generated_fusion_preference(str(record.get("name", ""))),
+            key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
         )
     )
 

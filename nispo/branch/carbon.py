@@ -114,6 +114,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
 
     if parent_order == Chem.BondType.SINGLE:
+        name = _resource_prefix(mol, idx, parent_idx)
+        if _prefer_resource_carbon_prefix(name):
+            return _with_root_carbon_isotope(mol, idx, name)
         has_double_c = _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.DOUBLE)
         if has_double_c:
             for renderer in (
@@ -179,10 +182,26 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_carboxylate_carbon(mol, idx):
             return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("oate", "carboxylato"))
 
-    name = _carbon_prefix(mol, idx, parent_idx)
+    name = _resource_prefix(mol, idx, parent_idx)
     if name:
         return _with_root_carbon_isotope(mol, idx, name)
-    return _resource_prefix(mol, idx, parent_idx)
+    return _with_root_carbon_isotope(mol, idx, _carbon_prefix(mol, idx, parent_idx))
+
+
+def _prefer_resource_carbon_prefix(name: str) -> bool:
+    return _prefer_resource_prefix(name)
+
+
+def _prefer_resource_prefix(name: str) -> bool:
+    if not name:
+        return False
+    if "carboxy" in name:
+        return False
+    if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "pyridine", "pyrimidine"}:
+        return False
+    if name.startswith(("active-amyl", "carbisopropoxy")):
+        return False
+    return True
 
 
 def _deuterated_methyl_prefix(mol, idx: int, parent_idx: int) -> str:

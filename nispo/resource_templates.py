@@ -25,6 +25,36 @@ _RAW_TEMPLATE_MOL_CACHE: dict[tuple[int, str], object | None] = {}
 # depend on OPSIN; these are NISPO inverse rules.
 OPSIN_PARENT_TEMPLATES = (
     (
+        "1,5-naphthyridine",
+        "N1=CC=CC2=NC=CC=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
+        "1,6-naphthyridine",
+        "N1=CC=CC2=CN=CC=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
+        "1,7-naphthyridine",
+        "N1=CC=CC2=CC=NC=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
+        "1,8-naphthyridine",
+        "N1=CC=CC2=CC=CN=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
+        "2,6-naphthyridine",
+        "C1=NC=CC2=CN=CC=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
+        "2,7-naphthyridine",
+        "C1=NC=CC2=CC=NC=C12",
+        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+    ),
+    (
         "1,2-dihydronaphthalene",
         "C1CC=CC2=CC=CC=C12",
         ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
@@ -465,6 +495,7 @@ PARENT_NAME_NORMALIZATIONS = {
     "betacarbolin": "beta-carboline",
     "carbazol": "carbazole",
     "chinolin": "quinoline",
+    "coumaron": "benzofuran",
     "cinnolin": "cinnoline",
     "imidazol": "imidazole",
     "indazol": "indazole",
@@ -491,6 +522,7 @@ PARENT_NAME_NORMALIZATIONS = {
     "pyridin": "pyridine",
     "pyrimidin": "pyrimidine",
     "pyrrol": "pyrrole",
+    "quinolin": "quinoline",
     "quinazolin": "quinazoline",
     "quinuclidin": "quinuclidine",
     "quinoxalin": "quinoxaline",

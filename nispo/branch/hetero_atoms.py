@@ -12,6 +12,8 @@ else:
 
 from ..constants import HALO, MULT, ROOTS
 from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
+from ..substituent_resource_rules import resource_substituent_match as _resource_substituent_match
+from ..template_access import template_record_name
 from .functional_groups import (
     _carbonyl_substituent_prefix,
     _is_azido_attachment,
@@ -99,6 +101,9 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
         carbonyl = _carbonyl_substituent_prefix(mol, heavy[0], idx)
         if carbonyl:
             return carbonyl + "oxy"
+        glycosyl = _glycosyloxy_prefix(mol, heavy[0], idx)
+        if glycosyl:
+            return glycosyl
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "S":
             sulfur = _sulfur_prefix(mol, heavy[0], idx)
             if (
@@ -114,9 +119,34 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
             if ring == "phenyl":
                 return "phenoxy"
             return f"({ring})oxy"
+        retained = _retained_oxygen_resource_prefix(mol, idx, parent_idx)
+        if retained:
+            return retained
         alk = substituent_from_root(mol, heavy[0], idx)
         return _alkyl_to_alkoxy(alk)
     return ""
+
+
+def _retained_oxygen_resource_prefix(mol, oxygen_idx: int, parent_idx: int) -> str:
+    template = _resource_substituent_match(mol, oxygen_idx, parent_idx, Chem)
+    if not template:
+        return ""
+    name = template_record_name(template)
+    if "siloxy" in name or "silanoxy" in name:
+        return name
+    return ""
+
+
+def _glycosyloxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
+    if mol.GetAtomWithIdx(carbon_idx).GetSymbol() != "C":
+        return ""
+    template = _resource_substituent_match(mol, carbon_idx, oxygen_idx, Chem)
+    if not template or template.get("source_file") != "carbohydrates.xml":
+        return ""
+    name = template_record_name(template)
+    if not name.endswith(("osyl", "aminyl", "muramyl", "neuraminyl")):
+        return ""
+    return name + "oxy"
 
 
 def _sulfur_has_ring_carbon_ligand(mol, sulfur_idx: int, oxygen_idx: int) -> bool:

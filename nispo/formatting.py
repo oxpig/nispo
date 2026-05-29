@@ -88,24 +88,27 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
     if not prefixes:
         return ""
     grouped: dict[str, list[str]] = defaultdict(list)
-    complex_items: list[str] = []
     for loc, name in prefixes:
-        if _prefix_needs_parentheses(name):
-            complex_items.append(f"{loc}-({name})")
-        else:
-            grouped[name].append(loc)
+        grouped[name].append(loc)
 
     parts = []
+    complex_parts = []
     for name in sorted(grouped):
         locs = sorted(grouped[name], key=_locant_sort_key)
-        if len(locs) == 1:
+        if _prefix_needs_parentheses(name):
+            if len(locs) == 1:
+                complex_parts.append(f"{locs[0]}-({name})")
+            else:
+                multiplier = COMPLEX_MULT.get(len(locs), MULT.get(len(locs), ""))
+                complex_parts.append(f"{','.join(locs)}-{multiplier}({name})")
+        elif len(locs) == 1:
             parts.append(f"{locs[0]}-{name}")
         elif _multiplied_prefix_needs_parentheses(name):
             multiplier = COMPLEX_MULT.get(len(locs), MULT.get(len(locs), ""))
             parts.append(f"{','.join(locs)}-{multiplier}({name})")
         else:
             parts.append(f"{','.join(locs)}-{MULT.get(len(locs), '')}{name}")
-    parts.extend(sorted(complex_items))
+    parts.extend(sorted(complex_parts))
     return "-".join(parts)
 
 

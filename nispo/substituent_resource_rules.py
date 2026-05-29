@@ -39,9 +39,14 @@ SUPPORTED_SUBSTITUENT_ATTRIBUTES = {
 
 
 def resource_substituent_prefix(mol, idx: int, parent_idx: int, Chem) -> str:
+    template = resource_substituent_match(mol, idx, parent_idx, Chem)
+    return template_record_name(template) if template else ""
+
+
+def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | None:
     bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
-        return ""
+        return None
     atoms = _collect_subtree(mol, idx, parent_idx)
     key = _subtree_key(mol, idx, atoms)
     for template in _substituent_templates(Chem).get(key, ()):
@@ -50,8 +55,8 @@ def resource_substituent_prefix(mol, idx: int, parent_idx: int, Chem) -> str:
             if set(match) != atoms:
                 continue
             if match[0] == idx:
-                return template_record_name(template)
-    return ""
+                return template
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -72,11 +77,10 @@ def _template_from_token(Chem, record_or_token) -> dict | None:
     value = token.attrib.get("value", "")
     if "." in value:
         return None
-    if not value.startswith("-"):
+    out_ids = tuple(part.strip() for part in token.attrib.get("outIDs", "").split(",") if part.strip())
+    if not value.startswith("-") and len(out_ids) != 1:
         return None
-    if "." in value:
-        return None
-    smiles = value[1:]
+    smiles = value[1:] if value.startswith("-") else value
     if not smiles:
         return None
     name = preferred_token_name(token.text or "")
@@ -91,9 +95,15 @@ def _template_from_token(Chem, record_or_token) -> dict | None:
     )
     if len(labels) != mol.GetNumAtoms():
         return None
+    root_idx = _template_root_idx(value, labels, out_ids)
+    if root_idx is None:
+        return None
     mol = apply_token_operations(Chem, mol, labels, token)
     if mol is None or mol.GetNumAtoms() > 24:
         return None
+    if root_idx:
+        order = (root_idx,) + tuple(idx for idx in range(mol.GetNumAtoms()) if idx != root_idx)
+        mol = Chem.RenumberAtoms(mol, list(order))
     return {
         "name": name,
         "mol": mol,
@@ -101,6 +111,19 @@ def _template_from_token(Chem, record_or_token) -> dict | None:
         "source_file": record.file_name if record is not None else "",
         "source_subtype": record.context.sub_type if record is not None else "",
     }
+
+
+def _template_root_idx(value: str, labels: tuple[str, ...], out_ids: tuple[str, ...]) -> int | None:
+    if value.startswith("-"):
+        return 0
+    out_id = out_ids[0] if out_ids else ""
+    if out_id in labels:
+        return labels.index(out_id)
+    if out_id.isdigit():
+        idx = int(out_id) - 1
+        if 0 <= idx < len(labels):
+            return idx
+    return None
 
 
 def _record_family(record: OpsinTokenRecord | None) -> str:

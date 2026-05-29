@@ -181,4 +181,11 @@ class MoleculeContext:
                 self.Chem,
                 features=self.features,
             )
+            if not self._generated_fused_templates:
+                self._generated_fused_templates = candidate_generated_fused_templates(
+                    self.mol,
+                    self.Chem,
+                    features=self.features,
+                    graph_filter=False,
+                )
         return self._generated_fused_templates

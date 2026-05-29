@@ -47,9 +47,9 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     return _simple_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _fused_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
-    ) or _generic_polycyclic_ring_substituent_prefix(
+    ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem) or _generic_polycyclic_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
-    ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem)
+    )
 
 
 def _generic_polycyclic_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
@@ -592,6 +592,12 @@ def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) ->
     generated = _fused_ring_substituent_prefix_from_templates(
         mol, attachment_idx, parent_idx, generated_templates, generated=True
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, generated_templates)
+    if generated:
+        return generated
+    broad_generated_templates = _candidate_generated_fused_templates(mol, Chem, graph_filter=False)
+    generated = _fused_ring_substituent_prefix_from_templates(
+        mol, attachment_idx, parent_idx, broad_generated_templates, generated=True
+    ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, broad_generated_templates)
     return generated
 
 

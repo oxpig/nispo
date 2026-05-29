@@ -344,6 +344,8 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
 def _apply_contraction_phase_output_policy(name: str) -> str:
     if _needs_late_compaction(name):
         name = _compact_common_substituent_terms(name)
+    if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH and _needs_selected_cap_recovery(name):
+        name = _compact_selected_output_name(name)
     if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
         return ""
     return name
@@ -355,9 +357,38 @@ def _compact_selected_output_name(name: str) -> str:
     if not name:
         return name
     name = _compact_nested_linker_parentheses(name)
+    name = _compact_selected_acylamino_terms(name)
     name = name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "trimethylsilylethoxymethyl")
     name = name.replace("carbamoyl", "carbamyl")
     return re.sub(r"(?<![A-Za-z])(?<!N-)cyclopropylcarbonylamino", "cyclopropanecarboxamido", name)
+
+
+def _compact_selected_acylamino_terms(name: str) -> str:
+    def benzamido(match: re.Match[str]) -> str:
+        prefix = name[: match.start()]
+        token_start = max(prefix.rfind("("), prefix.rfind(",")) + 1
+        benzoyl_stem = prefix[token_start:]
+        if benzoyl_stem and not any(ch.isdigit() for ch in benzoyl_stem):
+            return match.group(0)
+        return "benzamido"
+
+    name = re.sub(r"benzoylamino", benzamido, name)
+    name = name.replace("2-pyridylcarbonylamino", "picolinamido")
+    return name.replace("4-pyridylcarbonylamino", "isonicotinamido")
+
+
+def _needs_selected_cap_recovery(name: str) -> bool:
+    return any(
+        trigger in name
+        for trigger in (
+            "((",
+            "5,5-dimethyl-2-oxa-5-silahexyl",
+            "carbamoyl",
+            "cyclopropylcarbonylamino",
+            "benzoylamino",
+            "pyridylcarbonylamino",
+        )
+    )
 
 
 _LATE_COMPACTION_TRIGGERS = (
@@ -589,6 +620,7 @@ def _compact_common_substituent_terms(name: str) -> str:
         name = name.replace(verbose, compact)
     name = name.replace("isocarbopropoxy", "isopropoxycarbonyl")
     name = _compact_validated_functional_aliases(name)
+    name = _compact_validated_extra_aliases(name)
     name = _compact_terminal_carboxy_suffix_parent(name)
     for halo_methyl, compact in (
         ("trifluoromethyl", "trifluoromethoxy"),
@@ -801,6 +833,8 @@ def _compact_common_substituent_terms(name: str) -> str:
         "benzyl",
         "isobutyl",
         "neopentyl",
+        "isobutoxy",
+        "neopentoxy",
         "formyl",
         "acetyl",
         "trifluoroacetyl",
@@ -816,6 +850,18 @@ def _compact_common_substituent_terms(name: str) -> str:
         "acetoxy",
         "propionamido",
         "benzamido",
+        "anilino",
+        "acrylamido",
+        "phenoxy",
+        "phenylacetamido",
+        "cyanoacetamido",
+        "trifluoroacetamido",
+        "difluoroacetamido",
+        "pivalamido",
+        "methylsulfamoyl",
+        "ethylsulfamoyl",
+        "dimethylsulfamoyl",
+        "tert-butylsulfamoyl",
         "boc",
         "bocamino",
         "carbmethoxy",
@@ -934,6 +980,57 @@ def _compact_validated_functional_aliases(name: str) -> str:
     )
     for pattern, replacement in replacements:
         name = re.sub(pattern, replacement, name)
+    return name
+
+
+def _compact_validated_extra_aliases(name: str) -> str:
+    if not any(trigger in name for trigger in ("amino", "yloxy", "pyridin-", "carbonyl")):
+        return name
+
+    if "amino" in name:
+        if "phenylamino" in name:
+            name = re.sub(r"(?<!di)(?<!N-)phenylamino", "anilino", name)
+        if "acroylamino" in name:
+            name = re.sub(r"(?<!N-)acroylamino", "acrylamido", name)
+        for verbose, compact in (
+            ("methylaminosulfonyl", "methylsulfamoyl"),
+            ("ethylaminosulfonyl", "ethylsulfamoyl"),
+            ("dimethylaminosulfonyl", "dimethylsulfamoyl"),
+            ("tert-butylaminosulfonyl", "tert-butylsulfamoyl"),
+        ):
+            if verbose in name:
+                name = name.replace(verbose, compact)
+    if "N-" in name and "amino" in name:
+        for verbose, compact in (
+            ("N-methylamino", "methylamino"),
+            ("N-ethylamino", "ethylamino"),
+            ("N-isopropylamino", "isopropylamino"),
+            ("N-tert-butylamino", "tert-butylamino"),
+        ):
+            name = name.replace(verbose, compact)
+    if "yloxy" in name:
+        for verbose, compact in (
+            ("phenyloxy", "phenoxy"),
+            ("isobutyloxy", "isobutoxy"),
+            ("neopentyloxy", "neopentoxy"),
+        ):
+            if verbose in name:
+                name = name.replace(verbose, compact)
+    if "carbonylamino" in name:
+        for verbose, compact in (
+            ("benzylcarbonylamino", "phenylacetamido"),
+            ("cyanomethylcarbonylamino", "cyanoacetamido"),
+            ("trifluoroacetylamino", "trifluoroacetamido"),
+            ("difluoroacetylamino", "difluoroacetamido"),
+            ("pivaloylamino", "pivalamido"),
+        ):
+            if verbose in name:
+                name = name.replace(verbose, compact)
+    if "pyridin-" in name:
+        if "pyridin-5-yl" in name:
+            name = re.sub(r"(?<!\])pyridin-5-yl", "5-pyridyl", name)
+        if "pyridin-6-yl" in name:
+            name = re.sub(r"(?<!\])pyridin-6-yl", "6-pyridyl", name)
     return name
 
 

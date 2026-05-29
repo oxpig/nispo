@@ -16,6 +16,22 @@ from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
 
 
+_RETAINED_OXY_COMPACTIONS = (
+    ("2-oxapropyloxy", "methoxymethoxy"),
+    ("2,2,2-trifluoroethyloxy", "2,2,2-trifluoroethoxy"),
+    ("2,2-difluoroethyloxy", "2,2-difluoroethoxy"),
+    ("1,1,1-trideuterio-methyloxy", "trideuteriomethoxy"),
+    ("cyclopropyloxy", "cyclopropoxy"),
+    ("1-cyclopropylmethyloxy", "cyclopropylmethoxy"),
+)
+_PAREN_SAFE_RETAINED_OXY = {
+    "methoxymethoxy",
+    "trideuteriomethoxy",
+    "cyclopropoxy",
+    "cyclopropylmethoxy",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class NameCandidate:
     """A deterministic name proposed by one rule family."""
@@ -376,6 +392,7 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("t-butyl(dimethyl)silanyl", "tbdms"),
         ("t-butyl(dimethyl)silyl", "tbdms"),
         ("t-butyl(diphenyl)silanoxy", "tert-butyldiphenylsiloxy"),
+        *_RETAINED_OXY_COMPACTIONS,
         ("3,3,4,4-tetramethyl-1-bora-2,5-dioxacyclopentan-1-yl", "4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl"),
         ("3,5,7-trihydroxy-3,5,7-trioxo-2,4,6,8-tetraoxa-3,5,7-triphosphaoctyl", "triphosphooxymethyl"),
         ("3,5-dihydroxy-3,5-dioxo-2,4,6-trioxa-3,5-diphosphahexyl", "diphosphooxymethyl"),
@@ -645,6 +662,10 @@ def _compact_common_substituent_terms(name: str) -> str:
         "tbdms",
         "t-butyldimethylsiloxy",
         "tert-butyldiphenylsiloxy",
+        "methoxymethoxy",
+        "trideuteriomethoxy",
+        "cyclopropoxy",
+        "cyclopropylmethoxy",
         "picolinoyl",
         "nicotinoyl",
         "isonicotinoyl",
@@ -661,6 +682,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("(boc)", "boc")
     name = name.replace("(bocamino)", "bocamino")
     name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
+    name = _compact_retained_oxy_terms(name)
     name = re.sub(
         r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
         r"\1\2",
@@ -678,6 +700,14 @@ def _compact_common_substituent_terms(name: str) -> str:
     ):
         name = name.replace(verbose, compact)
     name = _compact_adjacent_unsaturation_locants(name)
+    return _compact_retained_oxy_terms(name)
+
+
+def _compact_retained_oxy_terms(name: str) -> str:
+    for verbose, compact in _RETAINED_OXY_COMPACTIONS:
+        name = name.replace(verbose, compact)
+        if compact in _PAREN_SAFE_RETAINED_OXY:
+            name = name.replace(f"({compact})", compact)
     return name
 
 

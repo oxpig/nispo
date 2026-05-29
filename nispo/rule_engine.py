@@ -30,7 +30,7 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 150
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 147
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,11 +357,20 @@ def _compact_phase_descriptor_policy(name: str) -> str:
 
     if len(name) <= 85:
         return name
-    return _strip_stereochemical_descriptors(name)
+    stripped = _strip_stereochemical_descriptors(name)
+    if len(stripped) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
+        return _strip_stereochemical_descriptors(name, preserve_ez=False)
+    return stripped
 
 
-def _strip_stereochemical_descriptors(name: str) -> str:
-    return re.sub(r"\((?=[0-9RSEZrs,+-]*[RSEZrs])[0-9RSEZrs,+-]+\)-", "", name)
+def _strip_stereochemical_descriptors(name: str, *, preserve_ez: bool = True) -> str:
+    def replace(match: re.Match[str]) -> str:
+        descriptor = match.group(0)
+        if preserve_ez and "R" not in descriptor and "S" not in descriptor and "r" not in descriptor and "s" not in descriptor:
+            return descriptor
+        return ""
+
+    return re.sub(r"\((?=[0-9RSEZrs,+-]*[RSEZrs])[0-9RSEZrs,+-]+\)-", replace, name)
 
 
 def _compact_common_substituent_terms(name: str) -> str:
@@ -1120,11 +1129,15 @@ def _normalize_terminal_parent_stem(name: str) -> str:
         "cholest": "cholestane",
         "campest": "campestane",
         "ergost": "ergostane",
+        "estr": "estrane",
         "poriferast": "poriferastane",
         "stigmast": "stigmastane",
         "gon": "gonane",
         "pregn": "pregnane",
+        "spirost": "spirostane",
     }
+    if name == "pyroglutam":
+        return "pyroglutamic acid"
     for stem, parent in terminal_stems.items():
         if name == stem:
             return parent

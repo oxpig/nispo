@@ -30,7 +30,7 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 105
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 150
 
 
 @dataclass(frozen=True, slots=True)
@@ -732,6 +732,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = _compact_retained_oxy_terms(name)
     name = _compact_retained_nucleobase_terms(name)
     name = _compact_retained_fused_aromatic_terms(name)
+    name = _compact_retained_bicyclic_terms(name)
     name = re.sub(
         r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
         r"\1\2",
@@ -787,6 +788,22 @@ def _compact_retained_nucleobase_terms(name: str) -> str:
     name = re.sub(r"\b2-amino-6-oxo-(\d+-[^()]+)-purin\b", r"\1-guanine", name)
     for retained_acid in ("adenylic", "cytidylic", "guanylic", "thymidylic", "uridylic"):
         name = re.sub(rf"\b({retained_acid})(?! acid)\b", r"\1 acid", name)
+    return name
+
+
+def _compact_retained_bicyclic_terms(name: str) -> str:
+    locant_map = {
+        "1": "7a",
+        "2": "1",
+        "3": "2",
+        "4": "3",
+        "6": "3",
+        "7": "2",
+        "8": "1",
+    }
+    for verbose_loc, compact_loc in locant_map.items():
+        name = name.replace(f"5-azabicyclo[3.3.0]octan-{verbose_loc}-yl", f"pyrrolizidin-{compact_loc}-yl")
+    name = name.replace("5-azabicyclo[3.3.0]octane", "pyrrolizidine")
     return name
 
 

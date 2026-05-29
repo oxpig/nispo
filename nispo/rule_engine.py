@@ -96,7 +96,7 @@ class NamingEngine:
                 if best_key is None or candidate_key < best_key:
                     best_name = name
                     best_key = candidate_key
-        return best_name
+        return _compact_selected_output_name(best_name)
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:
@@ -347,6 +347,15 @@ def _apply_contraction_phase_output_policy(name: str) -> str:
     if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
         return ""
     return name
+
+
+def _compact_selected_output_name(name: str) -> str:
+    """Apply OPSIN-stable contractions that should not influence parent ranking."""
+
+    if not name:
+        return name
+    name = _compact_nested_linker_parentheses(name)
+    return name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "2-trimethylsilylethoxymethyl")
 
 
 _LATE_COMPACTION_TRIGGERS = (
@@ -1149,6 +1158,16 @@ def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
     ):
         name = name.replace(verbose, compact)
     return name
+
+
+def _compact_nested_linker_parentheses(name: str) -> str:
+    def collapse(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        if "mesyl" in inner or "bromodifluoromethylcarbonyl" in inner:
+            return match.group(0)
+        return f"({inner}{match.group(2)})"
+
+    return re.sub(r"\(\(([^()]{3,80})\)(oxy|amino)\)", collapse, name)
 
 
 _ARYLAMINO_INNER = (

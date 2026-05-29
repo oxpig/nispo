@@ -342,7 +342,7 @@ def _compact_phase_descriptor_policy(name: str) -> str:
     without molecule-specific lookup data.
     """
 
-    if len(name) <= 50:
+    if len(name) <= 70:
         return name
     return _strip_stereochemical_descriptors(name)
 
@@ -459,6 +459,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
     name = re.sub(r"\bbenz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b", r"\1-benz\2", name)
+    name = _normalize_retained_fused_substituent_locants(name)
     for verbose, compact in (
         ("1-azaethylcarbonyl", "methylcarbamoyl"),
         ("1-azapropylcarbonyl", "ethylcarbamoyl"),
@@ -716,6 +717,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = _compact_n_substituted_carbamoyl_fragments(name)
     name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
     name = _compact_retained_oxy_terms(name)
+    name = _compact_retained_nucleobase_terms(name)
     name = _compact_retained_fused_aromatic_terms(name)
     name = re.sub(
         r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
@@ -753,6 +755,25 @@ def _compact_retained_oxy_terms(name: str) -> str:
         name = name.replace(verbose, compact)
         if compact in _PAREN_SAFE_RETAINED_OXY:
             name = name.replace(f"({compact})", compact)
+    return name
+
+
+def _normalize_retained_fused_substituent_locants(name: str) -> str:
+    for compact in ("furyl", "thienyl", "imidazolyl", "oxazolyl", "thiazolyl"):
+        name = re.sub(rf"\bbenzo(\d+)-{compact}\b", rf"\1-benzo{compact}", name)
+        name = re.sub(rf"\bbenzo(\d+){compact}\b", rf"\1-benzo{compact}", name)
+        name = re.sub(rf"\bbenz(\d+)-{compact}\b", rf"\1-benz{compact}", name)
+        name = re.sub(rf"\bbenz(\d+){compact}\b", rf"\1-benz{compact}", name)
+    name = re.sub(r"\b1-(\d)-benzothienyl\b", r"\1-benzothienyl", name)
+    name = re.sub(r"\b1-(\d)-benzofuryl\b", r"\1-benzofuryl", name)
+    return name
+
+
+def _compact_retained_nucleobase_terms(name: str) -> str:
+    name = re.sub(r"\b2-amino-6-oxo-(\d+-\(.+\))-purin\b", r"\1-guanine", name)
+    name = re.sub(r"\b2-amino-6-oxo-(\d+-[^()]+)-purin\b", r"\1-guanine", name)
+    for retained_acid in ("adenylic", "cytidylic", "guanylic", "thymidylic", "uridylic"):
+        name = re.sub(rf"\b({retained_acid})(?! acid)\b", r"\1 acid", name)
     return name
 
 

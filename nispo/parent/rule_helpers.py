@@ -1103,11 +1103,13 @@ def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -
 
 _BENZENE_RETAINED_PARENT_BY_PREFIX = {
     "1-azamethylcarbonyl": "benzamide",
+    "aminosulfonyl": "benzenesulfonamide",
     "amino": "aniline",
     "carbamoyl": "benzamide",
     "carboxy": "benzoic acid",
     "carboxylato": "benzoate",
     "cyano": "benzonitrile",
+    "formyl": "benzaldehyde",
     "hydroxy": "phenol",
     "methoxy": "anisole",
     "methyl": "toluene",
@@ -1120,10 +1122,12 @@ _BENZENE_RETAINED_PARENT_RANK = {
     "1-azamethylcarbonyl": 2,
     "carbamoyl": 2,
     "cyano": 3,
-    "hydroxy": 4,
-    "amino": 5,
-    "methoxy": 6,
-    "methyl": 7,
+    "formyl": 4,
+    "aminosulfonyl": 5,
+    "hydroxy": 6,
+    "amino": 7,
+    "methoxy": 8,
+    "methyl": 9,
 }
 
 

@@ -30,6 +30,7 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 105
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,24 +314,36 @@ def _has_retained_parent_substituent_artifact(name: str) -> bool:
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
-        return _compact_phase_descriptor_policy(
-            _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
+        return _apply_contraction_phase_output_policy(
+            _compact_phase_descriptor_policy(
+                _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
+            )
         )
     if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
-        return _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name)))
-    return _compact_phase_descriptor_policy(
-        _apply_uniform_isotope_label(
-            mol,
-            _compact_common_substituent_terms(
-                apply_stereochemical_prefix(
-                    mol,
-                    Chem,
-                    name,
-                    atom_order=_fallback_stereo_atom_order(candidate.family),
-                )
-            ),
+        return _apply_contraction_phase_output_policy(
+            _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name)))
+        )
+    return _apply_contraction_phase_output_policy(
+        _compact_phase_descriptor_policy(
+            _apply_uniform_isotope_label(
+                mol,
+                _compact_common_substituent_terms(
+                    apply_stereochemical_prefix(
+                        mol,
+                        Chem,
+                        name,
+                        atom_order=_fallback_stereo_atom_order(candidate.family),
+                    )
+                ),
+            )
         )
     )
+
+
+def _apply_contraction_phase_output_policy(name: str) -> str:
+    if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
+        return ""
+    return name
 
 
 def _compact_phase_descriptor_policy(name: str) -> str:
@@ -887,6 +900,7 @@ def _compact_benzene_principal_parent(name: str) -> str:
         ("carboxy", "benzoic acid"),
         ("carboxylato", "benzoate"),
         ("formyl", "benzaldehyde"),
+        ("aminosulfonyl", "benzenesulfonamide"),
         ("hydroxy", "phenol"),
         ("amino", "aniline"),
         ("methoxy", "anisole"),

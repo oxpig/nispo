@@ -355,7 +355,7 @@ def _compact_phase_descriptor_policy(name: str) -> str:
     without molecule-specific lookup data.
     """
 
-    if len(name) <= 70:
+    if len(name) <= 85:
         return name
     return _strip_stereochemical_descriptors(name)
 

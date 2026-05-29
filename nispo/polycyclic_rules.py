@@ -9,6 +9,7 @@ from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import format_prefixes as _format_prefixes, join_locants as _join_locants
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
+from .stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 
 
 def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -108,7 +109,7 @@ def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_id
         for parent, seq in _polycyclic_parent_sequence_candidates(mol, Chem, atoms):
             if attachment_idx not in seq:
                 continue
-            name = _name_polycyclic_substituent(mol, seq, atoms, parent, attachment_idx, parent_idx)
+            name = _name_polycyclic_substituent(mol, Chem, seq, atoms, parent, attachment_idx, parent_idx)
             if name:
                 loc = seq.index(attachment_idx) + 1
                 candidates.append(
@@ -1179,6 +1180,7 @@ def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: 
 
 def _name_polycyclic_substituent(
     mol,
+    Chem,
     seq: Sequence[int],
     core_atoms: set[int],
     parent: str,
@@ -1202,7 +1204,26 @@ def _name_polycyclic_substituent(
                 return ""
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + suffix if prefix_text else suffix
+    name = prefix_text + "-" + suffix if prefix_text else suffix
+    stereo_prefix = _polycyclic_substituent_stereo_prefix(mol, seq, Chem)
+    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _polycyclic_substituent_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
+    if not seq or _has_assigned_bond_stereo(mol, Chem):
+        return ""
+    locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    centers = [
+        (idx, descriptor)
+        for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+        if idx in locants and descriptor in {"R", "S"}
+    ]
+    if not centers:
+        return ""
+    return ",".join(
+        f"{locants[idx]}{descriptor}"
+        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+    )
 
 
 def _polycyclic_substituent_suffix(parent: str, locant: int) -> str:

@@ -66,9 +66,11 @@ class NamingEngine:
                 name = _finalize_candidate_name(mol, self._Chem, candidate)
                 if not name:
                     continue
+                stability_penalty = _opsin_stability_penalty(name)
                 candidate_key = (
+                    len(name) + stability_penalty,
                     len(name),
-                    _opsin_stability_penalty(name),
+                    stability_penalty,
                     candidate.priority,
                     _comparable_sort_key(candidate.sort_key),
                     name,
@@ -172,6 +174,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_spiro_methylidene_methane_artifact(name):
         penalty += 25
+    if _has_spiro_single_ring_decomposition_artifact(name):
+        penalty += 40
     if _has_ring_substituted_methane_parent_artifact(name):
         penalty += 25
     if _has_retained_parent_substituent_artifact(name):
@@ -242,6 +246,27 @@ def _is_mixed_ring_alkyl_silane_name(name: str) -> bool:
 
 def _has_spiro_methylidene_methane_artifact(name: str) -> bool:
     return name.endswith("-methane") and "spiro[" in name and "methylidene" in name and "yl)-methane" in name
+
+
+def _has_spiro_single_ring_decomposition_artifact(name: str) -> bool:
+    if not re.search(r"\b\d+,\d+-di(?:methyl|ethyl|propyl|butyl|amyl|hexyl|heptyl|octyl)-", name):
+        return False
+    small_ring_parents = (
+        "aziridine",
+        "thiirane",
+        "oxirane",
+        "azetidine",
+        "thietane",
+        "oxetane",
+        "piperidine",
+        "thiane",
+        "oxane",
+        "cyclopropane",
+        "cyclobutane",
+        "cyclopentane",
+        "cyclohexane",
+    )
+    return any(parent in name for parent in small_ring_parents)
 
 
 def _has_ring_substituted_methane_parent_artifact(name: str) -> bool:
@@ -380,6 +405,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     )
     for verbose, compact in rewrites:
         name = name.replace(verbose, compact)
+    name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
     name = re.sub(r"\bbenz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b", r"\1-benz\2", name)

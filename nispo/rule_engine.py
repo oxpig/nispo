@@ -30,8 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 120
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 120
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 121
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 121
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,8 +739,12 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("tert-butoxycarbonyl", "boc")
     name = name.replace("(boc)", "boc")
     name = name.replace("(bocamino)", "bocamino")
+    name = name.replace("((cbz)amino)", "(cbzamino)")
+    name = name.replace("(cbzamino)", "cbzamino")
     name = _compact_n_substituted_carbamoyl_fragments(name)
+    name = _compact_aryl_acyl_amino_fragments(name)
     name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
+    name = _compact_arylamino_parentheses(name)
     name = _compact_retained_oxy_terms(name)
     name = _compact_retained_nucleobase_terms(name)
     name = _compact_retained_fused_aromatic_terms(name)
@@ -997,6 +1001,26 @@ def _compact_retained_fused_aromatic_terms(name: str) -> str:
 
 
 def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
+    simple_n_substituent = (
+        r"phenyl|(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
+        r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)phenyl|"
+        r"[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|[2345]-pyrazolyl|"
+        r"[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|cyclopropyl|"
+        r"cyclobutyl|cyclopentyl|cyclohexyl|tert-butyl|isopropyl|methyl|"
+        r"ethyl|propyl|butyl"
+    )
+
+    name = re.sub(
+        rf"(?:(?<=^)|(?<=[(,]))1-\(({simple_n_substituent})\)-1-azamethylcarbonyl",
+        r"(\1)carbamoyl",
+        name,
+    )
+    name = re.sub(
+        rf"(?:(?<=^)|(?<=[(,]))1-({simple_n_substituent})-1-azamethylcarbonyl",
+        r"\1carbamoyl",
+        name,
+    )
+
     def paren_substituent(match: re.Match[str]) -> str:
         substituent = match.group(1)
         return f"({substituent})methylcarbamoyl"
@@ -1014,6 +1038,45 @@ def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
         ("2-cyclohexyl-1-azaethylcarbonyl", "cyclohexylmethylcarbamoyl"),
     ):
         name = name.replace(verbose, compact)
+    return name
+
+
+_ARYLAMINO_INNER = (
+    r"phenyl|(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
+    r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)phenyl|"
+    r"[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|[2345]-pyrazolyl|"
+    r"[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|"
+    r"\d+-\([^()]+\)(?:phenyl|pyridyl|pyrimidyl|pyrazolyl)"
+)
+
+
+def _compact_arylamino_parentheses(name: str) -> str:
+    return re.sub(rf"\(\(({_ARYLAMINO_INNER})\)amino\)", r"(\1amino)", name)
+
+
+def _compact_aryl_acyl_amino_fragments(name: str) -> str:
+    benzoyl_substituent = (
+        r"(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
+        r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)?benzoyl"
+    )
+
+    def benzamido(match: re.Match[str]) -> str:
+        return f"({match.group(1).replace('benzoyl', 'benzamido')})"
+
+    name = re.sub(rf"\(\(({benzoyl_substituent})\)amino\)", benzamido, name)
+    for acyl, amido in (
+        ("picolinoyl", "picolinamido"),
+        ("nicotinoyl", "nicotinamido"),
+        ("isonicotinoyl", "isonicotinamido"),
+        ("2-furoyl", "2-furamido"),
+        ("3-furoyl", "3-furamido"),
+        ("2-thenoyl", "2-thenamido"),
+        ("3-thenoyl", "3-thenamido"),
+        ("then-2-oyl", "2-thenamido"),
+        ("then-3-oyl", "3-thenamido"),
+    ):
+        name = name.replace(f"(({acyl})amino)", f"({amido})")
+        name = name.replace(f"({acyl}amino)", f"({amido})")
     return name
 
 

@@ -401,6 +401,7 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("3-methylphenyl", "m-tolyl"),
         ("4-methylphenyl", "p-tolyl"),
         ("eth-1-yne-1-yl", "ethynyl"),
+        ("acetenyl", "ethynyl"),
         ("eth-1-ene-1-yl", "vinyl"),
     )
     for verbose, compact in rewrites:

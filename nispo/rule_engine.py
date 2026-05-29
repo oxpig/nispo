@@ -30,8 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 129
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 129
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 130
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 130
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,7 +355,9 @@ def _compact_selected_output_name(name: str) -> str:
     if not name:
         return name
     name = _compact_nested_linker_parentheses(name)
-    return name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "2-trimethylsilylethoxymethyl")
+    name = name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "trimethylsilylethoxymethyl")
+    name = name.replace("carbamoyl", "carbamyl")
+    return re.sub(r"(?<![A-Za-z])(?<!N-)cyclopropylcarbonylamino", "cyclopropanecarboxamido", name)
 
 
 _LATE_COMPACTION_TRIGGERS = (

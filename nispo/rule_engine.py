@@ -30,7 +30,7 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 140
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 141
 _CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 95
 
 
@@ -783,6 +783,8 @@ def _compact_validated_functional_aliases(name: str) -> str:
         (r"(^|[-,(])aminosulfonyl", r"\1sulfamoyl"),
         (r"(^|[,(])1-azamethylcarbonyl", r"\1carbamoyl"),
         (r"(^|[,(])1-azaethylcarbonyl", r"\1methylcarbamoyl"),
+        (r"(^|[-(,])carbbenzoxy", r"\1cbz"),
+        (r"(^|[-(,])hydroxysulfonyl", r"\1sulfo"),
         (r"(^|[-(,])phenylsulfonyl", r"\1besyl"),
         (r"(^|[(,])2-pyridylcarbonyl", r"\1picolinoyl"),
         (r"(^|[(,])3-pyridylcarbonyl", r"\1nicotinoyl"),

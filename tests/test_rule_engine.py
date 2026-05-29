@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+import subprocess
+import tempfile
+from pathlib import Path
+
+import pytest
+from rdkit import Chem
+
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
 from nispo.rule_engine import NameCandidate, _candidate_key
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+OPSIN_JAR = PROJECT_ROOT / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
+JAVA = Path("/opt/homebrew/opt/openjdk/bin/java")
 
 
 def test_candidate_keys_are_comparable_across_descriptor_shapes():
@@ -26,3 +38,57 @@ def test_nested_sort_key_parent_selection_does_not_empty_api_output():
 
     assert scalar
     assert batch == [scalar]
+
+
+def test_single_ring_functional_suffix_parents_roundtrip():
+    smiles_values = [
+        "O=C(N)c1ccncc1",
+        "N#Cc1ccncc1",
+        "O=C([O-])c1ccncc1",
+        "O=C(O)c1ccsc1",
+        "O=C(O)c1cc(C#N)ncc1",
+        "c1ccc(-c2ccccc2)cc1",
+        "N#Cc1cc(-c2ccccc2)c(C#N)cc1",
+        "c1ccc(-c2ccc(-c3ccccc3)cc2)cc1",
+        "Clc1ccc(-c2ccc(-c3ccc(Cl)cc3)cc2)cc1",
+        "Fc1c(F)c(F)c(OC(F)(F)F)c(F)c1F",
+        "FC(F)(F)ON1CCCC1",
+        "FC(F)OC1CNC1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("biphenyl" in name for name in names)
+    assert any("diphenyl" in name for name in names)
+    assert all("fluoromethyloxy" not in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def _opsin_parse(names: list[str]) -> list[str]:
+    if not OPSIN_JAR.exists():
+        pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")
+    with tempfile.TemporaryDirectory(prefix="nispo_test_opsin_") as temp_name:
+        temp_dir = Path(temp_name)
+        names_file = temp_dir / "names.txt"
+        output_file = temp_dir / "opsin.smi"
+        names_file.write_text("\n".join(names) + "\n")
+        java = str(JAVA) if JAVA.exists() else "java"
+        completed = subprocess.run(
+            [java, "-jar", str(OPSIN_JAR), "-o", "smi", str(names_file), str(output_file)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+        parsed = output_file.read_text().splitlines()
+    return (parsed + [""] * len(names))[: len(names)]
+
+
+def _canonical_smiles(smiles: str) -> str:
+    mol = Chem.MolFromSmiles(smiles)
+    assert mol is not None, smiles
+    return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)

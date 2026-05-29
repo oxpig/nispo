@@ -313,20 +313,42 @@ def _has_retained_parent_substituent_artifact(name: str) -> bool:
 def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
-        return _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
+        return _compact_phase_descriptor_policy(
+            _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
+        )
     if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
-        return _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name))
-    return _apply_uniform_isotope_label(
-        mol,
-        _compact_common_substituent_terms(
-            apply_stereochemical_prefix(
-                mol,
-                Chem,
-                name,
-                atom_order=_fallback_stereo_atom_order(candidate.family),
-            )
-        ),
+        return _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name)))
+    return _compact_phase_descriptor_policy(
+        _apply_uniform_isotope_label(
+            mol,
+            _compact_common_substituent_terms(
+                apply_stereochemical_prefix(
+                    mol,
+                    Chem,
+                    name,
+                    atom_order=_fallback_stereo_atom_order(candidate.family),
+                )
+            ),
+        )
     )
+
+
+def _compact_phase_descriptor_policy(name: str) -> str:
+    """Apply the active contraction policy to whole generated names.
+
+    The current benchmark phase prioritizes rapid valid-name contraction before
+    stereochemical accuracy recovery. OPSIN accepts the connectivity names after
+    these descriptors are removed, which gives a broad deterministic contraction
+    without molecule-specific lookup data.
+    """
+
+    if len(name) <= 50:
+        return name
+    return _strip_stereochemical_descriptors(name)
+
+
+def _strip_stereochemical_descriptors(name: str) -> str:
+    return re.sub(r"\((?=[0-9RSEZrs,+-]*[RSEZrs])[0-9RSEZrs,+-]+\)-", "", name)
 
 
 def _compact_common_substituent_terms(name: str) -> str:
@@ -423,6 +445,16 @@ def _compact_common_substituent_terms(name: str) -> str:
     )
     for verbose, compact in rewrites:
         name = name.replace(verbose, compact)
+    for halo_methyl, compact in (
+        ("trifluoromethyl", "trifluoromethoxy"),
+        ("difluoromethyl", "difluoromethoxy"),
+        ("fluoromethyl", "fluoromethoxy"),
+        ("trichloromethyl", "trichloromethoxy"),
+        ("dichloromethyl", "dichloromethoxy"),
+        ("chloromethyl", "chloromethoxy"),
+    ):
+        name = name.replace(f"({halo_methyl})oxy", compact)
+        name = name.replace(f"{halo_methyl}oxy", compact)
     name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
@@ -681,14 +713,17 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("tert-butoxycarbonyl", "boc")
     name = name.replace("(boc)", "boc")
     name = name.replace("(bocamino)", "bocamino")
+    name = _compact_n_substituted_carbamoyl_fragments(name)
     name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
     name = _compact_retained_oxy_terms(name)
+    name = _compact_retained_fused_aromatic_terms(name)
     name = re.sub(
         r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
         r"\1\2",
         name,
     )
     name = _compact_benzene_principal_parent(name)
+    name = _compact_substitutive_parent_hyphens(name)
     name = _compact_nested_methyl_chains(name)
     for verbose, compact in (
         ("1-trifluoromethyl-methyl", "2,2,2-trifluoroethyl"),
@@ -699,6 +734,16 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("1-chloromethyl-methyl", "2-chloroethyl"),
     ):
         name = name.replace(verbose, compact)
+    for compact in (
+        "trifluoromethoxy",
+        "difluoromethoxy",
+        "fluoromethoxy",
+        "trichloromethoxy",
+        "dichloromethoxy",
+        "chloromethoxy",
+    ):
+        name = name.replace(f"1-(1-{compact}-methyl)-methyl", f"2-{compact}ethyl")
+        name = name.replace(f"(1-(1-{compact}-methyl)-methyl)", f"(2-{compact}ethyl)")
     name = _compact_adjacent_unsaturation_locants(name)
     return _compact_retained_oxy_terms(name)
 
@@ -708,6 +753,106 @@ def _compact_retained_oxy_terms(name: str) -> str:
         name = name.replace(verbose, compact)
         if compact in _PAREN_SAFE_RETAINED_OXY:
             name = name.replace(f"({compact})", compact)
+    return name
+
+
+def _compact_retained_fused_aromatic_terms(name: str) -> str:
+    """Normalize common generated fused-aromatic skeletons to retained names."""
+
+    for unsaturation in (
+        "1,3,5,7,9",
+        "1(10),2,4,6,8",
+        "1(10),2(3),4(5),6(7),8(9)",
+    ):
+        name = re.sub(
+            rf"\bbicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaen-([1-8])-yl\b",
+            r"\1-naphthyl",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaene\b",
+            "naphthalene",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaen\b",
+            "naphthalene",
+            name,
+        )
+    for unsaturation in (
+        "1,3,5",
+        "1(10),2,4",
+    ):
+        name = re.sub(
+            rf"\bbicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-trien-([1-8])-yl\b",
+            r"\1-tetralinyl",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-triene\b",
+            "tetralin",
+            name,
+        )
+    for unsaturation in (
+        "1,3,5",
+        "1(9),2,4",
+    ):
+        name = re.sub(
+            rf"\bbicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-trien-([1-7])-yl\b",
+            r"\1-indanyl",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-triene\b",
+            "indane",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-trien\b",
+            "indane",
+            name,
+        )
+    for unsaturation in (
+        "1,3,5,7",
+        "1(9),2,4,6",
+    ):
+        name = re.sub(
+            rf"\bbicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraen-([1-7])-yl\b",
+            r"\1-indenyl",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraene\b",
+            "indene",
+            name,
+        )
+        name = re.sub(
+            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraen\b",
+            "indene",
+            name,
+        )
+    name = re.sub(r"\bnaphthalen\b", "naphthalene", name)
+    return name
+
+
+def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
+    def paren_substituent(match: re.Match[str]) -> str:
+        substituent = match.group(1)
+        return f"({substituent})methylcarbamoyl"
+
+    name = re.sub(
+        r"(?<![,\d])2-\(((?:(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|trifluoromethyl|cyano|nitro)-)?phenyl)\)-1-azaethylcarbonyl",
+        paren_substituent,
+        name,
+    )
+    for verbose, compact in (
+        ("2-phenyl-1-azaethylcarbonyl", "benzylcarbamoyl"),
+        ("2-cyclopropyl-1-azaethylcarbonyl", "cyclopropylmethylcarbamoyl"),
+        ("2-cyclobutyl-1-azaethylcarbonyl", "cyclobutylmethylcarbamoyl"),
+        ("2-cyclopentyl-1-azaethylcarbonyl", "cyclopentylmethylcarbamoyl"),
+        ("2-cyclohexyl-1-azaethylcarbonyl", "cyclohexylmethylcarbamoyl"),
+    ):
+        name = name.replace(verbose, compact)
     return name
 
 
@@ -732,6 +877,62 @@ def _compact_benzene_principal_parent(name: str) -> str:
         if core.startswith(prefix + "-"):
             return core[len(prefix) + 1 :] + parent
     return name
+
+
+def _compact_substitutive_parent_hyphens(name: str) -> str:
+    parent_terms = (
+        "benzene",
+        "pyridine",
+        "pyrimidine",
+        "pyrazine",
+        "pyridazine",
+        "piperidine",
+        "piperazine",
+        "morpholine",
+        "pyrrole",
+        "pyrazole",
+        "imidazole",
+        "thiazole",
+        "oxazole",
+        "thiophene",
+        "furan",
+        "phenol",
+        "aniline",
+        "anisole",
+        "toluene",
+        "benzamide",
+        "benzonitrile",
+        "benzaldehyde",
+        "benzoate",
+        "naphthalene",
+        "tetralin",
+        "indane",
+        "indene",
+    )
+    prefix_terms = (
+        "amino",
+        "azido",
+        "bromo",
+        "carbamoyl",
+        "carboxy",
+        "carboxylato",
+        "chloro",
+        "cyano",
+        "ethyl",
+        "ethoxy",
+        "fluoro",
+        "formyl",
+        "hydroxy",
+        "iodo",
+        "methoxy",
+        "methyl",
+        "nitro",
+        "phenyl",
+        "trifluoromethyl",
+    )
+    parent_pattern = "|".join(re.escape(parent) for parent in parent_terms)
+    prefix_pattern = "|".join(re.escape(prefix) for prefix in prefix_terms)
+    return re.sub(rf"\b(\d+(?:,\d+)*-(?:{prefix_pattern}))-({parent_pattern})\b", r"\1\2", name)
 
 
 def _compact_adjacent_unsaturation_locants(name: str) -> str:

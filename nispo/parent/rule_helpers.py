@@ -1054,6 +1054,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             best_key = key
             best_name = name
             best_seq = seq
+        retained_benzene_name = _benzene_retained_parent_name(prefixes, adjusted_parent)
+        if retained_benzene_name:
+            retained_key = (locants, -1, len(retained_benzene_name), retained_benzene_name)
+            if best_key is None or retained_key < best_key:
+                best_key = retained_key
+                best_name = retained_benzene_name
+                best_seq = seq
         suffix_name = (
             ""
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
@@ -1064,6 +1071,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             if best_key is None or suffix_key < best_key:
                 best_key = suffix_key
                 best_name = suffix_name
+                best_seq = seq
+        functional_suffix_name = _single_ring_functional_suffix_name(prefixes, adjusted_parent)
+        if functional_suffix_name:
+            suffix_key = (locants, 0, functional_suffix_name)
+            if best_key is None or suffix_key < best_key:
+                best_key = suffix_key
+                best_name = functional_suffix_name
                 best_seq = seq
     if not best_name:
         return []
@@ -1085,6 +1099,78 @@ def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -
         count_text = str(len(locants)) if len(locants) > 1 else ""
         suffixes.append(f"{','.join(str(locant) for locant in locants)}-{isotope}{symbol}{count_text}")
     return parent + "-" + "-".join(suffixes)
+
+
+_BENZENE_RETAINED_PARENT_BY_PREFIX = {
+    "1-azamethylcarbonyl": "benzamide",
+    "amino": "aniline",
+    "carbamoyl": "benzamide",
+    "carboxy": "benzoic acid",
+    "carboxylato": "benzoate",
+    "cyano": "benzonitrile",
+    "hydroxy": "phenol",
+    "methoxy": "anisole",
+    "methyl": "toluene",
+}
+
+
+_BENZENE_RETAINED_PARENT_RANK = {
+    "carboxy": 0,
+    "carboxylato": 1,
+    "1-azamethylcarbonyl": 2,
+    "carbamoyl": 2,
+    "cyano": 3,
+    "hydroxy": 4,
+    "amino": 5,
+    "methoxy": 6,
+    "methyl": 7,
+}
+
+
+def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    if parent_name != "benzene":
+        return ""
+    best_key = None
+    best_name = ""
+    original_prefix_text = _format_prefixes(prefixes)
+    original_name = original_prefix_text + "-benzene" if original_prefix_text else "benzene"
+    for index, (loc, prefix) in enumerate(prefixes):
+        if loc != "1":
+            continue
+        retained_parent = _BENZENE_RETAINED_PARENT_BY_PREFIX.get(prefix)
+        if not retained_parent:
+            continue
+        remaining = list(prefixes[:index]) + list(prefixes[index + 1 :])
+        prefix_text = _format_prefixes(remaining)
+        name = prefix_text + retained_parent if prefix_text else retained_parent
+        name = _compact_benzene_retained_parent_name(name)
+        if len(name) >= len(original_name):
+            continue
+        rank = _BENZENE_RETAINED_PARENT_RANK[prefix]
+        key = (rank, len(name), name)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    return best_name
+
+
+def _compact_benzene_retained_parent_name(name: str) -> str:
+    replacements = (
+        ("2-hydroxyphenol", "benzene-1,2-diol"),
+        ("3-hydroxyphenol", "benzene-1,3-diol"),
+        ("4-hydroxyphenol", "benzene-1,4-diol"),
+        ("2-aminophenol", "2-aminophenol"),
+        ("3-aminophenol", "3-aminophenol"),
+        ("4-aminophenol", "4-aminophenol"),
+        ("2-methylphenol", "o-cresol"),
+        ("3-methylphenol", "m-cresol"),
+        ("4-methylphenol", "p-cresol"),
+        ("2-methoxyphenol", "guaiacol"),
+        ("4-methoxyphenol", "mequinol"),
+    )
+    for verbose, compact in replacements:
+        name = name.replace(verbose, compact)
+    return name
 
 
 def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
@@ -1298,6 +1384,100 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
     suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
     name = f"{parent}-{locants}-{suffix}"
     return prefix_text + "-" + name if prefix_text else name
+
+
+_SINGLE_RING_FUNCTIONAL_SUFFIXES = {
+    "1-azamethylcarbonyl": "carboxamide",
+    "carbamoyl": "carboxamide",
+    "carboxy": "carboxylic acid",
+    "carboxylato": "carboxylate",
+    "cyano": "carbonitrile",
+}
+
+
+def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    """Promote terminal ring functional groups to OPSIN-stable parent suffixes."""
+
+    if not _supports_single_ring_functional_suffix_parent(parent_name):
+        return ""
+    best_key = None
+    best_name = ""
+    for prefix, suffix_base in _SINGLE_RING_FUNCTIONAL_SUFFIXES.items():
+        suffix_locs = [loc for loc, candidate_prefix in prefixes if candidate_prefix == prefix]
+        if not suffix_locs:
+            continue
+        remaining = [(loc, candidate_prefix) for loc, candidate_prefix in prefixes if candidate_prefix != prefix]
+        suffix_locs = sorted(suffix_locs, key=_locant_sort_key)
+        suffix = _single_ring_functional_suffix_text(suffix_base, len(suffix_locs))
+        if not suffix:
+            continue
+        locants = ",".join(suffix_locs)
+        suffix_name = f"{parent_name}-{locants}-{suffix}"
+        prefix_text = _format_prefixes(remaining)
+        name = prefix_text + "-" + suffix_name if prefix_text else suffix_name
+        original_prefix_text = _format_prefixes(prefixes)
+        original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+        original_name = _compact_functional_suffix_prefix_baseline(original_name)
+        if len(name) > len(original_name):
+            continue
+        key = (len(remaining), len(name), locants, name)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    return best_name
+
+
+def _compact_functional_suffix_prefix_baseline(name: str) -> str:
+    return (
+        name.replace("1-azamethylcarbonyl", "carbamoyl")
+        .replace("1-oxido-1-azamethylcarbonyl", "carbamoyl")
+        .replace("(carbamoyl)", "carbamoyl")
+        .replace("carboxylato", "carboxylato")
+    )
+
+
+def _supports_single_ring_functional_suffix_parent(parent_name: str) -> bool:
+    if parent_name == "benzene":
+        return False
+    return any(
+        stem in parent_name
+        for stem in (
+            "furan",
+            "imidazole",
+            "isothiazole",
+            "isoxazole",
+            "oxadiazole",
+            "oxazole",
+            "pyrazine",
+            "pyrazole",
+            "pyridazine",
+            "pyridine",
+            "pyrimidine",
+            "pyrrole",
+            "s-triazine",
+            "tetrazole",
+            "thiadiazole",
+            "thiazole",
+            "thiophene",
+            "triazole",
+            "v-triazine",
+        )
+    )
+
+
+def _single_ring_functional_suffix_text(suffix_base: str, count: int) -> str:
+    if count <= 0:
+        return ""
+    if count == 1:
+        return suffix_base
+    multiplier = MULT.get(count)
+    if not multiplier:
+        return ""
+    if suffix_base == "carboxylic acid":
+        return f"{multiplier}carboxylic acid"
+    if suffix_base == "carbonitrile":
+        return f"{multiplier}carbonitrile"
+    return f"{multiplier}{suffix_base}"
 
 
 def _oxo_adjusted_unsaturated_carbocycle_parent(parent_name: str, oxo_locs: Sequence[str]) -> str:

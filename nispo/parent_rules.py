@@ -921,6 +921,186 @@ def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
     return ""
 
 
+class BiphenylParentRule:
+    family = "biphenyl-parent"
+    priority = parent_priority("whole-molecule-retained-parent")
+    min_ring_count = 2
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        rings = tuple(tuple(ring) for ring in mol.GetRingInfo().AtomRings())
+        if len(rings) != 2 or any(not _is_benzene_ring(mol, ring) for ring in rings):
+            return
+        left, right = rings
+        if set(left) & set(right):
+            return
+        connector = _single_ring_connector(mol, left, right, self._Chem)
+        if connector is None:
+            return
+        left_idx, right_idx = connector
+        for left_seq in _ring_sequences_from_connector(mol, left, left_idx):
+            for right_seq in _ring_sequences_from_connector(mol, right, right_idx):
+                name = _biphenyl_name(mol, left_seq, right_seq)
+            if name:
+                yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class DiphenylbenzeneParentRule:
+    family = "diphenylbenzene-parent"
+    priority = parent_priority("whole-molecule-retained-parent")
+    min_ring_count = 3
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        rings = tuple(tuple(ring) for ring in mol.GetRingInfo().AtomRings())
+        if len(rings) != 3 or any(not _is_benzene_ring(mol, ring) for ring in rings):
+            return
+        if any(set(left) & set(right) for left, right in combinations(rings, 2)):
+            return
+        connectors = _benzene_ring_assembly_connectors(mol, rings, self._Chem)
+        if len(connectors) != 2:
+            return
+        by_ring = {idx: [] for idx in range(len(rings))}
+        for left_ring, left_idx, right_ring, right_idx in connectors:
+            by_ring[left_ring].append((left_idx, right_ring))
+            by_ring[right_ring].append((right_idx, left_ring))
+        central = [ring_idx for ring_idx, edges in by_ring.items() if len(edges) == 2]
+        terminals = [ring_idx for ring_idx, edges in by_ring.items() if len(edges) == 1]
+        if len(central) != 1 or len(terminals) != 2:
+            return
+        central_idx = central[0]
+        terminal_ring_indices = {ring_idx for _, ring_idx in by_ring[central_idx]}
+        if terminal_ring_indices != set(terminals):
+            return
+        central_connectors = {ring_idx: atom_idx for atom_idx, ring_idx in by_ring[central_idx]}
+        for central_seq in _ring_sequences_from_connector(mol, rings[central_idx], min(central_connectors.values())):
+            name = _diphenylbenzene_name(mol, rings, central_idx, central_seq)
+            if name:
+                yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _is_benzene_ring(mol, ring: Sequence[int]) -> bool:
+    if len(ring) != 6:
+        return False
+    return all(
+        mol.GetAtomWithIdx(idx).GetSymbol() == "C" and mol.GetAtomWithIdx(idx).GetIsAromatic()
+        for idx in ring
+    )
+
+
+def _single_ring_connector(mol, left: Sequence[int], right: Sequence[int], Chem):
+    right_set = set(right)
+    connectors = []
+    for left_idx in left:
+        for nbr in mol.GetAtomWithIdx(left_idx).GetNeighbors():
+            right_idx = nbr.GetIdx()
+            if right_idx not in right_set:
+                continue
+            bond = mol.GetBondBetweenAtoms(left_idx, right_idx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return None
+            connectors.append((left_idx, right_idx))
+    return connectors[0] if len(connectors) == 1 else None
+
+
+def _benzene_ring_assembly_connectors(mol, rings: Sequence[Sequence[int]], Chem) -> list[tuple[int, int, int, int]]:
+    connectors = []
+    ring_sets = [set(ring) for ring in rings]
+    for left_ring, right_ring in combinations(range(len(rings)), 2):
+        found = []
+        right_set = ring_sets[right_ring]
+        for left_idx in rings[left_ring]:
+            for nbr in mol.GetAtomWithIdx(left_idx).GetNeighbors():
+                right_idx = nbr.GetIdx()
+                if right_idx not in right_set:
+                    continue
+                bond = mol.GetBondBetweenAtoms(left_idx, right_idx)
+                if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                    return []
+                found.append((left_ring, left_idx, right_ring, right_idx))
+        if len(found) > 1:
+            return []
+        connectors.extend(found)
+    return connectors
+
+
+def _ring_sequences_from_connector(mol, ring: Sequence[int], connector_idx: int) -> tuple[tuple[int, ...], ...]:
+    ordered = ordered_ring(mol, ring)
+    if not ordered or connector_idx not in ordered:
+        return ()
+    start = ordered.index(connector_idx)
+    seq = ordered[start:] + ordered[:start]
+    reverse_seq = (seq[0],) + tuple(reversed(seq[1:]))
+    if reverse_seq == seq:
+        return (seq,)
+    return (seq, reverse_seq)
+
+
+def _biphenyl_name(mol, left_seq: Sequence[int], right_seq: Sequence[int]) -> str:
+    prefixes = []
+    left_set = set(left_seq)
+    right_set = set(right_seq)
+    all_ring_atoms = left_set | right_set
+    for loc, idx in enumerate(left_seq, start=1):
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in all_ring_atoms:
+                continue
+            prefix = branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(loc), prefix))
+    for loc, idx in enumerate(right_seq, start=1):
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in all_ring_atoms:
+                continue
+            prefix = branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            prefixes.append((f"{loc}'", prefix))
+    prefix_text = _format_prefixes(prefixes)
+    return prefix_text + "-biphenyl" if prefix_text else "biphenyl"
+
+
+def _diphenylbenzene_name(
+    mol,
+    rings: Sequence[Sequence[int]],
+    central_idx: int,
+    central_seq: Sequence[int],
+) -> str:
+    central_set = set(central_seq)
+    all_ring_atoms = {atom_idx for ring in rings for atom_idx in ring}
+    prefixes = []
+    for loc, idx in enumerate(central_seq, start=1):
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in central_set:
+                continue
+            prefix = branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(loc), prefix))
+    for ring_idx, ring in enumerate(rings):
+        if ring_idx == central_idx:
+            continue
+        ring_set = set(ring)
+        for idx in ring:
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+                nidx = nbr.GetIdx()
+                if nidx in all_ring_atoms:
+                    continue
+                return ""
+    prefix_text = _format_prefixes(prefixes)
+    return prefix_text + "-benzene" if prefix_text else ""
+
+
 class AcyclicSkeletonWithRingSubstituentsRule:
     family = "acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("acyclic-with-ring-substituents")
@@ -2354,6 +2534,8 @@ def parent_rules(Chem) -> tuple:
     n_halo_imine = NHaloImineParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
+    biphenyl = BiphenylParentRule(Chem)
+    diphenylbenzene = DiphenylbenzeneParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
@@ -2405,6 +2587,8 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
+        RuleSpec("biphenyl-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(2),), biphenyl.candidates),
+        RuleSpec("diphenylbenzene-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(3),), diphenylbenzene.candidates),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",

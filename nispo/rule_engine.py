@@ -30,8 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 121
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 121
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 122
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 122
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,9 +342,44 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
 
 
 def _apply_contraction_phase_output_policy(name: str) -> str:
+    if _needs_late_compaction(name):
+        name = _compact_common_substituent_terms(name)
     if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
         return ""
     return name
+
+
+_LATE_COMPACTION_TRIGGERS = (
+    "1,1",
+    "1-fluoro-methyl",
+    "1-chloro-methyl",
+    "1-bromo-methyl",
+    "1-iodo-methyl",
+    "2,2",
+    "1-aza",
+    "benzyloxycarbonyl",
+    "carbbenzoxy",
+    "tert-butoxycarbonyl",
+    "tert-butyloxycarbonyl",
+    "isopropyloxy",
+    "phenylcarbonyl",
+    "pyridin-",
+    "pyrimidin-",
+    "furan-",
+    "thiophen-",
+    "piperidin-",
+    "piperazin-",
+    "morpholin-",
+    "pyrrolidin-",
+    "bicyclo[4.",
+    "((cbz)amino)",
+    "((boc)amino)",
+    ")amino)",
+)
+
+
+def _needs_late_compaction(name: str) -> bool:
+    return any(trigger in name for trigger in _LATE_COMPACTION_TRIGGERS)
 
 
 def _compact_phase_descriptor_policy(name: str) -> str:

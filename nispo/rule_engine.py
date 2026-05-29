@@ -30,7 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 142
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 140
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 95
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,7 +356,7 @@ def _compact_phase_descriptor_policy(name: str) -> str:
     without molecule-specific lookup data.
     """
 
-    if len(name) <= 85:
+    if len(name) <= _CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH:
         return name
     stripped = _strip_stereochemical_descriptors(name)
     if len(stripped) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:

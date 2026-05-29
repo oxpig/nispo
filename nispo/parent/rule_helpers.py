@@ -1175,6 +1175,14 @@ def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) 
 
 _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
     "amino",
+    "acetamido",
+    "bocamino",
+    "carbethoxy",
+    "carbmethoxy",
+    "carboxy",
+    "carboxymethyl",
+    "carbamoyl",
+    "cyano",
     "dimethylamino",
     "ethyl",
     "ethylamino",
@@ -1184,9 +1192,17 @@ _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
     "methoxy",
     "methyl",
     "methylamino",
+    "methylcarbamoyl",
+    "methylcarbonylamino",
+    "methoxycarbonyl",
     "propyl",
     "propoxy",
+    "tert-butoxycarbonylamino",
+    "tert-butyloxycarbonylamino",
     "2-oxaethyl",
+    "2-oxo-3-oxapropyl",
+    "2-oxo-3-azapropyl",
+    "sulfanyl",
 }
 
 
@@ -1204,6 +1220,12 @@ def _simple_relative_stereo_external_prefix(mol, atom_idx: int, ring_atoms: set[
     if re.fullmatch(r"(?:[1-9]-)?(?:methyl|ethyl|propyl|butyl)oxy", prefix):
         return prefix
     if re.fullmatch(r"(?:di)?(?:methyl|ethyl|propyl|butyl)amino", prefix):
+        return prefix
+    if re.fullmatch(r"(?:[1-9]-)?(?:carboxy|carbamoyl|cyano)(?:methyl|ethyl|propyl|butyl)", prefix):
+        return prefix
+    if re.fullmatch(r"(?:[1-9]-)?(?:boc|acet|benz|propion)amido", prefix):
+        return prefix
+    if re.fullmatch(r"\(\(?1,1-dimethyl-ethyl\)?oxycarbonyl\)amino", prefix):
         return prefix
     return ""
 

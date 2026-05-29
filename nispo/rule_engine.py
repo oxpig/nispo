@@ -30,7 +30,7 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 147
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 142
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +467,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     )
     for verbose, compact in rewrites:
         name = name.replace(verbose, compact)
+    name = _compact_validated_functional_aliases(name)
     for halo_methyl, compact in (
         ("trifluoromethyl", "trifluoromethoxy"),
         ("difluoromethyl", "difluoromethoxy"),
@@ -481,6 +482,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
     name = re.sub(r"\bbenz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b", r"\1-benz\2", name)
+    name = _normalize_fused_heteroaryl_locants(name)
     name = _normalize_retained_fused_substituent_locants(name)
     for verbose, compact in (
         ("1-azaethylcarbonyl", "methylcarbamoyl"),
@@ -773,6 +775,27 @@ def _compact_common_substituent_terms(name: str) -> str:
     return _compact_retained_oxy_terms(name)
 
 
+def _compact_validated_functional_aliases(name: str) -> str:
+    """Apply compact OPSIN-stable aliases only in attachment-safe contexts."""
+
+    replacements = (
+        (r"(^|[-,(])aminosulfonyl", r"\1sulfamoyl"),
+        (r"(^|[,(])1-azamethylcarbonyl", r"\1carbamoyl"),
+        (r"(^|[,(])1-azaethylcarbonyl", r"\1methylcarbamoyl"),
+        (r"(^|[-(,])phenylsulfonyl", r"\1besyl"),
+        (r"(^|[(,])2-pyridylcarbonyl", r"\1picolinoyl"),
+        (r"(^|[(,])3-pyridylcarbonyl", r"\1nicotinoyl"),
+        (r"(^|[(,])4-pyridylcarbonyl", r"\1isonicotinoyl"),
+        (r"(^|[(,])2-furylcarbonyl", r"\g<1>2-furoyl"),
+        (r"(^|[(,])3-furylcarbonyl", r"\g<1>3-furoyl"),
+        (r"(^|[(,])2-thienylcarbonyl", r"\g<1>2-thenoyl"),
+        (r"(^|[(,])3-thienylcarbonyl", r"\g<1>3-thenoyl"),
+    )
+    for pattern, replacement in replacements:
+        name = re.sub(pattern, replacement, name)
+    return name
+
+
 def _compact_retained_oxy_terms(name: str) -> str:
     for verbose, compact in _RETAINED_OXY_COMPACTIONS:
         name = name.replace(verbose, compact)
@@ -790,6 +813,68 @@ def _normalize_retained_fused_substituent_locants(name: str) -> str:
     name = re.sub(r"\b1-(\d)-benzothienyl\b", r"\1-benzothienyl", name)
     name = re.sub(r"\b1-(\d)-benzofuryl\b", r"\1-benzofuryl", name)
     return name
+
+
+_FUSED_HETEROARYL_SUFFIX_STEMS = {
+    "furyl": "furan",
+    "imidazolyl": "imidazol",
+    "oxazolyl": "oxazol",
+    "pyrazinyl": "pyrazin",
+    "pyrazolyl": "pyrazol",
+    "pyridazyl": "pyridazin",
+    "pyridyl": "pyridin",
+    "pyrimidyl": "pyrimidin",
+    "thiazolyl": "thiazol",
+    "thienyl": "thiophen",
+}
+
+
+_BENZ_FUSED_HETEROARYL_STEMS = {
+    "furyl": "benzofuran",
+    "imidazolyl": "benzimidazol",
+    "oxazolyl": "benzoxazol",
+    "thiazolyl": "benzothiazol",
+    "thienyl": "benzothiophen",
+}
+
+
+def _normalize_fused_heteroaryl_locants(name: str) -> str:
+    """Use OPSIN-parseable locants for retained fused heteroaryl suffixes."""
+
+    suffixes = "|".join(sorted(_FUSED_HETEROARYL_SUFFIX_STEMS, key=len, reverse=True))
+
+    def bracket_repl(match: re.Match[str]) -> str:
+        fused_prefix = match.group(1)
+        locant = match.group(2)
+        suffix = match.group(3)
+        return f"{fused_prefix}{_FUSED_HETEROARYL_SUFFIX_STEMS[suffix]}-{locant}-yl"
+
+    name = re.sub(
+        rf"((?:[A-Za-z]+\[[0-9,abcn\-]+\])+)([0-9]+)-({suffixes})",
+        bracket_repl,
+        name,
+    )
+
+    benz_suffixes = "|".join(sorted(_BENZ_FUSED_HETEROARYL_STEMS, key=len, reverse=True))
+
+    def benz_repl(match: re.Match[str]) -> str:
+        prefix = match.group(1) or ""
+        locant = match.group(2)
+        suffix = match.group(3)
+        return f"{prefix}{_BENZ_FUSED_HETEROARYL_STEMS[suffix]}-{locant}-yl"
+
+    name = re.sub(
+        rf"\b((?:[0-9,]+-[a-z]+)*?)benzo([0-9]+)-?({benz_suffixes})",
+        benz_repl,
+        name,
+    )
+
+    def retained_benz_repl(match: re.Match[str]) -> str:
+        locant = match.group(1)
+        suffix = match.group(2)
+        return f"{_BENZ_FUSED_HETEROARYL_STEMS[suffix]}-{locant}-yl"
+
+    return re.sub(rf"\b([0-9]+)-benzo({benz_suffixes})", retained_benz_repl, name)
 
 
 def _compact_retained_nucleobase_terms(name: str) -> str:

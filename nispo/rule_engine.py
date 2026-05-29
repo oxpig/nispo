@@ -30,8 +30,8 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 141
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 95
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 138
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -786,6 +786,19 @@ def _compact_validated_functional_aliases(name: str) -> str:
         (r"(^|[-(,])carbbenzoxy", r"\1cbz"),
         (r"(^|[-(,])hydroxysulfonyl", r"\1sulfo"),
         (r"(^|[-(,])phenylsulfonyl", r"\1besyl"),
+        (r"2,2,2-trifluoroethyl", "trifluoroethyl"),
+        (r"2,2-difluoroethyl", "difluoroethyl"),
+        (r"2,2,2-trichloroethyl", "trichloroethyl"),
+        (r"2,2-dichloroethyl", "dichloroethyl"),
+        (r"2,2,2-tribromoethyl", "tribromoethyl"),
+        (r"2,2-dibromoethyl", "dibromoethyl"),
+        (r"2,2,2-trifluoroethoxy", "trifluoroethoxy"),
+        (r"2,2-difluoroethoxy", "difluoroethoxy"),
+        (r"2,2,2-trichloroethoxy", "trichloroethoxy"),
+        (r"2,2-dichloroethoxy", "dichloroethoxy"),
+        (r"2,2,2-tribromoethoxy", "tribromoethoxy"),
+        (r"2,2-dibromoethoxy", "dibromoethoxy"),
+        (r"isopropyloxy", "isopropoxy"),
         (r"(^|[(,])2-pyridylcarbonyl", r"\1picolinoyl"),
         (r"(^|[(,])3-pyridylcarbonyl", r"\1nicotinoyl"),
         (r"(^|[(,])4-pyridylcarbonyl", r"\1isonicotinoyl"),

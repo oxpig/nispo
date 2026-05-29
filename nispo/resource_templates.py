@@ -305,6 +305,31 @@ OPSIN_PARENT_TEMPLATES = (
         ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
     ),
     (
+        "1,5-dihydro-4,1-benzothiazepin-2-one",
+        "O=C1CSCc2ccccc2N1",
+        ("", "2", "3", "4", "5", "5a", "6", "7", "8", "9", "9a", "1"),
+    ),
+    (
+        "2,3-dihydro-1,5-benzothiazepin-4(5H)-one",
+        "S1CCC(NC2=C1C=CC=C2)=O",
+        ("1", "2", "3", "4", "5", "5a", "9a", "9", "8", "7", "6", ""),
+    ),
+    (
+        "3,5-dihydro-2H-1,4-benzothiazepine",
+        "S1CCNCC2=C1C=CC=C2",
+        ("1", "2", "3", "4", "5", "5a", "9a", "9", "8", "7", "6"),
+    ),
+    (
+        "1,1-dioxido-2,3,4,5-tetrahydro-1,5-benzothiazepine",
+        "O=S1(CCCNC2=C1C=CC=C2)=O",
+        ("", "1", "2", "3", "4", "5", "5a", "9a", "9", "8", "7", "6", ""),
+    ),
+    (
+        "1,1-dioxido-2,3,4,5-tetrahydro-1,2,5-benzothiadiazepine",
+        "O=S1(NCCNC2=C1C=CC=C2)=O",
+        ("", "1", "2", "3", "4", "5", "5a", "9a", "9", "8", "7", "6", ""),
+    ),
+    (
         "2,7-diazaspiro[3.5]nonane",
         "C1NCC12CCNCC2",
         ("1", "2", "3", "4", "5", "6", "7", "8", "9"),

@@ -602,11 +602,11 @@ def _fused_candidate_preference(name: str) -> tuple:
         1 if re.search(r"(?:^|-|,)\d+[a-z]-", name) else 0,
         1 if "ind-1-ene" in name else 0,
         _fused_parent_carbonyl_rank(name),
+        _benzimidazole_orientation_preference(name),
         _greek_functional_locant_preference(name),
         _primed_functional_locant_preference(name),
         _substituent_locant_tuple(name),
         oxo_locs or (99,),
-        _benzimidazole_orientation_preference(name),
     )
 
 

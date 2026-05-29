@@ -659,6 +659,12 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("tert-butoxycarbonyl", "boc")
     name = name.replace("(boc)", "boc")
     name = name.replace("(bocamino)", "bocamino")
+    name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
+    name = re.sub(
+        r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
+        r"\1\2",
+        name,
+    )
     name = _compact_benzene_principal_parent(name)
     name = _compact_nested_methyl_chains(name)
     for verbose, compact in (

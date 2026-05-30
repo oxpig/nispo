@@ -30,10 +30,10 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 130
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 130
-_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 136
-_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 131
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 152
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 152
+_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 158
+_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 153
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,7 +412,7 @@ def _compact_selected_output_name(name: str) -> str:
 def _compact_final_output_aliases(name: str) -> str:
     """Apply validated output-only aliases after candidate ranking."""
 
-    if not name or not _needs_final_output_aliases(name):
+    if not name or not (_needs_final_output_aliases(name) or _needs_terminal_e_elision(name)):
         return name
     replacements = (
         (r"(?<![A-Za-z])tert-butyl(?![A-Za-z])", "t-butyl"),
@@ -434,10 +434,16 @@ def _compact_final_output_aliases(name: str) -> str:
         (r"(?<!\])morpholin-2-yl", "2-morpholinyl"),
         (r"(?<!\])morpholin-3-yl", "3-morpholinyl"),
         (r"(?<!\])piperazin-2-yl", "2-piperazinyl"),
+        (r"pyridine-2-ylcarbonylamino", "pyridine-2-carboxamido"),
+        (r"pyridine-3-ylcarbonylamino", "pyridine-3-carboxamido"),
+        (r"pyridine-4-ylcarbonylamino", "pyridine-4-carboxamido"),
+        (r"pyrimidin-3-ylcarbonylamino", "pyrimidine-3-carboxamido"),
+        (r"(?<![A-Za-z])1H-imidazol-(?:1|3)-ium\b", "imidazolium"),
     )
     for pattern, replacement in replacements:
         name = re.sub(pattern, replacement, name)
-    return name
+    name = name.replace("-imidazolium", "imidazolium")
+    return _compact_opsin_terminal_e_spellings(name)
 
 
 _FINAL_OUTPUT_ALIAS_TRIGGERS = (
@@ -452,11 +458,159 @@ _FINAL_OUTPUT_ALIAS_TRIGGERS = (
     "pyrrolidin-",
     "morpholin-",
     "piperazin-",
+    "ylcarbonylamino",
+    "imidazol-",
 )
 
 
 def _needs_final_output_aliases(name: str) -> bool:
     return any(trigger in name for trigger in _FINAL_OUTPUT_ALIAS_TRIGGERS)
+
+
+_TERMINAL_E_ELISION_TRIGGERS = (
+    "ane",
+    "ene",
+    "yne",
+    "amide",
+    "nitrile",
+    "pyridine",
+    "pyrimidine",
+    "pyridazine",
+    "pyrazine",
+    "pyrazole",
+    "imidazole",
+    "pyrrole",
+    "thiazole",
+    "oxazole",
+    "thiophene",
+    "indole",
+    "indazole",
+    "quinoline",
+    "quinazoline",
+    "piperidine",
+    "pyrrolidine",
+    "piperazine",
+    "morpholine",
+    "azetidine",
+    "aziridine",
+    "oxolane",
+    "oxane",
+    "toluene",
+    "anisole",
+    "benzoate",
+)
+
+
+def _needs_terminal_e_elision(name: str) -> bool:
+    return any(trigger in name for trigger in _TERMINAL_E_ELISION_TRIGGERS)
+
+
+_TERMINAL_E_PARENT_REPLACEMENTS = {
+    "pyridine": "pyridin",
+    "pyrimidine": "pyrimidin",
+    "pyridazine": "pyridazin",
+    "pyrazine": "pyrazin",
+    "pyrazole": "pyrazol",
+    "imidazole": "imidazol",
+    "pyrrole": "pyrrol",
+    "thiazole": "thiazol",
+    "oxazole": "oxazol",
+    "thiophene": "thiophen",
+    "indole": "indol",
+    "indazole": "indazol",
+    "quinoline": "quinolin",
+    "quinazoline": "quinazolin",
+    "piperidine": "piperidin",
+    "pyrrolidine": "pyrrolidin",
+    "piperazine": "piperazin",
+    "morpholine": "morpholin",
+    "cyclopropane": "cyclopropan",
+    "cyclobutane": "cyclobutan",
+    "cyclopentane": "cyclopentan",
+    "cyclohexane": "cyclohexan",
+    "cycloheptane": "cycloheptan",
+    "cyclooctane": "cyclooctan",
+    "oxane": "oxan",
+    "oxolane": "oxolan",
+    "azetidine": "azetidin",
+    "aziridine": "aziridin",
+    "isoindoline": "isoindolin",
+    "fluorene": "fluoren",
+    "xanthene": "xanthen",
+    "toluene": "toluen",
+    "anisole": "anisol",
+    "benzamide": "benzamid",
+    "benzonitrile": "benzonitril",
+    "benzoate": "benzoat",
+    "naphthalene": "naphthalen",
+    "anthracene": "anthracen",
+    "phenanthrene": "phenanthren",
+    "adamantane": "adamantan",
+    "carboxamide": "carboxamid",
+    "carbonitrile": "carbonitril",
+    "benzenesulfonamide": "benzenesulfonamid",
+    "methanesulfonamide": "methanesulfonamid",
+    "ethanesulfonamide": "ethanesulfonamid",
+    "carbamate": "carbamat",
+    "acetamide": "acetamid",
+}
+
+
+_ALKANE_ROOTS_FOR_E_ELISION = (
+    "triacont",
+    "nonacos",
+    "octacos",
+    "heptacos",
+    "hexacos",
+    "pentacos",
+    "tetracos",
+    "tricos",
+    "docos",
+    "henicos",
+    "icos",
+    "nonadec",
+    "octadec",
+    "heptadec",
+    "hexadec",
+    "pentadec",
+    "tetradec",
+    "tridec",
+    "dodec",
+    "undec",
+    "dec",
+    "non",
+    "oct",
+    "hept",
+    "hex",
+    "pent",
+    "but",
+    "prop",
+    "eth",
+    "meth",
+)
+
+
+_ALKANE_ROOT_PATTERN = "|".join(re.escape(root) for root in _ALKANE_ROOTS_FOR_E_ELISION)
+_UNSATURATION_MULTIPLIER_PATTERN = r"(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?"
+
+
+def _compact_opsin_terminal_e_spellings(name: str) -> str:
+    """Use OPSIN-accepted terminal-e elisions for common parent spellings."""
+
+    for verbose, compact in _TERMINAL_E_PARENT_REPLACEMENTS.items():
+        name = re.sub(rf"(?<![A-Za-z]){re.escape(verbose)}(?![A-Za-z])", compact, name)
+    name = re.sub(rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN}))ane\b", r"\1an", name)
+    name = re.sub(
+        rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN})(?:a-)?[0-9,()^\-]+{_UNSATURATION_MULTIPLIER_PATTERN}en)e\b",
+        r"\1",
+        name,
+    )
+    name = re.sub(
+        rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN})(?:a-)?[0-9,()^\-]+{_UNSATURATION_MULTIPLIER_PATTERN}yn)e\b",
+        r"\1",
+        name,
+    )
+    return name
 
 
 def _compact_selected_acylamino_terms(name: str) -> str:

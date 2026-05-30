@@ -1398,15 +1398,40 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "cyano": "carbonitrile",
 }
 
+_SINGLE_RING_ESTER_SUFFIX_OWNERS = {
+    "methoxycarbonyl": "methyl",
+    "carbmethoxy": "methyl",
+    "ethoxycarbonyl": "ethyl",
+    "carbethoxy": "ethyl",
+    "propoxycarbonyl": "propyl",
+    "carbopropoxy": "propyl",
+    "isopropoxycarbonyl": "isopropyl",
+    "butoxycarbonyl": "butyl",
+    "carbobutoxy": "butyl",
+    "tert-butoxycarbonyl": "tert-butyl",
+    "tert-butyloxycarbonyl": "tert-butyl",
+    "boc": "tert-butyl",
+    "benzyloxycarbonyl": "benzyl",
+    "carbbenzoxy": "benzyl",
+    "cbz": "benzyl",
+    "phenoxycarbonyl": "phenyl",
+    "carbphenoxy": "phenyl",
+}
+
 
 def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
     """Promote terminal ring functional groups to OPSIN-stable parent suffixes."""
 
-    if not _supports_single_ring_functional_suffix_parent(parent_name):
+    supports_parent = _supports_single_ring_functional_suffix_parent(parent_name)
+    supports_ester_parent = supports_parent or parent_name == "benzene"
+    if not supports_parent and not (
+        supports_ester_parent
+        and any(prefix in _SINGLE_RING_ESTER_SUFFIX_OWNERS for _loc, prefix in prefixes)
+    ):
         return ""
     best_key = None
     best_name = ""
-    for prefix, suffix_base in _SINGLE_RING_FUNCTIONAL_SUFFIXES.items():
+    for prefix, suffix_base in (() if not supports_parent else _SINGLE_RING_FUNCTIONAL_SUFFIXES.items()):
         suffix_locs = [loc for loc, candidate_prefix in prefixes if candidate_prefix == prefix]
         if not suffix_locs:
             continue
@@ -1422,13 +1447,74 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         original_prefix_text = _format_prefixes(prefixes)
         original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
         original_name = _compact_functional_suffix_prefix_baseline(original_name)
-        if len(name) > len(original_name):
+        if len(name) > len(original_name) and not _allow_simple_functional_suffix_parent(
+            parent_name,
+            suffix_base,
+            suffix_locs,
+            remaining,
+            name,
+            original_name,
+        ):
+            continue
+        key = (len(remaining), len(name), locants, name)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    if supports_ester_parent:
+        ester_name = _single_ring_ester_suffix_name(prefixes, parent_name)
+        if ester_name:
+            ester_key = (0, len(ester_name), _substituent_locant_tuple(ester_name), ester_name)
+            if best_key is None or ester_key < best_key:
+                best_key = ester_key
+                best_name = ester_name
+    return best_name
+
+
+def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    best_key = None
+    best_name = ""
+    original_prefix_text = _format_prefixes(prefixes)
+    original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+    original_name = _compact_functional_suffix_prefix_baseline(original_name)
+    ester_prefixes = {
+        prefix for _loc, prefix in prefixes if prefix in _SINGLE_RING_ESTER_SUFFIX_OWNERS
+    }
+    for prefix in ester_prefixes:
+        suffix_locs = [loc for loc, candidate_prefix in prefixes if candidate_prefix == prefix]
+        if not suffix_locs or len(suffix_locs) > 2:
+            continue
+        owner = _single_ring_ester_owner_text(prefix, len(suffix_locs))
+        if not owner:
+            continue
+        remaining = [(loc, candidate_prefix) for loc, candidate_prefix in prefixes if candidate_prefix != prefix]
+        suffix_locs = sorted(suffix_locs, key=_locant_sort_key)
+        locants = ",".join(suffix_locs)
+        prefix_text = _format_prefixes(remaining)
+        if parent_name == "benzene" and len(suffix_locs) == 1 and suffix_locs[0] == "1":
+            core = prefix_text + "benzoate" if prefix_text else "benzoate"
+        else:
+            suffix = "carboxylate" if len(suffix_locs) == 1 else "dicarboxylate"
+            parent_core = f"{parent_name}-{locants}-{suffix}"
+            core = prefix_text + "-" + parent_core if prefix_text else parent_core
+        name = f"{owner} {core}"
+        if len(name) >= len(original_name):
             continue
         key = (len(remaining), len(name), locants, name)
         if best_key is None or key < best_key:
             best_key = key
             best_name = name
     return best_name
+
+
+def _single_ring_ester_owner_text(prefix: str, count: int) -> str:
+    owner = _SINGLE_RING_ESTER_SUFFIX_OWNERS.get(prefix, "")
+    if not owner:
+        return ""
+    if count == 1:
+        return owner
+    if count == 2:
+        return "di" + owner
+    return ""
 
 
 def _compact_functional_suffix_prefix_baseline(name: str) -> str:
@@ -1438,6 +1524,78 @@ def _compact_functional_suffix_prefix_baseline(name: str) -> str:
         .replace("(carbamoyl)", "carbamoyl")
         .replace("carboxylato", "carboxylato")
     )
+
+
+def _allow_simple_functional_suffix_parent(
+    parent_name: str,
+    suffix_base: str,
+    suffix_locs: Sequence[str],
+    remaining: Sequence[tuple[str, str]],
+    name: str,
+    original_name: str,
+) -> bool:
+    """Let high-value suffix parents win for simple monocyclic retained parents.
+
+    The prefix forms are shorter, but OPSIN and SureChEMBL both strongly prefer
+    locanted suffix parents for simple heteroaryl acids/amides/nitriles.  This
+    deliberately avoids complex poly-substituted cases where the longer suffix
+    parent can perturb the global parent-family winner.
+    """
+
+    if suffix_base not in {"carboxamide", "carboxylate", "carboxylic acid", "carbonitrile"}:
+        return False
+    if len(suffix_locs) != 1 or not suffix_locs[0].isdigit():
+        return False
+    max_extra = 8 if suffix_base in {"carboxylic acid", "carbonitrile"} else 5
+    if len(name) > len(original_name) + max_extra:
+        return False
+    if not _simple_functional_suffix_parent_name(parent_name):
+        return False
+    return all(_simple_functional_suffix_remaining_prefix(prefix) for _loc, prefix in remaining)
+
+
+def _simple_functional_suffix_parent_name(parent_name: str) -> bool:
+    return parent_name in {
+        "furan",
+        "imidazole",
+        "isothiazole",
+        "isoxazole",
+        "oxazole",
+        "pyrazine",
+        "pyrazole",
+        "pyridazine",
+        "pyridine",
+        "pyrimidine",
+        "pyrrole",
+        "thiazole",
+        "thiophene",
+        "1H-pyrrole",
+        "1H-pyrazole",
+        "1H-imidazole",
+    }
+
+
+def _simple_functional_suffix_remaining_prefix(prefix: str) -> bool:
+    if prefix in {
+        "amino",
+        "bromo",
+        "chloro",
+        "cyano",
+        "ethyl",
+        "ethoxy",
+        "fluoro",
+        "formyl",
+        "hydroxy",
+        "iodo",
+        "methoxy",
+        "methyl",
+        "nitro",
+        "oxo",
+        "phenyl",
+        "trifluoromethyl",
+    }:
+        return True
+    return bool(re.fullmatch(r"(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|trifluoromethyl)phenyl", prefix))
 
 
 def _supports_single_ring_functional_suffix_parent(parent_name: str) -> bool:

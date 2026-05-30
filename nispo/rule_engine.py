@@ -32,6 +32,8 @@ _PAREN_SAFE_RETAINED_OXY = {
 }
 _CONTRACTION_PHASE_MAX_NAME_LENGTH = 130
 _CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 130
+_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 136
+_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 131
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +98,42 @@ class NamingEngine:
                 if best_key is None or candidate_key < best_key:
                     best_name = name
                     best_key = candidate_key
-        return _compact_selected_output_name(best_name)
+
+        if best_name:
+            return _compact_final_output_aliases(_compact_selected_output_name(best_name))
+
+        fallback_name: str = ""
+        fallback_key: tuple | None = None
+        for rule in self._rules:
+            if not rule.applies(ctx):
+                continue
+            for candidate in rule.candidates(ctx):
+                if not candidate.name:
+                    continue
+                name = _finalize_candidate_name(
+                    mol,
+                    self._Chem,
+                    candidate,
+                    max_length=_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH,
+                )
+                if not name:
+                    continue
+                fallback = _compact_final_output_aliases(name)
+                if len(fallback) > _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH:
+                    continue
+                stability_penalty = _opsin_stability_penalty(fallback)
+                candidate_key = (
+                    len(fallback) + stability_penalty,
+                    len(fallback),
+                    stability_penalty,
+                    candidate.priority,
+                    _comparable_sort_key(candidate.sort_key),
+                    fallback,
+                )
+                if fallback_key is None or candidate_key < fallback_key:
+                    fallback_name = fallback
+                    fallback_key = candidate_key
+        return _compact_selected_output_name(fallback_name)
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:
@@ -312,17 +349,25 @@ def _has_retained_parent_substituent_artifact(name: str) -> bool:
     return bool(re.search(r"(?:benzil|tolan)-\d+'?-yl\b", name))
 
 
-def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
+def _finalize_candidate_name(
+    mol,
+    Chem,
+    candidate: NameCandidate,
+    *,
+    max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH,
+) -> str:
     name = _normalize_terminal_parent_stem(candidate.name)
     if candidate.stereo_prefix and not name.startswith("("):
         return _apply_contraction_phase_output_policy(
             _compact_phase_descriptor_policy(
                 _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
-            )
+            ),
+            max_length=max_length,
         )
     if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
         return _apply_contraction_phase_output_policy(
-            _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name)))
+            _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name))),
+            max_length=max_length,
         )
     return _apply_contraction_phase_output_policy(
         _compact_phase_descriptor_policy(
@@ -337,16 +382,17 @@ def _finalize_candidate_name(mol, Chem, candidate: NameCandidate) -> str:
                     )
                 ),
             )
-        )
+        ),
+        max_length=max_length,
     )
 
 
-def _apply_contraction_phase_output_policy(name: str) -> str:
+def _apply_contraction_phase_output_policy(name: str, *, max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH) -> str:
     if _needs_late_compaction(name):
         name = _compact_common_substituent_terms(name)
     if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH and _needs_selected_cap_recovery(name):
         name = _compact_selected_output_name(name)
-    if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
+    if len(name) > max_length:
         return ""
     return name
 
@@ -354,13 +400,63 @@ def _apply_contraction_phase_output_policy(name: str) -> str:
 def _compact_selected_output_name(name: str) -> str:
     """Apply OPSIN-stable contractions that should not influence parent ranking."""
 
-    if not name:
+    if not name or not _needs_selected_cap_recovery(name):
         return name
     name = _compact_nested_linker_parentheses(name)
     name = _compact_selected_acylamino_terms(name)
     name = name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "trimethylsilylethoxymethyl")
     name = name.replace("carbamoyl", "carbamyl")
     return re.sub(r"(?<![A-Za-z])(?<!N-)cyclopropylcarbonylamino", "cyclopropanecarboxamido", name)
+
+
+def _compact_final_output_aliases(name: str) -> str:
+    """Apply validated output-only aliases after candidate ranking."""
+
+    if not name or not _needs_final_output_aliases(name):
+        return name
+    replacements = (
+        (r"(?<![A-Za-z])tert-butyl(?![A-Za-z])", "t-butyl"),
+        (r"chlorocarbonyl", "chloroformyl"),
+        (r"aminocarbonyl", "carbamoyl"),
+        (r"methylsulfonyl", "mesyl"),
+        (r"isopropylsulfanyl", "isopropylthio"),
+        (r"propylsulfanyl", "propylthio"),
+        (r"butylsulfanyl", "butylthio"),
+        (r"benzylsulfanyl", "benzylthio"),
+        (r"(?<!\])pyrimidin-4-yl", "4-pyrimidyl"),
+        (r"(?<!\])pyrimidin-5-yl", "5-pyrimidyl"),
+        (r"(?<!\])pyrimidin-6-yl", "6-pyrimidyl"),
+        (r"(?<!\])pyridazin-3-yl", "3-pyridazyl"),
+        (r"(?<!\])pyridazin-4-yl", "4-pyridazyl"),
+        (r"(?<!\])piperidin-2-yl", "2-piperidyl"),
+        (r"(?<!\])piperidin-3-yl", "3-piperidyl"),
+        (r"(?<!\])pyrrolidin-3-yl", "3-pyrrolidyl"),
+        (r"(?<!\])morpholin-2-yl", "2-morpholinyl"),
+        (r"(?<!\])morpholin-3-yl", "3-morpholinyl"),
+        (r"(?<!\])piperazin-2-yl", "2-piperazinyl"),
+    )
+    for pattern, replacement in replacements:
+        name = re.sub(pattern, replacement, name)
+    return name
+
+
+_FINAL_OUTPUT_ALIAS_TRIGGERS = (
+    "tert-butyl",
+    "chlorocarbonyl",
+    "aminocarbonyl",
+    "methylsulfonyl",
+    "sulfanyl",
+    "pyrimidin-",
+    "pyridazin-",
+    "piperidin-",
+    "pyrrolidin-",
+    "morpholin-",
+    "piperazin-",
+)
+
+
+def _needs_final_output_aliases(name: str) -> bool:
+    return any(trigger in name for trigger in _FINAL_OUTPUT_ALIAS_TRIGGERS)
 
 
 def _compact_selected_acylamino_terms(name: str) -> str:

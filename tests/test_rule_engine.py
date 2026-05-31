@@ -103,6 +103,22 @@ def test_generated_fused_indicated_h_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_generated_fused_topology_and_benzotriazole_orientation_roundtrip():
+    smiles_values = [
+        "NC(=O)C1=CC=C2C(=Cc3ncncc32)C1",
+        "N#Cc1cccc2nn[nH]c12",
+        "Brc1cc([N+](=O)[O-])c2nn[nH]c2c1",
+        "O=C(O)Cc1cccc2nn[nH]c12",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_fused_indicated_h_ketone_suffixes_roundtrip():
     smiles_values = [
         "O=c1nc[nH]c2cc([N+](=O)[O-])ccc12",
@@ -127,6 +143,8 @@ def test_fused_functional_suffix_parents_roundtrip():
         "N#Cc1ccc2[nH][nH]c(=O)c2c1",
         "O=C(NCCC(=O)N1CCOCC1)c1ccc2nc[nH]c2c1",
         "O=C(Nc1ccc([N+](=O)[O-])cc1Cl)c1cc(Cl)cc2[nH]c(C(F)(F)F)nc12",
+        "O=C(O)c1[nH]nc2c1CNCC2",
+        "NC(=O)c1ccc(Br)c2c3c([nH]c12)CCSC3",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)

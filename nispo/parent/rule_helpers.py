@@ -722,6 +722,20 @@ def _benzimidazole_template_h_preference(mol, template: dict, match: Sequence[in
     return (2,)
 
 
+def _benzotriazole_template_h_preference(mol, template: dict, match: Sequence[int], name: str) -> tuple:
+    if "benzotriazole" not in name and "benzotriazole" not in template_record_name(template):
+        return ()
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    h_locs = sorted(_matched_fused_indicated_hydrogen_locants(mol, template, reverse), key=_locant_sort_key)
+    if h_locs == ["1"]:
+        return (0,)
+    if h_locs == ["2"]:
+        return (1,)
+    if h_locs:
+        return (2, tuple(h_locs))
+    return (3,)
+
+
 def _has_n_oxide_on_match(mol, match: Sequence[int]) -> bool:
     core = set(match)
     for mol_idx in match:
@@ -1611,7 +1625,7 @@ def _fused_functional_suffix_name(
 ) -> str:
     """Promote fused-ring terminal functional groups to locanted suffix parents."""
 
-    if "hydro-" in parent_name or "acenaphthen" in parent_name:
+    if "acenaphthen" in parent_name:
         return ""
     best_key = None
     best_name = ""
@@ -1656,11 +1670,41 @@ def _is_fused_functional_suffix_locant(locant: str) -> bool:
 
 
 def _fused_functional_suffix_parent(parent_name: str, suffix_base: str, indicated_h_locs: Sequence[str]) -> str:
+    if "hydro-" in parent_name:
+        return _hydro_fused_functional_suffix_parent(parent_name, suffix_base, indicated_h_locs)
     if suffix_base == "carboxamide" and indicated_h_locs:
         return _drop_indicated_hydrogen_segments(parent_name, ())
     if indicated_h_locs and suffix_base in {"carbonitrile"}:
         return parent_name
     return _drop_indicated_hydrogen_segments(parent_name, ())
+
+
+def _hydro_fused_functional_suffix_parent(
+    parent_name: str,
+    suffix_base: str,
+    indicated_h_locs: Sequence[str],
+) -> str:
+    if suffix_base in {"carboxamide", "carboxylate", "carboxylic acid", "carbonitrile"} and "pyrazolo[" in parent_name:
+        h_loc = _hydro_fused_nonhydro_indicated_h_loc(parent_name, indicated_h_locs)
+        if h_loc and not re.search(r"(?:^|-)\d+[a-z]?H-", parent_name):
+            return re.sub(
+                r"^((?:\d+[a-z]?,)*\d+[a-z]?-[a-z]*hydro-)",
+                lambda match: f"{match.group(1)}{h_loc}H-",
+                parent_name,
+                count=1,
+            )
+    return _drop_indicated_hydrogen_segments(parent_name, ())
+
+
+def _hydro_fused_nonhydro_indicated_h_loc(parent_name: str, indicated_h_locs: Sequence[str]) -> str:
+    hydro_locs: set[str] = set()
+    match = re.search(r"((?:\d+[a-z]?,)*\d+[a-z]?)-[a-z]*hydro-", parent_name)
+    if match:
+        hydro_locs = set(match.group(1).split(","))
+    candidates = [loc for loc in indicated_h_locs if loc not in hydro_locs]
+    if not candidates:
+        return ""
+    return sorted(candidates, key=_locant_sort_key)[0]
 
 
 def _fused_functional_suffix_extra_budget(suffix_base: str, n_substituent: str) -> int:
@@ -1669,7 +1713,7 @@ def _fused_functional_suffix_extra_budget(suffix_base: str, n_substituent: str) 
     if suffix_base == "carbonitrile":
         return 10
     if suffix_base in {"carboxylic acid", "carboxylate"}:
-        return 10
+        return 18
     return 8
 
 
@@ -1693,7 +1737,7 @@ def _allow_fused_functional_suffix(
 
 
 def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
-    if "hydro-" in parent_name or "spiro[" in parent_name:
+    if "spiro[" in parent_name:
         return False
     return any(
         stem in parent_name
@@ -1705,6 +1749,7 @@ def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
             "cinnoline",
             "imidazo[",
             "indazole",
+            "indeno[",
             "indole",
             "isoquinoline",
             "naphthyridine",

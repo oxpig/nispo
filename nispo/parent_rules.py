@@ -2151,6 +2151,7 @@ class FusedParentRule:
     def _candidate_sort_key(self, mol, template: dict, match: Sequence[int], name: str) -> tuple:
         return (
             _benzimidazole_template_h_preference(mol, template, match, name),
+            _benzotriazole_template_h_preference(mol, template, match, name),
             *_fused_candidate_preference(name),
             _template_source_rank(template),
             _hydrogenated_template_penalty(template_record_name(template)),
@@ -2201,6 +2202,63 @@ class GeneratedFusedParentRule(FusedParentRule):
     def _candidate_sort_key(self, mol, template: dict, match: Sequence[int], name: str) -> tuple:
         return (_generated_fusion_preference(template_record_name(template)), *_fused_candidate_preference(name), -len(match), name)
 
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        if _has_positive_charged_ring_atom(mol):
+            return
+        if _high_rank_hetero_retained_fused_search_unpromising(mol):
+            return
+
+        yielded_names: set[str] = set()
+        for template, match in _iter_fused_template_matches(
+            ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
+        ):
+            name = _name_fused_core_match(mol, template, match)
+            if not name or name in yielded_names:
+                continue
+            yielded_names.add(name)
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=self._candidate_sort_key(mol, template, match, name),
+            )
+
+        topology_templates = tuple(
+            template
+            for template in self._template_iter(ctx)
+            if _allow_generated_topology_template(template_record_name(template))
+        )
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            topology_templates,
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+            reject_extra_core_bonds=True,
+        ):
+            if not _generated_topology_fused_match_is_hydrogen_compatible(mol, template, match):
+                continue
+            name = _name_fused_core_match(mol, template, match)
+            if not name or name in yielded_names:
+                continue
+            if not _allow_generated_topology_fused_candidate(template_record_name(template), name):
+                continue
+            yielded_names.add(name)
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=(
+                    _generated_topology_fused_candidate_rank(template_record_name(template), name),
+                    *self._candidate_sort_key(mol, template, match, name),
+                ),
+            )
+
 
 class GeneratedSpiroFusedParentRule(GeneratedFusedParentRule):
     """Promote OPSIN-derived component-spiro templates over retained spiro aliases."""
@@ -2214,6 +2272,63 @@ class GeneratedSpiroFusedParentRule(GeneratedFusedParentRule):
             for template in ctx.generated_fused_templates
             if template_record_name(template).startswith("spiro[")
         )
+
+
+def _allow_generated_topology_fused_candidate(template_name: str, name: str) -> bool:
+    """Allow generated fused templates when exact aromatic matching is too strict.
+
+    OPSIN-derived fused templates frequently have the right atom connectivity
+    but a different aromatic/Kekule representation from RDKit input.  This path
+    is limited to retained fused scaffold shapes where a suffix or indicated-H
+    parent gives a more stable graph than generic bicyclo/tricyclo fallback.
+    """
+
+    if not _allow_generated_topology_template(template_name):
+        return False
+    if _has_generated_topology_fused_suffix_parent(name):
+        return True
+    return False
+
+
+def _allow_generated_topology_template(template_name: str) -> bool:
+    return template_name.startswith("indeno[")
+
+
+def _generated_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
+    template_mol = template_record_mol(template)
+    expected_hydrogens = 0
+    actual_hydrogens = 0
+    core = set(match)
+    for template_idx, mol_idx in enumerate(match):
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        mol_atom = mol.GetAtomWithIdx(mol_idx)
+        if template_atom.GetFormalCharge() != mol_atom.GetFormalCharge():
+            return False
+        external_neighbors = sum(
+            1
+            for nbr in mol_atom.GetNeighbors()
+            if nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1
+        )
+        expected_hydrogens += max(0, template_atom.GetTotalNumHs() - external_neighbors)
+        actual_hydrogens += mol_atom.GetTotalNumHs()
+    return actual_hydrogens <= expected_hydrogens
+
+
+def _generated_topology_fused_candidate_rank(template_name: str, name: str) -> tuple:
+    return (
+        0 if _has_generated_topology_fused_suffix_parent(name) else 1,
+        len(name),
+        name,
+    )
+
+
+def _has_generated_topology_fused_suffix_parent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"\bindeno\[[^\]]+\].*-\d+[a-z]?-(?:carboxamide|carbonitrile|carboxylic acid|carboxylate)\b",
+            name,
+        )
+    )
 
 
 class SingleRingParentRule:
@@ -3152,6 +3267,7 @@ from .parent.rule_helpers import (
     _substituent_locant_tuple,
     _benzimidazole_orientation_preference,
     _benzimidazole_template_h_preference,
+    _benzotriazole_template_h_preference,
     _has_n_oxide_on_match,
     _name_fused_core_match,
     _name_natural_product_topology_match,

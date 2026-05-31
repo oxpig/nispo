@@ -49,6 +49,14 @@ class NameCandidate:
     stereo_prefix: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedCandidate:
+    name: str
+    candidate: NameCandidate
+    stability_penalty: int
+    selection_bonus: int
+
+
 class NamingEngine:
     """OPSIN-inspired dispatcher over independent nomenclature rule families."""
 
@@ -77,68 +85,81 @@ class NamingEngine:
             return polyatomic_name
 
         ctx = MoleculeContext(mol, self._Chem)
-        best_name: str = ""
-        best_key: tuple | None = None
-        for rule in self._rules:
-            if not rule.applies(ctx):
-                continue
-            for candidate in rule.candidates(ctx):
-                if not candidate.name:
-                    continue
-                name = _finalize_candidate_name(mol, self._Chem, candidate)
-                if not name:
-                    continue
-                stability_penalty = _candidate_selection_stability_penalty(name, candidate)
-                selection_bonus = _candidate_selection_bonus(name, candidate)
-                candidate_key = (
-                    len(name) + stability_penalty - selection_bonus,
-                    len(name),
-                    stability_penalty,
-                    candidate.priority,
-                    _comparable_sort_key(candidate.sort_key),
-                    name,
-                )
-                if best_key is None or candidate_key < best_key:
-                    best_name = name
-                    best_key = candidate_key
+        best_name = _select_best_prepared_candidate(
+            _prepare_candidates(mol, self._Chem, ctx, self._rules)
+        )
 
         if best_name:
             return _compact_final_output_aliases(_compact_selected_output_name(best_name))
 
-        fallback_name: str = ""
-        fallback_key: tuple | None = None
         fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
-        for rule in self._rules:
-            if not rule.applies(ctx):
-                continue
-            for candidate in rule.candidates(ctx):
-                if not candidate.name:
-                    continue
-                name = _finalize_candidate_name(
-                    mol,
-                    self._Chem,
-                    candidate,
-                    max_length=fallback_evaluation_length,
-                )
-                if not name:
-                    continue
-                fallback = _compact_final_output_aliases(name)
-                if len(fallback) > fallback_max_length:
-                    continue
-                stability_penalty = _candidate_selection_stability_penalty(fallback, candidate)
-                selection_bonus = _candidate_selection_bonus(fallback, candidate)
-                candidate_key = (
-                    len(fallback) + stability_penalty - selection_bonus,
-                    len(fallback),
-                    stability_penalty,
-                    candidate.priority,
-                    _comparable_sort_key(candidate.sort_key),
-                    fallback,
-                )
-                if fallback_key is None or candidate_key < fallback_key:
-                    fallback_name = fallback
-                    fallback_key = candidate_key
+        fallback_name = _select_best_prepared_candidate(
+            _prepare_candidates(
+                mol,
+                self._Chem,
+                ctx,
+                self._rules,
+                max_length=fallback_evaluation_length,
+                final_aliases=True,
+                output_max_length=fallback_max_length,
+            )
+        )
         return _compact_selected_output_name(fallback_name)
+
+
+def _prepare_candidates(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH,
+    final_aliases: bool = False,
+    output_max_length: int | None = None,
+) -> list[_PreparedCandidate]:
+    prepared: list[_PreparedCandidate] = []
+    for rule in rules:
+        if not rule.applies(ctx):
+            continue
+        for candidate in rule.candidates(ctx):
+            if not candidate.name:
+                continue
+            name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+            if not name:
+                continue
+            if final_aliases:
+                name = _compact_final_output_aliases(name)
+                if output_max_length is not None and len(name) > output_max_length:
+                    continue
+            prepared.append(
+                _PreparedCandidate(
+                    name=name,
+                    candidate=candidate,
+                    stability_penalty=_candidate_selection_stability_penalty(name, candidate),
+                    selection_bonus=_candidate_selection_bonus(name, candidate),
+                )
+            )
+    return prepared
+
+
+def _select_best_prepared_candidate(prepared: list[_PreparedCandidate]) -> str:
+    best_name = ""
+    best_key: tuple | None = None
+    for item in prepared:
+        candidate = item.candidate
+        stability_penalty = item.stability_penalty + _candidate_selection_contextual_penalty(item, prepared)
+        candidate_key = (
+            len(item.name) + stability_penalty - item.selection_bonus,
+            len(item.name),
+            stability_penalty,
+            candidate.priority,
+            _comparable_sort_key(candidate.sort_key),
+            item.name,
+        )
+        if best_key is None or candidate_key < best_key:
+            best_name = item.name
+            best_key = candidate_key
+    return best_name
 
 
 def _empty_fallback_limits(mol, Chem) -> tuple[int, int]:
@@ -262,8 +283,9 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_retained_parent_substituent_artifact(name):
         penalty += 25
-    if _has_unstable_compact_aza_polycycle_alias(name):
-        penalty += 35
+    penalty += _compact_aza_polycycle_alias_penalty(name)
+    if _has_unstable_benzimidazolyl_orientation_artifact(name):
+        penalty += 18
     return penalty
 
 
@@ -271,8 +293,73 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
     penalty = _opsin_stability_penalty(name)
     if candidate.family == "skeletal-replacement-fused-parent":
         penalty += _skeletal_replacement_fused_parent_penalty(name)
+    penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
     return penalty
+
+
+_CONTEXTUAL_GRAPH_PARENT_FAMILIES = {
+    "component-spiro-parent",
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-hydro-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "generated-spiro-fused-parent",
+    "generated-spiro-partial-hydro-parent",
+    "generic-bicyclic-parent",
+    "generic-spiro-parent",
+    "hydro-fused-retained-parent",
+    "kekulized-generic-polycyclic-parent",
+    "single-ring-parent",
+}
+
+
+def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
+    """Defer compact but orientation-fragile aliases only when alternatives exist."""
+
+    name = item.name
+    unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
+    unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
+    compact_aza_penalty = _compact_aza_polycycle_alias_penalty(name)
+    spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
+    if not (unstable_benzimidazolyl or unstable_replacement or compact_aza_penalty or spiro_penalty):
+        return 0
+
+    penalty = 0
+    has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
+    if has_graph_parent and unstable_benzimidazolyl:
+        penalty += 24
+    if has_graph_parent and unstable_replacement:
+        penalty += 32
+    if has_graph_parent and compact_aza_penalty:
+        penalty += 24
+    if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
+        penalty += 12
+    return penalty
+
+
+def _has_contextual_graph_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 70,
+    max_length: int = 125,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _CONTEXTUAL_GRAPH_PARENT_FAMILIES:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if _has_unstable_replacement_polycycle_alias(other.name) and not _has_generic_polycyclic_parent_descriptor(
+            other.name
+        ):
+            continue
+        return True
+    return False
 
 
 def _unlocanted_multicenter_stereo_penalty(name: str, candidate: NameCandidate) -> int:
@@ -315,6 +402,10 @@ def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
 
 
 def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
+    return _compact_aza_polycycle_alias_penalty(name) > 0
+
+
+def _compact_aza_polycycle_alias_penalty(name: str) -> int:
     """Defer compact aza-polycycle aliases with unstable OPSIN orientation.
 
     These retained-looking skeletal replacement aliases are concise, but in
@@ -324,16 +415,56 @@ def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
     """
 
     if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
+        return 0
+    if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
+        return 0
+    if re.search(
+        r"(?:^|-)(?:\d+[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
+        r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
+        name,
+    ):
+        return 35
+    return 0
+
+
+def _has_unstable_replacement_polycycle_alias(name: str) -> bool:
+    if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
         return False
     if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
         return False
     return bool(
         re.search(
-            r"(?:^|-)(?:\d+[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
+            r"(?:^|-)(?:di|tri|tetra|penta)?(?:aza|oxa|thia)"
             r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
             name,
         )
     )
+
+
+def _has_unstable_benzimidazolyl_orientation_artifact(name: str) -> bool:
+    if "benzimidazolium" in name:
+        return False
+    return bool(
+        re.search(r"\b(?:\d+[a-z]?H-)?\d+-benzimidazolyl\b", name)
+        or re.search(r"\b\d+(?:-[a-z]+)?1H-\d-benzimidazolyl\b", name)
+    )
+
+
+def _unstable_component_spiro_alias_penalty(name: str, candidate: NameCandidate) -> int:
+    if candidate.family not in {
+        "component-spiro-parent",
+        "poly-component-spiro-parent",
+        "component-dispiro-parent",
+    }:
+        return 0
+    if "spiro[" not in name:
+        return 0
+    if re.search(r"(?:^|-|')(?:aza|oxa|thia|diaza|diox|triaza).*spiro\[", name) and re.search(
+        r"\b(?:indane|inden|tetralin|decalin|fluoren|xanthen)\b",
+        name,
+    ):
+        return 14
+    return 0
 
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
@@ -343,10 +474,16 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         "generated-fused-parent",
         "generated-hydro-fused-parent",
         "generated-partial-hydro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
     }:
         return bonus
     if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
         bonus += 12
+    if candidate.family in {
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+    } and _has_complete_hydro_generated_fused_parent(name):
+        bonus += 10
     if candidate.family == "generated-fused-parent" and _has_oriented_generated_benzimidazole_parent(name):
         bonus += 22
     if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
@@ -410,7 +547,7 @@ def _has_complete_hydro_generated_fused_parent(name: str) -> bool:
     return bool(
         re.search(
             r"(?:pyrazolo|pyrrolo|imidazo|pyrido|pyrimido|quinazolino|quino|indolo|purino)"
-            r"\[[^\]]+\](?:pyridin|pyrimidin|pyrazin|pyrazol|pyrrol|indol|quinolin|benzene)|"
+            r"\[[^\]]+\](?:pyridin|pyrimidin|pyrazin|pyrazol|pyrrol|indol|quinolin)|"
             r"(?:naphthyridine|quinazoline|quinoline|quinoxaline|pteridine|purine)",
             name,
         )
@@ -495,6 +632,19 @@ def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:
 
 def _has_polycyclic_parent_descriptor(name: str) -> bool:
     return any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
+
+
+def _has_generic_polycyclic_parent_descriptor(name: str) -> bool:
+    return any(
+        term in name
+        for term in (
+            "bicyclo[",
+            "tricyclo[",
+            "tetracyclo[",
+            "pentacyclo[",
+            "spiro[",
+        )
+    )
 
 
 def _is_stable_hydride_parent_name(name: str) -> bool:

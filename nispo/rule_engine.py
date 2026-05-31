@@ -320,9 +320,18 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     name = item.name
     unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
+    generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
+    fragile_sulfamoyl_benzene = _has_fragile_single_ring_sulfamoyl_benzene(name, item.candidate)
     compact_aza_penalty = _compact_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
-    if not (unstable_benzimidazolyl or unstable_replacement or compact_aza_penalty or spiro_penalty):
+    if not (
+        unstable_benzimidazolyl
+        or unstable_replacement
+        or generic_polycycle
+        or fragile_sulfamoyl_benzene
+        or compact_aza_penalty
+        or spiro_penalty
+    ):
         return 0
 
     penalty = 0
@@ -331,6 +340,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 24
     if has_graph_parent and unstable_replacement:
         penalty += 32
+    if generic_polycycle and _has_contextual_named_graph_parent_alternative(item, prepared, max_extra=45, max_length=155):
+        penalty += 28
+    if fragile_sulfamoyl_benzene and _has_contextual_acyclic_parent_alternative(
+        item, prepared, max_extra=25, max_length=170
+    ):
+        penalty += 36
     if has_graph_parent and compact_aza_penalty:
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
@@ -357,6 +372,56 @@ def _has_contextual_graph_parent_alternative(
         if _has_unstable_replacement_polycycle_alias(other.name) and not _has_generic_polycyclic_parent_descriptor(
             other.name
         ):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_named_graph_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 70,
+    max_length: int = 125,
+) -> bool:
+    named_parent_families = {
+        "component-spiro-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "hydro-fused-retained-parent",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in named_parent_families:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_acyclic_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 70,
+    max_length: int = 170,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "acyclic-skeleton-with-ring-substituents":
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
             continue
         return True
     return False
@@ -396,9 +461,41 @@ def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
     it is usually a more stable roundtrip parent even if it is longer.
     """
 
-    if not re.search(r"(?:aza|oxa|thia|phospha|bora)indeno\[[^\]]+\]benzene", name):
+    if not re.search(
+        r"(?:(?:di|tri|tetra|penta)?aza|oxa|thia|phospha|bora)[a-z0-9,\-]*indeno\[[^\]]+\]benzene",
+        name,
+    ):
         return 0
     return 40
+
+
+def _has_contextual_generic_polycycle_fallback(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "functional-generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        return False
+    if not _has_generic_polycyclic_parent_descriptor(name):
+        return False
+    return not _has_natural_product_topology_stem(name)
+
+
+def _has_natural_product_topology_stem(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:gon|cholest|chol|androst|pregn|ergost|campest|stigmast|poriferast|cedran|guaian)(?:an|en|yl|e)?\b",
+            name,
+        )
+    )
+
+
+def _has_fragile_single_ring_sulfamoyl_benzene(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if ")sulfamoyl)-benzene" not in name:
+        return False
+    return bool(re.search(r"(?:aza|diaza|oxa|thia|imino|dioxo).*\)sulfamoyl\)-benzene", name))
 
 
 def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
@@ -1672,6 +1769,17 @@ def _compact_validated_functional_aliases(name: str) -> str:
     )
     for pattern, replacement in replacements:
         name = re.sub(pattern, replacement, name)
+    name = re.sub(r"(?<=\))aminosulfonyl", "sulfamoyl", name)
+    name = re.sub(
+        r"(?<![A-Za-z])("
+        r"benzyl|phenyl|[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|"
+        r"[2345]-pyrazolyl|[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|"
+        r"cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|tert-butyl|t-butyl|"
+        r"isopropyl|methyl|ethyl|propyl|butyl|dimethyl|diethyl"
+        r")aminosulfonyl",
+        r"\1sulfamoyl",
+        name,
+    )
     return name
 
 

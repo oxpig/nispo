@@ -1124,7 +1124,8 @@ def _is_pinacol_boronate_oxygen_pair(mol, Chem, boron_idx: int, oxygen_indices: 
         carbon_indices.append(carbon_idx)
     if len(set(carbon_indices)) != 2:
         return False
-    if mol.GetBondBetweenAtoms(carbon_indices[0], carbon_indices[1]).GetBondType() != Chem.BondType.SINGLE:
+    carbon_bond = mol.GetBondBetweenAtoms(carbon_indices[0], carbon_indices[1])
+    if carbon_bond is None or carbon_bond.GetBondType() != Chem.BondType.SINGLE:
         return False
     for carbon_idx in carbon_indices:
         methyl_leaves = [

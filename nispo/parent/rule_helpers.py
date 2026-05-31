@@ -114,8 +114,11 @@ def _partial_hydro_fusion_preference(name: str) -> tuple:
     spiro_penalty = _partial_hydro_spiro_alias_penalty(name)
     if len(key) < 5:
         return (spiro_penalty, key)
-    base_rank, letter_rank, locants, component_rank, full_name = key
-    return (spiro_penalty, base_rank, -letter_rank, locants, component_rank, full_name)
+    if len(key) == 5:
+        base_rank, letter_rank, locants, component_rank, full_name = key
+        return (spiro_penalty, base_rank, -letter_rank, locants, component_rank, full_name)
+    orientation_rank, base_rank, letter_rank, locants, component_rank, full_name = key
+    return (spiro_penalty, orientation_rank, base_rank, -letter_rank, locants, component_rank, full_name)
 
 
 def _partial_hydro_spiro_alias_penalty(name: str) -> int:

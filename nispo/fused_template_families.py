@@ -16,6 +16,24 @@ from .template_index import ring_system_feature_key, molecule_features
 _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
 _MAX_GENERATED_RECORDS_PER_GRAPH = 256
 _MAX_GENERATED_ALIASES_PER_SCAFFOLD = 2
+_MAX_ORIENTATION_ALIASES_PER_SCAFFOLD = 2
+
+_TARGET_FUSION_COMPONENT_PREFIXES = (
+    "imidazo",
+    "pyrazolo",
+    "pyrrolo",
+    "triazolo",
+)
+_TARGET_FUSION_BASES = {
+    "pyridine",
+    "pyrimidine",
+    "pyrazine",
+    "pyridazine",
+    "quinoline",
+    "quinazoline",
+    "quinoxaline",
+    "naphthyridine",
+}
 
 _FUSION_BASE_PRIORITY = {
     name: index
@@ -173,11 +191,12 @@ def generated_fusion_preference(name: str) -> tuple:
     if match is None:
         return (999, 999, (), 999, name)
     component, locant_text, letter, base = match.groups()
+    orientation_rank = _target_fusion_orientation_rank(component, base)
     base_rank = _FUSION_BASE_PRIORITY.get(base, 500)
     locants = _fusion_descriptor_locants(locant_text)
     letter_rank = ord(letter) - ord("a")
     component_rank = _component_alias_penalty(component)
-    return (base_rank, letter_rank, locants, component_rank, name)
+    return (orientation_rank, base_rank, letter_rank, locants, component_rank, name)
 
 
 def generated_template_key(template: dict) -> tuple:
@@ -301,18 +320,41 @@ def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ..
         grouped.setdefault(str(record.get("smiles", "")), []).append(record)
     selected = []
     for scaffold_records in grouped.values():
-        selected.extend(
-            sorted(
-                scaffold_records,
-                key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
-            )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
-        )
+        selected.extend(_preferred_generated_records_for_scaffold(scaffold_records))
     return tuple(
         sorted(
             selected,
             key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
         )
     )
+
+
+def _preferred_generated_records_for_scaffold(records: list[dict]) -> list[dict]:
+    shortest = sorted(
+        records,
+        key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
+    )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
+    oriented = sorted(
+        records,
+        key=lambda record: (generated_fusion_preference(str(record.get("name", ""))), len(str(record.get("name", "")))),
+    )[:_MAX_ORIENTATION_ALIASES_PER_SCAFFOLD]
+    selected = []
+    seen = set()
+    for record in shortest + oriented:
+        marker = id(record)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        selected.append(record)
+    return selected
+
+
+def _target_fusion_orientation_rank(component: str, base: str) -> int:
+    if component.startswith(_TARGET_FUSION_COMPONENT_PREFIXES) and base in _TARGET_FUSION_BASES:
+        return 0
+    if component.startswith(("pyrido", "pyrimido")) and base in {"pyrazole", "pyrrole", "imidazole", "triazole"}:
+        return 2
+    return 1
 
 
 def _fusion_descriptor_locants(text: str) -> tuple:

@@ -747,7 +747,7 @@ def _name_fused_core_match(
     if not prefixes:
         return parent_name
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
-    suffix_name = _fused_oxo_suffix_name(prefixes, parent_name)
+    suffix_name = _fused_oxo_suffix_name(prefixes, parent_name, _matched_fused_indicated_hydrogen_locants(mol, template, reverse))
     if suffix_name:
         return suffix_name
     prefix_text = _format_prefixes(prefixes)
@@ -915,12 +915,30 @@ def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
     }
 
 
-def _fused_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _fused_oxo_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
     oxo_locs = sorted((loc for loc, prefix in prefixes if prefix == "oxo" and loc.isdigit()), key=int)
     if parent_name == "pteridine" and oxo_locs == ["4", "7"]:
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
         name = "3H,8H-pteridine-4,7-dione"
+        return prefix_text + "-" + name if prefix_text else name
+    if (
+        len(oxo_locs) == 1
+        and indicated_h_locs
+        and "hydro-" not in parent_name
+        and "acenaphthen" not in parent_name
+        and "naphthyridine" not in parent_name
+        and "isoquinoline" not in parent_name
+    ):
+        remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
+        prefix_text = _format_prefixes(remaining)
+        parent = _strip_leading_indicated_hydrogen(parent_name)
+        h_loc = sorted(set(indicated_h_locs), key=_locant_sort_key)[0]
+        name = f"{parent}-{oxo_locs[0]}({h_loc}H)-one"
         return prefix_text + "-" + name if prefix_text else name
     return ""
 
@@ -1005,9 +1023,17 @@ def _matched_fused_indicated_hydrogen_locants(mol, template: dict, reverse: dict
     for mol_idx, template_idx in reverse.items():
         atom = mol.GetAtomWithIdx(mol_idx)
         locant = template_record_locants(template).get(template_idx)
-        if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and locant and locant.isdigit():
+        if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and _is_indicated_h_locant(locant):
             h_locs.append(locant)
     return h_locs
+
+
+def _is_indicated_h_locant(locant: str | None) -> bool:
+    return bool(locant and re.match(r"\d+[a-z]?$", locant))
+
+
+def _strip_leading_indicated_hydrogen(name: str) -> str:
+    return re.sub(r"^(?:\d+[a-z]?H,)*\d+[a-z]?H-", "", name)
 
 
 def _supports_generated_fused_indicated_hydrogen(name: str) -> bool:

@@ -246,11 +246,14 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if candidate.family not in {
+        "fused-retained-parent",
         "generated-fused-parent",
         "generated-hydro-fused-parent",
         "generated-partial-hydro-fused-parent",
     }:
         return 0
+    if _has_fused_indicated_h_ketone_suffix(name):
+        return 6
     if _has_indicated_h_generated_fused_parent(name):
         return 6
     return 0
@@ -258,6 +261,15 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
 
 def _has_indicated_h_generated_fused_parent(name: str) -> bool:
     return bool(re.search(r"(?:^|-)\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
+
+
+def _has_fused_indicated_h_ketone_suffix(name: str) -> bool:
+    if "acenaphthen" in name:
+        return False
+    return bool(
+        re.search(r"\[[^\]]+\].*-\d+\(\d+[a-z]?H\)-one\b", name)
+        or re.search(r"\b(?:quinazolin|pteridin|triazafluoren)-\d+\(\d+[a-z]?H\)-one\b", name)
+    )
 
 
 def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:

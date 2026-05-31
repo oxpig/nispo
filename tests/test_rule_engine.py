@@ -99,6 +99,24 @@ def test_generated_fused_indicated_h_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_fused_indicated_h_ketone_suffixes_roundtrip():
+    smiles_values = [
+        "O=c1nc[nH]c2cc([N+](=O)[O-])ccc12",
+        "Cc1ccc2[nH]cnc(=O)c2c1",
+        "O=c1cc[nH]c2nccnc12",
+        "O=c1[nH][nH]c2ncncc12",
+        "O=c1c2ccccc2[nH]cn1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("(1H)-one" in name or "(5H)-one" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

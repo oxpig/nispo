@@ -86,9 +86,10 @@ class NamingEngine:
                 name = _finalize_candidate_name(mol, self._Chem, candidate)
                 if not name:
                     continue
-                stability_penalty = _opsin_stability_penalty(name)
+                stability_penalty = _candidate_selection_stability_penalty(name, candidate)
+                selection_bonus = _candidate_selection_bonus(name, candidate)
                 candidate_key = (
-                    len(name) + stability_penalty,
+                    len(name) + stability_penalty - selection_bonus,
                     len(name),
                     stability_penalty,
                     candidate.priority,
@@ -121,9 +122,10 @@ class NamingEngine:
                 fallback = _compact_final_output_aliases(name)
                 if len(fallback) > _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH:
                     continue
-                stability_penalty = _opsin_stability_penalty(fallback)
+                stability_penalty = _candidate_selection_stability_penalty(fallback, candidate)
+                selection_bonus = _candidate_selection_bonus(fallback, candidate)
                 candidate_key = (
-                    len(fallback) + stability_penalty,
+                    len(fallback) + stability_penalty - selection_bonus,
                     len(fallback),
                     stability_penalty,
                     candidate.priority,
@@ -236,6 +238,26 @@ def _opsin_stability_penalty(name: str) -> int:
     if _has_retained_parent_substituent_artifact(name):
         penalty += 25
     return penalty
+
+
+def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) -> int:
+    return _opsin_stability_penalty(name)
+
+
+def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
+    if candidate.family not in {
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+    }:
+        return 0
+    if _has_indicated_h_generated_fused_parent(name):
+        return 6
+    return 0
+
+
+def _has_indicated_h_generated_fused_parent(name: str) -> bool:
+    return bool(re.search(r"(?:^|-)\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
 
 
 def _has_small_ring_carbonyl_suffix_parent(name: str) -> bool:

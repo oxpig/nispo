@@ -973,6 +973,8 @@ def _drop_indicated_hydrogen_prefix(name: str) -> str:
 def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, str]]) -> str:
     if "benzimidazole" in name and any(prefix == "oxo" for _, prefix in prefixes):
         return name
+    if _preserve_generated_fused_indicated_hydrogen(name):
+        return name
 
     def replacement(match: re.Match) -> str:
         locant = match.group(2)
@@ -986,16 +988,34 @@ def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, s
 def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: dict[int, int]) -> str:
     name = template_record_name(template)
     if not name.startswith("1H-"):
+        if not _supports_generated_fused_indicated_hydrogen(name):
+            return name
+        h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+        if len(h_locs) != 1:
+            return name
+        return f"{h_locs[0]}H-{name}"
+    h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+    if len(h_locs) != 1 or h_locs[0] == "1":
         return name
+    return f"{h_locs[0]}H-{name[3:]}"
+
+
+def _matched_fused_indicated_hydrogen_locants(mol, template: dict, reverse: dict[int, int]) -> list[str]:
     h_locs = []
     for mol_idx, template_idx in reverse.items():
         atom = mol.GetAtomWithIdx(mol_idx)
         locant = template_record_locants(template).get(template_idx)
         if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and locant and locant.isdigit():
             h_locs.append(locant)
-    if len(h_locs) != 1 or h_locs[0] == "1":
-        return name
-    return f"{h_locs[0]}H-{name[3:]}"
+    return h_locs
+
+
+def _supports_generated_fused_indicated_hydrogen(name: str) -> bool:
+    return bool(re.match(r"(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
+
+
+def _preserve_generated_fused_indicated_hydrogen(name: str) -> bool:
+    return bool(re.match(r"\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str]]:

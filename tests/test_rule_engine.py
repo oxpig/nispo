@@ -82,6 +82,23 @@ def test_single_ring_functional_suffix_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_generated_fused_indicated_h_parents_roundtrip():
+    smiles_values = [
+        "Ic1n[nH]c2cccnc12",
+        "NC(=O)c1cncc2c[nH]nc12",
+        "Nc1ncnc2[nH]ncc12",
+        "Cn1ccc2cc[nH]c(=O)c21",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("H-pyrazolo" in name or "H-pyrrolo" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

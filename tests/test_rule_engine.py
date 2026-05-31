@@ -209,6 +209,21 @@ def test_benzimidazole_orientation_roundtrips_both_tautomers():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_fragile_skeletal_fused_parents_defer_to_roundtripping_templates():
+    smiles_values = [
+        "C1=C2N=NCN2c2ccccc2N1",
+        "CC(C)(C)OC(=O)N1CCc2[nH]cnc2[C@H]1c1nc2ccccc2[nH]1",
+        "c1[nH]c2c(c3cnnc1-3)NCCC2",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_functional_ester_aliases_roundtrip():
     smiles_values = [
         "CCC(OC(N)=O)C(CC)OC(N)=O",

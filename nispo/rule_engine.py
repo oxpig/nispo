@@ -241,7 +241,24 @@ def _opsin_stability_penalty(name: str) -> int:
 
 
 def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) -> int:
-    return _opsin_stability_penalty(name)
+    penalty = _opsin_stability_penalty(name)
+    if candidate.family == "skeletal-replacement-fused-parent":
+        penalty += _skeletal_replacement_fused_parent_penalty(name)
+    return penalty
+
+
+def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
+    """Defer fragile hetero-fused replacement names to retained scaffolds.
+
+    Replacement names such as ``triazaindeno[...]benzene`` are concise, but
+    OPSIN frequently parses their fusion orientation poorly or rejects them
+    outright.  When a generated/retained fused template describes the same core,
+    it is usually a more stable roundtrip parent even if it is longer.
+    """
+
+    if not re.search(r"(?:aza|oxa|thia|phospha|bora)indeno\[[^\]]+\]benzene", name):
+        return 0
+    return 40
 
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
@@ -252,6 +269,8 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         "generated-partial-hydro-fused-parent",
     }:
         return 0
+    if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
+        return 12
     if _has_indicated_h_fused_functional_suffix_parent(name):
         return 12
     if _has_fused_indicated_h_ketone_suffix(name):
@@ -263,6 +282,10 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if _has_indicated_h_generated_fused_parent(name):
         return 6
     return 0
+
+
+def _has_stable_tetrahydro_imidazopyridine_parent(name: str) -> bool:
+    return bool(re.search(r"4,5,6,7-tetrahydro-imidazo\[4,5-[cd]\]pyridine\b", name))
 
 
 def _has_retained_indicated_h_parent(name: str) -> bool:
@@ -505,7 +528,13 @@ def _compact_final_output_aliases(name: str) -> str:
     for pattern, replacement in replacements:
         name = re.sub(pattern, replacement, name)
     name = name.replace("-imidazolium", "imidazolium")
+    if _preserve_hydro_fused_terminal_e(name):
+        return name
     return _compact_opsin_terminal_e_spellings(name)
+
+
+def _preserve_hydro_fused_terminal_e(name: str) -> bool:
+    return bool(re.search(r"(?:hydro|oxo)-.*\[[^\]]+\].*\b(?:pyridine|imidazole|pyrrole|indole|indazole)\b", name))
 
 
 _FINAL_OUTPUT_ALIAS_TRIGGERS = (

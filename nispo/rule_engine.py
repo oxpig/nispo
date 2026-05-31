@@ -978,6 +978,8 @@ def _compact_common_substituent_terms(name: str) -> str:
     ):
         name = name.replace(f"({halo_methyl})oxy", compact)
         name = name.replace(f"{halo_methyl}oxy", compact)
+    name = name.replace("3-oxo1-oxoisoindolin-", "1,3-dioxoisoindolin-")
+    name = name.replace("3-oxo-1-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)

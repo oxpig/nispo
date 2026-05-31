@@ -474,7 +474,7 @@ FUSED_SUBSTITUENT_STEMS = {
     "indolizidine": "indolizidin",
     "pyrrolizidine": "pyrrolizidin",
     "phthalide": "phthalid",
-    "isoindolin-1-one": "isoindolin",
+    "isoindolin-1-one": "1-oxoisoindolin",
     "quinazoline": "quinazolin",
     "quinoxaline": "quinoxalin",
     "cinnoline": "cinnolin",

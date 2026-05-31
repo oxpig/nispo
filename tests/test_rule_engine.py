@@ -224,6 +224,21 @@ def test_fragile_skeletal_fused_parents_defer_to_roundtripping_templates():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_isoindolinone_substituent_oxo_state_roundtrips():
+    smiles_values = [
+        "O=C1CCC(N2Cc3ccc(Br)c(Br)c3C2=O)C(=O)N1",
+        "NCc1ccc2c(c1)C(=O)N(C1CCC(=O)NC1=O)C2",
+        "O=C1c2ccccc2C(=O)N1C1CCCCC1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_functional_ester_aliases_roundtrip():
     smiles_values = [
         "CCC(OC(N)=O)C(CC)OC(N)=O",

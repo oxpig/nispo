@@ -675,6 +675,18 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
         if charge_base in {"pyrimidine", "pyrazine", "pyridazine"}:
             stem = charge_base[:-1]
             return f"{stem}-{loc}-ium"
+        if charge_base in {
+            "aziridine",
+            "azetidine",
+            "pyrrolidine",
+            "piperidine",
+            "azepane",
+            "imidazolidine",
+            "piperazine",
+            "morpholine",
+        }:
+            stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
+            return f"{stem}-{loc}-ium"
         if charge_base.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
             stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
             return f"{stem}-{loc}-ium"

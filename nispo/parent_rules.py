@@ -2000,6 +2000,8 @@ class WholeMoleculeRetainedParentRule:
                 continue
             if template_record_mol(template).GetNumAtoms() != atom_count:
                 continue
+            if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
+                continue
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
             for match in ctx.template_matches(template):
@@ -2025,6 +2027,10 @@ def _standalone_whole_molecule_retained_name(template: dict) -> str:
     if name in {"benzyn", "tropylium"}:
         return name
     return ""
+
+
+def _formal_charge(mol) -> int:
+    return sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
 
 
 _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES = {
@@ -2601,6 +2607,48 @@ class OxidoFusedParentRule:
                 )
 
 
+class GeneratedOxidoFusedParentRule(OxidoFusedParentRule):
+    family = "generated-oxido-fused-parent"
+    priority = parent_priority("charged-retained-fused-parent")
+    min_ring_system_ring_count = 2
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.generated_fused_templates
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            self._template_iter(ctx),
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+        ):
+            if not _has_n_oxide_on_match(mol, match):
+                continue
+            reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+            parent_name = _adjust_fused_parent_for_charge(mol, template, reverse)
+            if parent_name == template_record_name(template):
+                continue
+            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            if name:
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=(
+                        _generated_fusion_preference(template_record_name(template)),
+                        _substituent_locant_tuple(name),
+                        -len(match),
+                        name,
+                    ),
+                )
+
+
 class _PolycyclicRecordParentRule:
     record_family = ""
     min_ring_count = 2
@@ -2762,6 +2810,8 @@ class ExactRetainedParentRule:
                 continue
             if template_record_mol(template).GetNumAtoms() != atom_count:
                 continue
+            if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
+                continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
                     yield NameCandidate(
@@ -2812,6 +2862,7 @@ def parent_rules(Chem) -> tuple:
     fused = FusedParentRule(Chem)
     hydro_fused = HydroFusedParentRule(Chem)
     oxido_fused = OxidoFusedParentRule(Chem)
+    generated_oxido_fused = GeneratedOxidoFusedParentRule(Chem)
     generic_bicyclic = GenericBicyclicParentRule(Chem)
     functional_generic_bicyclic = FunctionalGenericBicyclicParentRule(Chem)
     generic_spiro = GenericSpiroParentRule(Chem)
@@ -2946,6 +2997,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("charged-retained-fused-parent"),
             (min_ring_count(2), min_ring_system_ring_count(2), charged_ring_atom),
             oxido_fused.candidates,
+        ),
+        RuleSpec(
+            "generated-oxido-fused-parent",
+            parent_priority("charged-retained-fused-parent"),
+            (min_ring_count(2), min_ring_system_ring_count(2), charged_ring_atom),
+            generated_oxido_fused.candidates,
         ),
         RuleSpec("generic-bicyclic-parent", parent_priority("generic-bicyclic-parent"), (generic_bicyclic_topology,), generic_bicyclic.candidates),
         RuleSpec("generic-spiro-parent", parent_priority("generic-spiro-parent"), (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),

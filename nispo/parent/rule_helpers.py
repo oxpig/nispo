@@ -699,6 +699,11 @@ def _substituent_locant_tuple(name: str) -> tuple[int, ...]:
 def _benzimidazole_orientation_preference(name: str) -> tuple:
     if "benzimidazole" not in name or "oxo" in name:
         return ()
+    if "carboxamide" in name and "carbonyl" in name and re.search(r"(?:^|-)N(?:,N)?-", name):
+        locants = sorted(
+            {int(loc) for loc in re.findall(r"(?<!\d)(\d+)-carboxamide", name) if int(loc) >= 4}
+        )
+        return tuple(locants)
     locants = sorted(
         {int(loc) for loc in re.findall(r"(?<!\d)(\d+)-", name) if int(loc) >= 4},
         reverse=True,
@@ -746,8 +751,12 @@ def _name_fused_core_match(
             prefixes.append((locant, prefix))
     if not prefixes:
         return parent_name
+    indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+    suffix_name = _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
+    if suffix_name:
+        return suffix_name
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
-    suffix_name = _fused_oxo_suffix_name(prefixes, parent_name, _matched_fused_indicated_hydrogen_locants(mol, template, reverse))
+    suffix_name = _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
     if suffix_name:
         return suffix_name
     prefix_text = _format_prefixes(prefixes)
@@ -933,6 +942,7 @@ def _fused_oxo_suffix_name(
         and "acenaphthen" not in parent_name
         and "naphthyridine" not in parent_name
         and "isoquinoline" not in parent_name
+        and "spiro[" not in parent_name
     ):
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
@@ -1444,6 +1454,8 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "cyano": "carbonitrile",
 }
 
+_FUSED_FUNCTIONAL_SUFFIXES = _SINGLE_RING_FUNCTIONAL_SUFFIXES
+
 _SINGLE_RING_ESTER_SUFFIX_OWNERS = {
     "methoxycarbonyl": "methyl",
     "carbmethoxy": "methyl",
@@ -1514,6 +1526,106 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
                 best_key = ester_key
                 best_name = ester_name
     return best_name
+
+
+def _fused_functional_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
+    """Promote fused-ring terminal functional groups to locanted suffix parents."""
+
+    if "hydro-" in parent_name or "acenaphthen" in parent_name:
+        return ""
+    best_key = None
+    best_name = ""
+    for loc, prefix in prefixes:
+        suffix_base = _FUSED_FUNCTIONAL_SUFFIXES.get(prefix)
+        n_substituent = ""
+        if suffix_base is None:
+            n_substituent = _n_substituted_carboxamide_prefix(prefix)
+            if not n_substituent:
+                continue
+            suffix_base = "carboxamide"
+        if not _allow_fused_functional_suffix(parent_name, suffix_base, n_substituent, indicated_h_locs):
+            continue
+        if not _is_fused_functional_suffix_locant(loc):
+            continue
+        remaining = [(other_loc, other_prefix) for other_loc, other_prefix in prefixes if (other_loc, other_prefix) != (loc, prefix)]
+        parent = _fused_functional_suffix_parent(parent_name, suffix_base, indicated_h_locs)
+        suffix = _single_ring_functional_suffix_text(suffix_base, 1)
+        if not parent or not suffix:
+            continue
+        prefix_text = _format_prefixes(remaining)
+        core = f"{parent}-{loc}-{suffix}"
+        if n_substituent:
+            core = f"{n_substituent}-{core}"
+        name = prefix_text + "-" + core if prefix_text else core
+        original_prefix_text = _format_prefixes(prefixes)
+        original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+        original_name = _compact_functional_suffix_prefix_baseline(original_name)
+        if len(name) > len(original_name) + _fused_functional_suffix_extra_budget(suffix_base, n_substituent):
+            continue
+        key = (len(remaining), len(name), loc, name)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_name = name
+    return best_name
+
+
+def _is_fused_functional_suffix_locant(locant: str) -> bool:
+    return bool(locant and re.match(r"\d+[a-z]?$", locant))
+
+
+def _fused_functional_suffix_parent(parent_name: str, suffix_base: str, indicated_h_locs: Sequence[str]) -> str:
+    if suffix_base == "carboxamide" and indicated_h_locs:
+        return _drop_indicated_hydrogen_segments(parent_name, ())
+    if indicated_h_locs and suffix_base in {"carbonitrile"}:
+        return parent_name
+    return _drop_indicated_hydrogen_segments(parent_name, ())
+
+
+def _fused_functional_suffix_extra_budget(suffix_base: str, n_substituent: str) -> int:
+    if n_substituent:
+        return 8
+    if suffix_base == "carbonitrile":
+        return 10
+    return 6
+
+
+def _allow_fused_functional_suffix(
+    parent_name: str,
+    suffix_base: str,
+    n_substituent: str,
+    indicated_h_locs: Sequence[str],
+) -> bool:
+    if suffix_base == "carbonitrile":
+        return bool(indicated_h_locs) and "indazole" in parent_name
+    if suffix_base == "carboxamide" and n_substituent:
+        return "benzimidazole" in parent_name
+    return False
+
+
+def _n_substituted_carboxamide_prefix(prefix: str) -> str:
+    group = _azamethylcarbonyl_n_substituent(prefix)
+    if group:
+        return _format_amide_n_substituent(group)
+    return ""
+
+
+def _azamethylcarbonyl_n_substituent(prefix: str) -> str:
+    match = re.fullmatch(r"1-\((.+)\)-1-azamethylcarbonyl", prefix)
+    return match.group(1) if match else ""
+
+
+def _format_amide_n_substituent(group: str) -> str:
+    if group.startswith("di") and group[2:] and "(" not in group:
+        return f"N,N-{group[2:]}"
+    if group.startswith("(") and group.endswith(")"):
+        return f"N-{group}"
+    if re.fullmatch(r"[A-Za-z0-9]+", group):
+        return f"N-{group}"
+    return f"N-({group})"
 
 
 def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

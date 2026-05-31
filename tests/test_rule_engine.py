@@ -117,6 +117,57 @@ def test_fused_indicated_h_ketone_suffixes_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_fused_functional_suffix_parents_roundtrip():
+    smiles_values = [
+        "N#Cc1ccc2n[nH]c(O)c2c1",
+        "N#Cc1ccc2[nH][nH]c(=O)c2c1",
+        "O=C(NCCC(=O)N1CCOCC1)c1ccc2nc[nH]c2c1",
+        "O=C(Nc1ccc([N+](=O)[O-])cc1Cl)c1cc(Cl)cc2[nH]c(C(F)(F)F)nc12",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("carbonitril" in name for name in names)
+    assert any("carboxamid" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_generated_oxido_fused_parents_roundtrip():
+    smiles_values = [
+        "[O-][n+]1cccc2[nH]ccc21",
+        "[O-][n+]1cccc2ncccc12",
+        "Brc1csc2[n+]([O-])cccc12",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all("oxido" in name and "ium" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_charged_saturated_heterocycle_parents_roundtrip():
+    smiles_values = [
+        "CC1CCCC(C)[NH2+]1",
+        "C1CC[NH2+]CC1",
+        "C1COCC[NH2+]1",
+        "C1CC[NH2+]C1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all("ium" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

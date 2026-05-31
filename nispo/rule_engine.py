@@ -252,7 +252,11 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         "generated-partial-hydro-fused-parent",
     }:
         return 0
+    if _has_indicated_h_fused_functional_suffix_parent(name):
+        return 12
     if _has_fused_indicated_h_ketone_suffix(name):
+        return 6
+    if _has_fused_functional_suffix_parent(name):
         return 6
     if _has_indicated_h_generated_fused_parent(name):
         return 6
@@ -269,6 +273,24 @@ def _has_fused_indicated_h_ketone_suffix(name: str) -> bool:
     return bool(
         re.search(r"\[[^\]]+\].*-\d+\(\d+[a-z]?H\)-one\b", name)
         or re.search(r"\b(?:quinazolin|pteridin|triazafluoren)-\d+\(\d+[a-z]?H\)-one\b", name)
+    )
+
+
+def _has_fused_functional_suffix_parent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:\[[^\]]+\]|benzimidazol|benzotriazol|indazol|quinazolin|pyrrolo|pyrazolo|imidazo).*-\d+[a-z]?-(?:carboxamide|carbonitrile|carboxylic acid|carboxylate)\b",
+            name,
+        )
+    )
+
+
+def _has_indicated_h_fused_functional_suffix_parent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:^|-)\d+[a-z]?H-.*-\d+[a-z]?-(?:carboxamide|carbonitrile|carboxylic acid|carboxylate)\b",
+            name,
+        )
     )
 
 

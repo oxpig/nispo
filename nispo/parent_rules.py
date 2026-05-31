@@ -940,6 +940,10 @@ class CarbamateRetainedParentRule:
             nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
             if nitrogen_prefix is None:
                 continue
+            if _unstable_retained_functional_parent_substituent(oxygen_substituent) or any(
+                _unstable_retained_functional_parent_substituent(name) for name in nitrogen_substituents
+            ):
+                continue
             name = f"{oxygen_substituent} {nitrogen_prefix}carbamat"
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
@@ -963,7 +967,9 @@ class SulfonamideRetainedParentRule:
             nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
             if nitrogen_prefix is None:
                 continue
-            name = nitrogen_prefix + base
+            if any(_unstable_retained_functional_parent_substituent(name) for name in nitrogen_substituents):
+                continue
+            name = f"{nitrogen_prefix}-{base}" if _needs_explicit_n_parent_separator(nitrogen_prefix) else nitrogen_prefix + base
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -1082,56 +1088,136 @@ def _external_substituent_names(mol, atom_idx: int, blocked_idx: int) -> list[st
         name = branch_prefix(mol, nidx, atom_idx)
         if not name:
             return None
-        names.append(name)
+        names.append(_retained_parent_substituent_alias(name))
     return names
 
 
 def _n_substituent_prefix(substituents: Sequence[str]) -> str | None:
     if not substituents:
         return ""
-    counts = Counter(substituents)
+    counts = Counter(_retained_parent_substituent_alias(name) for name in substituents)
     pieces = []
     for name in sorted(counts):
-        if not _simple_n_retained_parent_substituent(name):
+        if not _allowed_n_retained_parent_substituent(name):
             return None
         count = counts[name]
         if count == 1:
-            pieces.append(f"N-{name}")
+            pieces.append(_n_substituent_piece("N", name))
+        elif count == 2:
+            pieces.append(_duplicate_n_substituent_piece("N,N", name))
         else:
             return None
     return "-".join(pieces)
 
 
 def _urea_n_substituent_prefix(left: Sequence[str], right: Sequence[str]) -> str | None:
+    left = tuple(_retained_parent_substituent_alias(name) for name in left)
+    right = tuple(_retained_parent_substituent_alias(name) for name in right)
     if len(left) > 2 or len(right) > 2:
         return None
     if not left and not right:
         return ""
-    if not all(_simple_n_retained_parent_substituent(name) for name in (*left, *right)):
+    if not all(_allowed_n_retained_parent_substituent(name) for name in (*left, *right)):
         return None
     if len(left) == 2 and not right:
-        return _same_atom_urea_prefix(left)
+        return _same_atom_urea_prefix("N", left)
     if len(right) == 2 and not left:
-        return _same_atom_urea_prefix(right)
+        return _same_atom_urea_prefix("N", right)
     if len(left) == 1 and not right:
-        return f"N-{left[0]}"
+        return _n_substituent_piece("N", left[0])
     if len(right) == 1 and not left:
-        return f"N-{right[0]}"
+        return _n_substituent_piece("N", right[0])
     if len(left) == 1 and len(right) == 1:
         if left[0] == right[0]:
-            return f"N,N'-di{left[0]}"
+            return _duplicate_n_substituent_piece("N,N'", left[0])
         first, second = sorted((left[0], right[0]))
-        return f"N-{first}-N'-{second}"
+        first_piece = _n_substituent_piece("N", first)
+        second_piece = _n_substituent_piece("N'", second)
+        return f"{first_piece}-{second_piece}"
     return None
 
 
-def _same_atom_urea_prefix(substituents: Sequence[str]) -> str | None:
+def _same_atom_urea_prefix(locant: str, substituents: Sequence[str]) -> str | None:
     counts = Counter(substituents)
     if len(counts) == 1:
         name = next(iter(counts))
-        return f"N,N-di{name}"
+        return _duplicate_n_substituent_piece(f"{locant},{locant}", name)
     first, second = sorted(substituents)
-    return f"N-{first}-N-{second}"
+    return f"{_n_substituent_piece(locant, first)}-{_n_substituent_piece(locant, second)}"
+
+
+def _retained_parent_substituent_alias(name: str) -> str:
+    aliases = {
+        "phenylmethyl": "benzyl",
+        "1-(1-oxo-methyl)-methyl": "2-oxoethyl",
+        "1-oxo-methyl": "formyl",
+    }
+    name = aliases.get(name, name)
+    return re.sub(r"(\d+)-\(1-oxo-methyl\)(?=[A-Za-z])", r"\1-formyl", name)
+
+
+def _allowed_n_retained_parent_substituent(name: str) -> bool:
+    if _simple_n_retained_parent_substituent(name):
+        return True
+    if len(name) > 48:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return any(
+        fragment in name
+        for fragment in (
+            "formyl",
+            "oxo",
+            "hydroxy",
+            "cyclo",
+            "phenyl",
+            "benzyl",
+            "pyrid",
+            "pyrimid",
+            "piperid",
+            "piperaz",
+            "morpholin",
+            "pyrrolid",
+            "azetidin",
+            "oxetan",
+        )
+    )
+
+
+def _n_substituent_piece(locant: str, name: str) -> str:
+    if _simple_unparenthesized_n_substituent(name):
+        return f"{locant}-{name}"
+    return f"{locant}-({_strip_outer_parentheses(name)})"
+
+
+def _duplicate_n_substituent_piece(locants: str, name: str) -> str:
+    if _simple_unparenthesized_n_substituent(name):
+        return f"{locants}-di{name}"
+    return f"{locants}-bis({_strip_outer_parentheses(name)})"
+
+
+def _simple_unparenthesized_n_substituent(name: str) -> bool:
+    return _simple_n_retained_parent_substituent(name) or bool(re.fullmatch(r"[A-Za-z0-9']+", name))
+
+
+def _needs_explicit_n_parent_separator(prefix: str) -> bool:
+    return bool(prefix and ("(" in prefix or ")" in prefix or "'" in prefix))
+
+
+def _unstable_retained_functional_parent_substituent(name: str) -> bool:
+    return any(fragment in name for fragment in ("cardenolide", "purine", "puryl"))
+
+
+def _strip_outer_parentheses(name: str) -> str:
+    if name.startswith("(") and name.endswith(")"):
+        return name[1:-1]
+    return name
 
 
 _SIMPLE_N_RETAINED_PARENT_SUBSTITUENTS = {

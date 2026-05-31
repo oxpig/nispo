@@ -260,6 +260,24 @@ def test_functional_ester_aliases_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_retained_functional_parent_motifs_roundtrip():
+    smiles_values = [
+        "O=CCN(CC=O)C(=O)OCc1ccccc1",
+        "O=CN(C(=O)OCc1ccccc1)C1CCC(C=O)CC1",
+        "O=C(Nc1ccccc1)NC1CCCCC1",
+        "NC(=O)NCCCN1CCCCC1",
+        "CCCN(C(N)=O)c1ccccn1",
+        "CCCN(CCC)C(=O)OC",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_multicenter_carbocycle_stereo_roundtrips():
     smiles_values = [
         "CC1(C)[C@H](C(=O)O)CC[C@]1(C)C(=O)O",

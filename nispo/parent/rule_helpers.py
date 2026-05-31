@@ -1540,17 +1540,22 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         return ""
     best_key = None
     best_name = ""
-    for prefix, suffix_base in (() if not supports_parent else _SINGLE_RING_FUNCTIONAL_SUFFIXES.items()):
-        suffix_locs = [loc for loc, candidate_prefix in prefixes if candidate_prefix == prefix]
-        if not suffix_locs:
-            continue
-        remaining = [(loc, candidate_prefix) for loc, candidate_prefix in prefixes if candidate_prefix != prefix]
+    for matched, suffix_base, n_substituent in _iter_single_ring_functional_suffix_terms(prefixes, supports_parent):
+        suffix_locs = [loc for loc, _prefix in matched]
+        matched_set = set(matched)
+        remaining = [
+            (other_loc, candidate_prefix)
+            for other_loc, candidate_prefix in prefixes
+            if (other_loc, candidate_prefix) not in matched_set
+        ]
         suffix_locs = sorted(suffix_locs, key=_locant_sort_key)
         suffix = _single_ring_functional_suffix_text(suffix_base, len(suffix_locs))
         if not suffix:
             continue
         locants = ",".join(suffix_locs)
         suffix_name = f"{parent_name}-{locants}-{suffix}"
+        if n_substituent:
+            suffix_name = f"{n_substituent}-{suffix_name}"
         prefix_text = _format_prefixes(remaining)
         name = prefix_text + "-" + suffix_name if prefix_text else suffix_name
         original_prefix_text = _format_prefixes(prefixes)
@@ -1577,6 +1582,26 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
                 best_key = ester_key
                 best_name = ester_name
     return best_name
+
+
+def _iter_single_ring_functional_suffix_terms(
+    prefixes: Sequence[tuple[str, str]],
+    supports_parent: bool,
+) -> list[tuple[tuple[tuple[str, str], ...], str, str]]:
+    if not supports_parent:
+        return []
+    terms = []
+    for prefix, suffix_base in _SINGLE_RING_FUNCTIONAL_SUFFIXES.items():
+        matched = tuple((loc, candidate_prefix) for loc, candidate_prefix in prefixes if candidate_prefix == prefix)
+        if matched:
+            terms.append((matched, suffix_base, ""))
+    for loc, prefix in prefixes:
+        if prefix in _SINGLE_RING_FUNCTIONAL_SUFFIXES:
+            continue
+        n_substituent = _n_substituted_carboxamide_prefix(prefix)
+        if n_substituent:
+            terms.append((((loc, prefix),), "carboxamide", n_substituent))
+    return terms
 
 
 def _fused_functional_suffix_name(
@@ -1701,6 +1726,12 @@ def _n_substituted_carboxamide_prefix(prefix: str) -> str:
     group = _azamethylcarbonyl_n_substituent(prefix)
     if group:
         return _format_amide_n_substituent(group)
+    group = _azaalkylcarbonyl_n_substituent(prefix)
+    if group:
+        return _format_amide_n_substituent(group)
+    group = _carbamoyl_n_substituent(prefix)
+    if group:
+        return _format_amide_n_substituent(group)
     return ""
 
 
@@ -1709,9 +1740,36 @@ def _azamethylcarbonyl_n_substituent(prefix: str) -> str:
     return match.group(1) if match else ""
 
 
+def _azaalkylcarbonyl_n_substituent(prefix: str) -> str:
+    return {
+        "1-azaethylcarbonyl": "methyl",
+        "1-azapropylcarbonyl": "ethyl",
+        "1-azabutylcarbonyl": "propyl",
+        "1-azapentylcarbonyl": "butyl",
+        "1-azahexylcarbonyl": "pentyl",
+        "1-azaheptylcarbonyl": "hexyl",
+        "1-azanonylcarbonyl": "octyl",
+        "1-azadecylcarbonyl": "nonyl",
+        "1-methyl-1-azaethylcarbonyl": "dimethyl",
+    }.get(prefix, "")
+
+
+def _carbamoyl_n_substituent(prefix: str) -> str:
+    match = re.fullmatch(r"(.+?)carbamo?yl", prefix)
+    return match.group(1) if match else ""
+
+
 def _format_amide_n_substituent(group: str) -> str:
-    if group.startswith("di") and group[2:] and "(" not in group:
-        return f"N,N-{group[2:]}"
+    bis_match = re.fullmatch(r"bis\((.+)\)", group)
+    if bis_match:
+        return f"N,N-bis({bis_match.group(1)})"
+    match = re.fullmatch(
+        r"di(methyl|ethyl|propyl|isopropyl|butyl|isobutyl|tert-butyl|t-butyl|"
+        r"phenyl|benzyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl)",
+        group,
+    )
+    if match:
+        return f"N,N-di{match.group(1)}"
     if group.startswith("(") and group.endswith(")"):
         return f"N-{group}"
     if re.fullmatch(r"[A-Za-z0-9]+", group):
@@ -1796,6 +1854,8 @@ def _allow_simple_functional_suffix_parent(
     if len(suffix_locs) != 1 or not suffix_locs[0].isdigit():
         return False
     max_extra = 8 if suffix_base in {"carboxylic acid", "carbonitrile"} else 5
+    if suffix_base == "carboxamide" and re.search(r"(?:^|-)N(?:,N)?-", name):
+        max_extra = 10
     if len(name) > len(original_name) + max_extra:
         return False
     if not _simple_functional_suffix_parent_name(parent_name):

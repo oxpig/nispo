@@ -262,6 +262,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_retained_parent_substituent_artifact(name):
         penalty += 25
+    if _has_unstable_compact_aza_polycycle_alias(name):
+        penalty += 35
     return penalty
 
 
@@ -286,6 +288,28 @@ def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
     return 40
 
 
+def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
+    """Defer compact aza-polycycle aliases with unstable OPSIN orientation.
+
+    These retained-looking skeletal replacement aliases are concise, but in
+    fused SureChEMBL scaffolds OPSIN often chooses a different atom numbering
+    than the graph actually has. Generated fused or generic polycyclic
+    candidates are longer but preserve the graph more reliably.
+    """
+
+    if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
+        return False
+    if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
+        return False
+    return bool(
+        re.search(
+            r"(?:^|-)(?:\d+[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
+            r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
+            name,
+        )
+    )
+
+
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if candidate.family not in {
         "fused-retained-parent",
@@ -296,6 +320,8 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         return 0
     if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
         return 12
+    if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
+        return 8
     if _has_indicated_h_fused_functional_suffix_parent(name):
         return 12
     if _has_fused_indicated_h_ketone_suffix(name):
@@ -311,6 +337,19 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
 
 def _has_stable_tetrahydro_imidazopyridine_parent(name: str) -> bool:
     return bool(re.search(r"4,5,6,7-tetrahydro-imidazo\[4,5-[cd]\]pyridine\b", name))
+
+
+def _has_complete_hydro_generated_fused_parent(name: str) -> bool:
+    if not re.search(r"(?:tetra|hexa|octa)hydro-", name):
+        return False
+    return bool(
+        re.search(
+            r"(?:pyrazolo|pyrrolo|imidazo|pyrido|pyrimido|quinazolino|quino|indolo|purino)"
+            r"\[[^\]]+\](?:pyridin|pyrimidin|pyrazin|pyrazol|pyrrol|indol|quinolin|benzene)|"
+            r"(?:naphthyridine|quinazoline|quinoline|quinoxaline|pteridine|purine)",
+            name,
+        )
+    )
 
 
 def _has_retained_indicated_h_parent(name: str) -> bool:

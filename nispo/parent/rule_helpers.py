@@ -1603,6 +1603,8 @@ def _fused_functional_suffix_name(
         if not _is_fused_functional_suffix_locant(loc):
             continue
         remaining = [(other_loc, other_prefix) for other_loc, other_prefix in prefixes if (other_loc, other_prefix) != (loc, prefix)]
+        if any(other_prefix == "oxo" for _other_loc, other_prefix in remaining):
+            continue
         parent = _fused_functional_suffix_parent(parent_name, suffix_base, indicated_h_locs)
         suffix = _single_ring_functional_suffix_text(suffix_base, 1)
         if not parent or not suffix:
@@ -1641,7 +1643,9 @@ def _fused_functional_suffix_extra_budget(suffix_base: str, n_substituent: str) 
         return 8
     if suffix_base == "carbonitrile":
         return 10
-    return 6
+    if suffix_base in {"carboxylic acid", "carboxylate"}:
+        return 10
+    return 8
 
 
 def _allow_fused_functional_suffix(
@@ -1650,11 +1654,47 @@ def _allow_fused_functional_suffix(
     n_substituent: str,
     indicated_h_locs: Sequence[str],
 ) -> bool:
-    if suffix_base == "carbonitrile":
-        return bool(indicated_h_locs) and "indazole" in parent_name
-    if suffix_base == "carboxamide" and n_substituent:
-        return "benzimidazole" in parent_name
-    return False
+    if suffix_base not in {"carboxamide", "carboxylate", "carboxylic acid", "carbonitrile"}:
+        return False
+    if suffix_base == "carbonitrile" and "benzimidazole" in parent_name:
+        return False
+    if suffix_base in {"carboxylate", "carboxylic acid"} and re.search(r"(?:^|-)(?:\d+[a-z]?\([^)]*H\)-)?one\b", parent_name):
+        return False
+    if n_substituent:
+        return suffix_base == "carboxamide" and _supports_fused_functional_suffix_parent(parent_name)
+    if indicated_h_locs and suffix_base == "carboxylate":
+        return False
+    return _supports_fused_functional_suffix_parent(parent_name)
+
+
+def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
+    if "hydro-" in parent_name or "spiro[" in parent_name:
+        return False
+    return any(
+        stem in parent_name
+        for stem in (
+            "benzimidazole",
+            "benzothiazole",
+            "benzoxazole",
+            "benzotriazole",
+            "cinnoline",
+            "imidazo[",
+            "indazole",
+            "indole",
+            "isoquinoline",
+            "naphthyridine",
+            "purine",
+            "pteridine",
+            "pyrazolo[",
+            "pyrido[",
+            "pyrimido[",
+            "pyrrolo[",
+            "quinazoline",
+            "quinoline",
+            "quinoxaline",
+            "triazolo[",
+        )
+    )
 
 
 def _n_substituted_carboxamide_prefix(prefix: str) -> str:

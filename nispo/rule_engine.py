@@ -348,7 +348,7 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
         bonus += 12
     if candidate.family == "generated-fused-parent" and _has_oriented_generated_benzimidazole_parent(name):
-        bonus += 8
+        bonus += 22
     if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
         bonus += 8
     if _has_indicated_h_fused_functional_suffix_parent(name):
@@ -420,15 +420,38 @@ def _has_complete_hydro_generated_fused_parent(name: str) -> bool:
 def _has_oriented_generated_benzimidazole_parent(name: str) -> bool:
     if "benzo[1,2-d]imidazol" not in name:
         return False
-    return bool(
-        re.search(
-            r"(?:^|-)(?:1|3)(?:,\d+)*-(?:di|tri)?"
-            r"(?:methyl|ethyl|propyl|isopropyl|butyl|t-butyl|cyclo|phenyl|benzyl|"
-            r"methoxy|ethoxy|piperidin|piperidino|piperazin|piperazino|pyrrolidin|"
-            r"azetidin|morpholin|\()",
-            name,
-        )
+    return _has_top_level_generated_benzimidazole_orientation_locant(name)
+
+
+def _has_top_level_generated_benzimidazole_orientation_locant(name: str) -> bool:
+    parent_index = name.find("benzo[1,2-d]imidazol")
+    if parent_index < 0:
+        return False
+    prefix = name[:parent_index]
+    orientation_pattern = re.compile(
+        r"(?:1|3)(?:,\d+)*-(?:di|tri)?"
+        r"(?:methyl|ethyl|propyl|isopropyl|butyl|t-butyl|cyclo|phenyl|benzyl|"
+        r"methoxy|ethoxy|piperidin|piperidino|piperazin|piperazino|pyrrolidin|"
+        r"azetidin|morpholin|\()"
     )
+    paren_depth = 0
+    bracket_depth = 0
+    for index, char in enumerate(prefix):
+        if char == "(":
+            paren_depth += 1
+        elif char == ")" and paren_depth:
+            paren_depth -= 1
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]" and bracket_depth:
+            bracket_depth -= 1
+        if paren_depth or bracket_depth:
+            continue
+        if index and prefix[index - 1] != "-":
+            continue
+        if orientation_pattern.match(prefix, index):
+            return True
+    return False
 
 
 def _has_retained_indicated_h_parent(name: str) -> bool:

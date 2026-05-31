@@ -16,7 +16,7 @@ COMPLEX_MULT = {
 
 def unsaturated_parent(root: str, ene_locs: list[int], yne_locs: list[int]) -> str:
     if not ene_locs and not yne_locs:
-        return root + "ane"
+        return root + "an"
     if ene_locs and not yne_locs:
         return loc_unsat(root, ene_locs, "ene")
     if yne_locs and not ene_locs:
@@ -27,11 +27,12 @@ def unsaturated_parent(root: str, ene_locs: list[int], yne_locs: list[int]) -> s
 
 
 
-def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = True) -> str:
+def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = False) -> str:
+    suffix_text = suffix[:-1] if not terminal_e and suffix.endswith("e") else suffix
     if len(locs) == 1:
         if not root:
-            return f"{locs[0]}-{suffix}"
-        return f"{root}-{locs[0]}-{suffix}"
+            return f"{locs[0]}-{suffix_text}"
+        return f"{root}-{locs[0]}-{suffix_text}"
     mult = MULT.get(len(locs), "")
     if not root:
         ending = f"{mult}{suffix}"
@@ -47,17 +48,19 @@ def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = True) 
 
 
 def substituent_parent_suffix(parent: str) -> str:
-    if parent == "methane":
+    if parent in {"methane", "methan"}:
         return "methyl"
-    if parent == "ethane":
+    if parent in {"ethane", "ethan"}:
         return "ethyl"
-    if parent == "propane":
+    if parent in {"propane", "propan"}:
         return "propyl"
-    if parent == "butane":
+    if parent in {"butane", "butan"}:
         return "butyl"
+    if parent.endswith("an"):
+        return parent[:-2] + "yl"
     if parent.endswith("ane"):
         return parent[:-3] + "yl"
-    if parent.endswith("ene") or parent.endswith("yne"):
+    if parent.endswith(("ene", "yne", "en", "yn")):
         return parent + "-1-yl"
     return parent + "yl"
 
@@ -77,10 +80,67 @@ def alkyl_to_alkoxy(name: str) -> str:
         "octyl": "octoxy",
         "nonyl": "nonoxy",
         "decyl": "decoxy",
+        "cyclopropyl": "cyclopropoxy",
+        "cyclobutyl": "cyclobutoxy",
+        "cyclopentyl": "cyclopentoxy",
+        "cyclohexyl": "cyclohexoxy",
     }
     if name in simple:
         return simple[name]
+    retained = {
+        "benzyl": "benzyloxy",
+        "carboxymethyl": "carboxymethoxy",
+        "carboxylatomethyl": "carboxylatomethoxy",
+        "cyclopropylmethyl": "cyclopropylmethoxy",
+        "cyanomethyl": "cyanomethoxy",
+        "difluoromethyl": "difluoromethoxy",
+        "isobutyl": "isobutoxy",
+        "isopropyl": "isopropoxy",
+        "tert-butyl": "tert-butoxy",
+        "trifluoromethyl": "trifluoromethoxy",
+        "trideuteriomethyl": "trideuteriomethoxy",
+        "2,2-difluoroethyl": "2,2-difluoroethoxy",
+        "2-bromoethyl": "2-bromoethoxy",
+        "2-chloroethyl": "2-chloroethoxy",
+        "2-fluoroethyl": "2-fluoroethoxy",
+        "2-iodoethyl": "2-iodoethoxy",
+        "2-morpholinoethyl": "2-morpholinoethoxy",
+        "2-oxapropyl": "methoxymethoxy",
+        "2,2,2-trifluoroethyl": "2,2,2-trifluoroethoxy",
+        "3-oxabutyl": "2-methoxyethoxy",
+        "1,1-difluoro-trifluoroethyl": "pentafluoroethoxy",
+    }
+    if name in retained:
+        return retained[name]
+    for suffix, oxy_suffix in (("methyl", "methoxy"), ("ethyl", "ethoxy")):
+        if name.endswith(suffix) and _safe_substituted_alkoxy_stem(name[: -len(suffix)]):
+            return name[: -len(suffix)] + oxy_suffix
     return f"({name})oxy"
+
+
+def _safe_substituted_alkoxy_stem(stem: str) -> bool:
+    if not stem or stem.endswith("-") or "(" in stem or ")" in stem:
+        return False
+    terms = (
+        "fluoro",
+        "chloro",
+        "bromo",
+        "iodo",
+        "cyano",
+        "carboxy",
+        "carboxylato",
+        "morpholino",
+        "piperidino",
+        "piperazino",
+        "pyrrolidino",
+        "phenoxy",
+        "methoxy",
+        "ethoxy",
+        "trifluoromethyl",
+        "difluoromethyl",
+    )
+    parts = [part for part in stem.split("-") if part]
+    return bool(parts) and all(part.isdigit() or part.replace(",", "").isdigit() or part in terms for part in parts)
 
 
 
@@ -127,6 +187,10 @@ def _is_composite_substituent_name(name: str) -> bool:
 
 
 def _multiplied_prefix_needs_parentheses(name: str) -> bool:
+    if name != "carbamyl" and ("carbamyl" in name or "carbamoyl" in name):
+        return True
+    if _has_leading_multiplier(name):
+        return True
     return name.endswith("aniumyl") or name.endswith("oniumyl")
 
 

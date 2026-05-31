@@ -13,4 +13,4 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 
 [tool.setuptools.package-data]
-nispo = ["resources/opsin_tokens/*.xml", "resources/*.json"]
+nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.csv"]

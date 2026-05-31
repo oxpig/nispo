@@ -831,7 +831,6 @@ def _submol_for_atoms(mol, Chem, atoms: set[int]):
         rw.AddBond(parent_to_sub[begin], parent_to_sub[end], bond.GetBondType())
         new_bond = rw.GetBondBetweenAtoms(parent_to_sub[begin], parent_to_sub[end])
         new_bond.SetIsAromatic(bond.GetIsAromatic())
-        new_bond.SetStereo(bond.GetStereo())
     submol = rw.GetMol()
     try:
         Chem.SanitizeMol(submol)

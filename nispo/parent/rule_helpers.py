@@ -39,6 +39,39 @@ _BICYCLIC_FUSION_BASES = {
     "pteridine",
 }
 
+_TERMINAL_RETAINED_PARENT_BY_STEM = {
+    "androst": "androstane",
+    "barbiturat": "barbituric acid",
+    "barbiturate": "barbituric acid",
+    "chol": "cholane",
+    "cholest": "cholestane",
+    "campest": "campestane",
+    "ergost": "ergostane",
+    "estr": "estrane",
+    "poriferast": "poriferastane",
+    "stigmast": "stigmastane",
+    "gon": "gonane",
+    "pregn": "pregnane",
+    "spirost": "spirostane",
+}
+
+
+def _terminal_retained_parent_name(name: str) -> str:
+    if name == "pyroglutam":
+        return "pyroglutamic acid"
+    if name.endswith(" acid"):
+        return name
+    if name.endswith("acid"):
+        return f"{name[:-4]} acid"
+    if name.endswith(("ic", "ylic")) and name not in _RETAINED_ACID_PARENT_STEM_EXCEPTIONS:
+        return f"{name} acid"
+    return _TERMINAL_RETAINED_PARENT_BY_STEM.get(name, name)
+
+
+_RETAINED_ACID_PARENT_STEM_EXCEPTIONS = {
+    "psic",
+}
+
 
 def _generated_exact_parent_sort_key(template: dict) -> tuple:
     name = template_record_name(template)
@@ -216,8 +249,9 @@ def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int])
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
+    parent_name = _terminal_retained_parent_name(template_record_name(template))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + template_record_name(template) if prefix_text else template_record_name(template)
+    return prefix_text + "-" + parent_name if prefix_text else parent_name
 
 
 def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
@@ -762,7 +796,7 @@ def _name_fused_core_match(
     if ring_system_extends_core(mol, core_set):
         return ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
-    parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
+    parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     prefixes = []
     for mol_idx in match:
         template_idx = reverse[mol_idx]
@@ -1196,6 +1230,7 @@ _BENZENE_RETAINED_PARENT_BY_PREFIX = {
     "1-azamethylcarbonyl": "benzamide",
     "aminosulfonyl": "benzenesulfonamide",
     "amino": "aniline",
+    "carbamyl": "benzamide",
     "carbamoyl": "benzamide",
     "carboxy": "benzoic acid",
     "carboxylato": "benzoate",
@@ -1211,6 +1246,7 @@ _BENZENE_RETAINED_PARENT_RANK = {
     "carboxy": 0,
     "carboxylato": 1,
     "1-azamethylcarbonyl": 2,
+    "carbamyl": 2,
     "carbamoyl": 2,
     "cyano": 3,
     "formyl": 4,
@@ -1238,7 +1274,7 @@ def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_na
         remaining = list(prefixes[:index]) + list(prefixes[index + 1 :])
         prefix_text = _format_prefixes(remaining)
         name = prefix_text + retained_parent if prefix_text else retained_parent
-        name = _compact_benzene_retained_parent_name(name)
+        name = _benzene_retained_parent_alias_name(name)
         if len(name) >= len(original_name):
             continue
         rank = _BENZENE_RETAINED_PARENT_RANK[prefix]
@@ -1249,7 +1285,7 @@ def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_na
     return best_name
 
 
-def _compact_benzene_retained_parent_name(name: str) -> str:
+def _benzene_retained_parent_alias_name(name: str) -> str:
     replacements = (
         ("2-hydroxyphenol", "benzene-1,2-diol"),
         ("3-hydroxyphenol", "benzene-1,3-diol"),
@@ -1263,8 +1299,10 @@ def _compact_benzene_retained_parent_name(name: str) -> str:
         ("2-methoxyphenol", "guaiacol"),
         ("4-methoxyphenol", "mequinol"),
     )
-    for verbose, compact in replacements:
-        name = name.replace(verbose, compact)
+    for verbose, alias in replacements:
+        if "formyl" in name and alias in {"guaiacol", "mequinol", "o-cresol", "m-cresol", "p-cresol"}:
+            continue
+        name = name.replace(verbose, alias)
     return name
 
 
@@ -1394,6 +1432,7 @@ _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
     "carbmethoxy",
     "carboxy",
     "carboxymethyl",
+    "carbamyl",
     "carbamoyl",
     "cyano",
     "dimethylamino",
@@ -1434,7 +1473,7 @@ def _simple_relative_stereo_external_prefix(mol, atom_idx: int, ring_atoms: set[
         return prefix
     if re.fullmatch(r"(?:di)?(?:methyl|ethyl|propyl|butyl)amino", prefix):
         return prefix
-    if re.fullmatch(r"(?:[1-9]-)?(?:carboxy|carbamoyl|cyano)(?:methyl|ethyl|propyl|butyl)", prefix):
+    if re.fullmatch(r"(?:[1-9]-)?(?:carboxy|carbamyl|carbamoyl|cyano)(?:methyl|ethyl|propyl|butyl)", prefix):
         return prefix
     if re.fullmatch(r"(?:[1-9]-)?(?:boc|acet|benz|propion)amido", prefix):
         return prefix
@@ -1515,6 +1554,7 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
 
 _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "1-azamethylcarbonyl": "carboxamide",
+    "carbamyl": "carboxamide",
     "carbamoyl": "carboxamide",
     "carboxy": "carboxylic acid",
     "carboxylato": "carboxylate",
@@ -1577,7 +1617,7 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         name = prefix_text + "-" + suffix_name if prefix_text else suffix_name
         original_prefix_text = _format_prefixes(prefixes)
         original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
-        original_name = _compact_functional_suffix_prefix_baseline(original_name)
+        original_name = _functional_suffix_prefix_baseline(original_name)
         if len(name) > len(original_name) and not _allow_simple_functional_suffix_parent(
             parent_name,
             suffix_base,
@@ -1658,7 +1698,7 @@ def _fused_functional_suffix_name(
         name = prefix_text + "-" + core if prefix_text else core
         original_prefix_text = _format_prefixes(prefixes)
         original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
-        original_name = _compact_functional_suffix_prefix_baseline(original_name)
+        original_name = _functional_suffix_prefix_baseline(original_name)
         if len(name) > len(original_name) + _fused_functional_suffix_extra_budget(suffix_base, n_substituent):
             continue
         key = (len(remaining), len(name), loc, name)
@@ -1733,7 +1773,11 @@ def _allow_fused_functional_suffix(
     if suffix_base in {"carboxylate", "carboxylic acid"} and re.search(r"(?:^|-)(?:\d+[a-z]?\([^)]*H\)-)?one\b", parent_name):
         return False
     if n_substituent:
-        return suffix_base == "carboxamide" and _supports_fused_functional_suffix_parent(parent_name)
+        return (
+            suffix_base == "carboxamide"
+            and _supports_fused_functional_suffix_parent(parent_name)
+            and _supports_fused_n_substituted_carboxamide(parent_name, n_substituent)
+        )
     if indicated_h_locs and suffix_base == "carboxylate":
         return False
     return _supports_fused_functional_suffix_parent(parent_name)
@@ -1766,6 +1810,18 @@ def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
             "quinoline",
             "quinoxaline",
             "triazolo[",
+        )
+    )
+
+
+def _supports_fused_n_substituted_carboxamide(parent_name: str, n_substituent: str) -> bool:
+    if not any(stem in parent_name for stem in ("imidazo[", "pyrazolo[", "pyrido[", "pyrimido[")):
+        return True
+    return bool(
+        re.fullmatch(
+            r"N-(?:methyl|ethyl|propyl|butyl|pentyl|hexyl|heptyl|octyl|nonyl|decyl|"
+            r"isopropyl|t-butyl|tert-butyl)|N,N-di(?:methyl|ethyl|propyl|butyl)",
+            n_substituent,
         )
     )
 
@@ -1830,7 +1886,7 @@ def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_n
     best_name = ""
     original_prefix_text = _format_prefixes(prefixes)
     original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
-    original_name = _compact_functional_suffix_prefix_baseline(original_name)
+    original_name = _functional_suffix_prefix_baseline(original_name)
     ester_prefixes = {
         prefix for _loc, prefix in prefixes if prefix in _SINGLE_RING_ESTER_SUFFIX_OWNERS
     }
@@ -1872,7 +1928,7 @@ def _single_ring_ester_owner_text(prefix: str, count: int) -> str:
     return ""
 
 
-def _compact_functional_suffix_prefix_baseline(name: str) -> str:
+def _functional_suffix_prefix_baseline(name: str) -> str:
     return (
         name.replace("1-azamethylcarbonyl", "carbamoyl")
         .replace("1-oxido-1-azamethylcarbonyl", "carbamoyl")

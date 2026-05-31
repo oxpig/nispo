@@ -54,9 +54,18 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
         for match in mol.GetSubstructMatches(query, uniquify=False):
             if set(match) != atoms:
                 continue
+            if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
+                continue
             if match[0] == idx:
                 return template
     return None
+
+
+def _acyclic_carbalkoxy_token_on_ring(template: dict, mol, match: tuple[int, ...]) -> bool:
+    name = template_record_name(template)
+    if name not in {"carbmethoxy", "carbethoxy", "carbopropoxy", "carbobutoxy", "carbphenoxy"}:
+        return False
+    return any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in match)
 
 
 @lru_cache(maxsize=1)

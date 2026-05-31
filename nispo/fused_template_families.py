@@ -85,6 +85,7 @@ def curated_fused_templates(Chem) -> tuple[dict, ...]:
         + catalog.opsin_test_scaffolds
         + catalog.generated_spiro_scaffolds
         + catalog.opsin_retained_fused
+        + catalog.opsin_retained_ring_csv_fused
         + catalog.fusion_component_parents
     )
 
@@ -100,6 +101,7 @@ def hydrocarbon_replacement_parent_templates(Chem) -> tuple[dict, ...]:
         generated_fused_parent_templates(Chem)
         + parent_scaffold_catalog(Chem).opsin_test_scaffolds
         + parent_scaffold_catalog(Chem).opsin_retained_fused
+        + parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
         + parent_scaffold_catalog(Chem).fusion_component_parents
         + parent_scaffold_catalog(Chem).static_retained
     )
@@ -133,6 +135,7 @@ def hydrocarbon_replacement_parent_templates_for_graph(
         for template in (
             parent_scaffold_catalog(Chem).opsin_test_scaffolds
             + parent_scaffold_catalog(Chem).opsin_retained_fused
+            + parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
             + parent_scaffold_catalog(Chem).fusion_component_parents
             + parent_scaffold_catalog(Chem).static_retained
         )

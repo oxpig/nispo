@@ -24,6 +24,7 @@ from ..branch_rules import (
 )
 from ..constants import MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
+from ..formatting import unsaturated_parent as _unsaturated_parent
 from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from ..stereochemistry import assigned_atom_stereochemistry
@@ -472,6 +473,11 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
     parent = parent_chain_name(mol, path, as_substituent=as_substituent)
     if not parent:
         return ""
+    stereo_prefix = _complete_path_stereo_prefix(mol, path)
+    if not as_substituent and not replacement_text:
+        suffix_parent = _terminal_carboxy_suffix_parent_name(mol, path, prefixes)
+        if suffix_parent:
+            return suffix_parent
     prefix_text = _format_prefixes(prefixes)
     pieces = []
     if prefix_text:
@@ -481,8 +487,124 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
     else:
         pieces.append(parent)
     name = "-".join(pieces)
-    stereo_prefix = _complete_path_stereo_prefix(mol, path)
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _terminal_carboxy_suffix_parent_name(
+    mol,
+    path: Sequence[int],
+    prefixes: Sequence[tuple[str, str]],
+) -> str:
+    n = len(path)
+    root = ROOTS.get(n + 1)
+    if n < 2 or not root:
+        return ""
+    terminal_groups = [
+        (loc, prefix)
+        for loc, prefix in prefixes
+        if prefix in {"carboxy", "carboxylato", "carbamyl", "formyl"} and loc in {"1", str(n)}
+    ]
+    terminal = [
+        item for item in terminal_groups if item[1] in {"carboxy", "carboxylato"}
+    ] or [item for item in terminal_groups if item[1] == "carbamyl"] or [
+        item for item in terminal_groups if item[1] == "formyl"
+    ]
+    if len(terminal) != 1:
+        return ""
+    terminal_loc, terminal_prefix = terminal[0]
+    reverse = terminal_loc == str(n)
+    remaining: list[tuple[str, str]] = []
+    for loc, prefix in prefixes:
+        if (loc, prefix) == (terminal_loc, terminal_prefix):
+            continue
+        if not loc.isdigit():
+            return ""
+        old_loc = int(loc)
+        new_loc = n - old_loc + 2 if reverse else old_loc + 1
+        remaining.append((str(new_loc), prefix))
+    if terminal_prefix == "carbamyl":
+        if any(prefix in {"carboxy", "carboxylato"} or "carbam" in prefix for _loc, prefix in remaining):
+            return ""
+    elif terminal_prefix == "formyl":
+        if any(
+            prefix in {"carboxy", "carboxylato", "carbamyl"} or "carbo" in prefix or "carbam" in prefix
+            for _loc, prefix in remaining
+        ):
+            return ""
+    elif any("carbo" in prefix or (prefix.startswith("carb") and prefix.endswith("oxy")) for _loc, prefix in remaining):
+        return ""
+    oriented_path = tuple(reversed(path)) if reverse else tuple(path)
+    parent = _terminal_carboxy_parent_suffix_text(mol, root, oriented_path, terminal_prefix)
+    if not parent:
+        return ""
+    prefix_text = _format_prefixes(remaining)
+    name = prefix_text + "-" + parent if prefix_text else parent
+    stereo_prefix = _terminal_carboxy_stereo_prefix(mol, oriented_path)
+    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _terminal_carboxy_parent_suffix_text(
+    mol,
+    root: str,
+    oriented_path: Sequence[int],
+    terminal_prefix: str,
+) -> str:
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    for locant, (a, b) in enumerate(zip(oriented_path, oriented_path[1:]), start=2):
+        bond = mol.GetBondBetweenAtoms(a, b)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    parent = _unsaturated_parent(root, ene_locs, yne_locs)
+    if terminal_prefix == "formyl":
+        return parent[:-1] + "al" if parent.endswith("e") else parent + "al"
+    if terminal_prefix == "carbamyl":
+        return parent[:-1] + "amide" if parent.endswith("e") else parent + "amide"
+    if terminal_prefix == "carboxylato":
+        return parent[:-1] + "oate" if parent.endswith("e") else parent + "oate"
+    return parent[:-1] + "oic acid" if parent.endswith("e") else parent + "oic acid"
+
+
+def _terminal_carboxy_stereo_prefix(mol, oriented_path: Sequence[int]) -> str:
+    locants = {idx: pos for pos, idx in enumerate(oriented_path, start=2)}
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if any(idx not in locants for idx, _descriptor in assigned):
+        return ""
+    atom_descriptors = [
+        (locants[idx], f"{locants[idx]}{descriptor}")
+        for idx, descriptor in assigned
+    ]
+    bond_descriptors: list[tuple[int, str]] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo == Chem.BondStereo.STEREONONE:
+            continue
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in locants or end not in locants:
+            return ""
+        begin_locant = locants[begin]
+        end_locant = locants[end]
+        if abs(begin_locant - end_locant) != 1:
+            return ""
+        locant = min(begin_locant, end_locant)
+        bond_descriptors.append((locant, f"{locant}{descriptor}"))
+    descriptors = atom_descriptors + bond_descriptors
+    return ",".join(text for _locant, text in sorted(descriptors))
 
 
 def _complete_path_stereo_prefix(mol, path: Sequence[int]) -> str:

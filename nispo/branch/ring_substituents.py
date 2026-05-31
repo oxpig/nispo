@@ -625,7 +625,7 @@ def _fused_ring_substituent_prefix_from_templates(
             prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
             if prefix_text is None:
                 continue
-            name = prefix_text + suffix if prefix_text else suffix
+            name = _combine_fused_substituent_prefix(prefix_text, suffix)
             key = _fused_substituent_candidate_key(template, match, locant, name, generated)
             if best_key is None or (key < best_key if generated else key > best_key):
                 best_key = key
@@ -668,7 +668,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
             if prefix_text is None:
                 continue
-            name = prefix_text + suffix if prefix_text else suffix
+            name = _combine_fused_substituent_prefix(prefix_text, suffix)
             key = (_generated_fusion_preference(template_record_name(template)), -len(match), locant, name)
             if best_key is None or key < best_key:
                 best_key = key
@@ -790,7 +790,30 @@ def _has_unsaturated_core_bond(mol, mol_idx: int, match: Sequence[int]) -> bool:
 
 
 def _fused_substituent_suffix(parent_name: str, locant: str) -> str:
+    retained = _retained_fused_substituent_suffix(parent_name, locant)
+    if retained:
+        return retained
     stem = FUSED_SUBSTITUENT_STEMS.get(parent_name)
     if not stem:
         stem = parent_name
     return f"{stem}-{locant}-yl"
+
+
+def _combine_fused_substituent_prefix(prefix_text: str, suffix: str) -> str:
+    if not prefix_text:
+        return suffix
+    if suffix and suffix[0].isdigit():
+        return f"{prefix_text}-{suffix}"
+    return prefix_text + suffix
+
+
+def _retained_fused_substituent_suffix(parent_name: str, locant: str) -> str:
+    if parent_name == "naphthalene":
+        return f"{locant}-naphthyl"
+    if parent_name == "quinoxaline":
+        return f"{locant}-quinoxalyl"
+    if parent_name == "benzothiazole":
+        return f"{locant}-benzothiazolyl"
+    if parent_name == "benzoxazole":
+        return f"{locant}-benzoxazolyl"
+    return ""

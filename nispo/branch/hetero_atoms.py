@@ -23,6 +23,8 @@ from .functional_groups import (
     _is_nitrile_carbon,
     _is_nitro_nitrogen,
     _is_nitroso_attachment,
+    _is_tbdms_group,
+    _is_trimethylsilyl_group,
     _sulfur_prefix,
     substituent_from_root,
 )
@@ -104,7 +106,14 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
         glycosyl = _glycosyloxy_prefix(mol, heavy[0], idx)
         if glycosyl:
             return glycosyl
+        protected = _protected_alkoxy_prefix(mol, heavy[0], idx)
+        if protected:
+            return protected
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "S":
+            if parent.GetSymbol() not in {"Si", "Ge", "Sn"}:
+                sulfur_oxy = _sulfur_oxy_alias(mol, heavy[0], idx)
+                if sulfur_oxy:
+                    return sulfur_oxy
             sulfur = _sulfur_prefix(mol, heavy[0], idx)
             if (
                 sulfur.endswith("sulfonyl")
@@ -116,15 +125,162 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
             ring = _ring_substituent_prefix(mol, heavy[0], idx)
             if not ring:
                 return ""
-            if ring == "phenyl":
-                return "phenoxy"
+            phenoxy = _phenoxy_substituent_prefix(ring)
+            if phenoxy:
+                return phenoxy
             return f"({ring})oxy"
         retained = _retained_oxygen_resource_prefix(mol, idx, parent_idx)
         if retained:
             return retained
-        alk = substituent_from_root(mol, heavy[0], idx)
+        alk = ""
+        if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "C":
+            alk = _branch_rules().branch_prefix(mol, heavy[0], idx)
+        if not alk:
+            alk = substituent_from_root(mol, heavy[0], idx)
         return _alkyl_to_alkoxy(alk)
     return ""
+
+
+def _phenoxy_substituent_prefix(ring: str) -> str:
+    if ring == "phenyl":
+        return "phenoxy"
+    if ring.endswith("phenyl") and not ring.endswith("diphenyl"):
+        return ring[:-2] + "oxy"
+    return ""
+
+
+def _protected_alkoxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
+    ethoxy = _silylethoxy_prefix(mol, carbon_idx, oxygen_idx)
+    if ethoxy:
+        return ethoxy
+    tbdmsoxyethoxy = _tbdmsoxyethoxy_prefix(mol, carbon_idx, oxygen_idx)
+    if tbdmsoxyethoxy:
+        return tbdmsoxyethoxy
+    return ""
+
+
+def _silylethoxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
+    first = mol.GetAtomWithIdx(carbon_idx)
+    if first.GetSymbol() != "C" or first.GetFormalCharge() != 0 or first.IsInRing():
+        return ""
+    second = _single_heavy_neighbor(mol, carbon_idx, oxygen_idx, "C")
+    if second is None:
+        return ""
+    silicon = _single_heavy_neighbor(mol, second, carbon_idx, "Si")
+    if silicon is None:
+        return ""
+    return "2-tms-ethoxy" if _is_trimethylsilyl_group(mol, silicon, second) else ""
+
+
+def _tbdmsoxyethoxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
+    first = mol.GetAtomWithIdx(carbon_idx)
+    if first.GetSymbol() != "C" or first.GetFormalCharge() != 0 or first.IsInRing():
+        return ""
+    second = _single_heavy_neighbor(mol, carbon_idx, oxygen_idx, "C")
+    if second is None:
+        return ""
+    distal_oxygen = _single_heavy_neighbor(mol, second, carbon_idx, "O")
+    if distal_oxygen is None:
+        return ""
+    silicon = _single_heavy_neighbor(mol, distal_oxygen, second, "Si")
+    if silicon is None:
+        return ""
+    return "2-tbdmsoxyethoxy" if _is_tbdms_group(mol, silicon, distal_oxygen) else ""
+
+
+def _single_heavy_neighbor(mol, atom_idx: int, blocked_idx: int, symbol: str) -> int | None:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != blocked_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    neighbor_idx = heavy[0]
+    neighbor = mol.GetAtomWithIdx(neighbor_idx)
+    bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+    if neighbor.GetSymbol() != symbol or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    return neighbor_idx
+
+
+def _sulfur_oxy_alias(mol, sulfur_idx: int, oxygen_idx: int) -> str:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0:
+        return ""
+    double_oxygen_count = 0
+    single_ligands = []
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif bond.GetBondType() == Chem.BondType.SINGLE:
+            single_ligands.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return ""
+    if double_oxygen_count != 2 or len(single_ligands) != 1:
+        return ""
+    ligand_idx = single_ligands[0]
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    if ligand.GetSymbol() == "F":
+        return "fluorosulfonyloxy"
+    if ligand.GetSymbol() == "O" and _is_terminal_hydroxy_oxygen(mol, ligand_idx, sulfur_idx):
+        return "sulfooxy"
+    if ligand.GetSymbol() == "C" and _is_methyl_sulfonyl_ligand(mol, ligand_idx, sulfur_idx):
+        return "mesyloxy"
+    if ligand.GetSymbol() == "C" and _is_trifluoromethyl(mol, ligand_idx, sulfur_idx):
+        return "triflyloxy"
+    if ligand.IsInRing():
+        ring = _ring_substituent_prefix(mol, ligand_idx, sulfur_idx)
+        if ring in {"p-tolyl", "4-methylphenyl"}:
+            return "tosyloxy"
+    return ""
+
+
+def _is_terminal_hydroxy_oxygen(mol, oxygen_idx: int, sulfur_idx: int) -> bool:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
+        return False
+    return not [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != sulfur_idx and nbr.GetAtomicNum() > 1
+    ]
+
+
+def _is_methyl_sulfonyl_ligand(mol, carbon_idx: int, sulfur_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing() or carbon.GetIsotope():
+        return False
+    bond = mol.GetBondBetweenAtoms(carbon_idx, sulfur_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    return not [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != sulfur_idx and nbr.GetAtomicNum() > 1
+    ]
+
+
+def _is_trifluoromethyl(mol, carbon_idx: int, sulfur_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return False
+    fluorines = []
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == sulfur_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if nbr.GetSymbol() == "F" and bond.GetBondType() == Chem.BondType.SINGLE:
+            fluorines.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return False
+    return len(fluorines) == 3
 
 
 def _retained_oxygen_resource_prefix(mol, oxygen_idx: int, parent_idx: int) -> str:
@@ -301,7 +457,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
         if not name:
             return ""
         names.append(name)
-    return _amino_prefix_from_ligands(names)
+    return _amino_prefix_from_ligands(mol, idx, parent_idx, names)
 
 
 def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -327,12 +483,22 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
     )
 
 
-def _amino_prefix_from_ligands(names: Sequence[str]) -> str:
+def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequence[str]) -> str:
     if len(names) == 1:
+        retained = _retained_single_ligand_amino_prefix(mol, amino_idx, parent_idx, names[0])
+        if retained:
+            return retained
         if "-" in names[0] or names[0].startswith("("):
             return f"({names[0]})amino"
         return names[0] + "amino"
     counts = Counter(names)
+    if len(counts) > 1 and all(count == 1 for count in counts.values()) and any(
+        _needs_explicit_n_ligand_name(name) for name in counts
+    ):
+        parts = []
+        for name in sorted(counts):
+            parts.append(f"N-({name})" if "-" in name or name.startswith("(") or ")" in name else f"N-{name}")
+        return "-".join(parts) + "amino"
     if all(count == 1 for count in counts.values()) and all(
         "-" not in name and not name.startswith("(") and ")" not in name for name in counts
     ):
@@ -362,6 +528,70 @@ def _amino_prefix_from_ligands(names: Sequence[str]) -> str:
         else:
             parts.append((MULT.get(count, "") if count > 1 else "") + name)
     return "".join(parts) + "amino"
+
+
+def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, name: str) -> str:
+    if name.endswith("sulfonyl") and len(name) > len("sulfonyl"):
+        return name[: -len("sulfonyl")] + "sulfonamido"
+    acyl_amides = {
+        "acroyl": "acrylamido",
+        "acryloyl": "acrylamido",
+        "acetyl": "acetamido",
+        "benzoyl": "benzamido",
+        "butyryl": "butyramido",
+        "cyanoacetyl": "cyanoacetamido",
+        "cyanomethylcarbonyl": "cyanoacetamido",
+        "cyclopropylcarbonyl": "cyclopropanecarboxamido",
+        "cyclobutylcarbonyl": "cyclobutanecarboxamido",
+        "cyclopentylcarbonyl": "cyclopentanecarboxamido",
+        "cyclohexylcarbonyl": "cyclohexanecarboxamido",
+        "difluoroacetyl": "difluoroacetamido",
+        "formyl": "formamido",
+        "isobutyryl": "isobutyramido",
+        "methacryloyl": "methacrylamido",
+        "pivaloyl": "pivalamido",
+        "propionyl": "propionamido",
+        "trifluoroacetyl": "trifluoroacetamido",
+        "valeryl": "valeramido",
+    }
+    if name in acyl_amides:
+        return acyl_amides[name]
+    if name == "tert-butoxycarbonyl" and _bocamino_prefix_allowed(mol, amino_idx, parent_idx):
+        return "bocamino"
+    if name == "carbamyl":
+        return "ureido"
+    return ""
+
+
+def _bocamino_prefix_allowed(mol, amino_idx: int, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if not parent.IsInRing() or mol.GetRingInfo().NumRings() < 2:
+        return True
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or not atom.IsInRing():
+            continue
+        cidx = atom.GetIdx()
+        has_exocyclic_oxo = False
+        has_ring_nitrogen = False
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if (
+                nbr.GetSymbol() == "O"
+                and not nbr.IsInRing()
+                and bond is not None
+                and bond.GetBondType() == Chem.BondType.DOUBLE
+            ):
+                has_exocyclic_oxo = True
+            elif nbr.GetSymbol() == "N" and nbr.IsInRing() and nidx != amino_idx:
+                has_ring_nitrogen = True
+        if has_exocyclic_oxo and has_ring_nitrogen:
+            return False
+    return True
+
+
+def _needs_explicit_n_ligand_name(name: str) -> bool:
+    return name.endswith(("carbonyl", "formyl")) or name in {"chloroformyl", "fluoroformyl", "bromoformyl", "iodoformyl"}
 
 
 def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:

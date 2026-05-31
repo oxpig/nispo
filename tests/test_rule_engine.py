@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,8 +8,17 @@ from pathlib import Path
 import pytest
 from rdkit import Chem
 
+import nispo.rule_engine as rule_engine
+from nispo.naming_context import MoleculeContext
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
-from nispo.rule_engine import NameCandidate, _candidate_key
+from nispo.rule_dispatch import RuleSpec
+from nispo.rule_engine import (
+    NameCandidate,
+    _candidate_key,
+    _finalize_candidate_name,
+    _prepare_candidates,
+    _select_best_prepared_candidate,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +38,66 @@ def test_candidate_keys_are_comparable_across_descriptor_shapes():
     ]
 
     assert min(candidates, key=_candidate_key) is candidates[0]
+
+
+def test_rule_engine_has_no_final_shortening_pipeline():
+    source = "\n".join(
+        (
+            inspect.getsource(rule_engine.NamingEngine.name),
+            inspect.getsource(rule_engine._prepare_candidates),
+            inspect.getsource(rule_engine._finalize_candidate_name),
+        )
+    )
+    forbidden = (
+        "_compact_final_output_aliases",
+        "_compact_selected_output_name",
+        "_compact_common_substituent_terms",
+        "_normalize_terminal_parent_stem",
+        "final_aliases",
+        "selected_output",
+        "late_compaction",
+        "CONTRACTION",
+    )
+
+    assert all(token not in source for token in forbidden)
+    for symbol in forbidden[:4]:
+        assert not hasattr(rule_engine, symbol)
+    assert "name = candidate.name" in inspect.getsource(rule_engine._finalize_candidate_name)
+
+
+def test_finalizer_preserves_intrinsic_candidate_text_without_stereo_or_isotopes():
+    mol = Chem.MolFromSmiles("CC")
+    candidate = NameCandidate("1,1-dimethyl-ethyl", "branch-probe", 50)
+
+    assert _finalize_candidate_name(mol, Chem, candidate) == candidate.name
+
+
+@pytest.mark.parametrize(
+    "candidate_name",
+    [
+        "1,1-dimethyl-ethyl",
+        "1-phenyl-methyl",
+        "phenyloxy",
+        "N-methylamino",
+        "1-azamethylcarbonyl",
+        "2-phenyl-1-azaethylcarbonyl",
+        "benz2-oxazolyl",
+    ],
+)
+def test_candidate_pipeline_does_not_compact_selected_name(candidate_name):
+    mol = Chem.MolFromSmiles("CCO")
+    candidate = NameCandidate(candidate_name, "candidate-probe", 50)
+    rule = RuleSpec(
+        family="candidate-probe",
+        priority=50,
+        gates=(lambda ctx: True,),
+        producer=lambda ctx: (candidate,),
+    )
+
+    prepared = _prepare_candidates(mol, Chem, MoleculeContext(mol, Chem), (rule,))
+
+    assert [item.name for item in prepared] == [candidate_name]
+    assert _select_best_prepared_candidate(prepared) == candidate_name
 
 
 def test_nested_sort_key_parent_selection_does_not_empty_api_output():
@@ -109,6 +179,36 @@ def test_generated_fused_topology_and_benzotriazole_orientation_roundtrip():
         "N#Cc1cccc2nn[nH]c12",
         "Brc1cc([N+](=O)[O-])c2nn[nH]c2c1",
         "O=C(O)Cc1cccc2nn[nH]c12",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_retained_scaffold_topology_parents_roundtrip_without_generic_bicyclo_fallback():
+    smiles_values = [
+        "O=C1C=CC2=CN=NC2=C1",
+        "Nc1nc2c(c(=O)[nH]1)=NC(=O)N=2",
+        "N#CC1C=CC=CO1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all("bicyclo[" not in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_n_substituted_purine_nucleoside_avoids_tautomeric_retained_parent_regression():
+    smiles_values = [
+        "O=P(O)(O)O[C@H]1[C@@H](O)[C@H](n2cnc3c(O)ncnc32)O[C@@H]1CO",
+        "O=P(O)(O)OC[C@H]1O[C@@H](n2cnc3c(O)nc(S)nc32)[C@H](O)[C@@H]1O",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)
@@ -407,6 +507,29 @@ def test_nonstereo_long_fallback_roundtrips():
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert len(name) <= 170
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_upstream_short_alias_safety_regressions_roundtrip():
+    smiles_values = [
+        "O=C1C=CC(=O)N1C[C@H]1CC[C@H](C(=O)ON2C(=O)CCC2=O)CC1",
+        "O=C(Cc1ccccc1)Nn1nc(C(F)(F)F)c2ccccc2c1=O",
+        "O=C(N[C@H]1C[C@H](C(=O)NC2CCOCC2)C1)OCc1ccccc1",
+        "COC(=O)CC(NC(=O)OC(C)(C)C)C(=O)CF",
+        "COc1c(O)cc(C=O)cc1O",
+        "COc1c(O)cc(C=O)cc1Br",
+        "COc1c(O)ccc(F)c1C=O",
+        "COc1cc(C=O)c(C2CC2)cc1O",
+        "CC(=O)N[C@@H]([C@H](O)[C@@H](C=O)NC(C)=O)[C@H](O)CN=[N+]=[N-]",
+        "Cc1sc(C(=O)N(C=O)Nc2cc(F)nc(F)c2)nc1C(=O)NC1CCC1(C)C",
+        "Cc1c(COc2cc(OCc3cccc(C#N)c3)c(C=O)cc2Cl)cccc1-c1ccc2c(c1)OCCO2",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from importlib import resources
 
@@ -635,6 +636,7 @@ def build_opsin_parent_templates(Chem) -> tuple[dict, ...]:
         build_static_parent_templates(Chem)
         + build_opsin_test_scaffold_templates(Chem)
         + build_generated_spiro_scaffold_templates(Chem)
+        + build_opsin_retained_ring_csv_templates(Chem)
         + build_opsin_resource_templates(Chem)
         + build_fusion_component_parent_templates(Chem)
         + build_generated_fused_parent_templates(Chem)
@@ -677,6 +679,48 @@ def build_generated_spiro_scaffold_templates(Chem) -> tuple[dict, ...]:
         source_family="generated-spiro-scaffold",
         default_source_file="generated_spiro_scaffold_templates.json",
     )
+
+
+def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[dict, ...]:
+    locanted_records = _read_json_records("opsin_retained_mono_fused_ring_templates.json")
+    if locanted_records:
+        return tuple(
+            template
+            for template in _build_json_scaffold_templates(
+                Chem,
+                locanted_records,
+                source_family="opsin-retained-ring-cml",
+                default_source_file="opsin_retained_mono_fused_ring_templates.json",
+            )
+            if template["mol"].GetNumAtoms() <= max_atoms
+        )
+
+    templates = []
+    seen: set[tuple[str, str]] = set()
+    for record in _read_retained_ring_csv_records("opsin_retained_mono_fused_ring_smiles.csv"):
+        name = record.get("iupac_name", "").strip()
+        smiles = record.get("smiles", "").strip()
+        if not name or not smiles:
+            continue
+        mol = _raw_template_mol(Chem, smiles)
+        if mol is None or mol.GetNumAtoms() > max_atoms or mol.GetRingInfo().NumRings() == 0:
+            continue
+        locants = {idx: str(idx + 1) for idx in range(mol.GetNumAtoms())}
+        template = {
+            "name": name,
+            "mol": mol,
+            "locants": locants,
+            "source_family": "opsin-retained-ring-csv",
+            "source_file": "opsin_retained_mono_fused_ring_smiles.csv",
+            "source_subtype": "exact-retained-ring",
+            "stereochemical": _has_stereochemical_smiles(smiles),
+        }
+        dedupe_key = (template["name"], Chem.MolToSmiles(mol, canonical=True))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        templates.append(template)
+    return tuple(templates)
 
 
 def build_opsin_resource_templates(Chem) -> tuple[dict, ...]:
@@ -796,6 +840,15 @@ def _read_json_records(filename: str) -> tuple[dict, ...]:
     if not isinstance(raw, list):
         return ()
     return tuple(record for record in raw if isinstance(record, dict))
+
+
+def _read_retained_ring_csv_records(filename: str) -> tuple[dict, ...]:
+    try:
+        path = resources.files(__package__).joinpath("resources", filename)
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return tuple(dict(row) for row in csv.DictReader(handle))
+    except Exception:
+        return ()
 
 
 def _resolve_generated_record_refs(value, table: list[dict]) -> tuple[dict, ...]:

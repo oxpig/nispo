@@ -197,6 +197,62 @@ class AzaniumParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class NeutralAmineParentRule:
+    family = "neutral-amine-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_pnictogen = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        nitrogen_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "N"
+            and atom.GetFormalCharge() == 0
+            and not atom.IsInRing()
+        ]
+        if len(nitrogen_atoms) != 1:
+            return
+        nitrogen = nitrogen_atoms[0]
+        nidx = nitrogen.GetIdx()
+        neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors()]
+        if len(neighbors) != 3 or nitrogen.GetTotalNumHs() != 0:
+            return
+        if any(mol.GetAtomWithIdx(nbr_idx).GetSymbol() not in {"C", "Si"} for nbr_idx in neighbors):
+            return
+        if any(
+            mol.GetBondBetweenAtoms(nidx, nbr_idx).GetBondType() != self._Chem.BondType.SINGLE
+            for nbr_idx in neighbors
+        ):
+            return
+        if any(_is_carbonyl_neighbor(mol, nbr_idx, nidx) for nbr_idx in neighbors):
+            return
+        names = []
+        for nbr_idx in neighbors:
+            prefix = branch_prefix(mol, nbr_idx, nidx)
+            if not prefix:
+                return
+            names.append(prefix)
+        name = _pnictogen_hydride_name(names, "amine")
+        if name:
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _is_carbonyl_neighbor(mol, carbon_idx: int, nitrogen_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(carbon_idx)
+    if atom.GetSymbol() != "C":
+        return False
+    return any(
+        nbr.GetIdx() != nitrogen_idx
+        and nbr.GetSymbol() == "O"
+        and mol.GetBondBetweenAtoms(carbon_idx, nbr.GetIdx()).GetBondTypeAsDouble() == 2.0
+        for nbr in atom.GetNeighbors()
+    )
+
+
 PNICTOGEN_HYDRIDE_PARENTS = {
     "P": "phosphane",
     "As": "arsane",
@@ -976,7 +1032,7 @@ class BoronicPinacolEsterParentRule:
         mol = ctx.mol
         seen = set()
         for boron_idx, owner_idx in _boronic_pinacol_ester_motifs(mol, self._Chem):
-            owner = _compact_boronic_pinacol_owner(branch_prefix(mol, owner_idx, boron_idx))
+            owner = _boronic_pinacol_owner_alias(branch_prefix(mol, owner_idx, boron_idx))
             if not _stable_boronic_pinacol_owner(owner):
                 continue
             name = f"{owner}boronic acid pinacol ester"
@@ -1142,7 +1198,7 @@ def _is_pinacol_boronate_oxygen_pair(mol, Chem, boron_idx: int, oxygen_indices: 
 
 
 def _stable_boronic_pinacol_owner(name: str) -> bool:
-    if not name or len(name) > 70 or any(fragment in name for fragment in ("(", ")", "[", "]", "spiro")):
+    if not name or len(name) > 70 or any(fragment in name for fragment in ("[", "]", "spiro")):
         return False
     simple_tokens = {
         "methyl",
@@ -1175,9 +1231,10 @@ def _stable_boronic_pinacol_owner(name: str) -> bool:
         r"cyano|nitro|trifluoromethyl|difluoromethyl|trifluoromethoxy|difluoromethoxy)"
     )
     phenyl_decorator = rf"\d+(?:,\d+)*-(?:di|tri|tetra)?{phenyl_substituent}"
-    if re.fullmatch(rf"(?:{phenyl_decorator}){{1,4}}phenyl", name):
+    phenyl_decorators = rf"(?:{phenyl_decorator}-){{0,3}}{phenyl_decorator}"
+    if re.fullmatch(rf"{phenyl_decorators}phenyl", name):
         return True
-    if re.fullmatch(rf"(?:{phenyl_decorator}){{1,4}}phenylmethyl", name):
+    if re.fullmatch(rf"{phenyl_decorators}phenylmethyl", name):
         return True
     if re.fullmatch(
         r"(?:[234]-pyridyl|[23456]-pyrimidyl|[234]-furyl|[234]-thienyl|then-[23]-yl|[234]-thiazolyl)",
@@ -1185,6 +1242,16 @@ def _stable_boronic_pinacol_owner(name: str) -> bool:
     ):
         return True
     if re.fullmatch(r"(?:pyridin|pyrimidin|pyridazin|pyrazin)-\d+-yl", name):
+        return True
+    heteroaryl_stem = r"pyridin|pyrimidin|pyridazin|pyrazin|furan|thiophen|pyrazol|imidazol|triazol|thiazol|oxazol"
+    if re.fullmatch(rf"{phenyl_decorators}(?:{heteroaryl_stem})-\d+-yl", name):
+        return True
+    simple_ring_substituent = (
+        rf"(?:{phenyl_decorators})?phenyl|"
+        rf"(?:{phenyl_decorators})?(?:{heteroaryl_stem})-\d+-yl|"
+        r"naphthaline-\d+-yl|indol-\d+-yl|indazol-\d+-yl|quinolin-\d+-yl"
+    )
+    if re.fullmatch(rf"\d+-\({simple_ring_substituent}\)phenyl", name):
         return True
     if re.fullmatch(r"(?:\d+-(?:methyl|ethyl|isopropyl|phenyl|methoxy))?1H-(?:pyrazol|imidazol|triazol)-\d+-yl", name):
         return True
@@ -1204,8 +1271,8 @@ def _stable_boronic_pinacol_owner(name: str) -> bool:
     return False
 
 
-def _compact_boronic_pinacol_owner(name: str) -> str:
-    for verbose, compact in (
+def _boronic_pinacol_owner_alias(name: str) -> str:
+    for verbose, alias in (
         ("1,1,1-trifluoro-methyl", "trifluoromethyl"),
         ("1,1-difluoro-methyl", "difluoromethyl"),
         ("1-fluoro-methyl", "fluoromethyl"),
@@ -1215,8 +1282,28 @@ def _compact_boronic_pinacol_owner(name: str) -> str:
         ("1,1,1-tribromo-methyl", "tribromomethyl"),
         ("1,1-dibromo-methyl", "dibromomethyl"),
         ("1-bromo-methyl", "bromomethyl"),
+        ("1-methyl-ethyl", "isopropyl"),
+        ("1,1-dimethyl-ethyl", "t-butyl"),
+        ("2-methyl-propyl", "isobutyl"),
+        ("1-phenyl-methyl", "benzyl"),
+        ("eth-1-ene-1-yl", "vinyl"),
     ):
-        name = name.replace(verbose, compact)
+        name = name.replace(verbose, alias)
+    for alias in (
+        "trifluoromethyl",
+        "difluoromethyl",
+        "fluoromethyl",
+        "trichloromethyl",
+        "dichloromethyl",
+        "chloromethyl",
+        "dimethylamino",
+        "isopropyl",
+        "t-butyl",
+        "isobutyl",
+        "benzyl",
+        "vinyl",
+    ):
+        name = name.replace(f"({alias})", alias)
     return name
 
 
@@ -1627,7 +1714,9 @@ def _needs_explicit_n_parent_separator(prefix: str) -> bool:
 
 
 def _unstable_retained_functional_parent_substituent(name: str) -> bool:
-    return any(fragment in name for fragment in ("cardenolide", "purine", "puryl"))
+    if any(fragment in name for fragment in ("cardenolide", "purine", "puryl")):
+        return True
+    return "fluoro-methylcarbonyl" in name and ("oxo" in name or "oxa" in name)
 
 
 def _strip_outer_parentheses(name: str) -> str:
@@ -2504,6 +2593,8 @@ class WholeMoleculeRetainedParentRule:
                 continue
             if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
                 continue
+            if _has_stereo_evidence(mol, self._Chem) and not template.get("stereochemical"):
+                continue
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
             for match in ctx.template_matches(template):
@@ -2518,21 +2609,45 @@ class WholeMoleculeRetainedParentRule:
 
 
 def _standalone_whole_molecule_retained_name(template: dict) -> str:
-    name = template_record_name(template)
+    raw_name = template_record_name(template)
+    name = _terminal_retained_parent_name(raw_name)
     source_file = template.get("source_file", "")
-    if source_file == "naturalProducts.xml" and "'" not in name and not name.endswith("ylic"):
+    if source_file == "naturalProducts.xml" and "'" not in raw_name and not raw_name.endswith("ylic"):
         return name
     if source_file in _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES:
-        if name.endswith("ylic"):
-            return f"{name} acid"
+        acid_name = _standalone_retained_acid_name(raw_name)
+        if acid_name:
+            return acid_name
+        return name
+    if source_file == "opsin_retained_mono_fused_ring_smiles.csv":
+        acid_name = _standalone_retained_acid_name(raw_name)
+        if acid_name:
+            return acid_name
         return name
     if name in {"benzyn", "tropylium"}:
         return name
     return ""
 
 
+def _standalone_retained_acid_name(raw_name: str) -> str:
+    if raw_name in _STANDALONE_RETAINED_ACID_STEM_EXCEPTIONS:
+        return ""
+    if raw_name.endswith(" acid"):
+        return raw_name
+    if raw_name.endswith("acid"):
+        return f"{raw_name[:-4]} acid"
+    if raw_name.endswith(("ic", "ylic")):
+        return f"{raw_name} acid"
+    return ""
+
+
 def _formal_charge(mol) -> int:
     return sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+
+
+_STANDALONE_RETAINED_ACID_STEM_EXCEPTIONS = {
+    "psic",
+}
 
 
 _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES = {
@@ -2585,6 +2700,7 @@ class FusedParentRule:
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
+        yielded_names: set[str] = set()
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
         ):
@@ -2598,6 +2714,210 @@ class FusedParentRule:
                     priority=self.priority,
                     sort_key=self._candidate_sort_key(mol, template, match, name),
                 )
+                yielded_names.add(name)
+
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            self._template_iter(ctx),
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+            reject_extra_core_bonds=True,
+        ):
+            if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
+                continue
+            name = _name_fused_core_match(mol, template, match)
+            if not name or name in yielded_names:
+                continue
+            if not _allow_retained_topology_fused_candidate(template_record_name(template), name):
+                continue
+            if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
+                continue
+            yielded_names.add(name)
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=(
+                    _retained_topology_fused_candidate_rank(template_record_name(template), name),
+                    self._candidate_sort_key(mol, template, match, name),
+                ),
+            )
+
+
+_RETAINED_TOPOLOGY_FUSED_PARENT_STEMS = (
+    "benzimidazole",
+    "benzofuran",
+    "benzothiazole",
+    "benzothiophene",
+    "benzotriazole",
+    "benzoxazole",
+    "chroman",
+    "chromene",
+    "chromone",
+    "cinnoline",
+    "coumarin",
+    "guanin",
+    "hypoxanthin",
+    "indazole",
+    "indole",
+    "isochroman",
+    "isochromene",
+    "isoquinoline",
+    "naphthyridine",
+    "purine",
+    "pteridine",
+    "quinazoline",
+    "quinoline",
+    "quinoxaline",
+    "xanthin",
+)
+
+_RETAINED_TOPOLOGY_TAUTOMER_PARENT_NAMES = {
+    "guanin",
+    "hypoxanthin",
+    "isoguanin",
+    "mercaptopurine",
+    "xanthin",
+}
+
+
+def _allow_retained_topology_fused_candidate(template_name: str, name: str) -> bool:
+    """Allow retained fused parents across keto/hydro aromatic-state changes."""
+
+    if "spiro[" in name:
+        return False
+    if _retained_topology_name_has_isotope(template_name) or _retained_topology_name_has_isotope(name):
+        return False
+    if not any(stem in template_name for stem in _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS):
+        return False
+    if template_name in {"purine", "purin"} and re.search(r"(?:^|-)\d+(?:,\d+)+-dioxo-", name):
+        return False
+    if template_name in {"purine", "purin"} and _has_duplicate_retained_topology_prefix_locant(name):
+        return False
+    if "indole" in template_name and _has_retained_topology_functional_suffix_parent(name):
+        return False
+    if _has_retained_topology_functional_suffix_parent(name):
+        return True
+    if _has_retained_topology_oxo_or_one_parent(name):
+        return True
+    if _has_retained_topology_simple_functional_parent(name):
+        return True
+    return False
+
+
+def _has_duplicate_retained_topology_prefix_locant(name: str) -> bool:
+    locants = [
+        locant
+        for locant_text in re.findall(r"(?:^|-)(\d+(?:,\d+)*[a-z]?)-(?=[a-z])", name)
+        for locant in locant_text.split(",")
+    ]
+    return len(locants) != len(set(locants))
+
+
+def _retained_topology_name_has_isotope(name: str) -> bool:
+    return bool(
+        re.search(r"\(\d+-\d+(?:C|N|O|S|P|F|Cl|Br|I)\)", name)
+        or re.search(r"\[\d+(?:C|N|O|S|P|F|Cl|Br|I)\]", name)
+    )
+
+
+def _retained_topology_fused_candidate_rank(template_name: str, name: str) -> tuple:
+    return (
+        0 if _has_retained_topology_functional_suffix_parent(name) else 1,
+        0 if _has_retained_topology_oxo_or_one_parent(name) else 1,
+        _generated_fusion_preference(template_name),
+        len(name),
+        name,
+    )
+
+
+def _has_retained_topology_functional_suffix_parent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
+            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
+            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
+            r"quinoxalin|xanthin)"
+            r".*-\d+[a-z]?-(?:carboxamide|carbonitrile|carboxylic acid|carboxylate)\b",
+            name,
+        )
+    )
+
+
+def _has_retained_topology_oxo_or_one_parent(name: str) -> bool:
+    if "acenaphthen" in name:
+        return False
+    return bool(
+        re.search(
+            r"(?:^|-)\d+[a-z]?-(?:oxo|thioxo)-.*(?:benzimidazol|benzofuran|"
+            r"benzothiazol|benzothiophen|benzotriazol|benzoxazol|chrom|coumarin|"
+            r"guanin|hypoxanthin|indazol|indol|isoquinolin|naphthyridin|purin|"
+            r"pteridin|quinazolin|quinolin|quinoxalin|xanthin)",
+            name,
+        )
+        or re.search(
+            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
+            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
+            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
+            r"quinoxalin|xanthin)"
+            r".*-\d+[a-z]?\(\d+[a-z]?H\)-one\b",
+            name,
+        )
+        or re.search(
+            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
+            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
+            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
+            r"quinoxalin|xanthin).*-\d+[a-z]?-one\b",
+            name,
+        )
+    )
+
+
+def _has_retained_topology_simple_functional_parent(name: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:^|-)\d+[a-z]?-(?:amino|hydroxy|mercapto)-.*(?:benzimidazol|"
+            r"benzothiazol|benzotriazol|benzoxazol|guanin|hypoxanthin|purin|"
+            r"pteridin|xanthin)",
+            name,
+        )
+    )
+
+
+def _retained_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
+    if not _generated_topology_fused_match_is_hydrogen_compatible(mol, template, match):
+        return False
+    if template_record_name(template) in _RETAINED_TOPOLOGY_TAUTOMER_PARENT_NAMES:
+        return not _topology_match_has_external_hetero_substitution(mol, template, match)
+    return _topology_match_preserves_nonaromatic_template_bonds(mol, template, match)
+
+
+def _topology_match_has_external_hetero_substitution(mol, template: dict, match: Sequence[int]) -> bool:
+    template_mol = template_record_mol(template)
+    core = set(match)
+    for template_idx, mol_idx in enumerate(match):
+        if template_mol.GetAtomWithIdx(template_idx).GetAtomicNum() not in {7, 8, 16}:
+            continue
+        mol_atom = mol.GetAtomWithIdx(mol_idx)
+        if any(nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1 for nbr in mol_atom.GetNeighbors()):
+            return True
+    return False
+
+
+def _topology_match_preserves_nonaromatic_template_bonds(mol, template: dict, match: Sequence[int]) -> bool:
+    template_mol = template_record_mol(template)
+    for bond in template_mol.GetBonds():
+        if bond.GetIsAromatic():
+            continue
+        mol_bond = mol.GetBondBetweenAtoms(match[bond.GetBeginAtomIdx()], match[bond.GetEndAtomIdx()])
+        if mol_bond is None:
+            return False
+        if mol_bond.GetIsAromatic():
+            return False
+        if mol_bond.GetBondTypeAsDouble() != bond.GetBondTypeAsDouble():
+            return False
+    return True
 
 
 class GeneratedFusedParentRule(FusedParentRule):
@@ -3455,6 +3775,7 @@ def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
+    neutral_amine = NeutralAmineParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
@@ -3509,6 +3830,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
+        RuleSpec("neutral-amine-parent", parent_priority("senior-functional-exception"), (acyclic,), neutral_amine.candidates),
         RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
@@ -3716,4 +4038,5 @@ from .parent.rule_helpers import (
     _append_terminal_halo_prefixes,
     _prefer_acyclic_skeleton_name,
     _functional_term_score,
+    _terminal_retained_parent_name,
 )

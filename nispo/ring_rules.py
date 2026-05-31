@@ -233,6 +233,11 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
+    if n == 6 and symbols.count("O") == 1 and symbols.count("C") == 5 and not all_aromatic:
+        candidates.extend(_unsaturated_pyran_candidates(mol, ordered))
+        if candidates:
+            return candidates
+
     if all_aliphatic and all(sym == "C" for sym in symbols) and 3 <= n <= max(ROOTS):
         for seq in _ring_numberings(ordered):
             parent = _carbocycle_parent(mol, seq)
@@ -451,6 +456,34 @@ def _aromatic_polynitrogen_ring_candidates(
 
 def _symbol_locants(mol, seq: Sequence[int], symbol: str) -> list[int]:
     return [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == symbol]
+
+
+def _unsaturated_pyran_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    if _ring_has_exocyclic_oxo(mol, ordered):
+        return candidates
+    for seq in _numberings_with_atom_at(ordered, mol, "O"):
+        unsat_locs = set()
+        valid = True
+        for loc, begin in enumerate(seq, start=1):
+            end = seq[loc % len(seq)]
+            bond = mol.GetBondBetweenAtoms(begin, end)
+            if bond is None:
+                valid = False
+                break
+            order = bond.GetBondTypeAsDouble()
+            if order == 2.0:
+                unsat_locs.add(loc)
+            elif order != 1.0:
+                valid = False
+                break
+        if not valid:
+            continue
+        if unsat_locs == {3, 5}:
+            candidates.append(("2H-pyran", seq))
+        elif unsat_locs == {2, 5}:
+            candidates.append(("4H-pyran", seq))
+    return candidates
 
 
 def _fixed_saturated_heterocycle_candidates(
@@ -747,6 +780,9 @@ def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:
 def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None = None) -> str:
     if parent_name == "benzene":
         return "phenyl" if loc == 1 else ""
+    retained_n_substituent = _retained_saturated_n_substituent_suffix(parent_name, loc, charge_loc)
+    if retained_n_substituent:
+        return retained_n_substituent
     h_azine = _azine_indicated_hydrogen_substituent_suffix(parent_name, loc, charge_loc)
     if h_azine:
         return h_azine
@@ -789,6 +825,18 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
         return _substituent_suffix_from_stem(stem, loc, charge_loc)
     return ""
+
+
+def _retained_saturated_n_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None) -> str:
+    if charge_loc is not None:
+        return ""
+    return {
+        ("piperidine", 1): "piperidino",
+        ("piperazine", 1): "piperazino",
+        ("piperazine", 4): "piperazino",
+        ("pyrrolidine", 1): "pyrrolidino",
+        ("morpholine", 4): "morpholino",
+    }.get((parent_name, loc), "")
 
 
 def _substituent_suffix_from_stem(stem: str, loc: int, charge_loc: int | None = None) -> str:

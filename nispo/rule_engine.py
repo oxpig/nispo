@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import re
 
-from .constants import ROOTS
 from .fragment_rules import (
     FragmentAssemblyRule,
     common_polyatomic_fragment_name,
@@ -16,24 +15,9 @@ from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
 
 
-_RETAINED_OXY_COMPACTIONS = (
-    ("2-oxapropyloxy", "methoxymethoxy"),
-    ("2,2,2-trifluoroethyloxy", "2,2,2-trifluoroethoxy"),
-    ("2,2-difluoroethyloxy", "2,2-difluoroethoxy"),
-    ("1,1,1-trideuterio-methyloxy", "trideuteriomethoxy"),
-    ("cyclopropyloxy", "cyclopropoxy"),
-    ("1-cyclopropylmethyloxy", "cyclopropylmethoxy"),
-)
-_PAREN_SAFE_RETAINED_OXY = {
-    "methoxymethoxy",
-    "trideuteriomethoxy",
-    "cyclopropoxy",
-    "cyclopropylmethoxy",
-}
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 180
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 180
-_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
-_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 180
+_DEFAULT_MAX_NAME_LENGTH = 180
+_STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
+_STEREO_EMPTY_FALLBACK_MAX_LENGTH = 180
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
 _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 180
 
@@ -90,7 +74,7 @@ class NamingEngine:
         )
 
         if best_name:
-            return _compact_final_output_aliases(_compact_selected_output_name(best_name))
+            return best_name
 
         fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
         fallback_name = _select_best_prepared_candidate(
@@ -100,11 +84,10 @@ class NamingEngine:
                 ctx,
                 self._rules,
                 max_length=fallback_evaluation_length,
-                final_aliases=True,
                 output_max_length=fallback_max_length,
             )
         )
-        return _compact_selected_output_name(fallback_name)
+        return fallback_name
 
 
 def _prepare_candidates(
@@ -113,8 +96,7 @@ def _prepare_candidates(
     ctx: MoleculeContext,
     rules: Iterable[RuleSpec],
     *,
-    max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH,
-    final_aliases: bool = False,
+    max_length: int = _DEFAULT_MAX_NAME_LENGTH,
     output_max_length: int | None = None,
 ) -> list[_PreparedCandidate]:
     prepared: list[_PreparedCandidate] = []
@@ -127,10 +109,8 @@ def _prepare_candidates(
             name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
             if not name:
                 continue
-            if final_aliases:
-                name = _compact_final_output_aliases(name)
-                if output_max_length is not None and len(name) > output_max_length:
-                    continue
+            if output_max_length is not None and len(name) > output_max_length:
+                continue
             prepared.append(
                 _PreparedCandidate(
                     name=name,
@@ -165,8 +145,8 @@ def _select_best_prepared_candidate(prepared: list[_PreparedCandidate]) -> str:
 def _empty_fallback_limits(mol, Chem) -> tuple[int, int]:
     if _has_assigned_stereo(mol, Chem):
         return (
-            _CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH,
-            _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH,
+            _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH,
+            _STEREO_EMPTY_FALLBACK_MAX_LENGTH,
         )
     return (
         _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH,
@@ -283,7 +263,11 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 25
     if _has_retained_parent_substituent_artifact(name):
         penalty += 25
-    penalty += _compact_aza_polycycle_alias_penalty(name)
+    if _has_fragile_bicyclic_carbamate_lactam_name(name):
+        penalty += 35
+    if _has_fragile_imido_oxycarbonyl_alias(name):
+        penalty += 35
+    penalty += _unstable_aza_polycycle_alias_penalty(name)
     if _has_unstable_benzimidazolyl_orientation_artifact(name):
         penalty += 18
     return penalty
@@ -315,21 +299,23 @@ _CONTEXTUAL_GRAPH_PARENT_FAMILIES = {
 
 
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
-    """Defer compact but orientation-fragile aliases only when alternatives exist."""
+    """Defer orientation-fragile aliases only when alternatives exist."""
 
     name = item.name
     unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
     fragile_sulfamoyl_benzene = _has_fragile_single_ring_sulfamoyl_benzene(name, item.candidate)
-    compact_aza_penalty = _compact_aza_polycycle_alias_penalty(name)
+    missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
+    aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
         unstable_benzimidazolyl
         or unstable_replacement
         or generic_polycycle
         or fragile_sulfamoyl_benzene
-        or compact_aza_penalty
+        or missing_relative_stereo
+        or aza_alias_penalty
         or spiro_penalty
     ):
         return 0
@@ -346,7 +332,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=25, max_length=170
     ):
         penalty += 36
-    if has_graph_parent and compact_aza_penalty:
+    if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
+        penalty += 36
+    if has_graph_parent and aza_alias_penalty:
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
         penalty += 12
@@ -427,6 +415,26 @@ def _has_contextual_acyclic_parent_alternative(
     return False
 
 
+def _has_contextual_relative_stereo_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 35,
+    max_length: int = 160,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if not _has_relative_stereo_descriptor(other.name):
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
 def _unlocanted_multicenter_stereo_penalty(name: str, candidate: NameCandidate) -> int:
     if not _has_unlocanted_multicenter_stereo_prefix(name):
         return 0
@@ -450,6 +458,16 @@ def _unlocanted_multicenter_stereo_penalty(name: str, candidate: NameCandidate) 
     }:
         return 18
     return 10
+
+
+def _has_missing_relative_stereo_ring_candidate(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent" or _has_relative_stereo_descriptor(name):
+        return False
+    return "cyclobutane" in name and any(term in name for term in ("carbamyl", "carbonylamino", "oxycarbonylamino"))
+
+
+def _has_relative_stereo_descriptor(name: str) -> bool:
+    return "(trans)" in name or "(cis)" in name
 
 
 def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
@@ -498,12 +516,8 @@ def _has_fragile_single_ring_sulfamoyl_benzene(name: str, candidate: NameCandida
     return bool(re.search(r"(?:aza|diaza|oxa|thia|imino|dioxo).*\)sulfamoyl\)-benzene", name))
 
 
-def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
-    return _compact_aza_polycycle_alias_penalty(name) > 0
-
-
-def _compact_aza_polycycle_alias_penalty(name: str) -> int:
-    """Defer compact aza-polycycle aliases with unstable OPSIN orientation.
+def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
+    """Defer aza-polycycle aliases with unstable OPSIN orientation.
 
     These retained-looking skeletal replacement aliases are concise, but in
     fused SureChEMBL scaffolds OPSIN often chooses a different atom numbering
@@ -811,6 +825,9 @@ def _has_spiro_single_ring_decomposition_artifact(name: str) -> bool:
         "azetidine",
         "thietane",
         "oxetane",
+        "azolidine",
+        "thiolane",
+        "oxolane",
         "piperidine",
         "thiane",
         "oxane",
@@ -847,1514 +864,47 @@ def _has_retained_parent_substituent_artifact(name: str) -> bool:
     return bool(re.search(r"(?:benzil|tolan)-\d+'?-yl\b", name))
 
 
+def _has_fragile_bicyclic_carbamate_lactam_name(name: str) -> bool:
+    if "bicyclo[" not in name or "oxycarbonyl" not in name:
+        return False
+    if "oxycarbonyl)amino" not in name or not ("oxo" in name or "one" in name):
+        return False
+    return True
+
+
+def _has_fragile_imido_oxycarbonyl_alias(name: str) -> bool:
+    return bool(re.search(r"\b\d+,\d+-dioxopyrrolidino\)?oxycarbonyl\b", name))
+
+
 def _finalize_candidate_name(
     mol,
     Chem,
     candidate: NameCandidate,
     *,
-    max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH,
+    max_length: int = _DEFAULT_MAX_NAME_LENGTH,
 ) -> str:
-    name = _normalize_terminal_parent_stem(candidate.name)
+    """Apply whole-molecule decorations without shortening the generated name.
+
+    Retained groups, suffix parents, and shorter branch spellings must already
+    have been produced by the upstream rule that created the candidate. This
+    step only adds stereo/isotope information and enforces the length cap.
+    """
+
+    name = candidate.name
     if candidate.stereo_prefix and not name.startswith("("):
-        return _apply_contraction_phase_output_policy(
-            _compact_phase_descriptor_policy(
-                _apply_uniform_isotope_label(mol, _compact_common_substituent_terms(f"({candidate.stereo_prefix})-{name}"))
-            ),
-            max_length=max_length,
-        )
+        name = f"({candidate.stereo_prefix})-{name}"
     if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
-        return _apply_contraction_phase_output_policy(
-            _compact_phase_descriptor_policy(_apply_uniform_isotope_label(mol, _compact_common_substituent_terms(name))),
-            max_length=max_length,
-        )
-    return _apply_contraction_phase_output_policy(
-        _compact_phase_descriptor_policy(
-            _apply_uniform_isotope_label(
-                mol,
-                _compact_common_substituent_terms(
-                    apply_stereochemical_prefix(
-                        mol,
-                        Chem,
-                        name,
-                        atom_order=_fallback_stereo_atom_order(candidate.family),
-                    )
-                ),
-            )
-        ),
-        max_length=max_length,
-    )
-
-
-def _apply_contraction_phase_output_policy(name: str, *, max_length: int = _CONTRACTION_PHASE_MAX_NAME_LENGTH) -> str:
-    if _needs_late_compaction(name):
-        name = _compact_common_substituent_terms(name)
-    if len(name) > _CONTRACTION_PHASE_MAX_NAME_LENGTH and _needs_selected_cap_recovery(name):
-        name = _compact_selected_output_name(name)
-    if len(name) > max_length:
-        return ""
-    return name
-
-
-def _compact_selected_output_name(name: str) -> str:
-    """Apply OPSIN-stable contractions that should not influence parent ranking."""
-
-    if not name or not _needs_selected_cap_recovery(name):
-        return name
-    name = _compact_nested_linker_parentheses(name)
-    name = _compact_selected_acylamino_terms(name)
-    name = name.replace("5,5-dimethyl-2-oxa-5-silahexyl", "trimethylsilylethoxymethyl")
-    name = name.replace("carbamoyl", "carbamyl")
-    return re.sub(r"(?<![A-Za-z])(?<!N-)cyclopropylcarbonylamino", "cyclopropanecarboxamido", name)
-
-
-def _compact_final_output_aliases(name: str) -> str:
-    """Apply validated output-only aliases after candidate ranking."""
-
-    if not name or not (_needs_final_output_aliases(name) or _needs_terminal_e_elision(name)):
-        return name
-    replacements = (
-        (r"tert-butyl", "t-butyl"),
-        (r"bist-butyl", "di-t-butyl"),
-        (r"t-butyloxy", "t-butoxy"),
-        (r"chlorocarbonyl", "chloroformyl"),
-        (r"aminocarbonyl", "carbamoyl"),
-        (r"methylsulfonyl", "mesyl"),
-        (r"methylsulfanyl(?=[,\)-]|$)", "methylthio"),
-        (r"ethylsulfanyl(?=[,\)-]|$)", "ethylthio"),
-        (r"phenylsulfanyl(?=[,\)-]|$)", "phenylthio"),
-        (r"isopropylsulfanyl", "isopropylthio"),
-        (r"propylsulfanyl", "propylthio"),
-        (r"butylsulfanyl", "butylthio"),
-        (r"benzylsulfanyl", "benzylthio"),
-        (r"(?<!\])pyrimidin-4-yl", "4-pyrimidyl"),
-        (r"(?<!\])pyrimidin-5-yl", "5-pyrimidyl"),
-        (r"(?<!\])pyrimidin-6-yl", "6-pyrimidyl"),
-        (r"(?<!\])pyridazin-3-yl", "3-pyridazyl"),
-        (r"(?<!\])pyridazin-4-yl", "4-pyridazyl"),
-        (r"(?<!\])piperidin-2-yl", "2-piperidyl"),
-        (r"(?<!\])piperidin-3-yl", "3-piperidyl"),
-        (r"(?<!\])pyrrolidin-3-yl", "3-pyrrolidyl"),
-        (r"(?<!\])morpholin-2-yl", "2-morpholinyl"),
-        (r"(?<!\])morpholin-3-yl", "3-morpholinyl"),
-        (r"(?<!\])piperazin-2-yl", "2-piperazinyl"),
-        (r"pyridine-2-ylcarbonylamino", "pyridine-2-carboxamido"),
-        (r"pyridine-3-ylcarbonylamino", "pyridine-3-carboxamido"),
-        (r"pyridine-4-ylcarbonylamino", "pyridine-4-carboxamido"),
-        (r"pyrimidin-3-ylcarbonylamino", "pyrimidine-3-carboxamido"),
-        (r"(?<![A-Za-z])1H-imidazol-(?:1|3)-ium\b", "imidazolium"),
-    )
-    for pattern, replacement in replacements:
-        name = re.sub(pattern, replacement, name)
-    name = name.replace("-imidazolium", "imidazolium")
-    if _preserve_hydro_fused_terminal_e(name):
-        return name
-    return _compact_opsin_terminal_e_spellings(name)
-
-
-def _preserve_hydro_fused_terminal_e(name: str) -> bool:
-    return bool(re.search(r"(?:hydro|oxo)-.*\[[^\]]+\].*\b(?:pyridine|imidazole|pyrrole|indole|indazole)\b", name))
-
-
-_FINAL_OUTPUT_ALIAS_TRIGGERS = (
-    "tert-butyl",
-    "chlorocarbonyl",
-    "aminocarbonyl",
-    "methylsulfonyl",
-    "sulfanyl",
-    "pyrimidin-",
-    "pyridazin-",
-    "piperidin-",
-    "pyrrolidin-",
-    "morpholin-",
-    "piperazin-",
-    "ylcarbonylamino",
-    "imidazol-",
-)
-
-
-def _needs_final_output_aliases(name: str) -> bool:
-    return any(trigger in name for trigger in _FINAL_OUTPUT_ALIAS_TRIGGERS)
-
-
-_TERMINAL_E_ELISION_TRIGGERS = (
-    "ane",
-    "ene",
-    "yne",
-    "amide",
-    "nitrile",
-    "pyridine",
-    "pyrimidine",
-    "pyridazine",
-    "pyrazine",
-    "pyrazole",
-    "imidazole",
-    "pyrrole",
-    "thiazole",
-    "oxazole",
-    "thiophene",
-    "indole",
-    "indazole",
-    "quinoline",
-    "quinazoline",
-    "piperidine",
-    "pyrrolidine",
-    "piperazine",
-    "morpholine",
-    "azetidine",
-    "aziridine",
-    "oxolane",
-    "oxane",
-    "toluene",
-    "anisole",
-    "benzoate",
-)
-
-
-def _needs_terminal_e_elision(name: str) -> bool:
-    return any(trigger in name for trigger in _TERMINAL_E_ELISION_TRIGGERS)
-
-
-_TERMINAL_E_PARENT_REPLACEMENTS = {
-    "pyridine": "pyridin",
-    "pyrimidine": "pyrimidin",
-    "pyridazine": "pyridazin",
-    "pyrazine": "pyrazin",
-    "pyrazole": "pyrazol",
-    "imidazole": "imidazol",
-    "pyrrole": "pyrrol",
-    "thiazole": "thiazol",
-    "oxazole": "oxazol",
-    "thiophene": "thiophen",
-    "indole": "indol",
-    "indazole": "indazol",
-    "quinoline": "quinolin",
-    "quinazoline": "quinazolin",
-    "piperidine": "piperidin",
-    "pyrrolidine": "pyrrolidin",
-    "piperazine": "piperazin",
-    "morpholine": "morpholin",
-    "cyclopropane": "cyclopropan",
-    "cyclobutane": "cyclobutan",
-    "cyclopentane": "cyclopentan",
-    "cyclohexane": "cyclohexan",
-    "cycloheptane": "cycloheptan",
-    "cyclooctane": "cyclooctan",
-    "oxane": "oxan",
-    "oxolane": "oxolan",
-    "azetidine": "azetidin",
-    "aziridine": "aziridin",
-    "isoindoline": "isoindolin",
-    "fluorene": "fluoren",
-    "xanthene": "xanthen",
-    "toluene": "toluen",
-    "anisole": "anisol",
-    "benzamide": "benzamid",
-    "benzonitrile": "benzonitril",
-    "benzoate": "benzoat",
-    "naphthalene": "naphthalen",
-    "anthracene": "anthracen",
-    "phenanthrene": "phenanthren",
-    "adamantane": "adamantan",
-    "carboxamide": "carboxamid",
-    "carbonitrile": "carbonitril",
-    "benzenesulfonamide": "benzenesulfonamid",
-    "methanesulfonamide": "methanesulfonamid",
-    "ethanesulfonamide": "ethanesulfonamid",
-    "carbamate": "carbamat",
-    "acetamide": "acetamid",
-}
-
-
-_ALKANE_ROOTS_FOR_E_ELISION = (
-    "triacont",
-    "nonacos",
-    "octacos",
-    "heptacos",
-    "hexacos",
-    "pentacos",
-    "tetracos",
-    "tricos",
-    "docos",
-    "henicos",
-    "icos",
-    "nonadec",
-    "octadec",
-    "heptadec",
-    "hexadec",
-    "pentadec",
-    "tetradec",
-    "tridec",
-    "dodec",
-    "undec",
-    "dec",
-    "non",
-    "oct",
-    "hept",
-    "hex",
-    "pent",
-    "but",
-    "prop",
-    "eth",
-    "meth",
-)
-
-
-_ALKANE_ROOT_PATTERN = "|".join(re.escape(root) for root in _ALKANE_ROOTS_FOR_E_ELISION)
-_UNSATURATION_MULTIPLIER_PATTERN = r"(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?"
-
-
-def _compact_opsin_terminal_e_spellings(name: str) -> str:
-    """Use OPSIN-accepted terminal-e elisions for common parent spellings."""
-
-    for verbose, compact in _TERMINAL_E_PARENT_REPLACEMENTS.items():
-        name = re.sub(rf"(?<![A-Za-z]){re.escape(verbose)}(?![A-Za-z])", compact, name)
-    name = re.sub(rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN}))ane\b", r"\1an", name)
-    name = re.sub(
-        rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN})(?:a-)?[0-9,()^\-]+{_UNSATURATION_MULTIPLIER_PATTERN}en)e\b",
-        r"\1",
-        name,
-    )
-    name = re.sub(
-        rf"\b((?:cyclo)?(?:{_ALKANE_ROOT_PATTERN})(?:a-)?[0-9,()^\-]+{_UNSATURATION_MULTIPLIER_PATTERN}yn)e\b",
-        r"\1",
-        name,
-    )
-    return name
-
-
-def _compact_selected_acylamino_terms(name: str) -> str:
-    def benzamido(match: re.Match[str]) -> str:
-        prefix = name[: match.start()]
-        token_start = max(prefix.rfind("("), prefix.rfind(",")) + 1
-        benzoyl_stem = prefix[token_start:]
-        if benzoyl_stem and not any(ch.isdigit() for ch in benzoyl_stem):
-            return match.group(0)
-        return "benzamido"
-
-    name = re.sub(r"benzoylamino", benzamido, name)
-    name = name.replace("2-pyridylcarbonylamino", "picolinamido")
-    return name.replace("4-pyridylcarbonylamino", "isonicotinamido")
-
-
-def _needs_selected_cap_recovery(name: str) -> bool:
-    return any(
-        trigger in name
-        for trigger in (
-            "((",
-            "5,5-dimethyl-2-oxa-5-silahexyl",
-            "carbamoyl",
-            "cyclopropylcarbonylamino",
-            "benzoylamino",
-            "pyridylcarbonylamino",
-        )
-    )
-
-
-_LATE_COMPACTION_TRIGGERS = (
-    "1,1",
-    "1-fluoro-methyl",
-    "1-chloro-methyl",
-    "1-bromo-methyl",
-    "1-iodo-methyl",
-    "2,2",
-    "1-aza",
-    "1-oxo-",
-    "1-oxido-1-oxo-",
-    "1-trifluoromethyl-mesyl",
-    "benzyloxycarbonyl",
-    "carbbenzoxy",
-    "tert-butoxycarbonyl",
-    "tert-butyloxycarbonyl",
-    "isopropyloxy",
-    "dioxaborolan",
-    "1-carboxy-",
-    "1-carboxylato-",
-    "phenylcarbonyl",
-    "pyridin-",
-    "pyrimidin-",
-    "furan-",
-    "thiophen-",
-    "piperidin-",
-    "piperazin-",
-    "morpholin-",
-    "pyrrolidin-",
-    "bicyclo[4.",
-    "((cbz)amino)",
-    "((boc)amino)",
-    ")amino)",
-)
-
-
-def _needs_late_compaction(name: str) -> bool:
-    return any(trigger in name for trigger in _LATE_COMPACTION_TRIGGERS)
-
-
-def _compact_phase_descriptor_policy(name: str) -> str:
-    """Apply the active contraction policy to whole generated names.
-
-    The current benchmark phase prioritizes rapid valid-name contraction before
-    stereochemical accuracy recovery. OPSIN accepts the connectivity names after
-    these descriptors are removed, which gives a broad deterministic contraction
-    without molecule-specific lookup data.
-    """
-
-    if len(name) <= _CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH:
-        return name
-    stripped = _strip_stereochemical_descriptors(name)
-    if len(stripped) > _CONTRACTION_PHASE_MAX_NAME_LENGTH:
-        return _strip_stereochemical_descriptors(name, preserve_ez=False)
-    return stripped
-
-
-def _strip_stereochemical_descriptors(name: str, *, preserve_ez: bool = True) -> str:
-    def replace(match: re.Match[str]) -> str:
-        descriptor = match.group(0)
-        if preserve_ez and "R" not in descriptor and "S" not in descriptor and "r" not in descriptor and "s" not in descriptor:
-            return descriptor
-        return ""
-
-    return re.sub(r"\((?=[0-9RSEZrs,+-]*[RSEZrs])[0-9RSEZrs,+-]+\)-", replace, name)
-
-
-_ROOT_TO_NEXT_ROOT = {ROOTS[index]: ROOTS[index + 1] for index in range(1, max(ROOTS))}
-_TERMINAL_CARBOXY_PARENT_RE = re.compile(
-    rf"(?P<prefix>.*?)(?P<parent>(?P<root>{'|'.join(sorted(map(re.escape, _ROOT_TO_NEXT_ROOT), key=len, reverse=True))})"
-    r"(?P<ending>ane|(?:a?-\d+(?:,\d+)*-(?:di|tri|tetra|penta|hexa)?(?:en|yn)e?)))$"
-)
-
-
-def _compact_terminal_carboxy_suffix_parent(name: str) -> str:
-    """Promote safe terminal carboxy/carboxylato acyclic names to suffix parents."""
-
-    if "1-carboxy-" not in name and "1-carboxylato-" not in name:
-        return name
-    stereo_prefix = ""
-    rest = name
-    if rest.startswith("("):
-        end = rest.find(")-")
-        if end != -1 and re.fullmatch(r"[0-9RSEZrs,+-]+", rest[1:end]):
-            stereo_prefix = _shift_terminal_carboxy_locants(rest[: end + 2])
-            rest = rest[end + 2 :]
-    if (
-        "(" in rest
-        or ")" in rest
-        or "[" in rest
-        or "cyclo" in rest
-        or re.search(r"\d+(?:C|N|O|S|P|F|Cl|Br|I)\b", rest)
-    ):
-        return name
-    match = _TERMINAL_CARBOXY_PARENT_RE.fullmatch(rest)
-    if not match:
-        return name
-    prefix = match.group("prefix")
-    marker = ""
-    for candidate in ("1-carboxylato-", "1-carboxy-"):
-        if re.search(rf"(?<!\d){re.escape(candidate)}", prefix):
-            marker = candidate
-            prefix = re.sub(rf"(?<!\d){re.escape(candidate)}", "", prefix, count=1)
-            break
-    if not marker:
-        return name
-    suffix = _terminal_carboxy_suffix_parent(
-        match.group("root"),
-        match.group("ending"),
-        anion=marker == "1-carboxylato-",
-    )
-    if not suffix:
-        return name
-    return stereo_prefix + _shift_terminal_carboxy_locants(prefix) + suffix
-
-
-def _terminal_carboxy_suffix_parent(root: str, ending: str, *, anion: bool) -> str:
-    next_root = _ROOT_TO_NEXT_ROOT.get(root)
-    if not next_root:
-        return ""
-    if ending == "ane":
-        return next_root + ("anoate" if anion else "anoic acid")
-    shifted = _shift_terminal_carboxy_locants(ending)
-    if anion:
-        return next_root + shifted.replace("ene", "enoate").replace("yne", "ynoate")
-    return next_root + shifted.replace("ene", "enoic acid").replace("yne", "ynoic acid")
-
-
-def _shift_terminal_carboxy_locants(text: str) -> str:
-    return re.sub(
-        r"(?<![A-Za-z\[])(\d+)(?=[A-Za-z,)-]|$)",
-        lambda match: str(int(match.group(1)) + 1),
-        text,
-    )
-
-
-def _compact_common_substituent_terms(name: str) -> str:
-    """Use shorter OPSIN-accepted retained substituent spellings.
-
-    These are general prefix aliases for common substituents, not molecule
-    lookups. They preserve the same attachment semantics while avoiding verbose
-    systematic fragments emitted by the chain renderer.
-    """
-
-    rewrites = (
-        ("1,1,1-trifluoro-methyl", "trifluoromethyl"),
-        ("1,1-difluoro-methyl", "difluoromethyl"),
-        ("1-fluoro-methyl", "fluoromethyl"),
-        ("1,1,1-trichloro-methyl", "trichloromethyl"),
-        ("1,1-dichloro-methyl", "dichloromethyl"),
-        ("1-chloro-methyl", "chloromethyl"),
-        ("1,1,1-tribromo-methyl", "tribromomethyl"),
-        ("1,1-dibromo-methyl", "dibromomethyl"),
-        ("1-bromo-methyl", "bromomethyl"),
-        ("1,1,1-triiodo-methyl", "triiodomethyl"),
-        ("1,1-diiodo-methyl", "diiodomethyl"),
-        ("1-iodo-methyl", "iodomethyl"),
-        ("1-trifluoromethyl-methyl", "2,2,2-trifluoroethyl"),
-        ("1-difluoromethyl-methyl", "2,2-difluoroethyl"),
-        ("1-fluoromethyl-methyl", "2-fluoroethyl"),
-        ("1-trichloromethyl-methyl", "2,2,2-trichloroethyl"),
-        ("1-dichloromethyl-methyl", "2,2-dichloroethyl"),
-        ("1-chloromethyl-methyl", "2-chloroethyl"),
-        ("1-tribromomethyl-methyl", "2,2,2-tribromoethyl"),
-        ("1-dibromomethyl-methyl", "2,2-dibromoethyl"),
-        ("1-bromomethyl-methyl", "2-bromoethyl"),
-        ("1-triiodomethyl-methyl", "2,2,2-triiodoethyl"),
-        ("1-diiodomethyl-methyl", "2,2-diiodoethyl"),
-        ("1-iodomethyl-methyl", "2-iodoethyl"),
-        ("1-cyano-methyl", "cyanomethyl"),
-        ("1-phenyl-methyl", "phenylmethyl"),
-        ("trifluoromethyloxy", "trifluoromethoxy"),
-        ("difluoromethyloxy", "difluoromethoxy"),
-        ("fluoromethyloxy", "fluoromethoxy"),
-        ("1,1-dimethyl-ethyl", "tert-butyl"),
-        ("1-methyl-ethyl", "isopropyl"),
-        ("2,2-dimethyl-propyl", "neopentyl"),
-        ("2-methyl-propyl", "isobutyl"),
-        ("methylcarbonylamino", "acetamido"),
-        ("methylcarbonyloxy", "acetoxy"),
-        ("ethylcarbonylamino", "propionamido"),
-        ("phenylcarbonylamino", "benzamido"),
-        ("phenylcarbonyloxy", "benzoyloxy"),
-        ("1-oxo-methyl", "formyl"),
-        ("1-oxo-ethyl", "acetyl"),
-        ("phenylcarbonyl", "benzoyl"),
-        ("1-trifluoromethyl-mesyl", "trifluoroethylsulfonyl"),
-        ("methylsulfonyl", "mesyl"),
-        ("tert-butyloxycarbonyl", "tert-butoxycarbonyl"),
-        ("benzyloxycarbonyl", "carbbenzoxy"),
-        ("methoxycarbonyl", "carbmethoxy"),
-        ("ethoxycarbonyl", "carbethoxy"),
-        ("propoxycarbonyl", "carbopropoxy"),
-        ("butoxycarbonyl", "carbobutoxy"),
-        ("phenoxycarbonyl", "carbphenoxy"),
-        ("t-butyl(dimethyl)silanoxy", "t-butyldimethylsiloxy"),
-        ("t-butyl(dimethyl)siloxy", "t-butyldimethylsiloxy"),
-        ("tert-butyldimethylsiloxy", "tbdmsoxy"),
-        ("t-butyldimethylsiloxy", "tbdmsoxy"),
-        ("tert-butyldiphenylsiloxy", "tbdpsoxy"),
-        ("t-butyldiphenylsiloxy", "tbdpsoxy"),
-        ("t-butyl(dimethyl)silanyl", "tbdms"),
-        ("t-butyl(dimethyl)silyl", "tbdms"),
-        ("t-butyl(diphenyl)silanoxy", "tbdpsoxy"),
-        *_RETAINED_OXY_COMPACTIONS,
-        ("3,3,4,4-tetramethyl-1-bora-2,5-dioxacyclopentan-1-yl", "4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl"),
-        ("3,5,7-trihydroxy-3,5,7-trioxo-2,4,6,8-tetraoxa-3,5,7-triphosphaoctyl", "triphosphooxymethyl"),
-        ("3,5-dihydroxy-3,5-dioxo-2,4,6-trioxa-3,5-diphosphahexyl", "diphosphooxymethyl"),
-        ("3-hydroxy-3-oxo-2,4-dioxa-3-phosphabutyl", "phosphonooxymethyl"),
-        ("pyridin-2-yl", "2-pyridyl"),
-        ("pyridin-3-yl", "3-pyridyl"),
-        ("pyridin-4-yl", "4-pyridyl"),
-        ("pyrimidin-2-yl", "2-pyrimidyl"),
-        ("bicyclo[4.4.0]deca-1(10),2(3),4(5),6(7),8(9)-pentaen-1-yl", "1-naphthyl"),
-        ("bicyclo[4.4.0]deca-1(10),2(3),4(5),6(7),8(9)-pentaen-2-yl", "2-naphthyl"),
-        ("4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl", "tetramethyl-1,3,2-dioxaborolan-2-yl"),
-        ("piperidin-1-yl", "piperidino"),
-        ("piperidin-4-yl", "4-piperidyl"),
-        ("piperazin-1-yl", "piperazino"),
-        ("morpholin-4-yl", "morpholino"),
-        ("pyrrolidin-1-yl", "pyrrolidino"),
-        ("furan-2-yl", "2-furyl"),
-        ("furan-3-yl", "3-furyl"),
-        ("thiophen-2-yl", "2-thienyl"),
-        ("thiophen-3-yl", "3-thienyl"),
-        ("thiazol-2-yl", "2-thiazolyl"),
-        ("oxazol-2-yl", "2-oxazolyl"),
-        ("2-methylphenyl", "o-tolyl"),
-        ("3-methylphenyl", "m-tolyl"),
-        ("4-methylphenyl", "p-tolyl"),
-        ("eth-1-yne-1-yl", "ethynyl"),
-        ("acetenyl", "ethynyl"),
-        ("eth-1-ene-1-yl", "vinyl"),
-    )
-    for verbose, compact in rewrites:
-        name = name.replace(verbose, compact)
-    name = _compact_carbamate_and_oxoacetoxy_terms(name)
-    name = name.replace("isocarbopropoxy", "isopropoxycarbonyl")
-    name = _compact_validated_functional_aliases(name)
-    name = _compact_validated_extra_aliases(name)
-    name = _compact_terminal_carboxy_suffix_parent(name)
-    for halo_methyl, compact in (
-        ("trifluoromethyl", "trifluoromethoxy"),
-        ("difluoromethyl", "difluoromethoxy"),
-        ("fluoromethyl", "fluoromethoxy"),
-        ("trichloromethyl", "trichloromethoxy"),
-        ("dichloromethyl", "dichloromethoxy"),
-        ("chloromethyl", "chloromethoxy"),
-    ):
-        name = name.replace(f"({halo_methyl})oxy", compact)
-        name = name.replace(f"{halo_methyl}oxy", compact)
-    name = name.replace("3-oxo1-oxoisoindolin-", "1,3-dioxoisoindolin-")
-    name = name.replace("3-oxo-1-oxoisoindolin-", "1,3-dioxoisoindolin-")
-    name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
-    name = re.sub(r"(?:(?<=\()|^)1,3-dioxoisoindolin-2-yl", "phthalimido", name)
-    name = re.sub(r"(?:(?<=\()|^)2,5-dioxopyrrolidin-1-yl", "succinimido", name)
-    name = re.sub(r"(?<!deuterio-)2,5-dioxopyrrolidino", "succinimido", name)
-    name = re.sub(r"(?:(?<=\()|^)2,5-dioxo-2,5-dihydro-1H-pyrrol-1-yl", "maleimido", name)
-    name = re.sub(r"(?:(?<=\()|^)2,5-dioxo-2,5-dihydropyrrol-1-yl", "maleimido", name)
-    name = name.replace("2-oxopyrrolidin-1-yl", "2-pyrrolidonyl")
-    name = name.replace("2-oxopyrrolidino", "2-pyrrolidonyl")
-    name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
-    name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
-    fused_azole_substituent = r"(?:fluoro|chloro|bromo|iodo|methyl|methoxy|nitro|cyano|trifluoromethyl|difluoromethyl|trifluoromethoxy|difluoromethoxy)"
-    name = re.sub(
-        rf"\b(\d+)-({fused_azole_substituent})benz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b",
-        r"\1-\2-\3-benz\4",
-        name,
-    )
-    name = re.sub(r"\bbenz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b", r"\1-benz\2", name)
-    name = _normalize_glued_heteroaryl_substituent_locants(name)
-    name = _normalize_fused_heteroaryl_locants(name)
-    name = _normalize_retained_fused_substituent_locants(name)
-    for verbose, compact in (
-        ("1-azaethylcarbonyl", "methylcarbamoyl"),
-        ("1-azapropylcarbonyl", "ethylcarbamoyl"),
-        ("1-azabutylcarbonyl", "propylcarbamoyl"),
-        ("1-azapentylcarbonyl", "butylcarbamoyl"),
-        ("1-azahexylcarbonyl", "pentylcarbamoyl"),
-        ("1-azaheptylcarbonyl", "hexylcarbamoyl"),
-        ("1-azanonylcarbonyl", "octylcarbamoyl"),
-        ("1-azadecylcarbonyl", "nonylcarbamoyl"),
-        ("1-azatridecylcarbonyl", "dodecylcarbamoyl"),
-        ("1-azatetradecylcarbonyl", "tridecylcarbamoyl"),
-        ("1-azapentadecylcarbonyl", "tetradecylcarbamoyl"),
-        ("2-azaethylcarbonyl", "glycyl"),
-        ("3-azapropylcarbonyl", "beta-alanyl"),
-        ("2-oxaethylcarbonyl", "glycolyl"),
-        ("2-thiaethylcarbonyl", "thioglycolyl"),
-        ("1-methyl-1-azaethylcarbonyl", "dimethylcarbamoyl"),
-        ("1-diazo-1-azamethylcarbonyl", "diazoazamethylcarbonyl"),
-        ("2-oxo-3-oxapropyl", "carboxymethyl"),
-        ("2-oxo-3-oxapentyl", "carbethoxymethyl"),
-        ("3-oxo-4-oxabutyl", "2-carboxyethyl"),
-        ("4-oxo-5-oxapentyl", "3-carboxypropyl"),
-        ("5-oxo-6-oxahexyl", "4-carboxybutyl"),
-        ("6-oxo-7-oxaheptyl", "5-carboxypentyl"),
-        ("7-oxo-8-oxaoctyl", "6-carboxyhexyl"),
-        ("2-oxo-3-azapropyl", "carbamoylmethyl"),
-        ("2,2-dioxo-2-thiapropyl", "mesylmethyl"),
-        ("2,2-dioxo-2-thiabutyl", "ethylsulfonylmethyl"),
-        ("3,3-dioxo-3-thiabutyl", "2-mesylethyl"),
-        ("1,1-dioxo-1-thiaethyl", "methylsulfonyl"),
-        ("trifluoromethylcarbonyl", "trifluoroacetyl"),
-        ("difluoromethylcarbonyl", "difluoroacetyl"),
-        ("tert-butylcarbonyl", "pivaloyl"),
-        ("isopropylcarbonyl", "isobutyryl"),
-        ("1-methyl-vinylcarbonyl", "methacryloyl"),
-        ("vinylcarbonyl", "acroyl"),
-    ):
-        name = re.sub(rf"(?:(?<=\()|(?<=[0-9]-)){verbose}", compact, name)
-    for verbose, compact in (
-        ("ethylcarbonyl", "propionyl"),
-        ("propylcarbonyl", "butyryl"),
-        ("butylcarbonyl", "valeryl"),
-    ):
-        name = re.sub(rf"(?:(?<=\()|(?<=[0-9]-)){verbose}", compact, name)
-    for verbose, compact in (
-        ("fluoromethylcarbonyl", "fluoroacetyl"),
-        ("chloromethylcarbonyl", "chloroacetyl"),
-        ("bromomethylcarbonyl", "bromoacetyl"),
-        ("iodomethylcarbonyl", "iodoacetyl"),
-    ):
-        name = re.sub(rf"(?:(?<=\()|(?<=[0-9]-)){verbose}", compact, name)
-    for verbose, compact in (
-        ("1-trideuteriomethyl-methyl", "1-trideuteriomethylmethyl"),
-        ("1-deuterio-difluoromethyl", "deuteriodifluoromethyl"),
-        ("1-chloro-difluoromethyl", "chlorodifluoromethyl"),
-        ("1-trifluoromethyl-vinyl", "1-trifluoromethylvinyl"),
-        ("1-bromo-difluoromethyl", "bromodifluoromethyl"),
-        ("1-chloro-fluoromethyl", "chlorofluoromethyl"),
-        ("1-cyanomethyl-methyl", "1-cyanomethylmethyl"),
-        ("1-cyclopropyl-methyl", "1-cyclopropylmethyl"),
-        ("1-cyclopentyl-methyl", "1-cyclopentylmethyl"),
-        ("1-cyclobutyl-methyl", "1-cyclobutylmethyl"),
-        ("1-cyclohexyl-methyl", "1-cyclohexylmethyl"),
-        ("1-benzoyloxy-methyl", "benzoyloxymethyl"),
-        ("1-isocyanato-methyl", "isocyanatomethyl"),
-        ("1-benzamido-methyl", "benzamidomethyl"),
-        ("1-nitrooxy-methyl", "nitrooxymethyl"),
-        ("1-isocyano-methyl", "isocyanomethyl"),
-        ("1-hydroxy-ethyl", "1-hydroxyethyl"),
-        ("1-formyl-methyl", "1-formylmethyl"),
-        ("1-phenyl-propyl", "1-phenylpropyl"),
-        ("2-phenyl-propyl", "2-phenylpropyl"),
-        ("3-phenyl-propyl", "3-phenylpropyl"),
-        ("1-azido-methyl", "azidomethyl"),
-        ("1-nitro-methyl", "nitromethyl"),
-        ("1-phenyl-ethyl", "1-phenylethyl"),
-        ("2-phenyl-ethyl", "phenethyl"),
-        ("1-fluoro-vinyl", "1-fluorovinyl"),
-        ("1-phenyl-vinyl", "1-phenylvinyl"),
-        ("1-amino-ethyl", "1-aminoethyl"),
-    ):
-        name = re.sub(rf"(?:(?<=\()|(?<=[0-9]-)|^){verbose}", compact, name)
-    name = name.replace("(1-azamethylcarbonyl)", "carbamoyl")
-    name = re.sub(r"^(\d+'?)-azamethylcarbonyl", r"\1-carbamoyl", name)
-    name = re.sub(r"(?:(?<=\()|(?<=[0-9]-))1-azamethylcarbonyl", "carbamoyl", name)
-    name = re.sub(r"(?:(?<=\()|(?<=[0-9]-))methylcarbonyl", "acetyl", name)
-    for verbose, compact in (
-        ("2-pyridylcarbonyl", "picolinoyl"),
-        ("3-pyridylcarbonyl", "nicotinoyl"),
-        ("4-pyridylcarbonyl", "isonicotinoyl"),
-        ("2-thienylcarbonyl", "then-2-oyl"),
-        ("3-thienylcarbonyl", "then-3-oyl"),
-    ):
-        name = re.sub(rf"(?<=\(){verbose}(?=\))", compact, name)
-    name = name.replace("4-nitrophenylsulfonyl", "nosyl")
-    name = name.replace("2-nitrophenylsulfonyl", "2-nosyl")
-    name = name.replace("3-nitrophenylsulfonyl", "3-nosyl")
-    for verbose in (
-        "fluoren-9-ylmethoxycarbonyl",
-        "9-fluorenylmethoxycarbonyl",
-        "fluoren-9-ylcarbmethoxy",
-        "9-fluorenylcarbmethoxy",
-    ):
-        name = name.replace(verbose, "fmoc")
-    name = name.replace("dimethylaminonaphthylsulfonyl", "dansyl")
-    for stem, compact_stem in (
-        ("pyridine", "pyridyl"),
-        ("pyridin", "pyridyl"),
-        ("pyrimidin", "pyrimidyl"),
-        ("pyridazin", "pyridazyl"),
-        ("pyrazin", "pyrazinyl"),
-        ("pyrazol", "pyrazolyl"),
-        ("imidazol", "imidazolyl"),
-        ("thiazol", "thiazolyl"),
-        ("oxazol", "oxazolyl"),
-        ("piperidin", "piperidyl"),
-    ):
-        name = re.sub(rf"(?<![A-Za-z\]])\b{stem}-(\d+)-yl\b", rf"\1-{compact_stem}", name)
-    for stem, compact_stem in (
-        ("indole", "indolyl"),
-        ("indol", "indolyl"),
-        ("indazole", "indazolyl"),
-        ("indazol", "indazolyl"),
-        ("isoindole", "isoindolyl"),
-        ("isoindol", "isoindolyl"),
-        ("isoindolin", "isoindolinyl"),
-        ("benzimidazol", "benzimidazolyl"),
-        ("benzoxazol", "benzoxazolyl"),
-        ("benzothiazol", "benzothiazolyl"),
-        ("benzofuran", "benzofuryl"),
-        ("benzofur", "benzofuryl"),
-        ("benzothiophene", "benzothienyl"),
-        ("benzothiophen", "benzothienyl"),
-        ("quinoline", "quinolyl"),
-        ("quinolin", "quinolyl"),
-        ("isoquinoline", "isoquinolyl"),
-        ("isoquinolin", "isoquinolyl"),
-        ("quinazoline", "quinazolinyl"),
-        ("quinazolin", "quinazolinyl"),
-        ("quinoxaline", "quinoxalinyl"),
-        ("quinoxalin", "quinoxalinyl"),
-        ("cinnoline", "cinnolinyl"),
-        ("cinnolin", "cinnolinyl"),
-        ("pteridine", "pteridyl"),
-        ("pteridin", "pteridyl"),
-        ("purine", "puryl"),
-        ("purin", "puryl"),
-        ("carbazole", "carbazolyl"),
-        ("carbazol", "carbazolyl"),
-    ):
-        name = re.sub(rf"(?<=\(){stem}-(\d+)-yl\b", rf"\1-{compact_stem}", name)
-        name = re.sub(rf"(?<=[0-9]H-){stem}-(\d+)-yl\b", rf"\1-{compact_stem}", name)
-    name = name.replace("p-tolylsulfonyl", "tosyl")
-    name = re.sub(r"(?<![A-Za-z])phenylmethyl", "benzyl", name)
-    for prefix in (
-        "fluoro",
-        "chloro",
-        "bromo",
-        "iodo",
-        "methyl",
-        "ethyl",
-        "methoxy",
-        "ethoxy",
-        "hydroxy",
-        "amino",
-        "nitro",
-        "cyano",
-        "trifluoromethyl",
-        "difluoromethyl",
-    ):
-        name = name.replace(prefix + "phenylmethyl", prefix + "benzyl")
-    for compact in (
-        "trifluoromethyl",
-        "difluoromethyl",
-        "fluoromethyl",
-        "trifluoromethoxy",
-        "difluoromethoxy",
-        "fluoromethoxy",
-        "trichloromethyl",
-        "dichloromethyl",
-        "chloromethyl",
-        "tribromomethyl",
-        "dibromomethyl",
-        "bromomethyl",
-        "triiodomethyl",
-        "diiodomethyl",
-        "iodomethyl",
-        "tert-butyl",
-        "isopropyl",
-        "cyanomethyl",
-        "carbamoyl",
-        "phenylmethyl",
-        "benzyl",
-        "isobutyl",
-        "neopentyl",
-        "isobutoxy",
-        "neopentoxy",
-        "formyl",
-        "acetyl",
-        "trifluoroacetyl",
-        "difluoroacetyl",
-        "pivaloyl",
-        "propionyl",
-        "butyryl",
-        "isobutyryl",
-        "valeryl",
-        "acroyl",
-        "methacryloyl",
-        "acetamido",
-        "acetoxy",
-        "propionamido",
-        "benzamido",
-        "anilino",
-        "acrylamido",
-        "phenoxy",
-        "phenylacetamido",
-        "cyanoacetamido",
-        "trifluoroacetamido",
-        "difluoroacetamido",
-        "pivalamido",
-        "methylsulfamoyl",
-        "ethylsulfamoyl",
-        "dimethylsulfamoyl",
-        "tert-butylsulfamoyl",
-        "boc",
-        "bocamino",
-        "carbmethoxy",
-        "carbethoxy",
-        "carbopropoxy",
-        "carbobutoxy",
-        "carbphenoxy",
-        "carbbenzoxy",
-        "triphosphooxymethyl",
-        "diphosphooxymethyl",
-        "phosphonooxymethyl",
-        "piperidino",
-        "piperazino",
-        "morpholino",
-        "pyrrolidino",
-        "benzoyl",
-        "mesyl",
-        "tosyl",
-        "nosyl",
-        "dansyl",
-        "fmoc",
-        "fmocamino",
-        "tbdms",
-        "t-butyldimethylsiloxy",
-        "tert-butyldiphenylsiloxy",
-        "methoxymethoxy",
-        "trideuteriomethoxy",
-        "cyclopropoxy",
-        "cyclopropylmethoxy",
-        "picolinoyl",
-        "nicotinoyl",
-        "isonicotinoyl",
-        "then-2-oyl",
-        "then-3-oyl",
-        "ethynyl",
-        "vinyl",
-    ):
-        name = name.replace(f"({compact})", compact)
-    name = name.replace("tert-butyloxycarbonyl", "tert-butoxycarbonyl")
-    name = name.replace("isopropyloxycarbonyl", "isopropoxycarbonyl")
-    name = name.replace("tert-carbobutoxy", "boc")
-    name = name.replace("tert-butoxycarbonyl", "boc")
-    name = name.replace("(boc)", "boc")
-    name = name.replace("(bocamino)", "bocamino")
-    name = name.replace("((cbz)amino)", "(cbzamino)")
-    name = name.replace("(cbzamino)", "cbzamino")
-    name = _compact_n_substituted_carbamoyl_fragments(name)
-    name = _compact_aryl_acyl_amino_fragments(name)
-    name = re.sub(r"\(\(([^()]{3,80})\)(oxy|carbonyl|imino|sulfanyl|sulfonyl)\)", r"(\1\2)", name)
-    name = _compact_arylamino_parentheses(name)
-    name = _compact_retained_oxy_terms(name)
-    name = _compact_retained_nucleobase_terms(name)
-    name = _compact_retained_fused_aromatic_terms(name)
-    name = _compact_retained_bicyclic_terms(name)
-    name = re.sub(
-        r"\b(\d+(?:,\d+)*-(?:hydroxy|amino|formyl|phenyl|cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|benzoyloxy|nitrooxy|isocyanato|azido|nitro|cyano))-([a-z]+yl(?:carbonyl)?)\b",
-        r"\1\2",
-        name,
-    )
-    name = _compact_benzene_principal_parent(name)
-    name = _compact_substitutive_parent_hyphens(name)
-    name = _compact_nested_methyl_chains(name)
-    for verbose, compact in (
-        ("1-trifluoromethyl-methyl", "2,2,2-trifluoroethyl"),
-        ("1-difluoromethyl-methyl", "2,2-difluoroethyl"),
-        ("1-fluoromethyl-methyl", "2-fluoroethyl"),
-        ("1-trichloromethyl-methyl", "2,2,2-trichloroethyl"),
-        ("1-dichloromethyl-methyl", "2,2-dichloroethyl"),
-        ("1-chloromethyl-methyl", "2-chloroethyl"),
-    ):
-        name = name.replace(verbose, compact)
-    for compact in (
-        "trifluoromethoxy",
-        "difluoromethoxy",
-        "fluoromethoxy",
-        "trichloromethoxy",
-        "dichloromethoxy",
-        "chloromethoxy",
-    ):
-        name = name.replace(f"1-(1-{compact}-methyl)-methyl", f"2-{compact}ethyl")
-        name = name.replace(f"(1-(1-{compact}-methyl)-methyl)", f"(2-{compact}ethyl)")
-    name = _compact_adjacent_unsaturation_locants(name)
-    return _compact_retained_oxy_terms(name)
-
-
-def _compact_carbamate_and_oxoacetoxy_terms(name: str) -> str:
-    """Normalize generated carbamate/oxoacetate ester substituent fragments."""
-
-    name = re.sub(r"1-([A-Za-z0-9,()'\\-]+)-1-azaacetoxy", r"\1carbamoyloxy", name)
-    name = name.replace("1-azaacetoxy", "carbamoyloxy")
-    name = name.replace("1-oxido-1-oxo-acetoxy", "oxidooxoacetoxy")
-    name = name.replace("1-oxo-phenylacetoxy", "2-oxo-2-phenylacetoxy")
-    return name.replace("1-oxo-acetoxy", "oxoacetoxy")
-
-
-def _compact_validated_functional_aliases(name: str) -> str:
-    """Apply compact OPSIN-stable aliases only in attachment-safe contexts."""
-
-    replacements = (
-        (r"(^|[-,(])aminosulfonyl", r"\1sulfamoyl"),
-        (r"(^|[,(])1-azamethylcarbonyl", r"\1carbamoyl"),
-        (r"(^|[,(])1-azaethylcarbonyl", r"\1methylcarbamoyl"),
-        (r"(^|[-(,])carbbenzoxy", r"\1cbz"),
-        (r"(^|[-(,])hydroxysulfonyl", r"\1sulfo"),
-        (r"(^|[-(,])phenylsulfonyl", r"\1besyl"),
-        (r"2,2,2-trifluoroethyl", "trifluoroethyl"),
-        (r"2,2-difluoroethyl", "difluoroethyl"),
-        (r"2,2,2-trichloroethyl", "trichloroethyl"),
-        (r"2,2-dichloroethyl", "dichloroethyl"),
-        (r"2,2,2-tribromoethyl", "tribromoethyl"),
-        (r"2,2-dibromoethyl", "dibromoethyl"),
-        (r"2,2,2-trifluoroethoxy", "trifluoroethoxy"),
-        (r"2,2-difluoroethoxy", "difluoroethoxy"),
-        (r"2,2,2-trichloroethoxy", "trichloroethoxy"),
-        (r"2,2-dichloroethoxy", "dichloroethoxy"),
-        (r"2,2,2-tribromoethoxy", "tribromoethoxy"),
-        (r"2,2-dibromoethoxy", "dibromoethoxy"),
-        (r"isopropyloxy", "isopropoxy"),
-        (r"(?<![A-Za-z\]])2-pyridylcarbonyl", "picolinoyl"),
-        (
-            r"(?<![A-Za-z])(?<!H-)((?:[0-9]+-(?:fluoro|chloro|bromo|iodo|methyl|ethyl|"
-            r"methoxy|ethoxy|trifluoromethyl|difluoromethyl|cyano|amino)-)*)3-pyridylcarbonyl",
-            r"\1nicotinoyl",
-        ),
-        (r"(?<![A-Za-z\]])4-pyridylcarbonyl", "isonicotinoyl"),
-        (r"(^|[(,])2-pyridylcarbonyl", r"\1picolinoyl"),
-        (r"(^|[(,])3-pyridylcarbonyl", r"\1nicotinoyl"),
-        (r"(^|[(,])4-pyridylcarbonyl", r"\1isonicotinoyl"),
-        (r"(^|[(,])2-furylcarbonyl", r"\g<1>2-furoyl"),
-        (r"(^|[(,])3-furylcarbonyl", r"\g<1>3-furoyl"),
-        (r"(^|[(,])2-thienylcarbonyl", r"\g<1>2-thenoyl"),
-        (r"(^|[(,])3-thienylcarbonyl", r"\g<1>3-thenoyl"),
-    )
-    for pattern, replacement in replacements:
-        name = re.sub(pattern, replacement, name)
-    name = re.sub(r"(?<=\))aminosulfonyl", "sulfamoyl", name)
-    name = re.sub(
-        r"(?<![A-Za-z])("
-        r"benzyl|phenyl|[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|"
-        r"[2345]-pyrazolyl|[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|"
-        r"cyclopropyl|cyclobutyl|cyclopentyl|cyclohexyl|tert-butyl|t-butyl|"
-        r"isopropyl|methyl|ethyl|propyl|butyl|dimethyl|diethyl"
-        r")aminosulfonyl",
-        r"\1sulfamoyl",
-        name,
-    )
-    return name
-
-
-def _compact_validated_extra_aliases(name: str) -> str:
-    if not any(trigger in name for trigger in ("amino", "yloxy", "pyridin-", "carbonyl")):
-        return name
-
-    if "amino" in name:
-        name = re.sub(
-            r"(?<![A-Za-z])([A-Za-z0-9,\-]*[A-Za-z])sulfonylamino(?=[,\)-]|$)",
-            r"\1sulfonamido",
+        name = _apply_uniform_isotope_label(mol, name)
+        return name if len(name) <= max_length else ""
+    if not candidate.stereo_prefix:
+        name = apply_stereochemical_prefix(
+            mol,
+            Chem,
             name,
+            atom_order=_fallback_stereo_atom_order(candidate.family),
         )
-        if "phenylamino" in name:
-            name = re.sub(r"(?<!di)(?<!N-)phenylamino", "anilino", name)
-        if "acroylamino" in name:
-            name = re.sub(r"(?<!N-)acroylamino", "acrylamido", name)
-        for verbose, compact in (
-            ("methylaminosulfonyl", "methylsulfamoyl"),
-            ("ethylaminosulfonyl", "ethylsulfamoyl"),
-            ("dimethylaminosulfonyl", "dimethylsulfamoyl"),
-            ("tert-butylaminosulfonyl", "tert-butylsulfamoyl"),
-        ):
-            if verbose in name:
-                name = name.replace(verbose, compact)
-    if "N-" in name and "amino" in name:
-        for verbose, compact in (
-            ("N-methylamino", "methylamino"),
-            ("N-ethylamino", "ethylamino"),
-            ("N-isopropylamino", "isopropylamino"),
-            ("N-tert-butylamino", "tert-butylamino"),
-        ):
-            name = name.replace(verbose, compact)
-    if "yloxy" in name:
-        for verbose, compact in (
-            ("phenyloxy", "phenoxy"),
-            ("isobutyloxy", "isobutoxy"),
-            ("neopentyloxy", "neopentoxy"),
-        ):
-            if verbose in name:
-                name = name.replace(verbose, compact)
-    if "carbonylamino" in name:
-        for verbose, compact in (
-            ("benzylcarbonylamino", "phenylacetamido"),
-            ("cyanomethylcarbonylamino", "cyanoacetamido"),
-            ("trifluoroacetylamino", "trifluoroacetamido"),
-            ("difluoroacetylamino", "difluoroacetamido"),
-            ("pivaloylamino", "pivalamido"),
-        ):
-            if verbose in name:
-                name = name.replace(verbose, compact)
-    if "pyridin-" in name:
-        if "pyridin-5-yl" in name:
-            name = re.sub(r"(?<!\])pyridin-5-yl", "5-pyridyl", name)
-        if "pyridin-6-yl" in name:
-            name = re.sub(r"(?<!\])pyridin-6-yl", "6-pyridyl", name)
-    return name
-
-
-def _compact_retained_oxy_terms(name: str) -> str:
-    for verbose, compact in _RETAINED_OXY_COMPACTIONS:
-        name = name.replace(verbose, compact)
-        if compact in _PAREN_SAFE_RETAINED_OXY:
-            name = name.replace(f"({compact})", compact)
-    return name
-
-
-def _normalize_retained_fused_substituent_locants(name: str) -> str:
-    substituent = (
-        r"fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|propoxy|"
-        r"nitro|cyano|amino|carboxy|carbamyl|trifluoromethyl|difluoromethyl|"
-        r"trifluoromethoxy|difluoromethoxy|methylol|acetamido|methylsulfinyl|"
-        r"methylsulfonyl|mesyl"
-    )
-    decorated_prefix = rf"(?:(?:\d+(?:,\d+)*-)?(?:di|tri|tetra)?(?:{substituent}))"
-    benzazole_suffix = r"imidazolyl|oxazolyl|thiazolyl"
-
-    def decorated_benzazole_repl(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        locant = match.group(2)
-        suffix = match.group(3)
-        prefix_text = f"{prefix}-" if prefix else ""
-        return f"{prefix_text}{locant}-benz{suffix}"
-
-    name = re.sub(
-        rf"\b((?:{decorated_prefix})*)benz(\d+)-?({benzazole_suffix})(?=\b|carbonyl|methyl|amino|oxy|sulfinyl|sulfonyl)",
-        decorated_benzazole_repl,
-        name,
-    )
-    for compact in ("furyl", "thienyl", "imidazolyl", "oxazolyl", "thiazolyl"):
-        name = re.sub(rf"\bbenzo(\d+)-{compact}\b", rf"\1-benzo{compact}", name)
-        name = re.sub(rf"\bbenzo(\d+){compact}\b", rf"\1-benzo{compact}", name)
-        name = re.sub(rf"\bbenz(\d+)-{compact}\b", rf"\1-benz{compact}", name)
-        name = re.sub(rf"\bbenz(\d+){compact}\b", rf"\1-benz{compact}", name)
-    name = re.sub(r"\b1-(\d)-benzothienyl\b", r"\1-benzothienyl", name)
-    name = re.sub(r"\b1-(\d)-benzofuryl\b", r"\1-benzofuryl", name)
-    return name
-
-
-_FUSED_HETEROARYL_SUFFIX_STEMS = {
-    "furyl": "furan",
-    "imidazolyl": "imidazol",
-    "oxazolyl": "oxazol",
-    "pyrazinyl": "pyrazin",
-    "pyrazolyl": "pyrazol",
-    "pyridazyl": "pyridazin",
-    "pyridyl": "pyridin",
-    "pyrimidyl": "pyrimidin",
-    "thiazolyl": "thiazol",
-    "thienyl": "thiophen",
-}
-
-
-_BENZ_FUSED_HETEROARYL_STEMS = {
-    "furyl": "benzofuran",
-    "imidazolyl": "benzimidazol",
-    "oxazolyl": "benzoxazol",
-    "thiazolyl": "benzothiazol",
-    "thienyl": "benzothiophen",
-}
-
-
-def _normalize_glued_heteroaryl_substituent_locants(name: str) -> str:
-    substituent = (
-        r"fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|propoxy|"
-        r"nitro|cyano|amino|carboxy|carbamyl|trifluoromethyl|difluoromethyl|"
-        r"trifluoromethoxy|difluoromethoxy|methylsulfonyl|mesyl"
-    )
-    heteroaryl = (
-        r"pyridyl|pyrimidyl|pyrazolyl|imidazolyl|thiazolyl|oxazolyl|"
-        r"furyl|thienyl|piperidyl|pyrrolidyl"
-    )
-    return re.sub(
-        rf"\b(\d+)-({substituent})(\d+)-({heteroaryl})(?=\b|carbonyl|methyl|amino|oxy|sulfonyl)",
-        r"\1-\2-\3-\4",
-        name,
-    )
-
-
-def _normalize_fused_heteroaryl_locants(name: str) -> str:
-    """Use OPSIN-parseable locants for retained fused heteroaryl suffixes."""
-
-    suffixes = "|".join(sorted(_FUSED_HETEROARYL_SUFFIX_STEMS, key=len, reverse=True))
-
-    def bracket_repl(match: re.Match[str]) -> str:
-        fused_prefix = match.group(1)
-        locant = match.group(2)
-        suffix = match.group(3)
-        return f"{fused_prefix}{_FUSED_HETEROARYL_SUFFIX_STEMS[suffix]}-{locant}-yl"
-
-    name = re.sub(
-        rf"((?:[A-Za-z]+\[[0-9,abcn\-]+\])+)([0-9]+)-({suffixes})",
-        bracket_repl,
-        name,
-    )
-
-    benz_suffixes = "|".join(sorted(_BENZ_FUSED_HETEROARYL_STEMS, key=len, reverse=True))
-
-    def benz_repl(match: re.Match[str]) -> str:
-        prefix = match.group(1) or ""
-        locant = match.group(2)
-        suffix = match.group(3)
-        return f"{prefix}{_BENZ_FUSED_HETEROARYL_STEMS[suffix]}-{locant}-yl"
-
-    name = re.sub(
-        rf"\b((?:[0-9,]+-[a-z]+)*?)benzo([0-9]+)-?({benz_suffixes})",
-        benz_repl,
-        name,
-    )
-
-    def retained_benz_repl(match: re.Match[str]) -> str:
-        locant = match.group(1)
-        suffix = match.group(2)
-        return f"{_BENZ_FUSED_HETEROARYL_STEMS[suffix]}-{locant}-yl"
-
-    return re.sub(rf"\b([0-9]+)-benzo({benz_suffixes})", retained_benz_repl, name)
-
-
-def _compact_retained_nucleobase_terms(name: str) -> str:
-    name = re.sub(r"\b2-amino-6-oxo-(\d+-\(.+\))-purin\b", r"\1-guanine", name)
-    name = re.sub(r"\b2-amino-6-oxo-(\d+-[^()]+)-purin\b", r"\1-guanine", name)
-    for retained_acid in ("adenylic", "cytidylic", "guanylic", "thymidylic", "uridylic"):
-        name = re.sub(rf"\b({retained_acid})(?! acid)\b", r"\1 acid", name)
-    return name
-
-
-def _compact_retained_bicyclic_terms(name: str) -> str:
-    locant_map = {
-        "1": "7a",
-        "2": "1",
-        "3": "2",
-        "4": "3",
-        "6": "3",
-        "7": "2",
-        "8": "1",
-    }
-    for verbose_loc, compact_loc in locant_map.items():
-        name = name.replace(f"5-azabicyclo[3.3.0]octan-{verbose_loc}-yl", f"pyrrolizidin-{compact_loc}-yl")
-    name = name.replace("5-azabicyclo[3.3.0]octane", "pyrrolizidine")
-    return name
-
-
-def _compact_retained_fused_aromatic_terms(name: str) -> str:
-    """Normalize common generated fused-aromatic skeletons to retained names."""
-
-    for unsaturation in (
-        "1,3,5,7,9",
-        "1(10),2,4,6,8",
-        "1(10),2(3),4(5),6(7),8(9)",
-    ):
-        name = re.sub(
-            rf"\bbicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaen-([1-8])-yl\b",
-            r"\1-naphthyl",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaene\b",
-            "naphthalene",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-pentaen\b",
-            "naphthalene",
-            name,
-        )
-    for unsaturation in (
-        "1,3,5",
-        "1(10),2,4",
-    ):
-        name = re.sub(
-            rf"\bbicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-trien-([1-8])-yl\b",
-            r"\1-tetralinyl",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.4\.0\]deca-{re.escape(unsaturation)}-triene\b",
-            "tetralin",
-            name,
-        )
-    for unsaturation in (
-        "1,3,5",
-        "1(9),2,4",
-    ):
-        name = re.sub(
-            rf"\bbicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-trien-([1-7])-yl\b",
-            r"\1-indanyl",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-triene\b",
-            "indane",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-trien\b",
-            "indane",
-            name,
-        )
-    for unsaturation in (
-        "1,3,5,7",
-        "1(9),2,4,6",
-    ):
-        name = re.sub(
-            rf"\bbicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraen-([1-7])-yl\b",
-            r"\1-indenyl",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraene\b",
-            "indene",
-            name,
-        )
-        name = re.sub(
-            rf"(?<![A-Za-z])bicyclo\[4\.3\.0\]nona-{re.escape(unsaturation)}-tetraen\b",
-            "indene",
-            name,
-        )
-    name = re.sub(r"\bnaphthalen\b", "naphthalene", name)
-    return name
-
-
-def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
-    simple_n_substituent = (
-        r"phenyl|(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
-        r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)phenyl|"
-        r"[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|[2345]-pyrazolyl|"
-        r"[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|cyclopropyl|"
-        r"cyclobutyl|cyclopentyl|cyclohexyl|tert-butyl|isopropyl|methyl|"
-        r"ethyl|propyl|butyl"
-    )
-
-    name = re.sub(
-        rf"(?:(?<=^)|(?<=[(,]))1-\(({simple_n_substituent})\)-1-azamethylcarbonyl",
-        r"(\1)carbamoyl",
-        name,
-    )
-    name = re.sub(
-        rf"(?:(?<=^)|(?<=[(,]))1-({simple_n_substituent})-1-azamethylcarbonyl",
-        r"\1carbamoyl",
-        name,
-    )
-    name = _compact_balanced_n_substituted_carbamoyl(name)
-
-    def paren_substituent(match: re.Match[str]) -> str:
-        substituent = match.group(1)
-        return f"({substituent})methylcarbamoyl"
-
-    name = re.sub(
-        r"(?<![,\d])2-\(((?:(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|trifluoromethyl|cyano|nitro)-)?phenyl)\)-1-azaethylcarbonyl",
-        paren_substituent,
-        name,
-    )
-    for verbose, compact in (
-        ("2-phenyl-1-azaethylcarbonyl", "benzylcarbamoyl"),
-        ("2-cyclopropyl-1-azaethylcarbonyl", "cyclopropylmethylcarbamoyl"),
-        ("2-cyclobutyl-1-azaethylcarbonyl", "cyclobutylmethylcarbamoyl"),
-        ("2-cyclopentyl-1-azaethylcarbonyl", "cyclopentylmethylcarbamoyl"),
-        ("2-cyclohexyl-1-azaethylcarbonyl", "cyclohexylmethylcarbamoyl"),
-    ):
-        name = name.replace(verbose, compact)
-    return name
-
-
-def _compact_balanced_n_substituted_carbamoyl(name: str) -> str:
-    pieces: list[str] = []
-    index = 0
-    opener = "1-("
-    suffix = "-1-azamethylcarbonyl"
-    while index < len(name):
-        if not name.startswith(opener, index) or (index > 0 and name[index - 1] not in "(,"):
-            pieces.append(name[index])
-            index += 1
-            continue
-        inner_start = index + len(opener)
-        depth = 1
-        cursor = inner_start
-        while cursor < len(name) and depth:
-            if name[cursor] == "(":
-                depth += 1
-            elif name[cursor] == ")":
-                depth -= 1
-            cursor += 1
-        if depth or not name.startswith(suffix, cursor):
-            pieces.append(name[index])
-            index += 1
-            continue
-        inner = name[inner_start : cursor - 1]
-        if not inner or len(inner) > 140:
-            pieces.append(name[index])
-            index += 1
-            continue
-        pieces.append(f"({inner})carbamoyl")
-        index = cursor + len(suffix)
-    return "".join(pieces)
-
-
-def _compact_nested_linker_parentheses(name: str) -> str:
-    def collapse(match: re.Match[str]) -> str:
-        inner = match.group(1)
-        if "mesyl" in inner or "bromodifluoromethylcarbonyl" in inner:
-            return match.group(0)
-        return f"({inner}{match.group(2)})"
-
-    return re.sub(r"\(\(([^()]{3,80})\)(oxy|amino)\)", collapse, name)
-
-
-_ARYLAMINO_INNER = (
-    r"phenyl|(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
-    r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)phenyl|"
-    r"[234]-pyridyl|[23456]-pyrimidyl|[2345]-thiazolyl|[2345]-pyrazolyl|"
-    r"[2345]-imidazolyl|[2345]-furyl|[2345]-thienyl|"
-    r"\d+-\([^()]+\)(?:phenyl|pyridyl|pyrimidyl|pyrazolyl)"
-)
-
-
-def _compact_arylamino_parentheses(name: str) -> str:
-    return re.sub(rf"\(\(({_ARYLAMINO_INNER})\)amino\)", r"(\1amino)", name)
-
-
-def _compact_aryl_acyl_amino_fragments(name: str) -> str:
-    benzoyl_substituent = (
-        r"(?:[234]-)?(?:fluoro|chloro|bromo|iodo|methyl|methoxy|"
-        r"trifluoromethyl|difluoromethoxy|trifluoromethoxy|cyano|nitro)?benzoyl"
-    )
-
-    def benzamido(match: re.Match[str]) -> str:
-        return f"({match.group(1).replace('benzoyl', 'benzamido')})"
-
-    name = re.sub(rf"\(\(({benzoyl_substituent})\)amino\)", benzamido, name)
-    for acyl, amido in (
-        ("picolinoyl", "picolinamido"),
-        ("nicotinoyl", "nicotinamido"),
-        ("isonicotinoyl", "isonicotinamido"),
-        ("2-furoyl", "2-furamido"),
-        ("3-furoyl", "3-furamido"),
-        ("2-thenoyl", "2-thenamido"),
-        ("3-thenoyl", "3-thenamido"),
-        ("then-2-oyl", "2-thenamido"),
-        ("then-3-oyl", "3-thenamido"),
-    ):
-        name = name.replace(f"(({acyl})amino)", f"({amido})")
-        name = name.replace(f"({acyl}amino)", f"({amido})")
-    return name
-
-
-def _compact_benzene_principal_parent(name: str) -> str:
-    if not name.endswith("-benzene"):
-        return name
-    core = name[: -len("-benzene")]
-    for group, parent in (
-        ("carbamoyl", "benzamide"),
-        ("cyano", "benzonitrile"),
-        ("carboxy", "benzoic acid"),
-        ("carboxylato", "benzoate"),
-        ("formyl", "benzaldehyde"),
-        ("aminosulfonyl", "benzenesulfonamide"),
-        ("hydroxy", "phenol"),
-        ("amino", "aniline"),
-        ("methoxy", "anisole"),
-        ("methyl", "toluene"),
-    ):
-        prefix = f"1-{group}"
-        if core == prefix:
-            return parent
-        if core.startswith(prefix + "-"):
-            return core[len(prefix) + 1 :] + parent
-    return name
-
-
-def _compact_substitutive_parent_hyphens(name: str) -> str:
-    parent_terms = (
-        "benzene",
-        "pyridine",
-        "pyrimidine",
-        "pyrazine",
-        "pyridazine",
-        "piperidine",
-        "piperazine",
-        "morpholine",
-        "pyrrole",
-        "pyrazole",
-        "imidazole",
-        "thiazole",
-        "oxazole",
-        "thiophene",
-        "furan",
-        "phenol",
-        "aniline",
-        "anisole",
-        "toluene",
-        "benzamide",
-        "benzonitrile",
-        "benzaldehyde",
-        "benzoate",
-        "naphthalene",
-        "tetralin",
-        "indane",
-        "indene",
-    )
-    prefix_terms = (
-        "amino",
-        "azido",
-        "bromo",
-        "carbamoyl",
-        "carboxy",
-        "carboxylato",
-        "chloro",
-        "cyano",
-        "ethyl",
-        "ethoxy",
-        "fluoro",
-        "formyl",
-        "hydroxy",
-        "iodo",
-        "methoxy",
-        "methyl",
-        "nitro",
-        "phenyl",
-        "trifluoromethyl",
-    )
-    parent_pattern = "|".join(re.escape(parent) for parent in parent_terms)
-    prefix_pattern = "|".join(re.escape(prefix) for prefix in prefix_terms)
-    return re.sub(rf"\b(\d+(?:,\d+)*-(?:{prefix_pattern}))-({parent_pattern})\b", r"\1\2", name)
-
-
-def _compact_adjacent_unsaturation_locants(name: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        first = int(match.group(1))
-        second = int(match.group(2))
-        if second == first + 1:
-            return match.group(1)
-        return match.group(0)
-
-    return re.sub(r"\b(\d+)\((\d+)\)", replace, name)
-
-
-def _compact_nested_methyl_chains(name: str) -> str:
-    pieces: list[str] = []
-    index = 0
-    while index < len(name):
-        if name[index] != "(":
-            pieces.append(name[index])
-            index += 1
-            continue
-        end = _balanced_parenthesis_end(name, index)
-        if end is None:
-            pieces.append(name[index])
-            index += 1
-            continue
-        inner = name[index + 1 : end]
-        compact = _compact_methyl_chain_expression(inner)
-        if compact:
-            pieces.append(f"({compact})")
-        else:
-            pieces.append("(" + _compact_nested_methyl_chains(inner) + ")")
-        index = end + 1
-    return "".join(pieces)
-
-
-def _compact_methyl_chain_expression(text: str) -> str:
-    base, count = _parse_nested_methyl_chain(text)
-    if count < 2:
-        return ""
-    root = ROOTS.get(count)
-    if not root:
-        return ""
-    base = _strip_balanced_outer_parentheses(_compact_nested_methyl_chains(base))
-    return f"{count}-({base}){root}yl"
-
-
-def _parse_nested_methyl_chain(text: str) -> tuple[str, int]:
-    if not text.startswith("1-("):
-        return text, 0
-    end = _balanced_parenthesis_end(text, 2)
-    if end is None or text[end + 1 :] != "-methyl":
-        return text, 0
-    inner = text[3:end]
-    base, count = _parse_nested_methyl_chain(_strip_balanced_outer_parentheses(inner))
-    return base, count + 1
-
-
-def _balanced_parenthesis_end(text: str, start: int) -> int | None:
-    if start >= len(text) or text[start] != "(":
-        return None
-    depth = 0
-    for index in range(start, len(text)):
-        char = text[index]
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
-
-
-def _strip_balanced_outer_parentheses(text: str) -> str:
-    while text.startswith("(") and text.endswith(")"):
-        end = _balanced_parenthesis_end(text, 0)
-        if end != len(text) - 1:
-            break
-        text = text[1:-1]
-    return text
+    name = _apply_uniform_isotope_label(mol, name)
+    return name if len(name) <= max_length else ""
 
 
 def _apply_uniform_isotope_label(mol, name: str) -> str:
@@ -2401,28 +951,3 @@ def _fallback_stereo_atom_order(family: str) -> str:
         "spiro-functional-chain-substituent",
     }
     return "idx_desc" if family in spiro_parent_families else "idx"
-
-
-def _normalize_terminal_parent_stem(name: str) -> str:
-    terminal_stems = {
-        "androst": "androstane",
-        "chol": "cholane",
-        "cholest": "cholestane",
-        "campest": "campestane",
-        "ergost": "ergostane",
-        "estr": "estrane",
-        "poriferast": "poriferastane",
-        "stigmast": "stigmastane",
-        "gon": "gonane",
-        "pregn": "pregnane",
-        "spirost": "spirostane",
-    }
-    if name == "pyroglutam":
-        return "pyroglutamic acid"
-    for stem, parent in terminal_stems.items():
-        if name == stem:
-            return parent
-        suffix = "-" + stem
-        if name.endswith(suffix):
-            return name[: -len(stem)] + parent
-    return name

@@ -705,6 +705,9 @@ _LATE_COMPACTION_TRIGGERS = (
     "1-iodo-methyl",
     "2,2",
     "1-aza",
+    "1-oxo-",
+    "1-oxido-1-oxo-",
+    "1-trifluoromethyl-mesyl",
     "benzyloxycarbonyl",
     "carbbenzoxy",
     "tert-butoxycarbonyl",
@@ -879,6 +882,7 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("1-oxo-methyl", "formyl"),
         ("1-oxo-ethyl", "acetyl"),
         ("phenylcarbonyl", "benzoyl"),
+        ("1-trifluoromethyl-mesyl", "trifluoroethylsulfonyl"),
         ("methylsulfonyl", "mesyl"),
         ("tert-butyloxycarbonyl", "tert-butoxycarbonyl"),
         ("benzyloxycarbonyl", "carbbenzoxy"),
@@ -924,6 +928,7 @@ def _compact_common_substituent_terms(name: str) -> str:
     )
     for verbose, compact in rewrites:
         name = name.replace(verbose, compact)
+    name = _compact_carbamate_and_oxoacetoxy_terms(name)
     name = name.replace("isocarbopropoxy", "isopropoxycarbonyl")
     name = _compact_validated_functional_aliases(name)
     name = _compact_validated_extra_aliases(name)
@@ -1258,6 +1263,16 @@ def _compact_common_substituent_terms(name: str) -> str:
         name = name.replace(f"(1-(1-{compact}-methyl)-methyl)", f"(2-{compact}ethyl)")
     name = _compact_adjacent_unsaturation_locants(name)
     return _compact_retained_oxy_terms(name)
+
+
+def _compact_carbamate_and_oxoacetoxy_terms(name: str) -> str:
+    """Normalize generated carbamate/oxoacetate ester substituent fragments."""
+
+    name = re.sub(r"1-([A-Za-z0-9,()'\\-]+)-1-azaacetoxy", r"\1carbamoyloxy", name)
+    name = name.replace("1-azaacetoxy", "carbamoyloxy")
+    name = name.replace("1-oxido-1-oxo-acetoxy", "oxidooxoacetoxy")
+    name = name.replace("1-oxo-phenylacetoxy", "2-oxo-2-phenylacetoxy")
+    return name.replace("1-oxo-acetoxy", "oxoacetoxy")
 
 
 def _compact_validated_functional_aliases(name: str) -> str:

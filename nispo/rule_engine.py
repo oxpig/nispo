@@ -271,7 +271,33 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
     penalty = _opsin_stability_penalty(name)
     if candidate.family == "skeletal-replacement-fused-parent":
         penalty += _skeletal_replacement_fused_parent_penalty(name)
+    penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
     return penalty
+
+
+def _unlocanted_multicenter_stereo_penalty(name: str, candidate: NameCandidate) -> int:
+    if not _has_unlocanted_multicenter_stereo_prefix(name):
+        return 0
+    if _locanted_atom_stereo_descriptor_count(name):
+        return 0
+    if candidate.stereo_prefix and _locanted_atom_stereo_descriptor_count(candidate.stereo_prefix):
+        return 0
+    if candidate.family in {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "natural-product-topology-parent",
+        "single-ring-parent",
+    }:
+        return 18
+    return 10
 
 
 def _skeletal_replacement_fused_parent_penalty(name: str) -> int:
@@ -311,30 +337,67 @@ def _has_unstable_compact_aza_polycycle_alias(name: str) -> bool:
 
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
+    bonus = _locanted_multicenter_stereo_bonus(name, candidate)
     if candidate.family not in {
         "fused-retained-parent",
         "generated-fused-parent",
         "generated-hydro-fused-parent",
         "generated-partial-hydro-fused-parent",
     }:
-        return 0
+        return bonus
     if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
-        return 12
+        bonus += 12
     if candidate.family == "generated-fused-parent" and _has_oriented_generated_benzimidazole_parent(name):
-        return 8
+        bonus += 8
     if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
-        return 8
+        bonus += 8
     if _has_indicated_h_fused_functional_suffix_parent(name):
-        return 12
+        bonus += 12
     if _has_fused_indicated_h_ketone_suffix(name):
-        return 6
+        bonus += 6
     if _has_fused_functional_suffix_parent(name):
-        return 6
+        bonus += 6
     if _has_retained_indicated_h_parent(name):
-        return 6
+        bonus += 6
     if _has_indicated_h_generated_fused_parent(name):
-        return 6
-    return 0
+        bonus += 6
+    return bonus
+
+
+def _locanted_multicenter_stereo_bonus(name: str, candidate: NameCandidate) -> int:
+    descriptor_count = _locanted_atom_stereo_descriptor_count(name)
+    if descriptor_count < 2:
+        return 0
+    if candidate.family in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "component-spiro-parent",
+        "fused-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "kekulized-generic-polycyclic-parent",
+        "natural-product-topology-parent",
+        "single-ring-parent",
+    }:
+        return min(24, 8 + 2 * descriptor_count)
+    return min(12, 4 + descriptor_count)
+
+
+def _has_unlocanted_multicenter_stereo_prefix(name: str) -> bool:
+    match = re.match(r"^\(([^)]*)\)-", name)
+    if not match:
+        return False
+    descriptors = match.group(1).split(",")
+    atom_descriptors = [descriptor for descriptor in descriptors if descriptor in {"R", "S", "r", "s"}]
+    if len(atom_descriptors) < 2:
+        return False
+    return not any(re.fullmatch(r"\d+'?[RSrs]", descriptor) for descriptor in descriptors)
+
+
+def _locanted_atom_stereo_descriptor_count(text: str) -> int:
+    return len(re.findall(r"(?<![A-Za-z])\d+'?[RSrs](?![a-z])", text))
 
 
 def _has_stable_tetrahydro_imidazopyridine_parent(name: str) -> bool:
@@ -1008,9 +1071,13 @@ def _compact_common_substituent_terms(name: str) -> str:
         ("phenoxycarbonyl", "carbphenoxy"),
         ("t-butyl(dimethyl)silanoxy", "t-butyldimethylsiloxy"),
         ("t-butyl(dimethyl)siloxy", "t-butyldimethylsiloxy"),
+        ("tert-butyldimethylsiloxy", "tbdmsoxy"),
+        ("t-butyldimethylsiloxy", "tbdmsoxy"),
+        ("tert-butyldiphenylsiloxy", "tbdpsoxy"),
+        ("t-butyldiphenylsiloxy", "tbdpsoxy"),
         ("t-butyl(dimethyl)silanyl", "tbdms"),
         ("t-butyl(dimethyl)silyl", "tbdms"),
-        ("t-butyl(diphenyl)silanoxy", "tert-butyldiphenylsiloxy"),
+        ("t-butyl(diphenyl)silanoxy", "tbdpsoxy"),
         *_RETAINED_OXY_COMPACTIONS,
         ("3,3,4,4-tetramethyl-1-bora-2,5-dioxacyclopentan-1-yl", "4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl"),
         ("3,5,7-trihydroxy-3,5,7-trioxo-2,4,6,8-tetraoxa-3,5,7-triphosphaoctyl", "triphosphooxymethyl"),
@@ -1061,6 +1128,13 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("3-oxo1-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = name.replace("3-oxo-1-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
+    name = re.sub(r"(?:(?<=\()|^)1,3-dioxoisoindolin-2-yl", "phthalimido", name)
+    name = re.sub(r"(?:(?<=\()|^)2,5-dioxopyrrolidin-1-yl", "succinimido", name)
+    name = re.sub(r"(?<!deuterio-)2,5-dioxopyrrolidino", "succinimido", name)
+    name = re.sub(r"(?:(?<=\()|^)2,5-dioxo-2,5-dihydro-1H-pyrrol-1-yl", "maleimido", name)
+    name = re.sub(r"(?:(?<=\()|^)2,5-dioxo-2,5-dihydropyrrol-1-yl", "maleimido", name)
+    name = name.replace("2-oxopyrrolidin-1-yl", "2-pyrrolidonyl")
+    name = name.replace("2-oxopyrrolidino", "2-pyrrolidonyl")
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
     fused_azole_substituent = r"(?:fluoro|chloro|bromo|iodo|methyl|methoxy|nitro|cyano|trifluoromethyl|difluoromethyl|trifluoromethoxy|difluoromethoxy)"

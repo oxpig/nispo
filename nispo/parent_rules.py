@@ -2062,8 +2062,9 @@ class FusedParentRule:
     def _template_iter(self, ctx) -> Sequence[dict]:
         return ctx.candidate_templates(self._templates())
 
-    def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
+    def _candidate_sort_key(self, mol, template: dict, match: Sequence[int], name: str) -> tuple:
         return (
+            _benzimidazole_template_h_preference(mol, template, match, name),
             *_fused_candidate_preference(name),
             _template_source_rank(template),
             _hydrogenated_template_penalty(template_record_name(template)),
@@ -2092,7 +2093,7 @@ class FusedParentRule:
                     name=name,
                     family=self.family,
                     priority=self.priority,
-                    sort_key=self._candidate_sort_key(template, match, name),
+                    sort_key=self._candidate_sort_key(mol, template, match, name),
                 )
 
 
@@ -2111,7 +2112,7 @@ class GeneratedFusedParentRule(FusedParentRule):
     def _template_iter(self, ctx) -> Sequence[dict]:
         return ctx.generated_fused_templates
 
-    def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
+    def _candidate_sort_key(self, mol, template: dict, match: Sequence[int], name: str) -> tuple:
         return (_generated_fusion_preference(template_record_name(template)), *_fused_candidate_preference(name), -len(match), name)
 
 
@@ -3064,6 +3065,7 @@ from .parent.rule_helpers import (
     _fused_candidate_preference,
     _substituent_locant_tuple,
     _benzimidazole_orientation_preference,
+    _benzimidazole_template_h_preference,
     _has_n_oxide_on_match,
     _name_fused_core_match,
     _name_natural_product_topology_match,

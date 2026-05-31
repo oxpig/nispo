@@ -705,10 +705,21 @@ def _benzimidazole_orientation_preference(name: str) -> tuple:
         )
         return tuple(locants)
     locants = sorted(
-        {int(loc) for loc in re.findall(r"(?<!\d)(\d+)-", name) if int(loc) >= 4},
-        reverse=True,
+        {int(loc) for loc in re.findall(r"(?<!\d)(\d+)-", name) if int(loc) >= 4}
     )
-    return tuple(-locant for locant in locants)
+    return tuple(locants)
+
+
+def _benzimidazole_template_h_preference(mol, template: dict, match: Sequence[int], name: str) -> tuple:
+    if "benzimidazole" not in name and template_record_name(template) != "1H-benzimidazole":
+        return ()
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    h_locs = sorted(_matched_fused_indicated_hydrogen_locants(mol, template, reverse), key=_locant_sort_key)
+    if h_locs == ["1"]:
+        return (0,)
+    if h_locs:
+        return (1, tuple(h_locs))
+    return (2,)
 
 
 def _has_n_oxide_on_match(mol, match: Sequence[int]) -> bool:

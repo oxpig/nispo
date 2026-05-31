@@ -185,6 +185,22 @@ def test_compact_benzazole_and_complex_carbamoyl_aliases_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_benzimidazole_orientation_roundtrips_both_tautomers():
+    smiles_values = [
+        "Brc1cccc2nc[nH]c12",
+        "c1ccc(Sc2ccc3nc[nH]c3c2)cc1",
+        "Oc1ccc2[nH]cnc2c1",
+        "N#Cc1cccc2[nH]cnc12",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

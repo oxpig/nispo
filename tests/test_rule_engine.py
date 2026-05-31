@@ -278,6 +278,59 @@ def test_functional_ester_aliases_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_retained_acid_ester_parents_roundtrip():
+    smiles_values = [
+        "O=C([O-])C(=O)OC",
+        "O=C(O)C(=O)OC",
+        "O=C([O-])CC(=O)OC",
+        "O=C(O)CC(=O)OC",
+        "O=C([O-])CCC(=O)OC1CCCC1",
+        "O=C(O)CCC(=O)OC1CCCC1",
+        "O=C([O-])CCCC(=O)OC",
+        "O=C([O-])CCCCC(=O)OC",
+        "C=C(C#N)C(=O)OC1CCCC1",
+        "C=C(C)C(=O)OC",
+        "C=CC(=O)OC",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert "oxalate" in names[0]
+    assert "hydrogen oxalate" in names[1]
+    assert "malonate" in names[2]
+    assert "hydrogen malonate" in names[3]
+    assert "succinate" in names[4]
+    assert "hydrogen succinate" in names[5]
+    assert "glutarate" in names[6]
+    assert "adipate" in names[7]
+    assert "2-cyanoacrylate" in names[8]
+    assert "methacrylate" in names[9]
+    assert "acrylate" in names[10]
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_exocyclic_cyanomethylidene_preserves_unsaturation():
+    smiles_values = [
+        "N#CC=C1C=CC=N1",
+        "CC(C)(C)OC(=O)N1CCC(=CC#N)CC1",
+        "N#CCC1CCNCC1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert "cyanomethylidene" in names[0]
+    assert "cyanomethylidene" in names[1]
+    assert "cyanomethyl" in names[2]
+    assert "methylidene" not in names[2]
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_retained_functional_parent_motifs_roundtrip():
     smiles_values = [
         "O=CCN(CC=O)C(=O)OCc1ccccc1",

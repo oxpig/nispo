@@ -412,6 +412,8 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
             and heavy_bond.GetBondType() == Chem.BondType.DOUBLE
         ):
             return "oxomethylidene"
+        if _is_nitrile_carbon(mol, heavy[0]):
+            return "cyanomethylidene"
         if heavy_bond is not None and heavy_bond.GetBondType() == Chem.BondType.DOUBLE:
             terminal = [
                 nbr.GetIdx()
@@ -450,6 +452,9 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
             symbol = mol.GetAtomWithIdx(nidx).GetSymbol()
             if symbol in HALO:
                 substituent_names.append(HALO[symbol])
+                continue
+            if _is_nitrile_carbon(mol, nidx):
+                substituent_names.append("cyano")
                 continue
             name = substituent_from_root(mol, nidx, idx)
             if not name:

@@ -88,12 +88,16 @@ def test_generated_fused_indicated_h_parents_roundtrip():
         "NC(=O)c1cncc2c[nH]nc12",
         "Nc1ncnc2[nH]ncc12",
         "Cn1ccc2cc[nH]c(=O)c21",
+        "Fc1[nH]nc2ccccc12",
+        "Ic1ncnc2[nH]c(-c3ccccc3)nc12",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)
     parsed = _opsin_parse(names)
 
     assert any("H-pyrazolo" in name or "H-pyrrolo" in name for name in names)
+    assert any("2H-indazol" in name for name in names)
+    assert any("9H-purin" in name for name in names)
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)

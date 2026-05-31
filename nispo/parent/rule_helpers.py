@@ -1019,6 +1019,8 @@ def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, s
         locant = match.group(2)
         if locant == "2" and "indazole" in name:
             return match.group(0)
+        if locant == "9" and "purine" in name:
+            return match.group(0)
         return match.group(1)
 
     return re.sub(r"(^|-)(\d+)H-", replacement, name)
@@ -1026,6 +1028,11 @@ def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, s
 
 def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: dict[int, int]) -> str:
     name = template_record_name(template)
+    if name in {"indazole", "purine"}:
+        h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+        if len(h_locs) != 1:
+            return name
+        return f"{h_locs[0]}H-{name}"
     if not name.startswith("1H-"):
         if not _supports_generated_fused_indicated_hydrogen(name):
             return name

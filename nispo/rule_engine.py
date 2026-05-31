@@ -258,9 +258,15 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         return 6
     if _has_fused_functional_suffix_parent(name):
         return 6
+    if _has_retained_indicated_h_parent(name):
+        return 6
     if _has_indicated_h_generated_fused_parent(name):
         return 6
     return 0
+
+
+def _has_retained_indicated_h_parent(name: str) -> bool:
+    return bool(re.search(r"(?:^|-)\d+H-(?:indazol|purin)e?", name))
 
 
 def _has_indicated_h_generated_fused_parent(name: str) -> bool:

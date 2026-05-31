@@ -913,10 +913,13 @@ def _compact_final_output_aliases(name: str) -> str:
     if not name or not (_needs_final_output_aliases(name) or _needs_terminal_e_elision(name)):
         return name
     replacements = (
-        (r"(?<![A-Za-z])tert-butyl(?![A-Za-z])", "t-butyl"),
+        (r"tert-butyl", "t-butyl"),
         (r"chlorocarbonyl", "chloroformyl"),
         (r"aminocarbonyl", "carbamoyl"),
         (r"methylsulfonyl", "mesyl"),
+        (r"methylsulfanyl(?=[,\)-]|$)", "methylthio"),
+        (r"ethylsulfanyl(?=[,\)-]|$)", "ethylthio"),
+        (r"phenylsulfanyl(?=[,\)-]|$)", "phenylthio"),
         (r"isopropylsulfanyl", "isopropylthio"),
         (r"propylsulfanyl", "propylthio"),
         (r"butylsulfanyl", "butylthio"),
@@ -1759,6 +1762,13 @@ def _compact_validated_functional_aliases(name: str) -> str:
         (r"2,2,2-tribromoethoxy", "tribromoethoxy"),
         (r"2,2-dibromoethoxy", "dibromoethoxy"),
         (r"isopropyloxy", "isopropoxy"),
+        (r"(?<![A-Za-z\]])2-pyridylcarbonyl", "picolinoyl"),
+        (
+            r"(?<![A-Za-z])(?<!H-)((?:[0-9]+-(?:fluoro|chloro|bromo|iodo|methyl|ethyl|"
+            r"methoxy|ethoxy|trifluoromethyl|difluoromethyl|cyano|amino)-)*)3-pyridylcarbonyl",
+            r"\1nicotinoyl",
+        ),
+        (r"(?<![A-Za-z\]])4-pyridylcarbonyl", "isonicotinoyl"),
         (r"(^|[(,])2-pyridylcarbonyl", r"\1picolinoyl"),
         (r"(^|[(,])3-pyridylcarbonyl", r"\1nicotinoyl"),
         (r"(^|[(,])4-pyridylcarbonyl", r"\1isonicotinoyl"),
@@ -1788,6 +1798,11 @@ def _compact_validated_extra_aliases(name: str) -> str:
         return name
 
     if "amino" in name:
+        name = re.sub(
+            r"(?<![A-Za-z])([A-Za-z0-9,\-]*[A-Za-z])sulfonylamino(?=[,\)-]|$)",
+            r"\1sulfonamido",
+            name,
+        )
         if "phenylamino" in name:
             name = re.sub(r"(?<!di)(?<!N-)phenylamino", "anilino", name)
         if "acroylamino" in name:

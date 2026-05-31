@@ -684,8 +684,11 @@ def build_generated_spiro_scaffold_templates(Chem) -> tuple[dict, ...]:
 def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[dict, ...]:
     locanted_records = _read_json_records("opsin_retained_mono_fused_ring_templates.json")
     if locanted_records:
+        smiles_by_name = {
+            str(record.get("name", "")): str(record.get("smiles", "")) for record in locanted_records
+        }
         return tuple(
-            template
+            _annotate_opsin_retained_ring_template(Chem, template, smiles_by_name.get(template["name"], ""))
             for template in _build_json_scaffold_templates(
                 Chem,
                 locanted_records,
@@ -715,12 +718,57 @@ def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[
             "source_subtype": "exact-retained-ring",
             "stereochemical": _has_stereochemical_smiles(smiles),
         }
+        template = _annotate_opsin_retained_ring_template(Chem, template, smiles)
         dedupe_key = (template["name"], Chem.MolToSmiles(mol, canonical=True))
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
         templates.append(template)
     return tuple(templates)
+
+
+_OPSIN_RETAINED_RING_GENERAL_PARENT_EXCLUSIONS = {
+    "(2S)-2-[(5R,6R,7R,14S)-N-cyclopropylmethyl-4,5-epoxy-6,14-ethano-3-hydroxy-6-methoxymorphinan-7-yl]-3,3-dimethylpentan-2-ol",
+    "benzosemiquinon",
+    "benzosemiquinone",
+    "uranocen",
+    "uranocene",
+}
+
+
+def _annotate_opsin_retained_ring_template(Chem, template: dict, smiles: str) -> dict:
+    mol = template["mol"]
+    ring_info = mol.GetRingInfo()
+    ring_atoms = {idx for ring in ring_info.AtomRings() for idx in ring}
+    flags = set(template.get("flags", ()))
+    if ring_info.NumRings() == 1:
+        scaffold_class = "mono-ring"
+        flags.add("mono-ring")
+    else:
+        scaffold_class = "fused-or-polycyclic-ring"
+        flags.add("multi-ring")
+    if ring_atoms and len(ring_atoms) < mol.GetNumAtoms():
+        flags.add("exocyclic-containing")
+    if any(atom.GetFormalCharge() for atom in mol.GetAtoms()):
+        flags.add("charged")
+    if template.get("stereochemical") or _has_stereochemical_smiles(smiles):
+        flags.add("stereochemical")
+    if any(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms()):
+        flags.add("radical")
+    if any(atom.GetSymbol() in {"U", "Th", "Pu", "Np"} for atom in mol.GetAtoms()):
+        flags.add("organometallic")
+    general_parent_safe = template["name"] not in _OPSIN_RETAINED_RING_GENERAL_PARENT_EXCLUSIONS
+    if not general_parent_safe:
+        flags.add("general-parent-unsupported")
+    annotated = dict(template)
+    annotated.update(
+        {
+            "flags": tuple(sorted(flags)),
+            "scaffold_class": scaffold_class,
+            "general_parent_safe": general_parent_safe,
+        }
+    )
+    return annotated
 
 
 def build_opsin_resource_templates(Chem) -> tuple[dict, ...]:

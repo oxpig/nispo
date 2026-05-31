@@ -14,6 +14,7 @@ def test_template_store_compiles_parent_resources():
 
     assert catalog.static_retained
     assert catalog.opsin_retained_fused
+    assert catalog.opsin_retained_ring_csv_parent
     assert catalog.opsin_retained_ring_csv_fused
     assert catalog.opsin_retained_ring_csv_single_ring
     assert catalog.fusion_component_parents
@@ -57,6 +58,27 @@ def test_opsin_retained_ring_csv_templates_are_locanted():
         and template["locants"].get(5) == "5"
         for template in templates
     )
+
+
+def test_opsin_retained_ring_csv_general_parent_eligibility_is_documented():
+    catalog = parent_scaffold_catalog(Chem)
+    parent_names = {template_record_name(template) for template in catalog.opsin_retained_ring_csv_parent}
+    excluded_names = {
+        template_record_name(template)
+        for template in catalog.opsin_retained_ring_csv
+        if not template.get("general_parent_safe", True)
+    }
+
+    assert len(catalog.opsin_retained_ring_csv_parent) == 1600
+    assert excluded_names == {
+        "(2S)-2-[(5R,6R,7R,14S)-N-cyclopropylmethyl-4,5-epoxy-6,14-ethano-3-hydroxy-6-methoxymorphinan-7-yl]-3,3-dimethylpentan-2-ol",
+        "benzosemiquinon",
+        "benzosemiquinone",
+        "uranocen",
+        "uranocene",
+    }
+    assert not excluded_names & parent_names
+    assert any("exocyclic-containing" in template.get("flags", ()) for template in catalog.opsin_retained_ring_csv)
 
 
 def test_opsin_retained_ring_csv_mono_rings_feed_single_ring_catalog():

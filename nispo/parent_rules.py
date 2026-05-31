@@ -2748,6 +2748,88 @@ class FusedParentRule:
             )
 
 
+class RetainedRingScaffoldParentRule:
+    family = "fused-retained-parent"
+    priority = parent_priority("retained-fused-parent")
+    min_ring_count = 1
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def _templates(self) -> tuple[dict, ...]:
+        return parent_scaffold_catalog(self._Chem).opsin_retained_ring_csv_parent
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() == 0:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        yielded_names: set[str] = set()
+        for template in ctx.candidate_templates(self._templates()):
+            if not _retained_ring_scaffold_template_can_be_general_parent(mol, template, self._Chem):
+                continue
+            template_mol = template_record_mol(template)
+            if template_mol.GetNumAtoms() >= mol.GetNumAtoms():
+                continue
+            for match in ctx.template_matches(template):
+                if set(match) == set(range(mol.GetNumAtoms())):
+                    continue
+                if _match_has_extra_core_bonds(mol, template, match):
+                    continue
+                name = _name_fused_core_match(mol, template, match)
+                if not name or name in yielded_names:
+                    continue
+                if _unsafe_retained_ring_scaffold_candidate(name):
+                    continue
+                yielded_names.add(name)
+                yield NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=_retained_ring_scaffold_parent_sort_key(template, match, name),
+                )
+
+
+def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, Chem) -> bool:
+    if not template.get("general_parent_safe", True):
+        return False
+    flags = set(template.get("flags", ()))
+    if flags & {"radical", "organometallic", "general-parent-unsupported"}:
+        return False
+    if template.get("stereochemical"):
+        return False
+    if template_record_mol(template).GetRingInfo().NumRings() > mol.GetRingInfo().NumRings():
+        return False
+    return True
+
+
+def _unsafe_retained_ring_scaffold_candidate(name: str) -> bool:
+    if re.search(r"\b\d+-carbamyl-.*(?:imidazol|pyrazol)e?\b", name):
+        return True
+    if (
+        "carbamyl" in name
+        and re.search(r"(?:imidazol|pyrazol)e?\b", name)
+        and not re.search(r"\dH-(?:imidazol|pyrazol)e?\b", name)
+    ):
+        return True
+    if re.search(r"\b\d+-carboxy-.*(?:lutidin|pyridin).*-one\b", name):
+        return True
+    if re.search(r"\b1,4-benzodioxan-\d+-yl\b", name):
+        return True
+    return False
+
+
+def _retained_ring_scaffold_parent_sort_key(template: dict, match: Sequence[int], name: str) -> tuple:
+    return (
+        _template_source_rank(template),
+        _hydrogenated_template_penalty(template_record_name(template)),
+        -len(match),
+        len(name),
+        name,
+    )
+
+
 _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS = (
     "acridin",
     "acridine",
@@ -3823,6 +3905,7 @@ def parent_rules(Chem) -> tuple:
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
     whole_molecule_retained = WholeMoleculeRetainedParentRule(Chem)
     exact_retained = ExactRetainedParentRule(Chem)
+    retained_ring_scaffold = RetainedRingScaffoldParentRule(Chem)
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
     hydro_fused = HydroFusedParentRule(Chem)
@@ -3934,6 +4017,12 @@ def parent_rules(Chem) -> tuple:
             whole_molecule_retained.candidates,
         ),
         RuleSpec("exact-retained-parent", parent_priority("exact-retained-parent"), (min_ring_count(1), exact_ring_system), exact_retained.candidates),
+        RuleSpec(
+            "retained-ring-scaffold-parent",
+            parent_priority("retained-fused-parent"),
+            (min_ring_count(1),),
+            retained_ring_scaffold.candidates,
+        ),
         RuleSpec(
             "preferred-generic-bicyclic-parent",
             parent_priority("preferred-generic-bicyclic"),

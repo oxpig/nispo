@@ -310,6 +310,28 @@ def test_positive_charged_fused_retained_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_retained_ring_csv_scaffold_parents_roundtrip_with_substituents():
+    smiles_values = [
+        "Cc1ccc(C)c(Cl)c1",
+        "Cc1ccc(C)c(N)c1",
+        "Clc1ccc2ccccc2c1",
+        "O=C(O)c1ccc2ncccc2c1",
+        "CCc1cc2ccccc2cc1",
+        "COc1ccc2[nH]c3ccccc3c2c1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("xylene" in name for name in names)
+    assert any("naphthalen" in name for name in names)
+    assert any("chinolin" in name for name in names)
+    assert any("carbazol" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_charged_saturated_heterocycle_parents_roundtrip():
     smiles_values = [
         "CC1CCCC(C)[NH2+]1",

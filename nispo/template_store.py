@@ -74,6 +74,7 @@ class ParentScaffoldCatalog:
     opsin_test_scaffolds: tuple[dict, ...]
     generated_spiro_scaffolds: tuple[dict, ...]
     opsin_retained_ring_csv: tuple[dict, ...]
+    opsin_retained_ring_csv_parent: tuple[dict, ...]
     opsin_retained_ring_csv_single_ring: tuple[dict, ...]
     opsin_retained_ring_csv_fused: tuple[dict, ...]
     opsin_retained_fused: tuple[dict, ...]
@@ -97,6 +98,9 @@ class TemplateStore:
         opsin_test_scaffolds = self.opsin_test_scaffolds()
         generated_spiro_scaffolds = self.generated_spiro_scaffolds()
         opsin_retained_ring_csv = self.opsin_retained_ring_csv()
+        opsin_retained_ring_csv_parent = self._general_retained_ring_csv_parent_templates(
+            opsin_retained_ring_csv
+        )
         opsin_retained_ring_csv_single_ring = self._general_retained_mono_ring_csv_templates(
             opsin_retained_ring_csv
         )
@@ -126,6 +130,7 @@ class TemplateStore:
             opsin_test_scaffolds=opsin_test_scaffolds,
             generated_spiro_scaffolds=generated_spiro_scaffolds,
             opsin_retained_ring_csv=opsin_retained_ring_csv,
+            opsin_retained_ring_csv_parent=opsin_retained_ring_csv_parent,
             opsin_retained_ring_csv_single_ring=opsin_retained_ring_csv_single_ring,
             opsin_retained_ring_csv_fused=opsin_retained_ring_csv_fused,
             opsin_retained_fused=opsin_retained_fused,
@@ -148,9 +153,22 @@ class TemplateStore:
     def opsin_retained_ring_csv(self) -> tuple[dict, ...]:
         return build_opsin_retained_ring_csv_templates(self.Chem)
 
+    def _general_retained_ring_csv_parent_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:
+        selected = []
+        for template in templates:
+            if not template.get("general_parent_safe", True):
+                continue
+            features = _molecule_features(template["mol"], self.Chem)
+            if features["ring_count"] < 1:
+                continue
+            selected.append(template)
+        return tuple(selected)
+
     def _general_retained_ring_csv_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:
         selected = []
         for template in templates:
+            if not template.get("general_parent_safe", True):
+                continue
             if template.get("stereochemical"):
                 continue
             features = _molecule_features(template["mol"], self.Chem)
@@ -162,6 +180,8 @@ class TemplateStore:
     def _general_retained_mono_ring_csv_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:
         selected = []
         for template in templates:
+            if not template.get("general_parent_safe", True):
+                continue
             if template.get("stereochemical"):
                 continue
             features = _molecule_features(template["mol"], self.Chem)
@@ -230,6 +250,7 @@ class TemplateStore:
             source_file=str(template.get("source_file", "")),
             source_subtype=str(template.get("source_subtype", "")),
             stereochemical=bool(template.get("stereochemical", False)),
+            flags=frozenset(str(flag) for flag in template.get("flags", ())),
         )
 
     def _dedupe_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:

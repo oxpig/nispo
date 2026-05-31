@@ -30,12 +30,12 @@ _PAREN_SAFE_RETAINED_OXY = {
     "cyclopropoxy",
     "cyclopropylmethoxy",
 }
-_CONTRACTION_PHASE_MAX_NAME_LENGTH = 152
-_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 152
-_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 158
-_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 153
-_NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 170
-_NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 170
+_CONTRACTION_PHASE_MAX_NAME_LENGTH = 180
+_CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 180
+_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
+_CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 180
+_NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
+_NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +320,8 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         return 0
     if candidate.family == "generated-partial-hydro-fused-parent" and _has_stable_tetrahydro_imidazopyridine_parent(name):
         return 12
+    if candidate.family == "generated-fused-parent" and _has_oriented_generated_benzimidazole_parent(name):
+        return 8
     if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
         return 8
     if _has_indicated_h_fused_functional_suffix_parent(name):
@@ -347,6 +349,20 @@ def _has_complete_hydro_generated_fused_parent(name: str) -> bool:
             r"(?:pyrazolo|pyrrolo|imidazo|pyrido|pyrimido|quinazolino|quino|indolo|purino)"
             r"\[[^\]]+\](?:pyridin|pyrimidin|pyrazin|pyrazol|pyrrol|indol|quinolin|benzene)|"
             r"(?:naphthyridine|quinazoline|quinoline|quinoxaline|pteridine|purine)",
+            name,
+        )
+    )
+
+
+def _has_oriented_generated_benzimidazole_parent(name: str) -> bool:
+    if "benzo[1,2-d]imidazol" not in name:
+        return False
+    return bool(
+        re.search(
+            r"(?:^|-)(?:1|3)(?:,\d+)*-(?:di|tri)?"
+            r"(?:methyl|ethyl|propyl|isopropyl|butyl|t-butyl|cyclo|phenyl|benzyl|"
+            r"methoxy|ethoxy|piperidin|piperidino|piperazin|piperazino|pyrrolidin|"
+            r"azetidin|morpholin|\()",
             name,
         )
     )

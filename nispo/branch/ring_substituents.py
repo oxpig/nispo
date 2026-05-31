@@ -20,6 +20,7 @@ from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
 )
 from ..molecule_cache import mol_cache_dict
+from ..ring.hydrogen import _drop_indicated_hydrogen_prefix
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from ..ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
@@ -447,8 +448,10 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
     if not ordered:
         return ""
     candidates = _ring_parent_candidates(mol, ordered)
-    if not candidates:
-        candidates = _resource_ring_parent_candidates(mol, ordered, Chem)
+    candidates = _merge_ring_parent_candidates(
+        candidates,
+        _resource_ring_parent_candidates(mol, ordered, Chem),
+    )
     if not candidates:
         return ""
     ring_set = set(ordered)
@@ -500,6 +503,44 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             best_key = key
             best = name
     return best
+
+
+def _merge_ring_parent_candidates(
+    base_candidates: Sequence[tuple[str, tuple[int, ...]]],
+    resource_candidates: Sequence[tuple[str, tuple[int, ...]]],
+) -> list[tuple[str, tuple[int, ...]]]:
+    merged: list[tuple[str, tuple[int, ...]]] = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    base_by_seq: dict[tuple[int, ...], set[str]] = {}
+    for name, seq in base_candidates:
+        seq_key = tuple(seq)
+        base_by_seq.setdefault(seq_key, set()).add(name)
+        base_by_seq[seq_key].add(_drop_indicated_hydrogen_prefix(name))
+    for name, seq in tuple(resource_candidates) + tuple(base_candidates):
+        key = (name, tuple(seq))
+        if key in seen:
+            continue
+        if _resource_ring_alias_shadowed_by_base(name, tuple(seq), base_by_seq):
+            continue
+        seen.add(key)
+        merged.append(key)
+    return merged
+
+
+def _resource_ring_alias_shadowed_by_base(
+    name: str,
+    seq: tuple[int, ...],
+    base_by_seq: dict[tuple[int, ...], set[str]],
+) -> bool:
+    base_names = base_by_seq.get(seq, set())
+    if not base_names:
+        return False
+    return name + "e" in base_names or _RESOURCE_RING_ALIAS_EQUIVALENTS.get(name, "") in base_names
+
+
+_RESOURCE_RING_ALIAS_EQUIVALENTS = {
+    "benzol": "benzene",
+}
 
 
 def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:

@@ -2600,11 +2600,16 @@ class WholeMoleculeRetainedParentRule:
             for match in ctx.template_matches(template):
                 if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
                     continue
+                candidate_name = _template_isotope_prefixed_parent_name(mol, template, match, name)
+                stereo_prefix = ""
+                if template.get("source_file") == "naturalProducts.xml" and template.get("stereochemical"):
+                    stereo_prefix = _locanted_template_stereo_prefix(mol, self._Chem, template, match)
                 yield NameCandidate(
-                    name=name,
+                    name=candidate_name,
                     family=_whole_molecule_retained_candidate_family(name),
                     priority=self.priority,
-                    sort_key=(len(name), template.get("source_family", ""), name),
+                    sort_key=(len(candidate_name), template.get("source_family", ""), candidate_name),
+                    stereo_prefix=stereo_prefix,
                 )
 
 
@@ -2696,8 +2701,6 @@ class FusedParentRule:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        if _has_positive_charged_ring_atom(mol):
-            return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
         yielded_names: set[str] = set()
@@ -2746,17 +2749,31 @@ class FusedParentRule:
 
 
 _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS = (
+    "acridin",
+    "acridine",
+    "anthracen",
+    "anthracene",
     "benzimidazole",
     "benzofuran",
     "benzothiazole",
     "benzothiophene",
     "benzotriazole",
     "benzoxazole",
+    "carbazol",
+    "carbazole",
     "chroman",
     "chromene",
     "chromone",
+    "chrysen",
+    "chrysene",
     "cinnoline",
+    "coronen",
+    "coronene",
     "coumarin",
+    "fluoranthen",
+    "fluoranthene",
+    "fluoren",
+    "fluorene",
     "guanin",
     "hypoxanthin",
     "indazole",
@@ -2764,12 +2781,22 @@ _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS = (
     "isochroman",
     "isochromene",
     "isoquinoline",
+    "naphthalen",
+    "naphthalene",
     "naphthyridine",
+    "perylen",
+    "perylene",
     "purine",
     "pteridine",
+    "pyren",
+    "pyrene",
     "quinazoline",
     "quinoline",
     "quinoxaline",
+    "tetracen",
+    "tetracene",
+    "xanthen",
+    "xanthene",
     "xanthin",
 )
 
@@ -2835,10 +2862,8 @@ def _retained_topology_fused_candidate_rank(template_name: str, name: str) -> tu
 def _has_retained_topology_functional_suffix_parent(name: str) -> bool:
     return bool(
         re.search(
-            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
-            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
-            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
-            r"quinoxalin|xanthin)"
+            _RETAINED_TOPOLOGY_PARENT_PATTERN
+            +
             r".*-\d+[a-z]?-(?:carboxamide|carbonitrile|carboxylic acid|carboxylate)\b",
             name,
         )
@@ -2850,25 +2875,18 @@ def _has_retained_topology_oxo_or_one_parent(name: str) -> bool:
         return False
     return bool(
         re.search(
-            r"(?:^|-)\d+[a-z]?-(?:oxo|thioxo)-.*(?:benzimidazol|benzofuran|"
-            r"benzothiazol|benzothiophen|benzotriazol|benzoxazol|chrom|coumarin|"
-            r"guanin|hypoxanthin|indazol|indol|isoquinolin|naphthyridin|purin|"
-            r"pteridin|quinazolin|quinolin|quinoxalin|xanthin)",
+            r"(?:^|-)\d+(?:,\d+)*[a-z]?-(?:(?:di|tri|tetra)?oxo|thioxo)-.*"
+            + _RETAINED_TOPOLOGY_PARENT_PATTERN,
             name,
         )
         or re.search(
-            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
-            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
-            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
-            r"quinoxalin|xanthin)"
+            _RETAINED_TOPOLOGY_PARENT_PATTERN
+            +
             r".*-\d+[a-z]?\(\d+[a-z]?H\)-one\b",
             name,
         )
         or re.search(
-            r"(?:benzimidazol|benzofuran|benzothiazol|benzothiophen|benzotriazol|"
-            r"benzoxazol|chrom|coumarin|guanin|hypoxanthin|indazol|indol|"
-            r"isoquinolin|naphthyridin|purin|pteridin|quinazolin|quinolin|"
-            r"quinoxalin|xanthin).*-\d+[a-z]?-one\b",
+            _RETAINED_TOPOLOGY_PARENT_PATTERN + r".*-\d+[a-z]?-one\b",
             name,
         )
     )
@@ -2877,12 +2895,20 @@ def _has_retained_topology_oxo_or_one_parent(name: str) -> bool:
 def _has_retained_topology_simple_functional_parent(name: str) -> bool:
     return bool(
         re.search(
-            r"(?:^|-)\d+[a-z]?-(?:amino|hydroxy|mercapto)-.*(?:benzimidazol|"
-            r"benzothiazol|benzotriazol|benzoxazol|guanin|hypoxanthin|purin|"
-            r"pteridin|xanthin)",
+            r"(?:^|-)\d+[a-z]?-(?:amino|hydroxy|mercapto)-.*"
+            + _RETAINED_TOPOLOGY_PARENT_PATTERN,
             name,
         )
     )
+
+
+_RETAINED_TOPOLOGY_PARENT_PATTERN = (
+    r"(?:acridin|anthracen|benzimidazol|benzofuran|benzothiazol|"
+    r"benzothiophen|benzotriazol|benzoxazol|carbazol|chrom|chrysen|coronen|"
+    r"coumarin|fluoranthen|fluoren|guanin|hypoxanthin|indazol|indol|"
+    r"isoquinolin|naphthalen|naphthyridin|perylen|purin|pteridin|pyren|"
+    r"quinazolin|quinolin|quinoxalin|tetracen|xanthen|xanthin)"
+)
 
 
 def _retained_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
@@ -2943,8 +2969,6 @@ class GeneratedFusedParentRule(FusedParentRule):
         if mol.GetRingInfo().NumRings() < 2:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
-            return
-        if _has_positive_charged_ring_atom(mol):
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
@@ -3994,6 +4018,8 @@ from .parent.rule_helpers import (
     _locant_sort_key,
     _SKELETAL_REPLACEMENT_PREFIXES,
     _has_stereo_evidence,
+    _locanted_template_stereo_prefix,
+    _template_isotope_prefixed_parent_name,
     _topology_query,
     _template_has_one_ring_system,
     _template_is_fully_aromatic,

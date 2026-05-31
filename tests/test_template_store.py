@@ -4,6 +4,7 @@ from rdkit import Chem
 
 from nispo.scaffold_catalog import parent_scaffold_catalog
 from nispo.resource_templates import build_opsin_retained_ring_csv_templates
+from nispo.template_access import template_record_name
 from nispo.template_store import CompiledTemplate, TemplateFeatures, TemplateRecord, template_store
 
 
@@ -14,6 +15,7 @@ def test_template_store_compiles_parent_resources():
     assert catalog.static_retained
     assert catalog.opsin_retained_fused
     assert catalog.opsin_retained_ring_csv_fused
+    assert catalog.opsin_retained_ring_csv_single_ring
     assert catalog.fusion_component_parents
     assert catalog.fused
     assert catalog.exact
@@ -55,3 +57,12 @@ def test_opsin_retained_ring_csv_templates_are_locanted():
         and template["locants"].get(5) == "5"
         for template in templates
     )
+
+
+def test_opsin_retained_ring_csv_mono_rings_feed_single_ring_catalog():
+    catalog = parent_scaffold_catalog(Chem)
+    csv_single_ring_names = {template_record_name(template) for template in catalog.opsin_retained_ring_csv_single_ring}
+    single_ring_names = {template_record_name(template) for template in catalog.single_ring}
+
+    assert {"pyran", "thiopyran"} <= csv_single_ring_names
+    assert csv_single_ring_names <= single_ring_names

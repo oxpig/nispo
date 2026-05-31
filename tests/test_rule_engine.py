@@ -113,6 +113,8 @@ def test_nested_sort_key_parent_selection_does_not_empty_api_output():
 def test_single_ring_functional_suffix_parents_roundtrip():
     smiles_values = [
         "O=C(N)c1ccncc1",
+        "NC(=O)C1=CC=COC1",
+        "NC(=O)C1=CC=CSC1",
         "N#Cc1ccncc1",
         "O=C([O-])c1ccncc1",
         "O=C(O)c1ccsc1",
@@ -146,7 +148,24 @@ def test_single_ring_functional_suffix_parents_roundtrip():
 
     assert any("biphenyl" in name for name in names)
     assert any("diphenyl" in name for name in names)
+    assert any("pyran" in name for name in names)
+    assert any("thiopyran" in name for name in names)
     assert all("fluoromethyloxy" not in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_tautomer_sensitive_single_ring_suffix_parents_roundtrip():
+    smiles_values = [
+        "Cc1[nH]ncc1C(N)=O",
+        "Cc1cc(=O)c(C(=O)O)c(C)[nH]1",
+        "O=C(Nc1ccc(Cl)nc1Cl)c1cnc[nH]1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
@@ -194,12 +213,14 @@ def test_retained_scaffold_topology_parents_roundtrip_without_generic_bicyclo_fa
         "O=C1C=CC2=CN=NC2=C1",
         "Nc1nc2c(c(=O)[nH]1)=NC(=O)N=2",
         "N#CC1C=CC=CO1",
+        "O=c1cc2cccc3c(=O)cc4cccc1c4=c23",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)
     parsed = _opsin_parse(names)
 
     assert all("bicyclo[" not in name for name in names)
+    assert any("pyren" in name for name in names)
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
@@ -268,6 +289,22 @@ def test_generated_oxido_fused_parents_roundtrip():
     parsed = _opsin_parse(names)
 
     assert all("oxido" in name and "ium" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_positive_charged_fused_retained_parents_roundtrip():
+    smiles_values = [
+        "O=S(=O)(O)c1cccc2[nH+]c3ccccc3cc12",
+        "CC[n+]1c2ccccc2sc1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert any("ium" in name for name in names)
+    assert all("thiaethan" not in name for name in names)
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
@@ -480,6 +517,27 @@ def test_multicenter_carbocycle_stereo_roundtrips():
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_stereochemical_natural_product_retained_parent_roundtrips():
+    smiles = "CC(C)CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CC[C@@H]4CCCC[C@]4(C)[C@H]3CC[C@]12C"
+
+    name = smiles_to_iupac(smiles)
+    parsed = _opsin_parse([name])
+
+    assert name.startswith("(")
+    assert "cholestane" in name
+    assert _canonical_smiles(parsed[0]) == _canonical_smiles(smiles)
+
+
+def test_retained_fused_ring_isotope_locants_roundtrip():
+    smiles = "COc1ccc2c(c1)[nH]c1c2ccn[11c]1C"
+
+    name = smiles_to_iupac(smiles)
+    parsed = _opsin_parse([name])
+
+    assert "11C" in name
+    assert _canonical_smiles(parsed[0]) == _canonical_smiles(smiles)
 
 
 def test_single_ring_parent_stereo_with_stereo_substituents_roundtrips():

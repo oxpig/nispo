@@ -797,6 +797,7 @@ def _name_fused_core_match(
         return ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
+    parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
     prefixes = []
     for mol_idx in match:
         template_idx = reverse[mol_idx]
@@ -825,6 +826,29 @@ def _name_fused_core_match(
     if not prefix_text:
         return ""
     return prefix_text + "-" + parent_name
+
+
+def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:
+    grouped: dict[tuple[str, int], list[str]] = {}
+    locants = template_record_locants(template)
+    for template_idx, mol_idx in enumerate(match):
+        atom = mol.GetAtomWithIdx(mol_idx)
+        isotope = atom.GetIsotope()
+        if not isotope:
+            continue
+        symbol = atom.GetSymbol()
+        if f"{isotope}{symbol}" in parent_name or f"[{isotope}{symbol}]" in parent_name:
+            continue
+        locant = locants.get(template_idx, "")
+        if not locant:
+            return parent_name
+        grouped.setdefault((symbol, isotope), []).append(locant)
+    prefixes = []
+    for (symbol, isotope), isotope_locants in sorted(grouped.items()):
+        ordered = sorted(set(isotope_locants), key=_locant_sort_key)
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        prefixes.append(f"({','.join(ordered)}-{isotope}{symbol}{count_text})")
+    return "".join(prefixes) + parent_name if prefixes else parent_name
 
 
 def _name_natural_product_topology_match(mol, Chem, template: dict, match: Sequence[int]) -> tuple[str, str] | None:
@@ -973,9 +997,12 @@ def _locanted_template_bond_stereo(mol, Chem, template: dict, match: Sequence[in
 
 
 def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
+    cached = mol_cache_get(mol, "fresh_atom_stereochemistry")
+    if cached is not None:
+        return cached
     work = Chem.Mol(mol)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
-    return {
+    result = {
         idx: descriptor
         for idx, descriptor in Chem.FindMolChiralCenters(
             work,
@@ -984,6 +1011,7 @@ def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
         )
         if descriptor in {"R", "S"}
     }
+    return mol_cache_set(mol, "fresh_atom_stereochemistry", result)
 
 
 def _fused_oxo_suffix_name(
@@ -1128,8 +1156,10 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     if not ordered:
         return []
     candidates = _ring_parent_candidates(mol, ordered)
-    if not candidates:
-        candidates = _resource_ring_parent_candidates(mol, ordered, Chem)
+    candidates = _merge_ring_parent_candidates(
+        candidates,
+        _resource_ring_parent_candidates(mol, ordered, Chem),
+    )
     if not candidates:
         return []
     ring_set = set(ordered)
@@ -1207,6 +1237,44 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     if not best_name:
         return []
     return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name))]
+
+
+def _merge_ring_parent_candidates(
+    base_candidates: Sequence[tuple[str, tuple[int, ...]]],
+    resource_candidates: Sequence[tuple[str, tuple[int, ...]]],
+) -> list[tuple[str, tuple[int, ...]]]:
+    merged: list[tuple[str, tuple[int, ...]]] = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    base_by_seq: dict[tuple[int, ...], set[str]] = {}
+    for name, seq in base_candidates:
+        seq_key = tuple(seq)
+        base_by_seq.setdefault(seq_key, set()).add(name)
+        base_by_seq[seq_key].add(_drop_indicated_hydrogen_prefix(name))
+    for name, seq in tuple(resource_candidates) + tuple(base_candidates):
+        key = (name, tuple(seq))
+        if key in seen:
+            continue
+        if _resource_ring_alias_shadowed_by_base(name, tuple(seq), base_by_seq):
+            continue
+        seen.add(key)
+        merged.append(key)
+    return merged
+
+
+def _resource_ring_alias_shadowed_by_base(
+    name: str,
+    seq: tuple[int, ...],
+    base_by_seq: dict[tuple[int, ...], set[str]],
+) -> bool:
+    base_names = base_by_seq.get(seq, set())
+    if not base_names:
+        return False
+    return name + "e" in base_names or _RESOURCE_RING_ALIAS_EQUIVALENTS.get(name, "") in base_names
+
+
+_RESOURCE_RING_ALIAS_EQUIVALENTS = {
+    "benzol": "benzene",
+}
 
 
 def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -> str:
@@ -1618,13 +1686,19 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         original_prefix_text = _format_prefixes(prefixes)
         original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
         original_name = _functional_suffix_prefix_baseline(original_name)
-        if len(name) > len(original_name) and not _allow_simple_functional_suffix_parent(
-            parent_name,
-            suffix_base,
-            suffix_locs,
-            remaining,
-            name,
-            original_name,
+        if (
+            (
+                len(name) > len(original_name)
+                or _tautomer_sensitive_single_ring_suffix_parent(parent_name, remaining)
+            )
+            and not _allow_simple_functional_suffix_parent(
+                parent_name,
+                suffix_base,
+                suffix_locs,
+                remaining,
+                name,
+                original_name,
+            )
         ):
             continue
         key = (len(remaining), len(name), locants, name)
@@ -1937,6 +2011,21 @@ def _functional_suffix_prefix_baseline(name: str) -> str:
     )
 
 
+def _tautomer_sensitive_single_ring_suffix_parent(
+    parent_name: str,
+    remaining: Sequence[tuple[str, str]],
+) -> bool:
+    return bool(
+        parent_name in {"pyrazole", "imidazole"}
+        or re.search(r"(?:^|-)\d+[a-z]?H-", parent_name)
+        or re.search(r"(?:^|-)\d+[a-z]?-one\b", parent_name)
+        or (
+            parent_name in {"pyrazine", "pyridazine", "pyridine", "pyrimidine"}
+            and any(prefix == "oxo" for _loc, prefix in remaining)
+        )
+    )
+
+
 def _allow_simple_functional_suffix_parent(
     parent_name: str,
     suffix_base: str,
@@ -1962,6 +2051,12 @@ def _allow_simple_functional_suffix_parent(
         max_extra = 10
     if len(name) > len(original_name) + max_extra:
         return False
+    if parent_name in {"pyrazole", "imidazole"}:
+        return False
+    if parent_name in {"pyrazine", "pyridazine", "pyridine", "pyrimidine"} and any(
+        prefix == "oxo" for _loc, prefix in remaining
+    ):
+        return False
     if not _simple_functional_suffix_parent_name(parent_name):
         return False
     return all(_simple_functional_suffix_remaining_prefix(prefix) for _loc, prefix in remaining)
@@ -1974,6 +2069,7 @@ def _simple_functional_suffix_parent_name(parent_name: str) -> bool:
         "isothiazole",
         "isoxazole",
         "oxazole",
+        "pyran",
         "pyrazine",
         "pyrazole",
         "pyridazine",
@@ -1981,6 +2077,7 @@ def _simple_functional_suffix_parent_name(parent_name: str) -> bool:
         "pyrimidine",
         "pyrrole",
         "thiazole",
+        "thiopyran",
         "thiophene",
         "1H-pyrrole",
         "1H-pyrazole",
@@ -2023,6 +2120,8 @@ def _supports_single_ring_functional_suffix_parent(parent_name: str) -> bool:
             "isoxazole",
             "oxadiazole",
             "oxazole",
+            "pyran",
+            "selenopyran",
             "pyrazine",
             "pyrazole",
             "pyridazine",
@@ -2033,7 +2132,9 @@ def _supports_single_ring_functional_suffix_parent(parent_name: str) -> bool:
             "tetrazole",
             "thiadiazole",
             "thiazole",
+            "thiopyran",
             "thiophene",
+            "telluropyran",
             "triazole",
             "v-triazine",
         )

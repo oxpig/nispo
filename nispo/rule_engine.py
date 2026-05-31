@@ -914,6 +914,8 @@ def _compact_final_output_aliases(name: str) -> str:
         return name
     replacements = (
         (r"tert-butyl", "t-butyl"),
+        (r"bist-butyl", "di-t-butyl"),
+        (r"t-butyloxy", "t-butoxy"),
         (r"chlorocarbonyl", "chloroformyl"),
         (r"aminocarbonyl", "carbamoyl"),
         (r"methylsulfonyl", "mesyl"),
@@ -1861,7 +1863,8 @@ def _normalize_retained_fused_substituent_locants(name: str) -> str:
     substituent = (
         r"fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|propoxy|"
         r"nitro|cyano|amino|carboxy|carbamyl|trifluoromethyl|difluoromethyl|"
-        r"trifluoromethoxy|difluoromethoxy|methylsulfonyl|mesyl"
+        r"trifluoromethoxy|difluoromethoxy|methylol|acetamido|methylsulfinyl|"
+        r"methylsulfonyl|mesyl"
     )
     decorated_prefix = rf"(?:(?:\d+(?:,\d+)*-)?(?:di|tri|tetra)?(?:{substituent}))"
     benzazole_suffix = r"imidazolyl|oxazolyl|thiazolyl"
@@ -1874,7 +1877,7 @@ def _normalize_retained_fused_substituent_locants(name: str) -> str:
         return f"{prefix_text}{locant}-benz{suffix}"
 
     name = re.sub(
-        rf"\b((?:{decorated_prefix})*)benz(\d+)-?({benzazole_suffix})(?=\b|carbonyl|methyl|amino|oxy|sulfonyl)",
+        rf"\b((?:{decorated_prefix})*)benz(\d+)-?({benzazole_suffix})(?=\b|carbonyl|methyl|amino|oxy|sulfinyl|sulfonyl)",
         decorated_benzazole_repl,
         name,
     )

@@ -941,7 +941,14 @@ def _compact_common_substituent_terms(name: str) -> str:
     name = name.replace("3-oxoisoindolin-", "1,3-dioxoisoindolin-")
     name = re.sub(r"\bbenzo(\d+)-furyl\b", r"\1-benzofuryl", name)
     name = re.sub(r"\bbenzo(\d+)-thienyl\b", r"\1-benzothienyl", name)
+    fused_azole_substituent = r"(?:fluoro|chloro|bromo|iodo|methyl|methoxy|nitro|cyano|trifluoromethyl|difluoromethyl|trifluoromethoxy|difluoromethoxy)"
+    name = re.sub(
+        rf"\b(\d+)-({fused_azole_substituent})benz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b",
+        r"\1-\2-\3-benz\4",
+        name,
+    )
     name = re.sub(r"\bbenz(\d+)-(imidazolyl|oxazolyl|thiazolyl)\b", r"\1-benz\2", name)
+    name = _normalize_glued_heteroaryl_substituent_locants(name)
     name = _normalize_fused_heteroaryl_locants(name)
     name = _normalize_retained_fused_substituent_locants(name)
     for verbose, compact in (
@@ -1382,6 +1389,23 @@ _BENZ_FUSED_HETEROARYL_STEMS = {
 }
 
 
+def _normalize_glued_heteroaryl_substituent_locants(name: str) -> str:
+    substituent = (
+        r"fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|propoxy|"
+        r"nitro|cyano|amino|carboxy|carbamyl|trifluoromethyl|difluoromethyl|"
+        r"trifluoromethoxy|difluoromethoxy|methylsulfonyl|mesyl"
+    )
+    heteroaryl = (
+        r"pyridyl|pyrimidyl|pyrazolyl|imidazolyl|thiazolyl|oxazolyl|"
+        r"furyl|thienyl|piperidyl|pyrrolidyl"
+    )
+    return re.sub(
+        rf"\b(\d+)-({substituent})(\d+)-({heteroaryl})(?=\b|carbonyl|methyl|amino|oxy|sulfonyl)",
+        r"\1-\2-\3-\4",
+        name,
+    )
+
+
 def _normalize_fused_heteroaryl_locants(name: str) -> str:
     """Use OPSIN-parseable locants for retained fused heteroaryl suffixes."""
 
@@ -1544,6 +1568,7 @@ def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
         r"\1carbamoyl",
         name,
     )
+    name = _compact_balanced_n_substituted_carbamoyl(name)
 
     def paren_substituent(match: re.Match[str]) -> str:
         substituent = match.group(1)
@@ -1563,6 +1588,39 @@ def _compact_n_substituted_carbamoyl_fragments(name: str) -> str:
     ):
         name = name.replace(verbose, compact)
     return name
+
+
+def _compact_balanced_n_substituted_carbamoyl(name: str) -> str:
+    pieces: list[str] = []
+    index = 0
+    opener = "1-("
+    suffix = "-1-azamethylcarbonyl"
+    while index < len(name):
+        if not name.startswith(opener, index) or (index > 0 and name[index - 1] not in "(,"):
+            pieces.append(name[index])
+            index += 1
+            continue
+        inner_start = index + len(opener)
+        depth = 1
+        cursor = inner_start
+        while cursor < len(name) and depth:
+            if name[cursor] == "(":
+                depth += 1
+            elif name[cursor] == ")":
+                depth -= 1
+            cursor += 1
+        if depth or not name.startswith(suffix, cursor):
+            pieces.append(name[index])
+            index += 1
+            continue
+        inner = name[inner_start : cursor - 1]
+        if not inner or len(inner) > 140:
+            pieces.append(name[index])
+            index += 1
+            continue
+        pieces.append(f"({inner})carbamoyl")
+        index = cursor + len(suffix)
+    return "".join(pieces)
 
 
 def _compact_nested_linker_parentheses(name: str) -> str:

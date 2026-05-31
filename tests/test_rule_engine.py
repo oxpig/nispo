@@ -168,6 +168,23 @@ def test_charged_saturated_heterocycle_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_compact_benzazole_and_complex_carbamoyl_aliases_roundtrip():
+    smiles_values = [
+        "Fc1ccc(CSc2nc3ccc(Cl)cc3o2)cc1",
+        "O=C(Nc1cccc(C2=NCCN2)c1)c1ccc(-c2ccc(C(=O)Nc3cccc(C4=NCCN4)c3)cc2)cc1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all("benz2-" not in name for name in names)
+    assert any("carbamyl" in name for name in names)
+    assert all("1-azamethylcarbonyl" not in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

@@ -34,6 +34,8 @@ _CONTRACTION_PHASE_MAX_NAME_LENGTH = 152
 _CONTRACTION_PHASE_STEREO_PRESERVE_LENGTH = 152
 _CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH = 158
 _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH = 153
+_NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 170
+_NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 170
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +107,7 @@ class NamingEngine:
 
         fallback_name: str = ""
         fallback_key: tuple | None = None
+        fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
         for rule in self._rules:
             if not rule.applies(ctx):
                 continue
@@ -115,12 +118,12 @@ class NamingEngine:
                     mol,
                     self._Chem,
                     candidate,
-                    max_length=_CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH,
+                    max_length=fallback_evaluation_length,
                 )
                 if not name:
                     continue
                 fallback = _compact_final_output_aliases(name)
-                if len(fallback) > _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH:
+                if len(fallback) > fallback_max_length:
                     continue
                 stability_penalty = _candidate_selection_stability_penalty(fallback, candidate)
                 selection_bonus = _candidate_selection_bonus(fallback, candidate)
@@ -136,6 +139,28 @@ class NamingEngine:
                     fallback_name = fallback
                     fallback_key = candidate_key
         return _compact_selected_output_name(fallback_name)
+
+
+def _empty_fallback_limits(mol, Chem) -> tuple[int, int]:
+    if _has_assigned_stereo(mol, Chem):
+        return (
+            _CONTRACTION_PHASE_EMPTY_FALLBACK_EVALUATION_LENGTH,
+            _CONTRACTION_PHASE_EMPTY_FALLBACK_MAX_LENGTH,
+        )
+    return (
+        _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH,
+        _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH,
+    )
+
+
+def _has_assigned_stereo(mol, Chem) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return True
+    for bond in mol.GetBonds():
+        if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            return True
+    return False
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:

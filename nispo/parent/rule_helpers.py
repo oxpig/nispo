@@ -1255,10 +1255,15 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") ->
     if not seq:
         return ""
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
+        absolute_prefix = _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem, name=name)
         relative_prefix = _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
+        if absolute_prefix and not (
+            relative_prefix and _prefer_relative_carbocycle_prefix_for_complex_name(name, absolute_prefix)
+        ):
+            return absolute_prefix
         if relative_prefix:
             return relative_prefix
-        return _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem, name=name)
+        return ""
     seq_set = set(seq)
     tagged_atoms = [
         atom.GetIdx()
@@ -1315,6 +1320,14 @@ def _stereo_prefixed_name_exceeds_preserve_cap(name: str, prefix: str) -> bool:
     if not name or not prefix:
         return False
     return len(name) + len(prefix) + 3 > _STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH
+
+
+def _prefer_relative_carbocycle_prefix_for_complex_name(name: str, prefix: str) -> bool:
+    if not name:
+        return False
+    if len(name) + len(prefix) + 3 > 96:
+        return True
+    return name.count("(") > 1
 
 
 def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) -> str:

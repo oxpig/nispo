@@ -290,6 +290,20 @@ def test_single_ring_parent_stereo_with_stereo_substituents_roundtrips():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_nonstereo_long_fallback_roundtrips():
+    smiles_values = [
+        "FC(F)(F)C(F)(C(F)(F)F)C(F)(F)C(F)(F)N(C(F)(F)C(F)(F)C(F)(C(F)(F)F)C(F)(F)F)C(F)(F)C(F)(F)C(F)(C(F)(F)F)C(F)(F)F",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert len(name) <= 170
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

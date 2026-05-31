@@ -965,6 +965,27 @@ class RetainedAcidEsterParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class BoronicPinacolEsterParentRule:
+    family = "boronic-pinacol-ester-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for boron_idx, owner_idx in _boronic_pinacol_ester_motifs(mol, self._Chem):
+            owner = _compact_boronic_pinacol_owner(branch_prefix(mol, owner_idx, boron_idx))
+            if not _stable_boronic_pinacol_owner(owner):
+                continue
+            name = f"{owner}boronic acid pinacol ester"
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class SulfonamideRetainedParentRule:
     family = "sulfonamide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1051,6 +1072,151 @@ def _retained_acid_ester_names(mol, Chem) -> list[str]:
         if acrylate:
             names.append(acrylate)
     return names
+
+
+def _boronic_pinacol_ester_motifs(mol, Chem) -> list[tuple[int, int]]:
+    motifs = []
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0:
+            continue
+        bidx = atom.GetIdx()
+        oxygen_neighbors = []
+        carbon_neighbors = []
+        ok = True
+        for nbr in atom.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(bidx, nbr.GetIdx())
+            if bond.GetBondType() != Chem.BondType.SINGLE:
+                ok = False
+                break
+            if nbr.GetSymbol() == "O":
+                oxygen_neighbors.append(nbr.GetIdx())
+            elif nbr.GetSymbol() == "C":
+                carbon_neighbors.append(nbr.GetIdx())
+            else:
+                ok = False
+                break
+        if not ok or len(oxygen_neighbors) != 2 or len(carbon_neighbors) != 1:
+            continue
+        if _is_pinacol_boronate_oxygen_pair(mol, Chem, bidx, oxygen_neighbors):
+            motifs.append((bidx, carbon_neighbors[0]))
+    return motifs
+
+
+def _is_pinacol_boronate_oxygen_pair(mol, Chem, boron_idx: int, oxygen_indices: Sequence[int]) -> bool:
+    carbon_indices = []
+    for oxygen_idx in oxygen_indices:
+        oxygen = mol.GetAtomWithIdx(oxygen_idx)
+        if oxygen.GetFormalCharge() != 0:
+            return False
+        non_boron = [
+            nbr.GetIdx()
+            for nbr in oxygen.GetNeighbors()
+            if nbr.GetIdx() != boron_idx and nbr.GetAtomicNum() > 1
+        ]
+        if len(non_boron) != 1:
+            return False
+        carbon_idx = non_boron[0]
+        carbon = mol.GetAtomWithIdx(carbon_idx)
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+            return False
+        if mol.GetBondBetweenAtoms(oxygen_idx, carbon_idx).GetBondType() != Chem.BondType.SINGLE:
+            return False
+        carbon_indices.append(carbon_idx)
+    if len(set(carbon_indices)) != 2:
+        return False
+    if mol.GetBondBetweenAtoms(carbon_indices[0], carbon_indices[1]).GetBondType() != Chem.BondType.SINGLE:
+        return False
+    for carbon_idx in carbon_indices:
+        methyl_leaves = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(carbon_idx).GetNeighbors()
+            if nbr.GetAtomicNum() == 6
+            and nbr.GetIdx() not in carbon_indices
+            and mol.GetBondBetweenAtoms(carbon_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetDegree() == 1
+        ]
+        if len(methyl_leaves) != 2:
+            return False
+    return True
+
+
+def _stable_boronic_pinacol_owner(name: str) -> bool:
+    if not name or len(name) > 70 or any(fragment in name for fragment in ("(", ")", "[", "]", "spiro")):
+        return False
+    simple_tokens = {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "isopropyl",
+        "butyl",
+        "isobutyl",
+        "tert-butyl",
+        "t-butyl",
+        "vinyl",
+        "ethynyl",
+        "phenyl",
+        "benzyl",
+        "o-tolyl",
+        "m-tolyl",
+        "p-tolyl",
+        "cyclopropyl",
+        "cyclobutyl",
+        "cyclopentyl",
+        "cyclohexyl",
+        "beta-allyl",
+        "crotyl",
+        "acetenyl",
+    }
+    if name in simple_tokens:
+        return True
+    phenyl_substituent = (
+        r"(?:amino|hydroxy|fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|"
+        r"cyano|nitro|trifluoromethyl|difluoromethyl|trifluoromethoxy|difluoromethoxy)"
+    )
+    phenyl_decorator = rf"\d+(?:,\d+)*-(?:di|tri|tetra)?{phenyl_substituent}"
+    if re.fullmatch(rf"(?:{phenyl_decorator}){{1,4}}phenyl", name):
+        return True
+    if re.fullmatch(rf"(?:{phenyl_decorator}){{1,4}}phenylmethyl", name):
+        return True
+    if re.fullmatch(
+        r"(?:[234]-pyridyl|[23456]-pyrimidyl|[234]-furyl|[234]-thienyl|then-[23]-yl|[234]-thiazolyl)",
+        name,
+    ):
+        return True
+    if re.fullmatch(r"(?:pyridin|pyrimidin|pyridazin|pyrazin)-\d+-yl", name):
+        return True
+    if re.fullmatch(r"(?:\d+-(?:methyl|ethyl|isopropyl|phenyl|methoxy))?1H-(?:pyrazol|imidazol|triazol)-\d+-yl", name):
+        return True
+    if re.fullmatch(r"(?:1-(?:methyl|ethyl|isopropyl|phenyl))?(?:pyrazol|imidazol|triazol)-\d+-yl", name):
+        return True
+    if re.fullmatch(
+        r"(?:indan|indol|indole|indazol|benzofuran|benzothiazol|benzoxazol|benzimidazol|carbazol|quinolin|quinazolin|quinoxalin|naphthyridin)-\d+-yl",
+        name,
+    ):
+        return True
+    if re.fullmatch(r"(?:prop|but|pent|hex|hept|oct)-\d+-en-\d+-yl", name):
+        return True
+    if re.fullmatch(r"(?:prop|but|pent|hex|hept|oct)-\d+-yn-\d+-yl", name):
+        return True
+    if re.fullmatch(r"(?:[12]-methyl)?prop-\d+-en-\d+-yl", name):
+        return True
+    return False
+
+
+def _compact_boronic_pinacol_owner(name: str) -> str:
+    for verbose, compact in (
+        ("1,1,1-trifluoro-methyl", "trifluoromethyl"),
+        ("1,1-difluoro-methyl", "difluoromethyl"),
+        ("1-fluoro-methyl", "fluoromethyl"),
+        ("1,1,1-trichloro-methyl", "trichloromethyl"),
+        ("1,1-dichloro-methyl", "dichloromethyl"),
+        ("1-chloro-methyl", "chloromethyl"),
+        ("1,1,1-tribromo-methyl", "tribromomethyl"),
+        ("1,1-dibromo-methyl", "dibromomethyl"),
+        ("1-bromo-methyl", "bromomethyl"),
+    ):
+        name = name.replace(verbose, compact)
+    return name
 
 
 def _ester_acyl_motifs(mol, Chem) -> list[tuple[int, int, int]]:
@@ -3300,6 +3466,7 @@ def parent_rules(Chem) -> tuple:
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
+    boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
@@ -3358,6 +3525,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
+        RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),

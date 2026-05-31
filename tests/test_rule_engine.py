@@ -331,6 +331,23 @@ def test_exocyclic_cyanomethylidene_preserves_unsaturation():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_boronic_pinacol_ester_parents_roundtrip_compactly():
+    smiles_values = [
+        "c1ccccc1B1OC(C)(C)C(C)(C)O1",
+        "CC(=C)B1OC(C)(C)C(C)(C)O1",
+        "Cn1ncc(B2OC(C)(C)C(C)(C)O2)c1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all("tetramethyl-1,3,2-dioxaborolan" not in name for name in names)
+    assert all("boronic acid pinacol ester" in name for name in names)
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_retained_functional_parent_motifs_roundtrip():
     smiles_values = [
         "O=CCN(CC=O)C(=O)OCc1ccccc1",

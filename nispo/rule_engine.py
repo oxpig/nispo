@@ -1371,6 +1371,26 @@ def _compact_retained_oxy_terms(name: str) -> str:
 
 
 def _normalize_retained_fused_substituent_locants(name: str) -> str:
+    substituent = (
+        r"fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|propoxy|"
+        r"nitro|cyano|amino|carboxy|carbamyl|trifluoromethyl|difluoromethyl|"
+        r"trifluoromethoxy|difluoromethoxy|methylsulfonyl|mesyl"
+    )
+    decorated_prefix = rf"(?:(?:\d+(?:,\d+)*-)?(?:di|tri|tetra)?(?:{substituent}))"
+    benzazole_suffix = r"imidazolyl|oxazolyl|thiazolyl"
+
+    def decorated_benzazole_repl(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        locant = match.group(2)
+        suffix = match.group(3)
+        prefix_text = f"{prefix}-" if prefix else ""
+        return f"{prefix_text}{locant}-benz{suffix}"
+
+    name = re.sub(
+        rf"\b((?:{decorated_prefix})*)benz(\d+)-?({benzazole_suffix})(?=\b|carbonyl|methyl|amino|oxy|sulfonyl)",
+        decorated_benzazole_repl,
+        name,
+    )
     for compact in ("furyl", "thienyl", "imidazolyl", "oxazolyl", "thiazolyl"):
         name = re.sub(rf"\bbenzo(\d+)-{compact}\b", rf"\1-benzo{compact}", name)
         name = re.sub(rf"\bbenzo(\d+){compact}\b", rf"\1-benzo{compact}", name)

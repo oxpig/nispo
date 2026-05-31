@@ -171,6 +171,9 @@ def test_charged_saturated_heterocycle_parents_roundtrip():
 def test_compact_benzazole_and_complex_carbamoyl_aliases_roundtrip():
     smiles_values = [
         "Fc1ccc(CSc2nc3ccc(Cl)cc3o2)cc1",
+        "Cn1cc(-c2nc3ccc(N)cc3o2)cn1",
+        "O=[N+]([O-])c1ccc2nc(C3CCOCC3)oc2c1",
+        "O=c1c2cncc(-c3ccccc3)c2ccn1Cc1nc2ccccc2o1",
         "O=C(Nc1cccc(C2=NCCN2)c1)c1ccc(-c2ccc(C(=O)Nc3cccc(C4=NCCN4)c3)cc2)cc1",
     ]
 
@@ -178,6 +181,7 @@ def test_compact_benzazole_and_complex_carbamoyl_aliases_roundtrip():
     parsed = _opsin_parse(names)
 
     assert all("benz2-" not in name for name in names)
+    assert all("benz3-" not in name for name in names)
     assert any("carbamyl" in name for name in names)
     assert all("1-azamethylcarbonyl" not in name for name in names)
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):

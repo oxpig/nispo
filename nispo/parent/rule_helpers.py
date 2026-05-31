@@ -1155,7 +1155,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_seq = seq
     if not best_name:
         return []
-    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem))]
+    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name))]
 
 
 def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -> str:
@@ -1251,14 +1251,14 @@ def _compact_benzene_retained_parent_name(name: str) -> str:
     return name
 
 
-def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
+def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
     if not seq:
         return ""
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
         relative_prefix = _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
         if relative_prefix:
             return relative_prefix
-        return _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem)
+        return _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem, name=name)
     seq_set = set(seq)
     tagged_atoms = [
         atom.GetIdx()
@@ -1273,29 +1273,48 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
     if len(centers) < 2:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
-    if any(idx not in locants for idx, _descriptor in centers):
+    locanted_centers = [(idx, descriptor) for idx, descriptor in centers if idx in locants]
+    if not locanted_centers:
         return ""
-    return ",".join(
+    outside_count = len(centers) - len(locanted_centers)
+    if outside_count and len(_locanted_stereo_descriptors_in_text(name)) < outside_count:
+        return ""
+    prefix = ",".join(
         f"{locants[idx]}{descriptor}"
-        for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
+        for idx, descriptor in sorted(locanted_centers, key=lambda item: locants[item[0]])
     )
+    return "" if _stereo_prefixed_name_exceeds_preserve_cap(name, prefix) else prefix
 
 
-def _single_carbocycle_locanted_absolute_prefix(mol, seq: Sequence[int], Chem) -> str:
+def _single_carbocycle_locanted_absolute_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
     if _has_assigned_bond_stereo(mol, Chem):
         return ""
-    seq_set = set(seq)
     centers = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
-    if len(centers) != 1:
-        return ""
-    idx, descriptor = centers[0]
-    if idx not in seq_set:
-        return ""
-    atom = mol.GetAtomWithIdx(idx)
-    if atom.GetSymbol() != "C" or atom.GetIsAromatic():
+    if not centers:
         return ""
     locants = {ring_idx: loc for loc, ring_idx in enumerate(seq, start=1)}
-    return f"{locants[idx]}{descriptor}"
+    locanted_centers = [(idx, descriptor) for idx, descriptor in centers if idx in locants]
+    if not locanted_centers:
+        return ""
+    outside_count = len(centers) - len(locanted_centers)
+    if outside_count and len(_locanted_stereo_descriptors_in_text(name)) < outside_count:
+        return ""
+    if any(
+        mol.GetAtomWithIdx(idx).GetSymbol() != "C" or mol.GetAtomWithIdx(idx).GetIsAromatic()
+        for idx, _descriptor in locanted_centers
+    ):
+        return ""
+    prefix = ",".join(
+        f"{locants[idx]}{descriptor}"
+        for idx, descriptor in sorted(locanted_centers, key=lambda item: locants[item[0]])
+    )
+    return "" if _stereo_prefixed_name_exceeds_preserve_cap(name, prefix) else prefix
+
+
+def _stereo_prefixed_name_exceeds_preserve_cap(name: str, prefix: str) -> bool:
+    if not name or not prefix:
+        return False
+    return len(name) + len(prefix) + 3 > _STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH
 
 
 def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) -> str:
@@ -1471,6 +1490,7 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "carboxylato": "carboxylate",
     "cyano": "carbonitrile",
 }
+_STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH = 152
 
 _FUSED_FUNCTIONAL_SUFFIXES = _SINGLE_RING_FUNCTIONAL_SUFFIXES
 

@@ -260,6 +260,36 @@ def test_functional_ester_aliases_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_multicenter_carbocycle_stereo_roundtrips():
+    smiles_values = [
+        "CC1(C)[C@H](C(=O)O)CC[C@]1(C)C(=O)O",
+        "O=CO[C@@H]1CCC[C@@H]1O",
+        "C=C[C@@H]1C[C@H]1C(=O)OCC",
+        "CC(C)(C)OC(=O)N[C@H]1CCCC[C@H]1N=[N+]=[N-]",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_single_ring_parent_stereo_with_stereo_substituents_roundtrips():
+    smiles_values = [
+        "O=C(O)[C@H]1O[C@H](O[C@@H]2[C@H](O)[C@@H](O)C(O)O[C@@H]2C(=O)O)[C@H](O)[C@@H](O)[C@H]1O",
+        "C[C@@H]1O[C@@H](OC[C@H]2O[C@@H](n3ccc(=O)[nH]c3=O)C[C@@H]2O)[C@@H](O)[C@H](O)[C@@H]1O",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def _opsin_parse(names: list[str]) -> list[str]:
     if not OPSIN_JAR.exists():
         pytest.skip(f"OPSIN jar not found: {OPSIN_JAR}")

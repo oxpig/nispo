@@ -40,7 +40,17 @@ SUPPORTED_SUBSTITUENT_ATTRIBUTES = {
 
 def resource_substituent_prefix(mol, idx: int, parent_idx: int, Chem) -> str:
     template = resource_substituent_match(mol, idx, parent_idx, Chem)
-    return template_record_name(template) if template else ""
+    return _preferred_resource_substituent_name(template_record_name(template)) if template else ""
+
+
+def _preferred_resource_substituent_name(name: str) -> str:
+    return {
+        "benzyloxycarbonyl": "cbz",
+        "carbbenzoxy": "cbz",
+        "fluorenylmethoxycarbonyl": "fmoc",
+        "tert-butoxycarbonyl": "boc",
+        "tert-butyloxycarbonyl": "boc",
+    }.get(name, name)
 
 
 def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | None:
@@ -51,8 +61,10 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
     key = _subtree_key(mol, idx, atoms)
     for template in _substituent_templates(Chem).get(key, ()):
         query = template_record_mol(template)
-        for match in mol.GetSubstructMatches(query, uniquify=False):
+        for match in mol.GetSubstructMatches(query, uniquify=False, useChirality=True):
             if set(match) != atoms:
+                continue
+            if template.get("unassigned_root_only") and mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
             if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
                 continue
@@ -71,11 +83,165 @@ def _acyclic_carbalkoxy_token_on_ring(template: dict, mol, match: tuple[int, ...
 @lru_cache(maxsize=1)
 def _substituent_templates(Chem) -> dict[tuple, tuple[dict, ...]]:
     grouped = defaultdict(list)
+    for template in _manual_substituent_templates(Chem):
+        grouped[_template_key(template_record_mol(template))].append(template)
     for record in iter_opsin_token_records(SUBSTITUENT_RESOURCE_FILES):
         template = _template_from_token(Chem, record)
         if template:
             grouped[_template_key(template_record_mol(template))].append(template)
     return {key: tuple(value) for key, value in grouped.items()}
+
+
+_MANUAL_CARBOHYDRATE_SUBSTITUENTS = (
+    (
+        "glucopyranosyl",
+        "C1([C@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        True,
+    ),
+    (
+        "alpha-D-glucopyranosyl",
+        "[C@H]1([C@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "beta-D-glucopyranosyl",
+        "[C@@H]1([C@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "galactopyranosyl",
+        "C1([C@H](O)[C@@H](O)[C@@H](O)[C@H](O1)CO)",
+        0,
+        True,
+    ),
+    (
+        "alpha-D-galactopyranosyl",
+        "[C@H]1([C@H](O)[C@@H](O)[C@@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "beta-D-galactopyranosyl",
+        "[C@@H]1([C@H](O)[C@@H](O)[C@@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "mannopyranosyl",
+        "C1([C@@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        True,
+    ),
+    (
+        "alpha-D-mannopyranosyl",
+        "[C@H]1([C@@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "beta-D-mannopyranosyl",
+        "[C@@H]1([C@@H](O)[C@@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "fucopyranosyl",
+        "C1([C@@H](O)[C@H](O)[C@H](O)[C@@H](O1)C)",
+        0,
+        True,
+    ),
+    (
+        "alpha-L-fucopyranosyl",
+        "[C@@H]1([C@@H](O)[C@H](O)[C@H](O)[C@@H](O1)C)",
+        0,
+        False,
+    ),
+    (
+        "beta-L-fucopyranosyl",
+        "[C@H]1([C@@H](O)[C@H](O)[C@H](O)[C@@H](O1)C)",
+        0,
+        False,
+    ),
+    (
+        "ribofuranosyl",
+        "C1([C@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        True,
+    ),
+    (
+        "alpha-D-ribofuranosyl",
+        "[C@H]1([C@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "beta-D-ribofuranosyl",
+        "[C@@H]1([C@H](O)[C@H](O)[C@H](O1)CO)",
+        0,
+        False,
+    ),
+    (
+        "fructofuranosyl",
+        "OCC1([C@@H](O)[C@H](O)[C@H](O1)CO)",
+        2,
+        True,
+    ),
+    (
+        "alpha-D-fructofuranosyl",
+        "OC[C@]1([C@@H](O)[C@H](O)[C@H](O1)CO)",
+        2,
+        False,
+    ),
+    (
+        "beta-D-fructofuranosyl",
+        "OC[C@@]1([C@@H](O)[C@H](O)[C@H](O1)CO)",
+        2,
+        False,
+    ),
+    (
+        "apiofuranosyl",
+        "C1([C@H](O)C(CO1)(O)CO)",
+        0,
+        True,
+    ),
+    (
+        "alpha-D-apiofuranosyl",
+        "[C@H]1([C@H](O)C(CO1)(O)CO)",
+        0,
+        False,
+    ),
+    (
+        "beta-D-apiofuranosyl",
+        "[C@@H]1([C@H](O)C(CO1)(O)CO)",
+        0,
+        False,
+    ),
+)
+
+
+def _manual_substituent_templates(Chem) -> tuple[dict, ...]:
+    templates = []
+    for name, smiles, root_idx, unassigned_root_only in _MANUAL_CARBOHYDRATE_SUBSTITUENTS:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            continue
+        if root_idx:
+            order = (root_idx,) + tuple(idx for idx in range(mol.GetNumAtoms()) if idx != root_idx)
+            mol = Chem.RenumberAtoms(mol, list(order))
+        templates.append(
+            {
+                "name": name,
+                "mol": mol,
+                "source_family": "manual-carbohydrate-substituent",
+                "source_file": "carbohydrates.xml",
+                "source_subtype": "glycosyl-substituent",
+                "unassigned_root_only": unassigned_root_only,
+            }
+        )
+    return tuple(templates)
 
 
 def _template_from_token(Chem, record_or_token) -> dict | None:

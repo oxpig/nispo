@@ -627,12 +627,14 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         if key in seen:
             continue
         seen.add(key)
+        component_rank = 3 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", parent_name) else 1
         components.append(
             _Component(
                 parent_name=parent_name,
                 spiro_locant=locants[spiro_idx],
                 locants=locants,
                 replacement_prefixes=tuple(replacement_prefixes),
+                component_rank=component_rank,
             )
         )
     components.sort(
@@ -750,7 +752,9 @@ def _component_from_fused_template(
     parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
     if not parent_name:
         return None
-    return _Component(parent_name=parent_name, spiro_locant=spiro_locant, locants=locants, component_rank=1)
+    if "hydro" in parent_name:
+        return None
+    return _Component(parent_name=parent_name, spiro_locant=spiro_locant, locants=locants, component_rank=0)
 
 
 def _fused_component_parent_rank(name: str) -> tuple:

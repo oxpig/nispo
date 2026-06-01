@@ -6,7 +6,9 @@ from itertools import combinations, permutations
 
 from .branch_rules import branch_prefix
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
-from .formatting import format_prefixes as _format_prefixes, join_locants as _join_locants
+from .formatting import format_prefixes as _format_prefixes
+from .formatting import join_locants as _join_locants
+from .formatting import join_prefix_parent as _join_prefix_parent
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
 from .stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
@@ -1159,7 +1161,7 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
                 return ""
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + parent if prefix_text else parent
+    return _join_prefix_parent(prefix_text, parent) if prefix_text else parent
 
 
 def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:
@@ -1204,7 +1206,7 @@ def _name_polycyclic_substituent(
                 return ""
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
-    name = prefix_text + "-" + suffix if prefix_text else suffix
+    name = _join_prefix_parent(prefix_text, suffix) if prefix_text else suffix
     stereo_prefix = _polycyclic_substituent_stereo_prefix(mol, seq, Chem)
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
 

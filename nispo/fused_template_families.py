@@ -157,6 +157,49 @@ def hydrocarbon_replacement_parent_templates_for_graph(
     return tuple(sorted(selected, key=generated_template_key))
 
 
+@lru_cache(maxsize=512)
+def retained_topology_replacement_parent_templates_for_graph(
+    atom_count: int, ring_count: int, graph_signature: str, Chem
+) -> tuple[dict, ...]:
+    """Retained fused parents with the same ring topology for replacement naming.
+
+    This is deliberately broader than the hydrocarbon-only replacement index:
+    retained parents such as chroman or naphthyridine already encode useful
+    heteroatom positions, and additional ring heteroatoms can be rendered as
+    locanted replacement prefixes when the ring graph is identical.
+    """
+
+    templates = (
+        parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
+        + parent_scaffold_catalog(Chem).opsin_retained_fused
+        + parent_scaffold_catalog(Chem).opsin_test_scaffolds
+        + parent_scaffold_catalog(Chem).fusion_component_parents
+        + parent_scaffold_catalog(Chem).static_retained
+    )
+    selected = []
+    seen: set[tuple[str, str]] = set()
+    for template in templates:
+        if not template.get("general_parent_safe", True):
+            continue
+        if template.get("stereochemical"):
+            continue
+        if set(template.get("flags", ())) & {"radical", "organometallic", "general-parent-unsupported"}:
+            continue
+        features = molecule_features(template_record_mol(template), Chem)
+        if features["ring_count"] != ring_count:
+            continue
+        if features["atom_count"] != atom_count:
+            continue
+        if not any(system["graph_signature"] == graph_signature for system in features["ring_systems"]):
+            continue
+        key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(template)
+    return tuple(sorted(selected, key=generated_template_key))
+
+
 def candidate_generated_fused_templates(
     mol, Chem, features: dict | None = None, *, graph_filter: bool = True
 ) -> tuple[dict, ...]:

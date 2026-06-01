@@ -26,6 +26,7 @@ _SATURATED_HETEROCYCLE_SPECS: tuple[_SaturatedHeterocycleSpec, ...] = (
     _SaturatedHeterocycleSpec(4, (("C", 3), ("N", 1)), "N", "azetidine"),
     _SaturatedHeterocycleSpec(4, (("C", 3), ("O", 1)), "O", "oxetane"),
     _SaturatedHeterocycleSpec(4, (("C", 3), ("S", 1)), "S", "thietane"),
+    _SaturatedHeterocycleSpec(5, (("B", 1), ("C", 2), ("O", 2)), "O", "1,3,2-dioxaborolane", "O", (1, 3)),
     _SaturatedHeterocycleSpec(5, (("C", 3), ("O", 2)), "O", "1,3-dioxolane", "O", (1, 3)),
     _SaturatedHeterocycleSpec(5, (("C", 3), ("N", 2)), "N", "imidazolidine", "N", (1, 3)),
     _SaturatedHeterocycleSpec(5, (("C", 4), ("N", 1)), "N", "pyrrolidine"),
@@ -233,8 +234,18 @@ def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple
         if candidates:
             return candidates
 
+    if n == 6 and symbols.count("N") == 1 and symbols.count("C") == 5 and not all_aromatic:
+        candidates.extend(_partially_hydrogenated_pyridine_candidates(mol, ordered))
+        if candidates:
+            return candidates
+
     if n == 6 and symbols.count("O") == 1 and symbols.count("C") == 5 and not all_aromatic:
         candidates.extend(_unsaturated_pyran_candidates(mol, ordered))
+        if candidates:
+            return candidates
+
+    if n == 5 and symbols.count("N") == 1 and symbols.count("C") == 4:
+        candidates.extend(_cyclic_imide_candidates(mol, ordered))
         if candidates:
             return candidates
 
@@ -486,6 +497,97 @@ def _unsaturated_pyran_candidates(mol, ordered: Sequence[int]) -> list[tuple[str
     return candidates
 
 
+def _partially_hydrogenated_pyridine_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    ring_set = set(ordered)
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        saturated_locs = _h_pyridine_saturated_locs(mol, seq)
+        oxo_methylidene_locs = [
+            loc
+            for loc, idx in enumerate(seq, start=1)
+            if _has_exocyclic_oxo_methylidene(mol, idx, ring_set)
+        ]
+        oxo_h_locs = [loc for loc in oxo_methylidene_locs if loc in saturated_locs]
+        if len(oxo_h_locs) == 1:
+            candidates.append((f"{oxo_h_locs[0]}H-pyridine", seq))
+            continue
+        if len(saturated_locs) == 1:
+            candidates.append((f"{saturated_locs[0]}H-pyridine", seq))
+            continue
+        if len(saturated_locs) != 2:
+            continue
+        if (
+            1 in saturated_locs
+            and _has_external_n_substituent(mol, seq[0], ring_set)
+            and not _has_external_ring_carbon_substituent(mol, seq, ring_set)
+        ):
+            candidates.append(("pyridine", seq))
+        else:
+            locants = ",".join(str(loc) for loc in saturated_locs)
+            candidates.append((f"{locants}-dihydropyridine", seq))
+    return candidates
+
+
+def _has_exocyclic_oxo_methylidene(mol, atom_idx: int, ring_set: set[int]) -> bool:
+    for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+        carbon_idx = nbr.GetIdx()
+        if carbon_idx in ring_set or nbr.GetSymbol() != "C" or nbr.GetFormalCharge() != 0:
+            continue
+        bond = mol.GetBondBetweenAtoms(atom_idx, carbon_idx)
+        if bond is None or bond.GetBondTypeAsDouble() != 2.0:
+            continue
+        oxygen_count = 0
+        extra = False
+        for distal in nbr.GetNeighbors():
+            distal_idx = distal.GetIdx()
+            if distal_idx == atom_idx:
+                continue
+            distal_bond = mol.GetBondBetweenAtoms(carbon_idx, distal_idx)
+            if distal.GetSymbol() == "O" and distal_bond is not None and distal_bond.GetBondTypeAsDouble() == 2.0:
+                oxygen_count += 1
+            elif distal.GetAtomicNum() > 1:
+                extra = True
+                break
+        if oxygen_count == 1 and not extra:
+            return True
+    return False
+
+
+def _h_pyridine_saturated_locs(mol, seq: Sequence[int]) -> list[int]:
+    orders = [
+        mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble()
+        for a, b in zip(seq, seq[1:] + seq[:1])
+    ]
+    if any(order not in {1.0, 2.0} for order in orders):
+        return []
+    if orders.count(2.0) != 2:
+        return []
+    locs = []
+    for loc in range(1, len(seq) + 1):
+        left = (loc - 2) % len(seq)
+        right = (loc - 1) % len(seq)
+        if orders[left] == 1.0 and orders[right] == 1.0:
+            locs.append(loc)
+    return locs
+
+
+def _has_external_n_substituent(mol, nitrogen_idx: int, ring_set: set[int]) -> bool:
+    return any(
+        nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1
+        for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors()
+    )
+
+
+def _has_external_ring_carbon_substituent(mol, seq: Sequence[int], ring_set: set[int]) -> bool:
+    for idx in seq[1:]:
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() != "C":
+            continue
+        if any(nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            return True
+    return False
+
+
 def _fixed_saturated_heterocycle_candidates(
     mol, ordered: Sequence[int], symbols: Sequence[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
@@ -506,6 +608,73 @@ def _fixed_saturated_heterocycle_candidates(
                     continue
             candidates.append((spec.parent, seq))
     return candidates
+
+
+def _cyclic_imide_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    ring_set = set(ordered)
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        if mol.GetAtomWithIdx(seq[0]).GetFormalCharge() != 0:
+            continue
+        if not _cyclic_imide_n_substitution_supported(mol, seq[0], ring_set):
+            continue
+        if not _has_exocyclic_oxo(mol, seq[1], ring_set) or not _has_exocyclic_oxo(mol, seq[4], ring_set):
+            continue
+        if _cyclic_imide_has_alkene_disubstitution(mol, seq, ring_set):
+            continue
+        if any(_has_exocyclic_oxo(mol, idx, ring_set) for idx in seq[2:4]):
+            continue
+        orders = [
+            mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble()
+            for a, b in zip(seq, seq[1:] + seq[:1])
+        ]
+        if any(order not in {1.0, 2.0} for order in orders):
+            continue
+        if orders == [1.0, 1.0, 2.0, 1.0, 1.0]:
+            candidates.append(("maleimide", seq))
+        elif orders == [1.0, 1.0, 1.0, 1.0, 1.0]:
+            candidates.append(("succinimide", seq))
+    return candidates
+
+
+def _cyclic_imide_n_substitution_supported(mol, nitrogen_idx: int, ring_set: set[int]) -> bool:
+    external = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1
+    ]
+    if not external:
+        return True
+    if len(external) != 1:
+        return False
+    root = external[0]
+    if mol.GetAtomWithIdx(root).GetSymbol() != "C":
+        return False
+    seen = {nitrogen_idx}
+    stack = [root]
+    atoms = set()
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        atoms.add(idx)
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.IsInRing() or atom.GetSymbol() != "C":
+            return False
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in seen or nidx in ring_set or nbr.GetAtomicNum() <= 1:
+                continue
+            stack.append(nidx)
+    return len(atoms) <= 10
+
+
+def _cyclic_imide_has_alkene_disubstitution(mol, seq: Sequence[int], ring_set: set[int]) -> bool:
+    return all(
+        any(nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1 for nbr in mol.GetAtomWithIdx(idx).GetNeighbors())
+        for idx in seq[2:4]
+    )
 
 
 def _carbocycle_parent(mol, seq: Sequence[int]) -> str:
@@ -529,7 +698,9 @@ def _carbocycle_parent(mol, seq: Sequence[int]) -> str:
         return ""
     root = "cyclo" + root
     if not ene_locs and not yne_locs:
-        return root + "ane"
+        if any(str(mol.GetAtomWithIdx(idx).GetChiralTag()) != "CHI_UNSPECIFIED" for idx in seq):
+            return root + "ane"
+        return root + "an"
     if ene_locs and not yne_locs:
         return loc_unsat(root, ene_locs, "ene")
     if yne_locs and not ene_locs:
@@ -606,7 +777,7 @@ def _unsaturated_diazine_candidates(mol, ordered: Sequence[int]) -> list[tuple[s
 
 def _heterocycloalkane_parent(mol, seq: Sequence[int]) -> str:
     parent = _heterocycle_parent(mol, seq)
-    return parent if parent.endswith("ane") else ""
+    return parent if parent.endswith(("ane", "an")) else ""
 
 
 def _aromatic_heterocycle_parent(mol, seq: Sequence[int]) -> str:
@@ -778,8 +949,22 @@ def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:
 
 
 def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None = None) -> str:
+    if parent_name == "maleimide":
+        if loc in {3, 4}:
+            return f"1H-pyrrole-2,5-dione-{loc}-yl"
+        return ""
+    if parent_name == "succinimide":
+        return ""
     if parent_name == "benzene":
         return "phenyl" if loc == 1 else ""
+    if parent_name == "furan":
+        return f"{loc}-furyl"
+    if parent_name == "thiophene" and charge_loc is None:
+        return f"{loc}-thienyl"
+    if parent_name == "pyridine" and charge_loc is None:
+        return f"{loc}-pyridyl"
+    if parent_name == "piperidine" and charge_loc is None and loc != 1:
+        return f"{loc}-piperidyl"
     retained_n_substituent = _retained_saturated_n_substituent_suffix(parent_name, loc, charge_loc)
     if retained_n_substituent:
         return retained_n_substituent
@@ -818,6 +1003,8 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return f"{parent_name[:-1]}-{loc}-yl"
     if parent_name.startswith("cyclo") and parent_name.endswith("ane"):
         return parent_name[:-3] + "yl" if loc == 1 else ""
+    if parent_name.startswith("cyclo") and parent_name.endswith("an"):
+        return parent_name[:-2] + "yl" if loc == 1 else ""
     stem = _SATURATED_SUBSTITUENT_STEMS.get(parent_name)
     if stem:
         return _substituent_suffix_from_stem(stem, loc, charge_loc)

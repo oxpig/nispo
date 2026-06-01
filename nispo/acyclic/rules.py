@@ -24,6 +24,8 @@ from ..branch_rules import (
 )
 from ..constants import MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
+from ..formatting import join_prefix_parent as _join_prefix_parent
+from ..formatting import preferred_parent_stem as _preferred_parent_stem
 from ..formatting import unsaturated_parent as _unsaturated_parent
 from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
@@ -209,7 +211,7 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
     parent = replacement_text + parent if replacement_text else parent
     name = f"{parent[:-1]}-{locant}-ylideneoxidanium"
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + name if prefix_text else name
+    return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
 
 def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
@@ -297,7 +299,7 @@ def _name_ketene_path(
     locant = path.index(alpha_idx) + 1
     ketene_parent = f"{parent[:-1]}-{locant}-ylidenemethanone"
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + ketene_parent if prefix_text else ketene_parent
+    return _join_prefix_parent(prefix_text, ketene_parent) if prefix_text else ketene_parent
 
 
 def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[int, ...]]:
@@ -475,19 +477,57 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         return ""
     stereo_prefix = _complete_path_stereo_prefix(mol, path)
     if not as_substituent and not replacement_text:
+        hydroxy_parent = _hydroxy_suffix_parent_name(mol, path, prefixes)
+        if hydroxy_parent:
+            return f"({stereo_prefix})-{hydroxy_parent}" if stereo_prefix else hydroxy_parent
         suffix_parent = _terminal_carboxy_suffix_parent_name(mol, path, prefixes)
         if suffix_parent:
             return suffix_parent
     prefix_text = _format_prefixes(prefixes)
-    pieces = []
-    if prefix_text:
-        pieces.append(prefix_text)
     if replacement_text:
+        pieces = []
+        if prefix_text:
+            pieces.append(prefix_text)
         pieces.append(replacement_text + parent)
+        name = "-".join(pieces)
     else:
-        pieces.append(parent)
-    name = "-".join(pieces)
+        name = _join_prefix_parent(prefix_text, parent) if prefix_text else _preferred_parent_stem(parent)
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _hydroxy_suffix_parent_name(
+    mol,
+    path: Sequence[int],
+    prefixes: Sequence[tuple[str, str]],
+) -> str:
+    hydroxy_locs = [loc for loc, prefix in prefixes if prefix == "hydroxy" and loc.isdigit()]
+    if not hydroxy_locs:
+        return ""
+    if len(hydroxy_locs) > 2:
+        return ""
+    if any(mol.GetAtomWithIdx(idx).IsInRing() for idx in path):
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "hydroxy"]
+    if any(prefix in {"carboxy", "carboxylato", "carbamyl", "formyl", "oxo", "imino"} for _loc, prefix in remaining):
+        return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if not parent:
+        return ""
+    hydroxy_locs = sorted(hydroxy_locs, key=lambda value: int(value))
+    if (parent.endswith(("en", "yn")) or "-" in parent) and (hydroxy_locs != ["1"] or remaining):
+        return ""
+    if len(hydroxy_locs) == 1:
+        core = _mono_hydroxy_suffix_parent(parent, hydroxy_locs[0])
+    else:
+        core = f"{parent}-{','.join(hydroxy_locs)}-diol"
+    prefix_text = _format_prefixes(remaining)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+
+
+def _mono_hydroxy_suffix_parent(parent: str, locant: str) -> str:
+    if locant == "1":
+        return parent + "ol"
+    return f"{locant}-{parent}ol"
 
 
 def _terminal_carboxy_suffix_parent_name(
@@ -509,6 +549,9 @@ def _terminal_carboxy_suffix_parent_name(
     ] or [item for item in terminal_groups if item[1] == "carbamyl"] or [
         item for item in terminal_groups if item[1] == "formyl"
     ]
+    diterminal = _diterminal_carboxy_suffix_parent_name(mol, path, prefixes, terminal)
+    if diterminal:
+        return diterminal
     if len(terminal) != 1:
         return ""
     terminal_loc, terminal_prefix = terminal[0]
@@ -538,9 +581,83 @@ def _terminal_carboxy_suffix_parent_name(
     if not parent:
         return ""
     prefix_text = _format_prefixes(remaining)
-    name = prefix_text + "-" + parent if prefix_text else parent
+    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
     stereo_prefix = _terminal_carboxy_stereo_prefix(mol, oriented_path)
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _diterminal_carboxy_suffix_parent_name(
+    mol,
+    path: Sequence[int],
+    prefixes: Sequence[tuple[str, str]],
+    terminal: Sequence[tuple[str, str]],
+) -> str:
+    n = len(path)
+    root = ROOTS.get(n + 2)
+    if n < 1 or not root or len(terminal) != 2:
+        return ""
+    terminal_by_loc = {loc: prefix for loc, prefix in terminal}
+    if set(terminal_by_loc) != {"1", str(n)}:
+        return ""
+    terminal_types = set(terminal_by_loc.values())
+    if len(terminal_types) != 1:
+        return ""
+    terminal_prefix = next(iter(terminal_types))
+    if terminal_prefix not in {"carboxy", "carboxylato", "carbamyl"}:
+        return ""
+    remaining: list[tuple[str, str]] = []
+    terminal_set = set(terminal)
+    for loc, prefix in prefixes:
+        if (loc, prefix) in terminal_set:
+            continue
+        if not loc.isdigit():
+            return ""
+        remaining.append((str(int(loc) + 1), prefix))
+    if any("carbo" in prefix or (prefix.startswith("carb") and prefix.endswith("oxy")) for _loc, prefix in remaining):
+        return ""
+    parent = _diterminal_carboxy_parent_suffix_text(mol, root, path, terminal_prefix)
+    if not parent:
+        return ""
+    prefix_text = _format_prefixes(remaining)
+    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    stereo_prefix = _terminal_carboxy_stereo_prefix(mol, path)
+    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _diterminal_carboxy_parent_suffix_text(
+    mol,
+    root: str,
+    path: Sequence[int],
+    terminal_prefix: str,
+) -> str:
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    for locant, (a, b) in enumerate(zip(path, path[1:]), start=2):
+        bond = mol.GetBondBetweenAtoms(a, b)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    parent = _unsaturated_parent(root, ene_locs, yne_locs)
+    if terminal_prefix == "carbamyl":
+        return _diterminal_suffix(parent, "diamide")
+    if terminal_prefix == "carboxylato":
+        return _diterminal_suffix(parent, "dioate")
+    return _diterminal_suffix(parent, "dioic acid")
+
+
+def _diterminal_suffix(parent: str, suffix: str) -> str:
+    if parent.endswith("ane"):
+        return parent[:-1] + suffix
+    if parent.endswith(("an", "en", "yn")):
+        return parent + "e" + suffix
+    if parent.endswith("e"):
+        return parent[:-1] + suffix
+    return parent + suffix
 
 
 def _terminal_carboxy_parent_suffix_text(
@@ -842,7 +959,7 @@ def _name_exocyclic_sulfur_suffix_path(
     locant = path.index(center_idx) + 1
     parent = parent[:-1] + f"-{locant}-{suffix}"
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + parent if prefix_text else parent
+    return _join_prefix_parent(prefix_text, parent) if prefix_text else parent
 
 
 def _thioamide_parent_name(mol, carbonyl_idx: int, sulfur_idx: int, nitrogen_idx: int) -> str:

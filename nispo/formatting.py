@@ -18,13 +18,27 @@ def unsaturated_parent(root: str, ene_locs: list[int], yne_locs: list[int]) -> s
     if not ene_locs and not yne_locs:
         return root + "an"
     if ene_locs and not yne_locs:
+        if len(ene_locs) == 1:
+            return root + "en" if ene_locs[0] == 1 else f"{ene_locs[0]}-{root}en"
+        if len(ene_locs) > 1:
+            return _compact_polyunsaturated_parent(root, ene_locs, "dien", "ene")
         return loc_unsat(root, ene_locs, "ene")
     if yne_locs and not ene_locs:
+        if len(yne_locs) == 1:
+            return root + "yn" if yne_locs[0] == 1 else f"{yne_locs[0]}-{root}yn"
+        if len(yne_locs) > 1:
+            return _compact_polyunsaturated_parent(root, yne_locs, "diyn", "yne")
         return loc_unsat(root, yne_locs, "yne")
     ene = loc_unsat(root, ene_locs, "en", terminal_e=False)
     yne = loc_unsat("", yne_locs, "yne", terminal_e=True)
     return ene + "-" + yne
 
+
+
+def _compact_polyunsaturated_parent(root: str, locs: list[int], di_suffix: str, base_suffix: str) -> str:
+    mult = MULT.get(len(locs), "")
+    suffix = di_suffix if len(locs) == 2 else f"{mult}{base_suffix}"
+    return f"{join_locants(locs)}-{root}a{suffix}"
 
 
 def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = False) -> str:
@@ -172,10 +186,192 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
     return "-".join(parts)
 
 
+def join_prefix_parent(prefix_text: str, parent: str) -> str:
+    parent = preferred_parent_stem(parent)
+    if not prefix_text:
+        return parent
+    prefix_text = _drop_redundant_parent_leading_locant(prefix_text, parent)
+    separator = "" if _can_elide_prefix_parent_hyphen(parent) else "-"
+    return f"{prefix_text}{separator}{parent}"
+
+
+_PREFERRED_PARENT_STEMS = (
+    ("benzimidazole", "benzimidazol"),
+    ("benzothiazole", "benzothiazol"),
+    ("benzoxazole", "benzoxazol"),
+    ("isoquinoline", "isoquinolin"),
+    ("naphthyridine", "naphthyridin"),
+    ("piperazine", "piperazin"),
+    ("piperidine", "piperidin"),
+    ("pyridazine", "pyridazin"),
+    ("pyrimidine", "pyrimidin"),
+    ("pyrrolidine", "pyrrolidin"),
+    ("benzodioxole", "benzodioxol"),
+    ("imidazole", "imidazol"),
+    ("morpholine", "morpholin"),
+    ("pyrazine", "pyrazin"),
+    ("pyridine", "pyridin"),
+    ("quinoline", "quinolin"),
+    ("tetrazole", "tetrazol"),
+    ("triazole", "triazol"),
+    ("thiazole", "thiazol"),
+    ("oxazole", "oxazol"),
+    ("1,3-dioxolane", "1,3-dioxolan"),
+    ("1,3-dioxane", "1,3-dioxan"),
+    ("1,4-dioxane", "1,4-dioxan"),
+    ("azepane", "azepan"),
+    ("azetidine", "azetidin"),
+    ("oxolane", "oxolan"),
+    ("oxane", "oxan"),
+    ("oxepane", "oxepan"),
+    ("thiane", "thian"),
+    ("indole", "indol"),
+)
+
+
+def preferred_parent_stem(parent: str) -> str:
+    if not parent:
+        return parent
+    stemmed = parent
+    for full, stem in _PREFERRED_PARENT_STEMS:
+        stemmed = stemmed.replace(full, stem)
+    return stemmed
+
+
+def _drop_redundant_parent_leading_locant(prefix_text: str, parent: str) -> str:
+    if parent not in {"benzene", "benzen"}:
+        if _can_drop_redundant_leading_one_locant(prefix_text, parent):
+            return prefix_text[2:]
+        return prefix_text
+    if prefix_text.startswith("1-"):
+        return prefix_text[2:]
+    return prefix_text
+
+
+def _can_drop_redundant_leading_one_locant(prefix_text: str, parent: str) -> bool:
+    if not prefix_text.startswith("1-") or "," in prefix_text:
+        return False
+    prefix = prefix_text[2:]
+    if "-" in prefix or "(" in prefix or ")" in prefix:
+        return False
+    if prefix not in {"amino", "azido", "bromo", "chloro", "fluoro", "hydroxy", "iodo", "nitro", "sulfanyl"}:
+        return False
+    lowered = _strip_leading_indicated_hydrogen(parent.lower())
+    if any(char in lowered for char in " []',"):
+        return False
+    return lowered.endswith(("an", "en", "yn"))
+
+
+_HYPHENLESS_RETAINED_PARENT_STARTS = (
+    "benzene",
+    "benzen",
+    "benzimidazol",
+    "benzothiazol",
+    "benzoxazol",
+    "benzopentacen",
+    "benzopentacene",
+    "biphenyl",
+    "carbazol",
+    "chroman",
+    "chromen",
+    "furan",
+    "indazol",
+    "indol",
+    "isoindol",
+    "isooxazol",
+    "isoquinolin",
+    "isonicotinamide",
+    "isonicotinate",
+    "isonicotinic acid",
+    "isothiazol",
+    "morpholin",
+    "nicotinamide",
+    "nicotinate",
+    "nicotinic acid",
+    "oxazol",
+    "piperazin",
+    "piperidin",
+    "picolinamide",
+    "picolinate",
+    "picolinic acid",
+    "purin",
+    "pyrazin",
+    "pyridazin",
+    "pyridin",
+    "pyrimidin",
+    "pyrrol",
+    "quinazolin",
+    "quinolin",
+    "tetrazol",
+    "thiazol",
+    "tetracen",
+    "tetracene",
+    "triazol",
+    "hexacen",
+    "hexacene",
+    "heptahelicen",
+    "heptahelicene",
+    "hexahelicen",
+    "hexahelicene",
+    "indolocarbazol",
+    "indolocarbazole",
+    "pentacen",
+    "pentacene",
+    "pentahelicen",
+    "pentahelicene",
+    "phenanthroindol",
+    "phenanthroindole",
+    "spirobifluoren",
+    "spirobifluorene",
+    "xanthen",
+)
+
+
+def _can_elide_prefix_parent_hyphen(parent: str) -> bool:
+    if not parent or "[" in parent or "]" in parent:
+        return False
+    lowered = parent.lower()
+    if lowered.startswith(("s-", "as-")):
+        return False
+    lowered = _strip_leading_indicated_hydrogen(lowered)
+    return lowered.startswith(_HYPHENLESS_RETAINED_PARENT_STARTS) or _is_simple_hyphenless_parent_token(lowered)
+
+
+def _is_simple_hyphenless_parent_token(parent: str) -> bool:
+    if not parent or "-" in parent or " " in parent or "'" in parent:
+        return False
+    if not parent[0].isalpha():
+        return False
+    if parent in {"methan", "methane", "ethan", "ethane"}:
+        return False
+    if parent.endswith(("yl", "oxy")):
+        return False
+    return all(char.isalpha() or char.isdigit() for char in parent)
+
+
+def _strip_leading_indicated_hydrogen(name: str) -> str:
+    while True:
+        idx = 0
+        while idx < len(name) and name[idx].isdigit():
+            idx += 1
+        if idx == 0 or not name.startswith("H-", idx):
+            return name
+        name = name[idx + 2 :]
+
+
 def _prefix_needs_parentheses(name: str) -> bool:
+    if name in _UNPARENTHESIZED_HYPHENATED_PREFIXES:
+        return False
     if name.startswith("(") or ")" in name or "-" in name:
         return True
     return _is_composite_substituent_name(name)
+
+
+_UNPARENTHESIZED_HYPHENATED_PREFIXES = {
+    "sec-butyl",
+    "t-butyl",
+    "tert-butyl",
+}
 
 
 def _is_composite_substituent_name(name: str) -> bool:

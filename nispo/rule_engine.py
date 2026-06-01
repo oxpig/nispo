@@ -16,10 +16,10 @@ from .stereochemistry import apply_stereochemical_prefix
 
 
 _DEFAULT_MAX_NAME_LENGTH = 180
-_STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
-_STEREO_EMPTY_FALLBACK_MAX_LENGTH = 180
-_NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 190
-_NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 180
+_STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
+_STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
+_NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
+_NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,10 +267,49 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 35
     if _has_fragile_imido_oxycarbonyl_alias(name):
         penalty += 35
+    if "2-methyl-2-((" in name and "carbamyloxy)propan" in name:
+        penalty += 80
+    if "alpha-fmocamino-alpha-" in name:
+        penalty += 80
+    if "pyrrolidin" in name and "carboxy" in name and any(term in name for term in ("glycyl", "alanyl", "arginyl", "aspartyl", "glutamyl")):
+        penalty += 220
+    if "aminosulfonamido" in name and "N-(" in name:
+        penalty += 80
     penalty += _unstable_aza_polycycle_alias_penalty(name)
     if _has_unstable_benzimidazolyl_orientation_artifact(name):
         penalty += 18
+    if _has_unstable_benz_a_anthracene_substituent_artifact(name):
+        penalty += 90
+    if _has_unstable_benzoanthracene_candidate(name):
+        penalty += 160
     return penalty
+
+
+def _has_unstable_benz_a_anthracene_substituent_artifact(name: str) -> bool:
+    marker = "benz[a]anthracene-"
+    marker_index = name.find(marker)
+    if marker_index < 0 or "-yl" not in name[marker_index:]:
+        return False
+    before = name[:marker_index]
+    return before not in {"", "-"} and not before.endswith("(")
+
+
+def _has_unstable_benzoanthracene_candidate(name: str) -> bool:
+    if "benzoanthracene" not in name:
+        return False
+    if name.startswith("("):
+        return True
+    if "6a-" in name or ",6a" in name:
+        return True
+    if "12b-" in name or ",12b" in name:
+        return True
+    if "acetyl-6-oxabenzoanthracene" in name:
+        return True
+    if "dioxo" in name and "triaza" in name:
+        return True
+    if "pentaaza" in name:
+        return True
+    return False
 
 
 def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) -> int:
@@ -306,6 +345,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
     fragile_sulfamoyl_benzene = _has_fragile_single_ring_sulfamoyl_benzene(name, item.candidate)
+    fragile_fused_substituent_benzene = _has_fragile_single_ring_fused_substituent_benzene(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -314,6 +354,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or unstable_replacement
         or generic_polycycle
         or fragile_sulfamoyl_benzene
+        or fragile_fused_substituent_benzene
         or missing_relative_stereo
         or aza_alias_penalty
         or spiro_penalty
@@ -330,6 +371,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 28
     if fragile_sulfamoyl_benzene and _has_contextual_acyclic_parent_alternative(
         item, prepared, max_extra=25, max_length=170
+    ):
+        penalty += 36
+    if fragile_fused_substituent_benzene and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=35, max_length=140
     ):
         penalty += 36
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
@@ -413,6 +458,14 @@ def _has_contextual_acyclic_parent_alternative(
             continue
         return True
     return False
+
+
+def _has_fragile_single_ring_fused_substituent_benzene(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent" or not name.endswith("benzene"):
+        return False
+    if not any(fragment in name for fragment in ("benzodioxan-", "benzofuran-", "benzothiophen-", "carbazol-")):
+        return False
+    return "benzyl" in name or "phenyloxy" in name or "benzonitrile" in name
 
 
 def _has_contextual_relative_stereo_alternative(
@@ -823,18 +876,25 @@ def _has_spiro_single_ring_decomposition_artifact(name: str) -> bool:
         "thiirane",
         "oxirane",
         "azetidine",
+        "azetidin",
         "thietane",
         "oxetane",
         "azolidine",
         "thiolane",
         "oxolane",
         "piperidine",
+        "piperidin",
         "thiane",
         "oxane",
+        "oxan",
         "cyclopropane",
+        "cyclopropan",
         "cyclobutane",
+        "cyclobutan",
         "cyclopentane",
+        "cyclopentan",
         "cyclohexane",
+        "cyclohexan",
     )
     return any(parent in name for parent in small_ring_parents)
 
@@ -893,18 +953,47 @@ def _finalize_candidate_name(
     name = candidate.name
     if candidate.stereo_prefix and not name.startswith("("):
         name = f"({candidate.stereo_prefix})-{name}"
-    if candidate.family in {"whole-molecule-retained-parent", "natural-product-topology-parent"}:
+    if candidate.family in {
+        "whole-molecule-retained-parent",
+        "natural-product-topology-parent",
+        "exact-biochemical-retained-parent",
+    }:
         name = _apply_uniform_isotope_label(mol, name)
         return name if len(name) <= max_length else ""
-    if not candidate.stereo_prefix:
+    skip_fallback_stereo = candidate.family == "retained-acid-ester-parent" and _has_internal_locanted_stereo(name)
+    if not candidate.stereo_prefix and not _has_retained_carbohydrate_substituent(name) and not skip_fallback_stereo:
         name = apply_stereochemical_prefix(
             mol,
             Chem,
             name,
-            atom_order=_fallback_stereo_atom_order(candidate.family),
+            atom_order=_fallback_stereo_atom_order(candidate.family, name),
         )
     name = _apply_uniform_isotope_label(mol, name)
     return name if len(name) <= max_length else ""
+
+
+def _has_retained_carbohydrate_substituent(name: str) -> bool:
+    return any(
+        fragment in name
+        for fragment in (
+            "glucopyranosyl",
+            "galactopyranosyl",
+            "mannopyranosyl",
+            "fucopyranosyl",
+            "ribofuranosyl",
+            "fructofuranosyl",
+            "apiofuranosyl",
+            "glucosaminyl",
+            "galactosaminyl",
+            "mannosaminyl",
+            "muramyl",
+            "neuraminyl",
+        )
+    )
+
+
+def _has_internal_locanted_stereo(name: str) -> bool:
+    return bool(re.search(r"\(\d+[RSZE](?:,\d+[RSZE])*\)-", name))
 
 
 def _apply_uniform_isotope_label(mol, name: str) -> str:
@@ -940,14 +1029,7 @@ def _inline_single_fluorine_isotope(name: str) -> str:
     return name.replace("fluoro", "[18F]fluoro", 1) if "fluoro" in name else name
 
 
-def _fallback_stereo_atom_order(family: str) -> str:
-    spiro_parent_families = {
-        "component-dispiro-parent",
-        "component-spiro-parent",
-        "generated-spiro-fused-parent",
-        "generated-spiro-partial-hydro-parent",
-        "generic-spiro-parent",
-        "poly-component-spiro-parent",
-        "spiro-functional-chain-substituent",
-    }
-    return "idx_desc" if family in spiro_parent_families else "idx"
+def _fallback_stereo_atom_order(family: str, name: str = "") -> str:
+    if any(fragment in name for fragment in ("pseudouridin", "uridin", "spirostane")):
+        return "idx"
+    return "idx_desc"

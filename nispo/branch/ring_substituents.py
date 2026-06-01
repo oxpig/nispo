@@ -27,7 +27,10 @@ from ..ring_rules import (
     ring_substituent_suffix as _ring_substituent_suffix,
 )
 from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
-from ..substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
+from ..substituent_resource_rules import (
+    resource_substituent_match as _resource_substituent_match,
+    resource_substituent_prefix as _resource_substituent_prefix,
+)
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 from ..template_store import template_store
 from .functional_groups import (
@@ -46,11 +49,23 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     return branch_rules.branch_prefix(mol, idx, parent_idx)
 
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    return _simple_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _fused_ring_substituent_prefix(
+    return _carbohydrate_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _simple_ring_substituent_prefix(
+        mol, attachment_idx, parent_idx
+    ) or _fused_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem) or _generic_polycyclic_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     )
+
+
+def _carbohydrate_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    template = _resource_substituent_match(mol, attachment_idx, parent_idx, Chem)
+    if not template or template.get("source_file") != "carbohydrates.xml":
+        return ""
+    name = template_record_name(template)
+    if name.endswith(("pyranosyl", "furanosyl", "osyl", "aminyl", "muramyl", "neuraminyl")):
+        return name
+    return ""
 
 
 def _generic_polycyclic_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
@@ -487,6 +502,9 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             if not (
                 parent_name in {"1,3,4-dioxazol-2-one", "azet-2-one"} and pos[idx] == 2 and prefix == "oxo"
             )
+            and not (
+                parent_name in {"maleimide", "succinimide"} and pos[idx] in {2, 5} and prefix == "oxo"
+            )
         ]
         prefix_text = _format_prefixes(prefixes)
         if prefix_text:
@@ -851,6 +869,8 @@ def _combine_fused_substituent_prefix(prefix_text: str, suffix: str) -> str:
 def _retained_fused_substituent_suffix(parent_name: str, locant: str) -> str:
     if parent_name == "naphthalene":
         return f"{locant}-naphthyl"
+    if parent_name == "quinoline":
+        return f"{locant}-quinolyl"
     if parent_name == "quinoxaline":
         return f"{locant}-quinoxalyl"
     if parent_name == "benzothiazole":

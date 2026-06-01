@@ -25,6 +25,7 @@ from .functional_groups import (
     _is_nitroso_attachment,
     _is_tbdms_group,
     _is_trimethylsilyl_group,
+    _phosphorus_prefix,
     _sulfur_prefix,
     substituent_from_root,
 )
@@ -36,6 +37,10 @@ def _branch_rules():
     from .. import branch_rules
 
     return branch_rules
+
+
+def branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    return _branch_rules().branch_prefix(mol, idx, parent_idx)
 
 
 def _alkylidene_prefix(mol, carbon_idx: int, parent_idx: int) -> str:
@@ -121,6 +126,13 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
                 and not _sulfur_has_nitroaryl_ligand(mol, heavy[0], idx)
             ):
                 return sulfur + "oxy"
+        if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "P":
+            phosphorus = _phosphorus_oxy_prefix(mol, heavy[0], idx)
+            if phosphorus:
+                return phosphorus
+            phosphorus = _phosphorus_prefix(mol, heavy[0], idx)
+            if phosphorus:
+                return phosphorus + "oxy"
         if mol.GetAtomWithIdx(heavy[0]).IsInRing():
             ring = _ring_substituent_prefix(mol, heavy[0], idx)
             if not ring:
@@ -157,6 +169,126 @@ def _protected_alkoxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
     if tbdmsoxyethoxy:
         return tbdmsoxyethoxy
     return ""
+
+
+def _phosphorus_oxy_prefix(mol, phosphorus_idx: int, oxygen_idx: int) -> str:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(phosphorus_idx, oxygen_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    chain_length = _neutral_phosphate_chain_length(mol, phosphorus_idx, oxygen_idx)
+    if chain_length in {2, 3}:
+        return {2: "diphosphooxy", 3: "triphosphooxy"}[chain_length]
+    double_oxygen_count = 0
+    hydroxy_count = 0
+    oxido_count = 0
+    ligand_names = []
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and len(nbr.GetNeighbors()) == 1:
+            if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                hydroxy_count += 1
+                continue
+            if nbr.GetFormalCharge() < 0:
+                oxido_count += 1
+                continue
+            return ""
+        if bond.GetBondType() != Chem.BondType.SINGLE or nbr.GetAtomicNum() <= 1:
+            return ""
+        if nbr.GetSymbol() not in {"C", "O"}:
+            return ""
+        ligand = branch_prefix(mol, nidx, phosphorus_idx)
+        if not ligand:
+            return ""
+        ligand_names.append(ligand)
+    if double_oxygen_count != 1:
+        return ""
+    if not ligand_names:
+        if hydroxy_count == 2 and oxido_count == 0:
+            return "phosphonooxy"
+        if hydroxy_count == 0 and oxido_count == 2:
+            return "phosphonatooxy"
+        return ""
+    if hydroxy_count == 1 and oxido_count == 0 and len(ligand_names) == 1:
+        if _phosphorus_oxy_ligand_needs_parentheses(ligand_names[0]):
+            return ""
+        return _phosphorus_oxy_ligand_unit(ligand_names[0]) + "phosphonooxy"
+    if hydroxy_count == 0 and oxido_count == 0 and len(ligand_names) == 2:
+        if any(_phosphorus_oxy_ligand_needs_parentheses(ligand) for ligand in ligand_names):
+            return ""
+        counts = Counter(ligand_names)
+        parts = []
+        for ligand in sorted(counts):
+            count = counts[ligand]
+            unit = _phosphorus_oxy_ligand_unit(ligand)
+            parts.append(unit if count == 1 else MULT.get(count, "") + unit)
+        return "".join(parts) + "phosphoryloxy"
+    return ""
+
+
+def _neutral_phosphate_chain_length(mol, phosphorus_idx: int, blocked_oxygen_idx: int) -> int:
+    length = 0
+    current_p = phosphorus_idx
+    blocked_oxygen = blocked_oxygen_idx
+    seen_phosphorus: set[int] = set()
+    while current_p not in seen_phosphorus:
+        seen_phosphorus.add(current_p)
+        atom = mol.GetAtomWithIdx(current_p)
+        if atom.GetSymbol() != "P" or atom.GetFormalCharge() != 0:
+            return 0
+        length += 1
+        double_oxygen_count = 0
+        hydroxy_count = 0
+        bridge: tuple[int, int] | None = None
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == blocked_oxygen:
+                continue
+            bond = mol.GetBondBetweenAtoms(current_p, nidx)
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+                continue
+            if nbr.GetSymbol() != "O" or bond.GetBondType() != Chem.BondType.SINGLE:
+                return 0
+            if len(nbr.GetNeighbors()) == 1:
+                if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                    hydroxy_count += 1
+                    continue
+                return 0
+            next_phosphorus = [
+                other.GetIdx()
+                for other in nbr.GetNeighbors()
+                if other.GetIdx() != current_p and other.GetSymbol() == "P"
+            ]
+            if len(next_phosphorus) != 1 or bridge is not None:
+                return 0
+            bridge = (nidx, next_phosphorus[0])
+        if double_oxygen_count != 1:
+            return 0
+        if bridge is None:
+            return length if hydroxy_count == 2 else 0
+        if hydroxy_count != 1:
+            return 0
+        blocked_oxygen, current_p = bridge
+    return 0
+
+
+def _phosphorus_oxy_ligand_unit(ligand: str) -> str:
+    if _phosphorus_oxy_ligand_needs_parentheses(ligand):
+        return f"({ligand})"
+    return ligand
+
+
+def _phosphorus_oxy_ligand_needs_parentheses(ligand: str) -> bool:
+    return "-" in ligand or ligand[:1].isdigit() or ligand.startswith("(")
 
 
 def _silylethoxy_prefix(mol, carbon_idx: int, oxygen_idx: int) -> str:
@@ -425,7 +557,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
             if mol.GetAtomWithIdx(nidx).IsInRing():
                 name = _ring_substituent_prefix(mol, nidx, idx)
             else:
-                name = substituent_from_root(mol, nidx, idx)
+                name = branch_prefix(mol, nidx, idx) or substituent_from_root(mol, nidx, idx)
             if not name:
                 return ""
             names.append(name)
@@ -479,6 +611,7 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
         if _is_nitrile_carbon(mol, idx)
         else _functional_carbon_substituent_name(mol, idx, parent_idx)
         or _carbonyl_substituent_prefix(mol, idx, parent_idx)
+        or branch_prefix(mol, idx, parent_idx)
         or substituent_from_root(mol, idx, parent_idx)
     )
 
@@ -491,6 +624,7 @@ def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequ
         if "-" in names[0] or names[0].startswith("("):
             return f"({names[0]})amino"
         return names[0] + "amino"
+    names = tuple(_multiligand_amino_safe_name(name) for name in names)
     counts = Counter(names)
     if len(counts) > 1 and all(count == 1 for count in counts.values()) and any(
         _needs_explicit_n_ligand_name(name) for name in counts
@@ -549,6 +683,7 @@ def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, n
         "formyl": "formamido",
         "isobutyryl": "isobutyramido",
         "methacryloyl": "methacrylamido",
+        "phenylacetyl": "(phenylacetyl)amino",
         "pivaloyl": "pivalamido",
         "propionyl": "propionamido",
         "trifluoroacetyl": "trifluoroacetamido",
@@ -556,11 +691,23 @@ def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, n
     }
     if name in acyl_amides:
         return acyl_amides[name]
-    if name == "tert-butoxycarbonyl" and _bocamino_prefix_allowed(mol, amino_idx, parent_idx):
+    if name in {"boc", "tert-butoxycarbonyl"} and _bocamino_prefix_allowed(mol, amino_idx, parent_idx):
         return "bocamino"
+    if name == "cbz":
+        return "cbzamino"
+    if name == "fmoc":
+        return "fmocamino"
     if name == "carbamyl":
         return "ureido"
     return ""
+
+
+def _multiligand_amino_safe_name(name: str) -> str:
+    return {
+        "boc": "tert-butoxycarbonyl",
+        "cbz": "carbbenzoxy",
+        "fmoc": "((fluorene-9-yl)methyl)oxycarbonyl",
+    }.get(name, name)
 
 
 def _bocamino_prefix_allowed(mol, amino_idx: int, parent_idx: int) -> bool:

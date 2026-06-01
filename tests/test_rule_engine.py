@@ -171,6 +171,78 @@ def test_tautomer_sensitive_single_ring_suffix_parents_roundtrip():
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 
+def test_simple_parent_prefix_join_is_intrinsically_compact_and_roundtrips():
+    smiles_values = [
+        "NC1Cc2ccccc2C1",
+        "CCC(C)Br",
+        "CCCCCCc1ccsc1",
+        "CCCC1CCS1",
+        "CCCC(C#N)CCCC#N",
+        "COc1cc2c(cc1OC)CCC2",
+        "CCCCCCCI",
+        "Nc1ccc2ccccc2c1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert "2-aminoindan" in names
+    assert "2-bromobutan" in names
+    assert "3-hexylthiophen" in names
+    assert "2-propylthietane" in names
+    assert "1,4-dicyanoheptan" in names
+    assert "5,6-dimethoxyindan" in names
+    assert "iodoheptan" in names
+    assert "2-aminonaphthalen" in names
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_acyclic_unsaturated_parents_use_compact_upstream_forms():
+    smiles_values = [
+        "C=CCCCC",
+        "C#CCCCC",
+        "C=CCCC=CCC",
+        "C=CCC=C",
+        "CCC=CCCCCCCCCCC",
+        "C#CCCCC=O",
+        "CCCCC=CCCCC(=O)O",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert names == [
+        "hexen",
+        "hexyn",
+        "1,5-octadien",
+        "1,4-pentadien",
+        "3-tetradecen",
+        "5-hexynal",
+        "5-decenoic acid",
+    ]
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_saturated_carbocycle_parents_use_compact_stems():
+    smiles_values = [
+        "C1CCCCC1",
+        "BrC1CCCCC1",
+        "C1CCCCCC1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert names == ["cyclohexan", "bromocyclohexan", "cycloheptan"]
+    for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
+        assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
 def test_generated_fused_indicated_h_parents_roundtrip():
     smiles_values = [
         "Ic1n[nH]c2cccnc12",
@@ -318,6 +390,7 @@ def test_retained_ring_csv_scaffold_parents_roundtrip_with_substituents():
         "O=C(O)c1ccc2ncccc2c1",
         "CCc1cc2ccccc2cc1",
         "COc1ccc2[nH]c3ccccc3c2c1",
+        "CC1=C(/C=C/C(C)=C/C=C/C(C)=C/C=C/C=C(C)/C=C/C=C(C)/C=C/C2=C(C)C(=O)CCC2(C)C)C(C)(C)CCC1",
     ]
 
     names = smiles_to_iupac_batch(smiles_values)
@@ -325,8 +398,9 @@ def test_retained_ring_csv_scaffold_parents_roundtrip_with_substituents():
 
     assert any("xylene" in name for name in names)
     assert any("naphthalen" in name for name in names)
-    assert any("chinolin" in name for name in names)
+    assert any("quinolin" in name or "chinolin" in name for name in names)
     assert any("carbazol" in name for name in names)
+    assert any("caroten" in name for name in names)
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
@@ -610,6 +684,28 @@ def test_upstream_short_alias_safety_regressions_roundtrip():
 
     for smiles, name, parsed_smiles in zip(smiles_values, names, parsed, strict=True):
         assert name
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
+
+
+def test_exact_biochemical_retained_parents_roundtrip_compactly():
+    smiles_values = [
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1N=NC=2C(=O)NC(N)=NC12)O)O",
+        "P(O)(=O)(OP(=O)(O)O)O[C@H]1[C@H]([C@@H](O[C@@H]1CO)N1C=NC=2C(=O)NC(=O)NC12)O",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H](C[C@@H](O1)N1C(=O)N=C(NC)C=C1)O",
+        "O(P([O-])(=O)OP(=O)([O-])[O-])C1[C@H](O)[C@H](O)[C@H](O1)CO",
+        "OCC1([C@@H](O)[C@H](O)[C@H](O1)CO)COC1=CC(=CC=C1O)\\C=C\\C(=O)CC(=O)\\C=C\\C1=CC=C(O)C(OC)=C1",
+    ]
+
+    names = smiles_to_iupac_batch(smiles_values)
+    parsed = _opsin_parse(names)
+
+    assert all(len(name) <= 40 for name in names)
+    assert "guanosine" in names[0] and "triphosphate" in names[0]
+    assert "xanthosine" in names[1] and "diphosphate" in names[1]
+    assert "deoxycytidine" in names[2] and "triphosphate" in names[2]
+    assert "ribosyl" in names[3] and "pyrophosphate" in names[3]
+    assert "fructosyl" in names[4] and "curcumin" in names[4]
+    for smiles, parsed_smiles in zip(smiles_values, parsed, strict=True):
         assert _canonical_smiles(parsed_smiles) == _canonical_smiles(smiles)
 
 

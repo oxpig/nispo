@@ -11,13 +11,17 @@ from .branch.hetero_atoms import _imine_carbon_ylidene
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
+from .formatting import join_prefix_parent as _join_prefix_parent
 from .formatting import loc_unsat
+from .formatting import preferred_parent_stem as _preferred_parent_stem
+from .formatting import unsaturated_parent as _unsaturated_parent
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .fused_template_families import (
     candidate_generated_fused_templates as _candidate_generated_fused_templates,
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
     hydrocarbon_replacement_parent_templates_for_graph as _hydrocarbon_replacement_parent_templates_for_graph,
+    retained_topology_replacement_parent_templates_for_graph as _retained_topology_replacement_parent_templates_for_graph,
 )
 from .scaffold_catalog import parent_scaffold_catalog
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
@@ -51,6 +55,7 @@ from .rule_dispatch import (
 )
 from .rule_priority import parent_priority
 from .rule_engine import NameCandidate
+from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
@@ -1021,6 +1026,23 @@ class RetainedAcidEsterParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class RetainedAmideParentRule:
+    family = "retained-amide-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for name in _retained_amide_names(mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class BoronicPinacolEsterParentRule:
     family = "boronic-pinacol-ester-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1088,6 +1110,40 @@ class UreaRetainedParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class GlutarimideRetainedParentRule:
+    family = "glutarimide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+    min_ring_count = 1
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() == 0:
+            return
+        seen = set()
+        for ring in mol.GetRingInfo().AtomRings():
+            for name in _glutarimide_ring_parent_names(mol, self._Chem, ring):
+                if name in seen:
+                    continue
+                seen.add(name)
+                yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class AminoAcidRetainedParentRule:
+    family = "amino-acid-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        for name in _amino_acid_parent_names(mol, self._Chem):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
     for carbon in mol.GetAtoms():
@@ -1115,12 +1171,119 @@ def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     return motifs
 
 
+def _glutarimide_ring_parent_names(mol, Chem, ring: Sequence[int]) -> list[str]:
+    if len(ring) != 6:
+        return []
+    ordered = ordered_ring(mol, ring)
+    if not ordered:
+        return []
+    names = []
+    for seq in _glutarimide_numberings(mol, Chem, ordered):
+        name = _glutarimide_name_from_numbering(mol, Chem, seq)
+        if name:
+            names.append(name)
+    return sorted(set(names), key=lambda item: (len(item), item))
+
+
+def _glutarimide_numberings(mol, Chem, ordered: Sequence[int]) -> list[tuple[int, ...]]:
+    candidates = []
+    for n_idx in ordered:
+        atom = mol.GetAtomWithIdx(n_idx)
+        if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
+            continue
+        base = list(ordered)
+        n_pos = base.index(n_idx)
+        rotated = tuple(base[n_pos:] + base[:n_pos])
+        for seq in (rotated, (rotated[0], *reversed(rotated[1:]))):
+            if _is_glutarimide_numbering(mol, Chem, seq):
+                candidates.append(seq)
+    return candidates
+
+
+def _is_glutarimide_numbering(mol, Chem, seq: Sequence[int]) -> bool:
+    if len(seq) != 6 or mol.GetAtomWithIdx(seq[0]).GetSymbol() != "N":
+        return False
+    for left, right in zip(seq, (*seq[1:], seq[0])):
+        bond = mol.GetBondBetweenAtoms(left, right)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return False
+    for pos, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        if pos == 1:
+            if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
+                return False
+            continue
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
+            return False
+        oxo_count = _exocyclic_double_oxygen_count(mol, Chem, idx, set(seq))
+        if pos in {2, 6}:
+            if oxo_count != 1:
+                return False
+        elif oxo_count:
+            return False
+    return True
+
+
+def _glutarimide_name_from_numbering(mol, Chem, seq: Sequence[int]) -> str:
+    ring_set = set(seq)
+    prefixes = []
+    used_substituent_locs = set()
+    for loc, idx in enumerate(seq, start=1):
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set:
+                continue
+            bond = mol.GetBondBetweenAtoms(idx, nidx)
+            if loc in {2, 6} and _is_exocyclic_double_oxygen(mol, Chem, idx, nidx):
+                continue
+            if bond is not None and bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+            prefix = branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            locant = _glutarimide_substituent_locant(loc)
+            if not locant or locant in used_substituent_locs:
+                return ""
+            used_substituent_locs.add(locant)
+            prefixes.append((locant, prefix))
+    prefix_text = _format_prefixes(prefixes)
+    return _join_prefix_parent(prefix_text, "glutarimide") if prefix_text else "glutarimide"
+
+
+def _glutarimide_substituent_locant(position: int) -> str:
+    if position == 1:
+        return "N"
+    if position == 4:
+        return "3"
+    if position in {3, 5}:
+        return "4"
+    return ""
+
+
+def _exocyclic_double_oxygen_count(mol, Chem, atom_idx: int, ring_set: set[int]) -> int:
+    return sum(
+        1
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_set and _is_exocyclic_double_oxygen(mol, Chem, atom_idx, nbr.GetIdx())
+    )
+
+
+def _is_exocyclic_double_oxygen(mol, Chem, atom_idx: int, oxygen_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(oxygen_idx)
+    if atom.GetSymbol() != "O":
+        return False
+    bond = mol.GetBondBetweenAtoms(atom_idx, oxygen_idx)
+    return bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE
+
+
 def _retained_acid_ester_names(mol, Chem) -> list[str]:
     names = []
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
         if not owner:
             continue
+        generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
+        names.extend(generic)
         dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
         if dicarboxylate:
             names.append(dicarboxylate)
@@ -1128,6 +1291,216 @@ def _retained_acid_ester_names(mol, Chem) -> list[str]:
         if acrylate:
             names.append(acrylate)
     return names
+
+
+def _retained_amide_names(mol, Chem) -> list[str]:
+    names = []
+    for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
+        n_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
+        if n_substituents is None or len(n_substituents) > 2:
+            continue
+        n_prefix = _n_substituent_prefix(n_substituents)
+        if n_prefix is None:
+            continue
+        if any(_unstable_retained_functional_parent_substituent(name) for name in n_substituents):
+            continue
+        for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
+            core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "amide")
+            if not core:
+                continue
+            names.append(_join_n_prefix_functional_parent(n_prefix, core))
+    return names
+
+
+def _join_n_prefix_functional_parent(n_prefix: str, core: str) -> str:
+    if not n_prefix:
+        return core
+    if _needs_explicit_n_parent_separator(n_prefix) or re.match(r"^\(?\d", core):
+        return f"{n_prefix}-{core}"
+    return n_prefix + core
+
+
+def _amide_acyl_motifs(mol, Chem) -> list[tuple[int, int, int]]:
+    motifs = []
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+            continue
+        cidx = carbon.GetIdx()
+        double_oxygen = []
+        single_nitrogen = []
+        single_carbon = []
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen.append(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_nitrogen.append(nidx)
+            elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_carbon.append(nidx)
+            else:
+                ok = False
+                break
+        if ok and len(double_oxygen) == 1 and len(single_nitrogen) == 1 and len(single_carbon) == 1:
+            nitrogen = mol.GetAtomWithIdx(single_nitrogen[0])
+            if nitrogen.GetFormalCharge() == 0 and not nitrogen.IsInRing():
+                motifs.append((cidx, single_nitrogen[0], single_carbon[0]))
+    return motifs
+
+
+_AMINO_ACID_SIDECHAIN_NAMES = {
+    "": "glycine",
+    "methyl": "alanine",
+    "1-methyl-ethyl": "valine",
+    "isopropyl": "valine",
+    "propyl": "norvaline",
+    "butyl": "norleucine",
+    "t-butyl": "t-leucine",
+    "tert-butyl": "t-leucine",
+    "isobutyl": "leucine",
+    "1-methyl-propyl": "isoleucine",
+    "sec-butyl": "isoleucine",
+    "benzyl": "phenylalanine",
+    "2-(phenyl)ethyl": "homophenylalanine",
+    "4-hydroxybenzyl": "tyrosine",
+    "3,4-dihydroxybenzyl": "dopa",
+    "(1H-imidazol-4-yl)methyl": "histidine",
+    "(indole-3-yl)methyl": "tryptophan",
+    "hydroxymethyl": "serine",
+    "1-hydroxyethyl": "threonine",
+    "mercaptomethyl": "cysteine",
+    "sulfanylmethyl": "cysteine",
+    "2-methylsulfanyl-ethyl": "methionine",
+    "carboxymethyl": "aspartic acid",
+    "2-carboxyethyl": "glutamic acid",
+    "4-azabutyl": "ornithine",
+    "4-aminobutyl": "lysine",
+    "5-amino-4,6-diaza5-hexen-1-yl": "arginine",
+}
+
+
+def _amino_acid_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_count = mol.GetNumAtoms()
+    for alpha in mol.GetAtoms():
+        if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing():
+            continue
+        alpha_idx = alpha.GetIdx()
+        carboxyl = []
+        amino = []
+        sidechains = []
+        for nbr in alpha.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(alpha_idx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                continue
+            if _terminal_carboxyl_group_kind(mol, Chem, nidx, alpha_idx):
+                carboxyl.append(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and not nbr.IsInRing():
+                amino.append(nidx)
+            elif nbr.GetAtomicNum() > 1:
+                sidechains.append(nidx)
+        if len(carboxyl) != 1 or len(amino) != 1 or len(sidechains) > 1:
+            continue
+        carboxyl_kind = _terminal_carboxyl_group_kind(mol, Chem, carboxyl[0], alpha_idx)
+        sidechain_name = ""
+        if sidechains:
+            sidechain_name = branch_prefix(mol, sidechains[0], alpha_idx)
+        amino_acid = _AMINO_ACID_SIDECHAIN_NAMES.get(sidechain_name)
+        if not amino_acid:
+            continue
+        covered = {alpha_idx}
+        covered.update(_collect_component_atoms(mol, carboxyl[0], alpha_idx))
+        if sidechains:
+            covered.update(_collect_component_atoms(mol, sidechains[0], alpha_idx))
+        nidx = amino[0]
+        covered.add(nidx)
+        n_substituents = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(nidx).GetNeighbors()
+            if nbr.GetIdx() != alpha_idx and nbr.GetAtomicNum() > 1
+        ]
+        if len(n_substituents) > 2:
+            continue
+        n_names = []
+        ok = True
+        for sub_idx in n_substituents:
+            name = branch_prefix(mol, sub_idx, nidx)
+            if not name:
+                ok = False
+                break
+            n_names.append(name)
+            covered.update(_collect_component_atoms(mol, sub_idx, nidx))
+        if not ok or len(covered) != atom_count:
+            continue
+        parent = _amino_acid_parent_for_carboxyl_kind(amino_acid, carboxyl_kind)
+        if not parent:
+            continue
+        stereo = _amino_acid_alpha_stereo_prefix(mol, Chem, alpha_idx)
+        prefix = _amino_acid_n_substituent_prefix(n_names)
+        names.append(stereo + prefix + parent)
+    return names
+
+
+def _amino_acid_parent_for_carboxyl_kind(name: str, kind: str) -> str:
+    if kind == "acid":
+        return name
+    if kind != "carboxylate":
+        return ""
+    if name == "dopa":
+        return "3,4-dihydroxyphenylalaninate"
+    if name.endswith("ine"):
+        return name[:-3] + "inate"
+    if name.endswith("ic acid"):
+        return name[:-7] + "ate"
+    return name + "ate"
+
+
+def _amino_acid_alpha_stereo_prefix(mol, Chem, alpha_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(alpha_idx)
+    if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+        return ""
+    try:
+        Chem.AssignStereochemistry(mol, force=True, cleanIt=False)
+    except Exception:
+        return ""
+    code = atom.GetProp("_CIPCode") if atom.HasProp("_CIPCode") else ""
+    return f"({code})-" if code in {"R", "S"} else ""
+
+
+def _amino_acid_n_substituent_prefix(names: Sequence[str]) -> str:
+    if not names:
+        return ""
+    if len(names) == 1:
+        return _amino_acid_n_piece("N", names[0])
+    first, second = sorted(names)
+    if first == second and _simple_unparenthesized_n_substituent(first):
+        return f"N,N-di{first}"
+    return _amino_acid_n_piece("N", first) + "-" + _amino_acid_n_piece("N", second)
+
+
+def _amino_acid_n_piece(locant: str, name: str) -> str:
+    if _simple_unparenthesized_n_substituent(name):
+        return f"{locant}-{name}"
+    return f"{locant}-({name})"
+
+
+def _collect_component_atoms(mol, start_idx: int, blocked_idx: int) -> set[int]:
+    seen = {blocked_idx}
+    stack = [start_idx]
+    component = set()
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        component.add(idx)
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in seen and nbr.GetAtomicNum() > 1:
+                stack.append(nidx)
+    return component
 
 
 def _boronic_pinacol_ester_motifs(mol, Chem) -> list[tuple[int, int]]:
@@ -1358,6 +1731,183 @@ def _stable_ester_owner_name(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
     if any(fragment in name for fragment in ("carbonyl", "carbox", "sulfon", "phosph", "urea")):
         return ""
     return name
+
+
+def _generic_acyl_ester_names(mol, Chem, carbonyl_idx: int, acyl_idx: int, owner: str) -> list[str]:
+    if _unstable_generic_ester_owner(owner):
+        return []
+    names = []
+    for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
+        name = _generic_acyl_ester_path_name(mol, Chem, carbonyl_idx, path, owner)
+        if name:
+            names.append(name)
+    return names
+
+
+def _unstable_generic_ester_owner(owner: str) -> bool:
+    """Avoid ester-owner forms OPSIN does not tokenize reliably before the acid core."""
+
+    if owner.startswith("("):
+        return True
+    if re.search(r"\([EZRS](?:,[EZRS])*\)-", owner):
+        return True
+    return False
+
+
+def _ester_acyl_parent_paths(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> list[tuple[int, ...]]:
+    if mol.GetBondBetweenAtoms(carbonyl_idx, acyl_idx).GetBondType() != Chem.BondType.SINGLE:
+        return []
+    atoms = _collect_component_atoms(mol, acyl_idx, carbonyl_idx)
+    allowed = {
+        idx
+        for idx in atoms
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "C"
+        and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
+        and not mol.GetAtomWithIdx(idx).IsInRing()
+    }
+    if acyl_idx not in allowed:
+        return []
+    leaves = [
+        idx
+        for idx in allowed
+        if idx == acyl_idx
+        or sum(
+            1
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
+            if nbr.GetIdx() in allowed
+        )
+        <= 1
+    ]
+    paths = set()
+    best_len = 0
+    for leaf in leaves:
+        path = (acyl_idx,) if leaf == acyl_idx else tuple(Chem.rdmolops.GetShortestPath(mol, acyl_idx, leaf))
+        if any(idx not in allowed for idx in path):
+            continue
+        if len(path) > best_len:
+            best_len = len(path)
+            paths.clear()
+        if len(path) == best_len:
+            paths.add(path)
+    return sorted(paths)
+
+
+def _generic_acyl_ester_path_name(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    path: Sequence[int],
+    owner: str,
+) -> str:
+    core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "oate")
+    return f"{owner} {core}" if core else ""
+
+
+def _generic_acyl_functional_parent_path_name(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    path: Sequence[int],
+    suffix: str,
+) -> str:
+    root = ROOTS.get(len(path) + 1)
+    if not root:
+        return ""
+    path_set = set(path)
+    prefixes: list[tuple[str, str]] = []
+    for pos, idx in enumerate(path, start=2):
+        allowed_neighbors = {carbonyl_idx if pos == 2 else path[pos - 3]}
+        if pos - 1 < len(path):
+            allowed_neighbors.add(path[pos - 1])
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in allowed_neighbors or nbr.GetAtomicNum() <= 1:
+                continue
+            if nidx in path_set:
+                return ""
+            prefix = branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(pos), prefix))
+    parent = _generic_acyl_functional_parent_text(mol, Chem, root, path, suffix)
+    if not parent:
+        return ""
+    prefix_text = _format_prefixes(prefixes)
+    core = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    stereo = _generic_acyl_ester_stereo_prefix(mol, Chem, path)
+    if stereo is None:
+        return ""
+    if stereo:
+        core = f"({stereo})-{core}"
+    return core
+
+
+def _generic_acyl_functional_parent_text(mol, Chem, root: str, path: Sequence[int], suffix: str) -> str:
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    for locant, (a, b) in enumerate(zip(path, path[1:]), start=2):
+        bond = mol.GetBondBetweenAtoms(a, b)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    if not ene_locs and not yne_locs:
+        retained = _retained_simple_acyl_parent_text(root, suffix)
+        if retained:
+            return retained
+    parent = _unsaturated_parent(root, ene_locs, yne_locs)
+    if suffix == "amide":
+        return parent[:-1] + "amide" if parent.endswith("e") else parent + "amide"
+    return parent[:-1] + "oate" if parent.endswith("e") else parent + "oate"
+
+
+def _retained_simple_acyl_parent_text(root: str, suffix: str) -> str:
+    if suffix == "amide":
+        return {
+            "meth": "formamide",
+            "eth": "acetamide",
+        }.get(root, "")
+    if suffix == "oate":
+        return {
+            "meth": "formate",
+            "eth": "acetate",
+        }.get(root, "")
+    return ""
+
+
+def _generic_acyl_ester_stereo_prefix(mol, Chem, path: Sequence[int]) -> str | None:
+    locants = {idx: pos for pos, idx in enumerate(path, start=2)}
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    atom_descriptors = []
+    for idx, descriptor in assigned:
+        if idx not in locants:
+            return None
+        atom_descriptors.append((locants[idx], f"{locants[idx]}{descriptor}"))
+    bond_descriptors: list[tuple[int, str]] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo == Chem.BondStereo.STEREONONE:
+            continue
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in locants or end not in locants:
+            return None
+        locant = min(locants[begin], locants[end])
+        bond_descriptors.append((locant, f"{locant}{descriptor}"))
+    descriptors = atom_descriptors + bond_descriptors
+    return ",".join(text for _locant, text in sorted(descriptors))
 
 
 _RETAINED_DICARBOXYLATE_ROOTS = {
@@ -1921,7 +2471,7 @@ def _biphenyl_name(mol, left_seq: Sequence[int], right_seq: Sequence[int]) -> st
                 return ""
             prefixes.append((f"{loc}'", prefix))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-biphenyl" if prefix_text else "biphenyl"
+    return _join_prefix_parent(prefix_text, "biphenyl") if prefix_text else "biphenyl"
 
 
 def _diphenylbenzene_name(
@@ -1953,7 +2503,7 @@ def _diphenylbenzene_name(
                     continue
                 return ""
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-benzene" if prefix_text else ""
+    return _join_prefix_parent(prefix_text, "benzene") if prefix_text else ""
 
 
 class AcyclicSkeletonWithRingSubstituentsRule:
@@ -2565,7 +3115,7 @@ def _has_carbonyl_group(mol, Chem) -> bool:
 class WholeMoleculeRetainedParentRule:
     family = "whole-molecule-retained-parent"
     priority = parent_priority("whole-molecule-retained-parent")
-    min_ring_count = 1
+    min_ring_count = 0
 
     def __init__(self, Chem):
         self._Chem = Chem
@@ -2575,8 +3125,6 @@ class WholeMoleculeRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() == 0:
-            return
         if _too_many_rings_for_whole_molecule_retained_parent(mol):
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
@@ -2601,6 +3149,7 @@ class WholeMoleculeRetainedParentRule:
                 if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
                     continue
                 candidate_name = _template_isotope_prefixed_parent_name(mol, template, match, name)
+                candidate_name = _preferred_parent_stem(candidate_name)
                 stereo_prefix = ""
                 if template.get("source_file") == "naturalProducts.xml" and template.get("stereochemical"):
                     stereo_prefix = _locanted_template_stereo_prefix(mol, self._Chem, template, match)
@@ -2618,19 +3167,19 @@ def _standalone_whole_molecule_retained_name(template: dict) -> str:
     name = _terminal_retained_parent_name(raw_name)
     source_file = template.get("source_file", "")
     if source_file == "naturalProducts.xml" and "'" not in raw_name and not raw_name.endswith("ylic"):
-        return name
+        return _preferred_parent_stem(name)
     if source_file in _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES:
         acid_name = _standalone_retained_acid_name(raw_name)
         if acid_name:
             return acid_name
-        return name
+        return _preferred_parent_stem(name)
     if source_file == "opsin_retained_mono_fused_ring_smiles.csv":
         acid_name = _standalone_retained_acid_name(raw_name)
         if acid_name:
             return acid_name
-        return name
+        return _preferred_parent_stem(name)
     if name in {"benzyn", "tropylium"}:
-        return name
+        return _preferred_parent_stem(name)
     return ""
 
 
@@ -2709,6 +3258,8 @@ class FusedParentRule:
         ):
             name = _name_fused_core_match(mol, template, match)
             if name:
+                if _unsafe_benz_a_anthracene_candidate(name):
+                    continue
                 if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                     continue
                 yield NameCandidate(
@@ -2798,13 +3349,41 @@ def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, 
     if flags & {"radical", "organometallic", "general-parent-unsupported"}:
         return False
     if template.get("stereochemical"):
-        return False
+        if "caroten" not in template_record_name(template):
+            return False
+        if not _has_stereo_evidence(mol, Chem):
+            return False
     if template_record_mol(template).GetRingInfo().NumRings() > mol.GetRingInfo().NumRings():
         return False
     return True
 
 
 def _unsafe_retained_ring_scaffold_candidate(name: str) -> bool:
+    if any(
+        unsafe in name
+        for unsafe in (
+            "triazachroman",
+            "azaisochinolin",
+            "azaacridin",
+            "azainden",
+            "benzocyclo",
+            "cyclopenta[b]pyridin",
+            "azanaphthalin",
+            "azanaphthyridin",
+            "azatetralin",
+            "azadecalin",
+            "isobenzothiophen",
+            "thianaphthalin",
+        )
+    ):
+        return True
+    if _unsafe_benz_a_anthracene_candidate(name):
+        return True
+    if re.search(
+        r"(?:nicotinamide|picolinamide|isonicotinamide|nicotinic acid|picolinic acid|isonicotinic acid)-\d+[a-z]?\([^)]*H\)-one\b",
+        name,
+    ):
+        return True
     if re.search(r"\b\d+-carbamyl-.*(?:imidazol|pyrazol)e?\b", name):
         return True
     if (
@@ -2816,6 +3395,41 @@ def _unsafe_retained_ring_scaffold_candidate(name: str) -> bool:
     if re.search(r"\b\d+-carboxy-.*(?:lutidin|pyridin).*-one\b", name):
         return True
     if re.search(r"\b1,4-benzodioxan-\d+-yl\b", name):
+        return True
+    if "aminosulfonamido" in name and "N-(" in name:
+        return True
+    return False
+
+
+def _unsafe_benz_a_anthracene_candidate(name: str) -> bool:
+    if _unsafe_benzoanthracene_candidate(name):
+        return True
+    if "benz[a]anthracene" not in name:
+        return False
+    marker = "benz[a]anthracene-"
+    marker_index = name.find(marker)
+    if marker_index >= 0 and "-yl" in name[marker_index:]:
+        before = name[:marker_index]
+        if before in {"", "-"} or before.endswith("("):
+            return False
+        return True
+    return name != "benz[a]anthracene"
+
+
+def _unsafe_benzoanthracene_candidate(name: str) -> bool:
+    if "benzoanthracene" not in name:
+        return False
+    if name.startswith("("):
+        return True
+    if "6a-" in name or ",6a" in name:
+        return True
+    if "12b-" in name or ",12b" in name:
+        return True
+    if "acetyl-6-oxabenzoanthracene" in name:
+        return True
+    if "dioxo" in name and "triaza" in name:
+        return True
+    if "pentaaza" in name:
         return True
     return False
 
@@ -2868,6 +3482,8 @@ _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS = (
     "naphthyridine",
     "perylen",
     "perylene",
+    "phthalazin",
+    "phthalazine",
     "purine",
     "pteridine",
     "pyren",
@@ -2890,15 +3506,34 @@ _RETAINED_TOPOLOGY_TAUTOMER_PARENT_NAMES = {
     "xanthin",
 }
 
+_HIGH_IMPACT_TOPOLOGY_FUSED_PARENT_STEMS = (
+    "benzo[d][1,3]oxazin",
+    "benzo[d]imidazo[5,1-b]thiazol",
+    "benzo[e][1,2,4]thiadiazin",
+    "benzo[4,5]imidazo[1,2-a]pyridin",
+    "benzoboroxol",
+    "cyclopenta[b]pyridin",
+    "cyclopenta[e]pyrazolo[1,5-a]pyrimidin",
+    "imidazo[1,2-a]pyridin",
+    "isatoic anhydride",
+    "pyrazino-pyridazin",
+    "pyrido[1,2-a]pyrimidin",
+    "pyrido[2,3-b][1,4]oxazin",
+    "pyrido[2,3-d]pyrimidin",
+    "pyrido[3,2-b]-1,4-oxazin",
+    "pyrimido[1,2-a]pyrimidin",
+    "pyrimido[1,2-b]pyridazin",
+    "pyrrolo[2,3-c]pyridin",
+    "pyrrolo[3,2-c]pyridin",
+)
+
 
 def _allow_retained_topology_fused_candidate(template_name: str, name: str) -> bool:
     """Allow retained fused parents across keto/hydro aromatic-state changes."""
 
-    if "spiro[" in name:
+    if _unsafe_benz_a_anthracene_candidate(name):
         return False
     if _retained_topology_name_has_isotope(template_name) or _retained_topology_name_has_isotope(name):
-        return False
-    if not any(stem in template_name for stem in _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS):
         return False
     if template_name in {"purine", "purin"} and re.search(r"(?:^|-)\d+(?:,\d+)+-dioxo-", name):
         return False
@@ -2906,13 +3541,30 @@ def _allow_retained_topology_fused_candidate(template_name: str, name: str) -> b
         return False
     if "indole" in template_name and _has_retained_topology_functional_suffix_parent(name):
         return False
+    if _has_high_impact_topology_parent_stem(template_name, name):
+        return True
+    if not any(stem in template_name for stem in _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS):
+        return False
     if _has_retained_topology_functional_suffix_parent(name):
         return True
-    if _has_retained_topology_oxo_or_one_parent(name):
+    if _has_retained_topology_oxo_or_one_parent(name) or _has_hyphenless_retained_topology_oxo_parent(name):
         return True
     if _has_retained_topology_simple_functional_parent(name):
         return True
     return False
+
+
+def _has_high_impact_topology_parent_stem(template_name: str, name: str) -> bool:
+    if not any(stem in template_name for stem in _HIGH_IMPACT_TOPOLOGY_FUSED_PARENT_STEMS):
+        return False
+    if not any(stem in name for stem in _HIGH_IMPACT_TOPOLOGY_FUSED_PARENT_STEMS):
+        return False
+    return bool(
+        re.search(
+            r"(?:-one\b|dione\b|dioxide\b|anhydride\b|boroxole\b|pyridine\b|pyridazine\b|pyrimidine\b|oxazine\b|thiazole\b)",
+            name,
+        )
+    )
 
 
 def _has_duplicate_retained_topology_prefix_locant(name: str) -> bool:
@@ -2974,6 +3626,34 @@ def _has_retained_topology_oxo_or_one_parent(name: str) -> bool:
     )
 
 
+def _has_hyphenless_retained_topology_oxo_parent(name: str) -> bool:
+    if "acenaphthen" in name:
+        return False
+    parts = name.split("-")
+    for idx, part in enumerate(parts[:-1]):
+        if not _is_numeric_locant_list(part):
+            continue
+        following = parts[idx + 1]
+        if not following.startswith(("oxo", "dioxo", "trioxo", "tetraoxo", "thioxo")):
+            continue
+        if any(stem.rstrip("e") in following for stem in _RETAINED_TOPOLOGY_FUSED_PARENT_STEMS):
+            return True
+    return False
+
+
+def _is_numeric_locant_list(text: str) -> bool:
+    if not text:
+        return False
+    for locant in text.split(","):
+        if not locant:
+            return False
+        suffix = locant[-1] if locant[-1].isalpha() else ""
+        digits = locant[:-1] if suffix else locant
+        if not digits.isdigit():
+            return False
+    return True
+
+
 def _has_retained_topology_simple_functional_parent(name: str) -> bool:
     return bool(
         re.search(
@@ -2988,12 +3668,14 @@ _RETAINED_TOPOLOGY_PARENT_PATTERN = (
     r"(?:acridin|anthracen|benzimidazol|benzofuran|benzothiazol|"
     r"benzothiophen|benzotriazol|benzoxazol|carbazol|chrom|chrysen|coronen|"
     r"coumarin|fluoranthen|fluoren|guanin|hypoxanthin|indazol|indol|"
-    r"isoquinolin|naphthalen|naphthyridin|perylen|purin|pteridin|pyren|"
+    r"isoquinolin|naphthalen|naphthyridin|perylen|phthalazin|purin|pteridin|pyren|"
     r"quinazolin|quinolin|quinoxalin|tetracen|xanthen|xanthin)"
 )
 
 
 def _retained_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
+    if any(stem in template_record_name(template) for stem in _HIGH_IMPACT_TOPOLOGY_FUSED_PARENT_STEMS):
+        return True
     if not _generated_topology_fused_match_is_hydrogen_compatible(mol, template, match):
         return False
     if template_record_name(template) in _RETAINED_TOPOLOGY_TAUTOMER_PARENT_NAMES:
@@ -3062,6 +3744,8 @@ class GeneratedFusedParentRule(FusedParentRule):
             name = _name_fused_core_match(mol, template, match)
             if not name or name in yielded_names:
                 continue
+            if _unsafe_benz_a_anthracene_candidate(name):
+                continue
             yielded_names.add(name)
             yield NameCandidate(
                 name=name,
@@ -3087,6 +3771,8 @@ class GeneratedFusedParentRule(FusedParentRule):
                 continue
             name = _name_fused_core_match(mol, template, match)
             if not name or name in yielded_names:
+                continue
+            if _unsafe_benz_a_anthracene_candidate(name):
                 continue
             if not _allow_generated_topology_fused_candidate(template_record_name(template), name):
                 continue
@@ -3595,6 +4281,8 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                     name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
                     if not name:
                         continue
+                    if _unsafe_benz_a_anthracene_candidate(name):
+                        continue
                     yielded += 1
                     yield NameCandidate(
                         name=name,
@@ -3608,6 +4296,61 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                         ),
                     )
                     if yielded >= 12:
+                        return
+
+
+class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
+    family = "retained-topology-replacement-fused-parent"
+    priority = parent_priority("skeletal-replacement-parent")
+    min_ring_system_ring_count = 2
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() < 2:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        yielded_names: set[str] = set()
+        yielded = 0
+        for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
+            if feature["ring_count"] < 2 or feature["ring_count"] > 5:
+                continue
+            if set(feature["elements"]) <= {"C"}:
+                continue
+            key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
+            for template in _retained_topology_replacement_parent_templates_for_graph(*key, self._Chem):
+                query = _skeletal_replacement_query(template_record_mol(template), self._Chem)
+                if query.GetNumAtoms() != len(atom_set):
+                    continue
+                for match in ctx.substruct_matches(query):
+                    if set(match) != set(atom_set):
+                        continue
+                    if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
+                        continue
+                    parent_name = _retained_topology_replacement_parent_name(mol, template, match)
+                    if not parent_name:
+                        continue
+                    name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+                    if not name or name in yielded_names:
+                        continue
+                    if _unsafe_retained_ring_scaffold_candidate(name):
+                        continue
+                    if _unsafe_benz_a_anthracene_candidate(name):
+                        continue
+                    yielded_names.add(name)
+                    yielded += 1
+                    yield NameCandidate(
+                        name=name,
+                        family=self.family,
+                        priority=self.priority,
+                        sort_key=(
+                            _skeletal_replacement_sort_key(mol, match, parent_name),
+                            _substituent_locant_tuple(name),
+                            len(name),
+                            name,
+                        ),
+                    )
+                    if yielded >= 24:
                         return
 
 
@@ -3816,7 +4559,8 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
             Chem,
             reject_extra_core_bonds=True,
         ):
-            if _name_fused_core_match(mol, template, match):
+            name = _name_fused_core_match(mol, template, match)
+            if name and not _unsafe_benz_a_anthracene_candidate(name):
                 return True
     return False
 
@@ -3837,7 +4581,8 @@ class ExactRetainedParentRule:
         return ctx.candidate_templates(self._templates(), exact_atom_count=True)
 
     def _sort_key(self, template: dict) -> tuple:
-        return (len(template_record_name(template)), template.get("source_family", ""), template_record_name(template))
+        name = _preferred_parent_stem(template_record_name(template))
+        return (len(name), template.get("source_family", ""), name)
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -3858,9 +4603,55 @@ class ExactRetainedParentRule:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    family = (
+                        "exact-biochemical-retained-parent"
+                        if template.get("source_family") == "static-exact-retained"
+                        else self.family
+                    )
                     yield NameCandidate(
-                        name=template_record_name(template),
-                        family=self.family,
+                        name=_preferred_parent_stem(template_record_name(template)),
+                        family=family,
+                        priority=self.priority,
+                        sort_key=self._sort_key(template),
+                    )
+
+
+class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
+    family = "exact-functional-retained-parent"
+    requires_exact_ring_system = False
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return tuple(
+            template
+            for template in ctx.candidate_templates(self._templates(), exact_atom_count=True)
+            if template.get("source_family") in {"static-retained", "static-exact-retained"}
+        )
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() == 0:
+            return
+        if _too_large_for_exhaustive_ring_parent_search(mol):
+            return
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for template in self._template_iter(ctx):
+            if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
+                continue
+            if template_record_mol(template).GetNumAtoms() != atom_count:
+                continue
+            if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
+                continue
+            for match in ctx.template_matches(template):
+                if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    family = (
+                        "exact-biochemical-retained-parent"
+                        if template.get("source_family") == "static-exact-retained"
+                        else self.family
+                    )
+                    yield NameCandidate(
+                        name=_preferred_parent_stem(template_record_name(template)),
+                        family=family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
                     )
@@ -3875,6 +4666,17 @@ class GeneratedExactParentRule(ExactRetainedParentRule):
 
     def _sort_key(self, template: dict) -> tuple:
         return _generated_exact_parent_sort_key(template)
+
+
+class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):
+    family = "exact-biochemical-retained-parent"
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return tuple(
+            template
+            for template in ctx.candidate_templates(self._templates(), exact_atom_count=True)
+            if template.get("source_family") == "static-exact-retained"
+        )
 
 
 def parent_rules(Chem) -> tuple:
@@ -3894,10 +4696,13 @@ def parent_rules(Chem) -> tuple:
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
+    retained_amide = RetainedAmideParentRule(Chem)
     boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
+    glutarimide = GlutarimideRetainedParentRule(Chem)
+    amino_acid = AminoAcidRetainedParentRule(Chem)
     biphenyl = BiphenylParentRule(Chem)
     diphenylbenzene = DiphenylbenzeneParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
@@ -3906,6 +4711,8 @@ def parent_rules(Chem) -> tuple:
     whole_molecule_retained = WholeMoleculeRetainedParentRule(Chem)
     exact_retained = ExactRetainedParentRule(Chem)
     retained_ring_scaffold = RetainedRingScaffoldParentRule(Chem)
+    exact_functional_retained = ExactFunctionalRetainedParentRule(Chem)
+    exact_biochemical_retained = ExactBiochemicalRetainedParentRule(Chem)
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
     hydro_fused = HydroFusedParentRule(Chem)
@@ -3925,6 +4732,7 @@ def parent_rules(Chem) -> tuple:
     component_spiro = ComponentSpiroParentRule()
     natural_product_topology = NaturalProductTopologyParentRule(Chem)
     skeletal_replacement = SkeletalReplacementFusedParentRule(Chem)
+    retained_topology_replacement = RetainedTopologyReplacementFusedParentRule(Chem)
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
     chain_dominant_acyclic = ChainDominantAcyclicSkeletonWithRingSubstituentsRule()
@@ -3955,10 +4763,13 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
+        RuleSpec("retained-amide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_amide.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
+        RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),
+        RuleSpec("amino-acid-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), amino_acid.candidates),
         RuleSpec("biphenyl-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(2),), biphenyl.candidates),
         RuleSpec("diphenylbenzene-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(3),), diphenylbenzene.candidates),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
@@ -4013,7 +4824,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "whole-molecule-retained-parent",
             parent_priority("whole-molecule-retained-parent"),
-            (min_ring_count(1),),
+            (),
             whole_molecule_retained.candidates,
         ),
         RuleSpec("exact-retained-parent", parent_priority("exact-retained-parent"), (min_ring_count(1), exact_ring_system), exact_retained.candidates),
@@ -4022,6 +4833,18 @@ def parent_rules(Chem) -> tuple:
             parent_priority("retained-fused-parent"),
             (min_ring_count(1),),
             retained_ring_scaffold.candidates,
+        ),
+        RuleSpec(
+            "exact-functional-retained-parent",
+            parent_priority("exact-retained-parent"),
+            (min_ring_count(1), functional_skeleton_signal),
+            exact_functional_retained.candidates,
+        ),
+        RuleSpec(
+            "exact-biochemical-retained-parent",
+            parent_priority("exact-retained-parent"),
+            (min_ring_count(1),),
+            exact_biochemical_retained.candidates,
         ),
         RuleSpec(
             "preferred-generic-bicyclic-parent",
@@ -4071,6 +4894,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("natural-product-topology-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_system_ring_count(4),), natural_product_topology.candidates),
         RuleSpec("skeletal-replacement-fused-parent", parent_priority("skeletal-replacement-parent"), (min_ring_system_ring_count(3),), skeletal_replacement.candidates),
         RuleSpec(
+            "retained-topology-replacement-fused-parent",
+            parent_priority("skeletal-replacement-parent"),
+            (min_ring_system_ring_count(2),),
+            retained_topology_replacement.candidates,
+        ),
+        RuleSpec(
             "kekulized-generic-polycyclic-parent",
             parent_priority("polycyclic-functional-skeleton"),
             (kekulized_polycycle_signal, generic_polycyclic_topology, no_exocyclic_charged_fused_parent),
@@ -4100,6 +4929,7 @@ from .parent.rule_helpers import (
     _subtree_has_cumulated_diene,
     _skeletal_replacement_query,
     _skeletal_replacement_parent_name,
+    _retained_topology_replacement_parent_name,
     _skeletal_replacement_sort_key,
     _spiro_norbornene_locant_penalty,
     _skeletal_replacement_saturation_penalty,

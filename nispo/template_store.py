@@ -5,6 +5,8 @@ from functools import lru_cache
 from typing import Mapping
 
 from .resource_templates import (
+    build_exact_biochemical_parent_templates,
+    build_exact_unlocanted_resource_templates,
     build_fusion_component_parent_templates,
     build_generated_fused_parent_templates,
     build_generated_spiro_scaffold_templates,
@@ -107,9 +109,13 @@ class TemplateStore:
         opsin_retained_ring_csv_fused = self._general_retained_ring_csv_templates(opsin_retained_ring_csv)
         opsin_retained_fused = self.opsin_retained_fused()
         fusion_component_parents = self.fusion_component_parents()
+        exact_biochemical = build_exact_biochemical_parent_templates(self.Chem)
+        exact_unlocanted = build_exact_unlocanted_resource_templates(self.Chem)
         exact = self._dedupe_templates(
             build_retained_parent_templates(self.Chem, min_rings=0, max_atoms=48)
             + static_retained
+            + exact_biochemical
+            + exact_unlocanted
             + opsin_test_scaffolds
             + generated_spiro_scaffolds
             + opsin_retained_ring_csv

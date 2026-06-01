@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 
@@ -144,7 +145,7 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             if sulfur.endswith("sulfanyl"):
                 return sulfur[: -len("sulfanyl")] + "disulfanyl"
             return sulfur + "sulfanyl"
-        alk = substituent_from_root(mol, heavy[0], idx) or branch_prefix(mol, heavy[0], idx)
+        alk = branch_prefix(mol, heavy[0], idx) or substituent_from_root(mol, heavy[0], idx)
         if not alk:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)
@@ -214,7 +215,7 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
             single_groups.append(nidx)
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
-    s_group = substituent_from_root(mol, single_groups[0], idx)
+    s_group = branch_prefix(mol, single_groups[0], idx) or substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
         return ""
     n_group = _imino_n_substituent_name(mol, imino[0], idx)
@@ -540,7 +541,7 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     elif single_atom.IsInRing():
         s_group = _ring_substituent_prefix(mol, single_groups[0], idx)
     else:
-        s_group = substituent_from_root(mol, single_groups[0], idx)
+        s_group = branch_prefix(mol, single_groups[0], idx) or substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
         return ""
     n_group = _imino_n_substituent_name(mol, imino[0], idx)
@@ -564,7 +565,7 @@ def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:
     if mol.GetAtomWithIdx(attached).IsInRing():
         name = _ring_substituent_prefix(mol, attached, nidx)
         return name if name else None
-    name = substituent_from_root(mol, attached, nidx)
+    name = branch_prefix(mol, attached, nidx) or substituent_from_root(mol, attached, nidx)
     if not name:
         return None
     return name
@@ -606,7 +607,7 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
         elif nbr.IsInRing():
             name = _ring_substituent_prefix(mol, nbr_idx, amine)
         else:
-            name = substituent_from_root(mol, nbr_idx, amine)
+            name = branch_prefix(mol, nbr_idx, amine) or substituent_from_root(mol, nbr_idx, amine)
         if not name:
             return ""
         groups.append(name)
@@ -883,6 +884,9 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     if _is_carboxylate_carbon(mol, idx) and _atom_has_multiple_bond_outside(mol, parent_idx, idx):
         return "1-oxido-1-oxo-methyl"
     distal = heavy[0]
+    aminoacyl = _retained_aminoacyl_prefix(mol, idx, distal, parent_idx=parent_idx)
+    if aminoacyl:
+        return aminoacyl
     carbamoyl = _carbamoyl_substituent_name(mol, idx, parent_idx)
     if carbamoyl:
         return carbamoyl
@@ -905,7 +909,162 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     return retained if retained else name + "carbonyl"
 
 
+_AMINOACYL_BY_SIDECHAIN = {
+    "": "glycyl",
+    "methyl": "alanyl",
+    "isopropyl": "valyl",
+    "1-methyl-ethyl": "valyl",
+    "propyl": "norvalyl",
+    "butyl": "norleucyl",
+    "t-butyl": "t-leucyl",
+    "tert-butyl": "t-leucyl",
+    "isobutyl": "leucyl",
+    "2-methyl-propyl": "leucyl",
+    "sec-butyl": "isoleucyl",
+    "1-methyl-propyl": "isoleucyl",
+    "benzyl": "phenylalanyl",
+    "2-(phenyl)ethyl": "homophenylalanyl",
+    "4-hydroxybenzyl": "tyrosyl",
+    "3,4-dihydroxybenzyl": "dopyl",
+    "(1H-imidazol-4-yl)methyl": "histidyl",
+    "(indole-3-yl)methyl": "tryptophyl",
+    "hydroxymethyl": "seryl",
+    "1-hydroxyethyl": "threonyl",
+    "sulfanylmethyl": "cysteinyl",
+    "mercaptomethyl": "cysteinyl",
+    "2-methylsulfanyl-ethyl": "methionyl",
+    "carboxymethyl": "aspartyl",
+    "2-carboxyethyl": "glutamyl",
+    "carbamylmethyl": "asparaginyl",
+    "2-carbamylethyl": "glutaminyl",
+    "4-azabutyl": "ornithyl",
+    "4-aminobutyl": "lysyl",
+    "5-amino-4,6-diaza5-hexen-1-yl": "arginyl",
+}
+
+
+def _retained_aminoacyl_prefix(
+    mol,
+    carbonyl_idx: int,
+    alpha_idx: int,
+    seen: frozenset[int] = frozenset(),
+    parent_idx: int | None = None,
+) -> str:
+    if carbonyl_idx in seen:
+        return ""
+    alpha = mol.GetAtomWithIdx(alpha_idx)
+    if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing() or alpha.GetIsotope():
+        return ""
+    bond = mol.GetBondBetweenAtoms(carbonyl_idx, alpha_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    amino = []
+    sidechains = []
+    for nbr in alpha.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        nbr_bond = mol.GetBondBetweenAtoms(alpha_idx, nidx)
+        if nbr_bond is None or nbr_bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and not nbr.IsInRing():
+            amino.append(nidx)
+        else:
+            sidechains.append(nidx)
+    if len(amino) != 1 or len(sidechains) > 1:
+        return ""
+    upstream = _alpha_amino_acyl_prefix(mol, amino[0], alpha_idx, seen | {carbonyl_idx})
+    if upstream is None:
+        return ""
+    if upstream and parent_idx is not None and mol.GetAtomWithIdx(parent_idx).IsInRing():
+        return ""
+    sidechain = ""
+    if sidechains:
+        sidechain = branch_prefix(mol, sidechains[0], alpha_idx) or substituent_from_root(mol, sidechains[0], alpha_idx)
+    prefix = _AMINOACYL_BY_SIDECHAIN.get(sidechain, "")
+    if not prefix:
+        return ""
+    stereo_prefix = _aminoacyl_stereo_prefix(mol, alpha_idx, prefix)
+    if stereo_prefix is None:
+        return ""
+    return upstream + stereo_prefix + prefix
+
+
+def _alpha_amino_acyl_prefix(
+    mol,
+    nitrogen_idx: int,
+    alpha_idx: int,
+    seen: frozenset[int],
+) -> str | None:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetFormalCharge() != 0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != alpha_idx and nbr.GetAtomicNum() > 1
+    ]
+    if not heavy:
+        return ""
+    if len(heavy) != 1:
+        return None
+    carbonyl_idx = heavy[0]
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return None
+    bond_to_n = mol.GetBondBetweenAtoms(nitrogen_idx, carbonyl_idx)
+    if bond_to_n is None or bond_to_n.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    double_o = []
+    alpha_candidates = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_o.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            alpha_candidates.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_o) != 1 or len(alpha_candidates) != 1:
+        return None
+    upstream = _retained_aminoacyl_prefix(mol, carbonyl_idx, alpha_candidates[0], seen)
+    return upstream or None
+
+
+def _is_free_alpha_amino_group(mol, nitrogen_idx: int, alpha_idx: int) -> bool:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetFormalCharge() != 0:
+        return False
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == alpha_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        return False
+    return True
+
+
+def _aminoacyl_stereo_prefix(mol, alpha_idx: int, prefix: str) -> str | None:
+    atom = mol.GetAtomWithIdx(alpha_idx)
+    if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+        return ""
+    try:
+        Chem.AssignStereochemistry(mol, force=True, cleanIt=False)
+    except Exception:
+        return None
+    code = atom.GetProp("_CIPCode") if atom.HasProp("_CIPCode") else ""
+    if code not in {"R", "S"}:
+        return None
+    if prefix == "cysteinyl":
+        return "D-" if code == "S" else ""
+    return "D-" if code == "R" else ""
+
+
 def _retained_carbonyl_prefix(name: str) -> str:
+    if name.endswith("phenyl"):
+        return name[: -len("phenyl")] + "benzoyl"
     retained = {
         "eth-1-en-1-yl": "acryloyl",
         "difluoromethyl": "difluoroacetyl",
@@ -929,14 +1088,110 @@ def _retained_carbonyl_prefix(name: str) -> str:
         "2-azetidyl": "2-azetidinoyl",
         "3-azetidyl": "3-azetidinoyl",
     }
-    return retained.get(name, "")
+    if name in retained:
+        return retained[name]
+    arylacetyl = _retained_arylacetyl_prefix(name)
+    if arylacetyl:
+        return arylacetyl
+    acyclic = _acyclic_acyl_prefix(name)
+    if acyclic:
+        return acyclic
+    if name.endswith("-yl") and _locanted_ring_acyl_prefix_allowed(name):
+        return name[:-2] + "carbonyl"
+    return ""
+
+
+def _retained_arylacetyl_prefix(name: str) -> str:
+    if name == "benzyl":
+        return "phenylacetyl"
+    for suffix, replacement in (
+        ("benzyl", "phenylacetyl"),
+        ("cyclopropylmethyl", "cyclopropylacetyl"),
+        ("cyclobutylmethyl", "cyclobutylacetyl"),
+        ("cyclopentylmethyl", "cyclopentylacetyl"),
+        ("cyclohexylmethyl", "cyclohexylacetyl"),
+    ):
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[: -len(suffix)] + replacement
+    for ring in ("pyridin", "pyrimidin", "pyrazin", "pyridazin", "furan", "thiophen", "thiofuran"):
+        for locant in ("2", "3", "4", "5", "6"):
+            suffix = f"{ring}-{locant}-ylmethyl"
+            if name == suffix:
+                stem = "thiophen" if ring == "thiofuran" else ring
+                return f"{stem}-{locant}-ylacetyl"
+            if name.endswith(suffix) and len(name) > len(suffix):
+                stem = "thiophen" if ring == "thiofuran" else ring
+                return name[: -len(suffix)] + f"{stem}-{locant}-ylacetyl"
+    return ""
+
+
+_ACYCLIC_ACYL_PARENT_BY_ALKYL = {
+    "methyl": "acetyl",
+    "ethyl": "propionyl",
+    "propyl": "butyryl",
+    "butyl": "valeryl",
+    "pentyl": "hexanoyl",
+    "hexyl": "heptanoyl",
+    "heptyl": "octanoyl",
+    "octyl": "nonanoyl",
+    "nonyl": "decanoyl",
+    "decyl": "undecanoyl",
+    "undecyl": "dodecanoyl",
+    "dodecyl": "tridecanoyl",
+}
+
+
+def _acyclic_acyl_prefix(name: str) -> str:
+    """Convert an alkyl ligand on C=O into the corresponding acyl prefix."""
+
+    for alkyl, acyl in sorted(_ACYCLIC_ACYL_PARENT_BY_ALKYL.items(), key=lambda item: -len(item[0])):
+        if name == alkyl:
+            return acyl
+    return ""
+
+
+def _shift_acyl_ligand_locants(prefix: str) -> str | None:
+    """Shift ligand locants by one because the acyl carbon becomes locant 1."""
+
+    if not prefix:
+        return ""
+    parts = prefix.split("-")
+    shifted_parts = []
+    for part in parts:
+        if not part:
+            return None
+        match = re.fullmatch(r"\d+(?:,\d+)*", part)
+        if match:
+            shifted_parts.append(",".join(str(int(loc) + 1) for loc in part.split(",")))
+        else:
+            shifted_parts.append(part)
+    return "-".join(shifted_parts) + "-"
+
+
+def _locanted_ring_acyl_prefix_allowed(name: str) -> bool:
+    if not re.search(r"-\d+[a-z]?'?-yl$", name):
+        return False
+    if any(term in name for term in ("cyclo", "bicyclo[", "tricyclo[", "spiro[", "[")):
+        return False
+    if not re.fullmatch(
+        r"(?:"
+        r"azetidin|furan|imidazol|isothiazol|isoxazol|morpholin|oxazol|"
+        r"piperazin|piperidin|pyrazin|pyrazol|pyridazin|pyridin|pyrimidin|"
+        r"pyrrolidin|tetrazol|thiazol|thiophen|triazol"
+        r")-\d+[a-z]?'?-yl",
+        name,
+    ):
+        return False
+    return not name.startswith(("benzyl", "allyl", "vinyl"))
 
 
 def _formyl_prefix_allowed(mol, carbonyl_idx: int, parent_idx: int) -> bool:
     if _has_isotopic_hydrogen(mol, carbonyl_idx):
         return False
     parent = mol.GetAtomWithIdx(parent_idx)
-    if parent.GetSymbol() == "N":
+    if parent.GetSymbol() == "N" and any(
+        nbr.GetIdx() != carbonyl_idx and nbr.GetSymbol() == "N" for nbr in parent.GetNeighbors()
+    ):
         return False
     if _atom_has_multiple_bond_to_heteroatom_outside(mol, parent_idx, carbonyl_idx):
         return False
@@ -1108,13 +1363,30 @@ def _retained_alkoxycarbonyl_prefix(
     parent_idx: int | None = None,
     carbonyl_idx: int | None = None,
 ) -> str:
-    if _has_assigned_stereo(mol):
-        return ""
     if parent_idx is not None and carbonyl_idx is not None and _has_nonaromatic_ring_amine_attachment(
         mol, parent_idx, carbonyl_idx
     ):
         return ""
     return {
+        "methyl": "carbmethoxy",
+        "ethyl": "carbethoxy",
+        "propyl": "carbopropoxy",
+        "isopropyl": "carbisopropoxy",
+        "butyl": "carbobutoxy",
+        "pentyl": "carbopentoxy",
+        "hexyl": "carbohexoxy",
+        "heptyl": "carboheptoxy",
+        "octyl": "carbooctoxy",
+        "nonyl": "carbononoxy",
+        "decyl": "carbodecoxy",
+        "undecyl": "carboundecoxy",
+        "dodecyl": "carbododecoxy",
+        "phenyl": "carbphenoxy",
+        "(fluoren-9-yl)methyl": "fmoc",
+        "(fluorene-9-yl)methyl": "fmoc",
+        "9-fluorenylmethyl": "fmoc",
+        "9-fluorenemethyl": "fmoc",
+        "t-butyl": "boc",
         "tert-butyl": "boc",
         "benzyl": "cbz",
     }.get(alkyl, "")

@@ -10,6 +10,8 @@ from ..branch_rules import branch_prefix
 from ..constants import HALO, MULT, ROOTS
 from ..cycle_utils import ordered_ring, ring_system_extends_core
 from ..formatting import format_prefixes as _format_prefixes
+from ..formatting import join_prefix_parent as _join_prefix_parent
+from ..formatting import preferred_parent_stem as _preferred_parent_stem
 from ..formatting import loc_unsat
 from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
@@ -251,7 +253,7 @@ def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int])
             prefixes.append((locant, prefix))
     parent_name = _terminal_retained_parent_name(template_record_name(template))
     prefix_text = _format_prefixes(prefixes)
-    return prefix_text + "-" + parent_name if prefix_text else parent_name
+    return _join_prefix_parent(prefix_text, parent_name)
 
 
 def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
@@ -307,6 +309,41 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
         multiplier = MULT.get(len(locants), "")
         parts.append(f"{','.join(locants)}-{multiplier}{replacement}")
     parent_name = template_record_name(template)
+    if parent_name == "gon":
+        parent_name = "cyclopenta[a]phenanthren"
+    return "-".join(parts) + parent_name
+
+
+def _retained_topology_replacement_parent_name(mol, template: dict, match: Sequence[int]) -> str:
+    grouped: dict[str, list[str]] = {}
+    template_mol = template_record_mol(template)
+    if any(atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 for atom in template_mol.GetAtoms()):
+        return ""
+    locants = template_record_locants(template)
+    for template_idx, mol_idx in enumerate(match):
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        mol_atom = mol.GetAtomWithIdx(mol_idx)
+        if template_atom.GetSymbol() == mol_atom.GetSymbol():
+            if template_atom.GetFormalCharge() != mol_atom.GetFormalCharge():
+                return ""
+            continue
+        if template_atom.GetSymbol() != "C" or template_atom.GetFormalCharge() != 0:
+            return ""
+        if mol_atom.GetFormalCharge() != 0:
+            return ""
+        replacement = _SKELETAL_REPLACEMENT_PREFIXES.get(mol_atom.GetSymbol())
+        locant = locants.get(template_idx, "")
+        if not replacement or not locant:
+            return ""
+        grouped.setdefault(replacement, []).append(locant)
+    if not grouped:
+        return ""
+    parts = []
+    for replacement in sorted(grouped):
+        replacement_locants = sorted(grouped[replacement], key=_locant_sort_key)
+        multiplier = MULT.get(len(replacement_locants), "")
+        parts.append(f"{','.join(replacement_locants)}-{multiplier}{replacement}")
+    parent_name = _terminal_retained_parent_name(template_record_name(template))
     if parent_name == "gon":
         parent_name = "cyclopenta[a]phenanthren"
     return "-".join(parts) + parent_name
@@ -813,7 +850,7 @@ def _name_fused_core_match(
                 return ""
             prefixes.append((locant, prefix))
     if not prefixes:
-        return parent_name
+        return _join_prefix_parent("", parent_name)
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
     suffix_name = _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
     if suffix_name:
@@ -825,7 +862,7 @@ def _name_fused_core_match(
     prefix_text = _format_prefixes(prefixes)
     if not prefix_text:
         return ""
-    return prefix_text + "-" + parent_name
+    return _join_prefix_parent(prefix_text, parent_name)
 
 
 def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:
@@ -1024,7 +1061,7 @@ def _fused_oxo_suffix_name(
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
         name = "3H,8H-pteridine-4,7-dione"
-        return prefix_text + "-" + name if prefix_text else name
+        return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     if (
         len(oxo_locs) == 1
         and indicated_h_locs
@@ -1039,7 +1076,7 @@ def _fused_oxo_suffix_name(
         parent = _strip_leading_indicated_hydrogen(parent_name)
         h_loc = sorted(set(indicated_h_locs), key=_locant_sort_key)[0]
         name = f"{parent}-{oxo_locs[0]}({h_loc}H)-one"
-        return prefix_text + "-" + name if prefix_text else name
+        return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     return ""
 
 
@@ -1184,7 +1221,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             continue
         adjusted_parent = _append_ring_parent_isotope_suffixes(mol, adjusted_parent, seq)
         if not raw_subs:
-            name = adjusted_parent
+            name = _join_prefix_parent("", adjusted_parent)
             key = ([], name)
             if best_key is None or key < best_key:
                 best_key = key
@@ -1193,17 +1230,22 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             continue
         pos = {idx: i + 1 for i, idx in enumerate(seq)}
         prefixes = [
-            (str(pos[idx]), prefix)
+            (_single_ring_substituent_locant(adjusted_parent, pos[idx]), prefix)
             for idx, prefix in raw_subs
             if not (
                 adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"} and pos[idx] == 2 and prefix == "oxo"
+            )
+            and not (
+                adjusted_parent in {"maleimide", "succinimide"} and pos[idx] in {2, 5} and prefix == "oxo"
             )
         ]
         locants = sorted(pos[idx] for idx, _ in raw_subs)
         prefix_text = _format_prefixes(prefixes)
         if not prefix_text:
             continue
-        name = prefix_text + "-" + adjusted_parent
+        if not _single_ring_parent_prefixes_supported(adjusted_parent, prefixes):
+            continue
+        name = _join_prefix_parent(prefix_text, adjusted_parent)
         key = (locants, 1, name)
         if best_key is None or key < best_key:
             best_key = key
@@ -1227,6 +1269,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
+        carbonyl_name = _single_ring_oxo_methylidene_suffix_name(prefixes, adjusted_parent)
+        if carbonyl_name:
+            carbonyl_key = (locants, 0, carbonyl_name)
+            if best_key is None or carbonyl_key < best_key:
+                best_key = carbonyl_key
+                best_name = carbonyl_name
+                best_seq = seq
         functional_suffix_name = _single_ring_functional_suffix_name(prefixes, adjusted_parent)
         if functional_suffix_name:
             suffix_key = (locants, 0, functional_suffix_name)
@@ -1237,6 +1286,32 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     if not best_name:
         return []
     return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name))]
+
+
+def _single_ring_substituent_locant(parent_name: str, loc: int) -> str:
+    if parent_name in {"maleimide", "succinimide"} and loc == 1:
+        return "N"
+    return str(loc)
+
+
+def _single_ring_parent_prefixes_supported(parent_name: str, prefixes: Sequence[tuple[str, str]]) -> bool:
+    if parent_name not in {"maleimide", "succinimide"}:
+        return True
+    n_prefixes = [prefix for loc, prefix in prefixes if loc == "N"]
+    if len(n_prefixes) > 1:
+        return False
+    if n_prefixes:
+        n_prefix = n_prefixes[0]
+        if n_prefix.startswith("(") or len(n_prefix) > 24:
+            return False
+        carbon_prefixes = [
+            prefix
+            for loc, prefix in prefixes
+            if loc != "N" and not (loc in {"2", "5"} and prefix == "oxo")
+        ]
+        if len(carbon_prefixes) > 1:
+            return False
+    return True
 
 
 def _merge_ring_parent_candidates(
@@ -1334,23 +1409,66 @@ def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_na
     original_prefix_text = _format_prefixes(prefixes)
     original_name = original_prefix_text + "-benzene" if original_prefix_text else "benzene"
     for index, (loc, prefix) in enumerate(prefixes):
-        if loc != "1":
-            continue
         retained_parent = _BENZENE_RETAINED_PARENT_BY_PREFIX.get(prefix)
         if not retained_parent:
             continue
-        remaining = list(prefixes[:index]) + list(prefixes[index + 1 :])
-        prefix_text = _format_prefixes(remaining)
-        name = prefix_text + retained_parent if prefix_text else retained_parent
-        name = _benzene_retained_parent_alias_name(name)
-        if len(name) >= len(original_name):
+        if loc != "1" and prefix not in _BENZENE_RETAINED_PARENT_REMAP_PREFIXES:
             continue
-        rank = _BENZENE_RETAINED_PARENT_RANK[prefix]
-        key = (rank, len(name), name)
-        if best_key is None or key < best_key:
-            best_key = key
-            best_name = name
+        for remapped_remaining in _benzene_remaining_prefix_orientations(prefixes, index, loc):
+            prefix_text = _format_prefixes(remapped_remaining)
+            name = prefix_text + retained_parent if prefix_text else retained_parent
+            name = _benzene_retained_parent_alias_name(name)
+            if len(name) >= len(original_name):
+                continue
+            rank = _BENZENE_RETAINED_PARENT_RANK[prefix]
+            key = (rank, len(name), _substituent_locant_tuple(name), name)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_name = name
     return best_name
+
+
+_BENZENE_RETAINED_PARENT_REMAP_PREFIXES = {
+    "1-azamethylcarbonyl",
+    "carbamyl",
+    "carbamoyl",
+    "carboxy",
+    "carboxylato",
+    "cyano",
+    "formyl",
+}
+
+
+def _benzene_remaining_prefix_orientations(
+    prefixes: Sequence[tuple[str, str]],
+    retained_index: int,
+    retained_loc: str,
+) -> list[list[tuple[str, str]]]:
+    if not retained_loc.isdigit():
+        return []
+    retained = int(retained_loc)
+    if not 1 <= retained <= 6:
+        return []
+    remaining = list(prefixes[:retained_index]) + list(prefixes[retained_index + 1 :])
+    if retained == 1:
+        return [remaining]
+    orientations = []
+    for direction in (1, -1):
+        remapped = []
+        ok = True
+        for loc, prefix in remaining:
+            if not loc.isdigit():
+                ok = False
+                break
+            value = int(loc)
+            if not 1 <= value <= 6:
+                ok = False
+                break
+            mapped = ((direction * (value - retained)) % 6) + 1
+            remapped.append((str(mapped), prefix))
+        if ok:
+            orientations.append(remapped)
+    return orientations
 
 
 def _benzene_retained_parent_alias_name(name: str) -> str:
@@ -1615,9 +1733,23 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
     if not parent:
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
     locants = ",".join(sorted(oxo_locs, key=int))
-    suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
+    suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
     name = f"{parent}-{locants}-{suffix}"
-    return prefix_text + "-" + name if prefix_text else name
+    return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _single_ring_oxo_methylidene_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    if not re.fullmatch(r"\d+H-pyridine", parent_name):
+        return ""
+    h_loc = parent_name.split("H-", 1)[0]
+    carbonyl_locs = [loc for loc, prefix in prefixes if prefix == "oxomethylidene" and loc == h_loc]
+    if carbonyl_locs != [h_loc]:
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if not (loc == h_loc and prefix == "oxomethylidene")]
+    prefix_text = _format_prefixes(remaining)
+    parent = _preferred_parent_stem(parent_name)
+    core = f"{h_loc}-carbonyl-{parent}"
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
 
 
 _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
@@ -1678,13 +1810,27 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         if not suffix:
             continue
         locants = ",".join(suffix_locs)
-        suffix_name = f"{parent_name}-{locants}-{suffix}"
-        if n_substituent:
-            suffix_name = f"{n_substituent}-{suffix_name}"
-        prefix_text = _format_prefixes(remaining)
-        name = prefix_text + "-" + suffix_name if prefix_text else suffix_name
+        retained_name = _retained_suffix_parent_alias_with_prefixes(
+            parent_name,
+            suffix_base,
+            suffix_locs,
+            n_substituent,
+            remaining,
+        )
+        if retained_name:
+            name = retained_name
+        else:
+            suffix_name = _retained_suffix_parent_alias(parent_name, suffix_base, suffix_locs, n_substituent)
+            if not suffix_name:
+                suffix_name = f"{parent_name}-{locants}-{suffix}"
+                if n_substituent:
+                    suffix_name = f"{n_substituent}-{suffix_name}"
+            elif n_substituent:
+                suffix_name = f"{n_substituent}-{suffix_name}"
+            prefix_text = _format_prefixes(remaining)
+            name = _join_prefix_parent(prefix_text, suffix_name) if prefix_text else _preferred_parent_stem(suffix_name)
         original_prefix_text = _format_prefixes(prefixes)
-        original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+        original_name = _join_prefix_parent(original_prefix_text, parent_name) if original_prefix_text else parent_name
         original_name = _functional_suffix_prefix_baseline(original_name)
         if (
             (
@@ -1766,12 +1912,16 @@ def _fused_functional_suffix_name(
         if not parent or not suffix:
             continue
         prefix_text = _format_prefixes(remaining)
-        core = f"{parent}-{loc}-{suffix}"
-        if n_substituent:
+        core = _retained_suffix_parent_alias(parent, suffix_base, (loc,), n_substituent)
+        if not core:
+            core = f"{parent}-{loc}-{suffix}"
+            if n_substituent:
+                core = f"{n_substituent}-{core}"
+        elif n_substituent:
             core = f"{n_substituent}-{core}"
-        name = prefix_text + "-" + core if prefix_text else core
+        name = _join_prefix_parent(prefix_text, core) if prefix_text else _preferred_parent_stem(core)
         original_prefix_text = _format_prefixes(prefixes)
-        original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+        original_name = _join_prefix_parent(original_prefix_text, parent_name) if original_prefix_text else parent_name
         original_name = _functional_suffix_prefix_baseline(original_name)
         if len(name) > len(original_name) + _fused_functional_suffix_extra_budget(suffix_base, n_substituent):
             continue
@@ -1955,11 +2105,157 @@ def _format_amide_n_substituent(group: str) -> str:
     return f"N-({group})"
 
 
+_PYRIDINE_RETAINED_SUFFIX_ALIASES = {
+    "carboxamide": {
+        "2": "picolinamide",
+        "3": "nicotinamide",
+        "4": "isonicotinamide",
+    },
+    "carboxylic acid": {
+        "2": "picolinic acid",
+        "3": "nicotinic acid",
+        "4": "isonicotinic acid",
+    },
+    "carboxylate": {
+        "2": "picolinate",
+        "3": "nicotinate",
+        "4": "isonicotinate",
+    },
+    "carbonitrile": {
+        "2": "picolinonitrile",
+        "3": "nicotinonitrile",
+        "4": "isonicotinonitrile",
+    },
+}
+
+
+def _retained_suffix_parent_alias(
+    parent_name: str,
+    suffix_base: str,
+    suffix_locs: Sequence[str],
+    n_substituent: str = "",
+) -> str:
+    """Return retained suffix-parent aliases selected by the parent locant map."""
+
+    if n_substituent and suffix_base != "carboxamide":
+        return ""
+    if len(suffix_locs) != 1:
+        return ""
+    locant = suffix_locs[0]
+    if parent_name in {"pyridine", "pyridin"}:
+        return _PYRIDINE_RETAINED_SUFFIX_ALIASES.get(suffix_base, {}).get(locant, "")
+    return ""
+
+
+def _retained_suffix_parent_alias_with_prefixes(
+    parent_name: str,
+    suffix_base: str,
+    suffix_locs: Sequence[str],
+    n_substituent: str,
+    remaining: Sequence[tuple[str, str]],
+) -> str:
+    if parent_name not in {"pyridine", "pyridin"} or len(suffix_locs) != 1:
+        return ""
+    if n_substituent and _simple_n_substituent_group(n_substituent) is None:
+        return ""
+    alias, locant_map = _pyridine_retained_suffix_alias_and_locants(suffix_base, suffix_locs[0], remaining)
+    if not alias:
+        return ""
+    remapped = []
+    for loc, prefix in remaining:
+        mapped_loc = locant_map.get(loc)
+        if not mapped_loc:
+            return ""
+        remapped.append((mapped_loc, prefix))
+    combined_prefix = _combined_n_and_ring_prefix_text(n_substituent, remapped)
+    if combined_prefix:
+        return _join_prefix_parent(combined_prefix, alias)
+    core = f"{n_substituent}-{alias}" if n_substituent else alias
+    prefix_text = _format_prefixes(remapped)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else _preferred_parent_stem(core)
+
+
+def _combined_n_and_ring_prefix_text(n_substituent: str, remapped: Sequence[tuple[str, str]]) -> str:
+    if not n_substituent or not remapped:
+        return ""
+    parsed = _simple_n_substituent_group(n_substituent)
+    if parsed is None:
+        return ""
+    term, n_locs = parsed
+    if any(prefix != term for _loc, prefix in remapped):
+        return ""
+    ring_locs = sorted((loc for loc, _prefix in remapped), key=_locant_sort_key)
+    all_locs = tuple(n_locs) + tuple(ring_locs)
+    multiplier = MULT.get(len(all_locs), "")
+    if not multiplier:
+        return ""
+    return f"{','.join(all_locs)}-{multiplier}{term}"
+
+
+def _simple_n_substituent_group(n_substituent: str) -> tuple[str, tuple[str, ...]] | None:
+    match = re.fullmatch(r"N-(methyl|ethyl|propyl|isopropyl|butyl|isobutyl|tert-butyl|t-butyl)", n_substituent)
+    if match:
+        return match.group(1), ("N",)
+    match = re.fullmatch(r"N,N-di(methyl|ethyl|propyl|butyl)", n_substituent)
+    if match:
+        return match.group(1), ("N", "N")
+    return None
+
+
+def _pyridine_retained_suffix_alias_and_locants(
+    suffix_base: str,
+    locant: str,
+    remaining: Sequence[tuple[str, str]],
+) -> tuple[str, dict[str, str]]:
+    aliases = _PYRIDINE_RETAINED_SUFFIX_ALIASES.get(suffix_base, {})
+    if locant in {"2", "3"}:
+        alias = aliases.get(locant, "")
+        return alias, _PYRIDINE_IDENTITY_LOCANTS if alias else ("", {})
+    if locant in {"5", "6"}:
+        alias_locant = {"5": "3", "6": "2"}[locant]
+        alias = aliases.get(alias_locant, "")
+        return alias, _PYRIDINE_MIRROR_LOCANTS if alias else ("", {})
+    if locant == "4":
+        alias = aliases.get("4", "")
+        if not alias:
+            return "", {}
+        identity_text = _format_prefixes([(loc, prefix) for loc, prefix in remaining])
+        mirrored = []
+        for loc, prefix in remaining:
+            mapped = _PYRIDINE_MIRROR_LOCANTS.get(loc)
+            if not mapped:
+                return alias, _PYRIDINE_IDENTITY_LOCANTS
+            mirrored.append((mapped, prefix))
+        mirror_text = _format_prefixes(mirrored)
+        return alias, _PYRIDINE_MIRROR_LOCANTS if mirror_text and mirror_text < identity_text else _PYRIDINE_IDENTITY_LOCANTS
+    return "", {}
+
+
+_PYRIDINE_IDENTITY_LOCANTS = {
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "4": "4",
+    "5": "5",
+    "6": "6",
+}
+
+
+_PYRIDINE_MIRROR_LOCANTS = {
+    "1": "1",
+    "2": "6",
+    "3": "5",
+    "4": "4",
+    "5": "3",
+    "6": "2",
+}
+
+
 def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
     best_key = None
     best_name = ""
     original_prefix_text = _format_prefixes(prefixes)
-    original_name = original_prefix_text + "-" + parent_name if original_prefix_text else parent_name
+    original_name = _join_prefix_parent(original_prefix_text, parent_name) if original_prefix_text else parent_name
     original_name = _functional_suffix_prefix_baseline(original_name)
     ester_prefixes = {
         prefix for _loc, prefix in prefixes if prefix in _SINGLE_RING_ESTER_SUFFIX_OWNERS
@@ -1975,12 +2271,17 @@ def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_n
         suffix_locs = sorted(suffix_locs, key=_locant_sort_key)
         locants = ",".join(suffix_locs)
         prefix_text = _format_prefixes(remaining)
-        if parent_name == "benzene" and len(suffix_locs) == 1 and suffix_locs[0] == "1":
+        retained_core = _retained_suffix_parent_alias(parent_name, "carboxylate", suffix_locs)
+        if retained_core and prefix_text:
+            core = _join_prefix_parent(prefix_text, retained_core)
+        elif retained_core:
+            core = retained_core
+        elif parent_name == "benzene" and len(suffix_locs) == 1 and suffix_locs[0] == "1":
             core = prefix_text + "benzoate" if prefix_text else "benzoate"
         else:
             suffix = "carboxylate" if len(suffix_locs) == 1 else "dicarboxylate"
             parent_core = f"{parent_name}-{locants}-{suffix}"
-            core = prefix_text + "-" + parent_core if prefix_text else parent_core
+            core = _join_prefix_parent(prefix_text, parent_core) if prefix_text else parent_core
         name = f"{owner} {core}"
         if len(name) >= len(original_name):
             continue

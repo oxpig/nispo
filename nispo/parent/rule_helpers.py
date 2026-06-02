@@ -879,12 +879,20 @@ def _name_fused_core_match(
         cache[cache_key] = result
         return result
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
-    suffix_name = _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
+    suffix_name = (
+        _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
+        if _may_have_fused_functional_suffix(prefixes)
+        else ""
+    )
     if suffix_name:
         cache[cache_key] = suffix_name
         return suffix_name
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
-    suffix_name = _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
+    suffix_name = (
+        _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
+        if _may_have_fused_oxo_suffix(prefixes)
+        else ""
+    )
     if suffix_name:
         cache[cache_key] = suffix_name
         return suffix_name
@@ -1804,6 +1812,20 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
 _STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH = 152
 
 _FUSED_FUNCTIONAL_SUFFIXES = _SINGLE_RING_FUNCTIONAL_SUFFIXES
+
+
+def _may_have_fused_functional_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
+    for _loc, prefix in prefixes:
+        if prefix in _FUSED_FUNCTIONAL_SUFFIXES:
+            return True
+        if "carbam" in prefix or ("aza" in prefix and "carbonyl" in prefix):
+            return True
+    return False
+
+
+def _may_have_fused_oxo_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
+    return any(prefix == "oxo" and loc.isdigit() for loc, prefix in prefixes)
+
 
 _SINGLE_RING_ESTER_SUFFIX_OWNERS = {
     "methoxycarbonyl": "methyl",

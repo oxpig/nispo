@@ -155,6 +155,8 @@ def _prepare_candidates(
             continue
         ctx.telemetry.rule_applies[rule.family] += 1
         started = time.perf_counter()
+        previous_rule_family = ctx.telemetry.active_rule_family
+        ctx.telemetry.active_rule_family = rule.family
         try:
             for candidate in rule.candidates(ctx):
                 ctx.telemetry.candidate_count[rule.family] += 1
@@ -180,6 +182,7 @@ def _prepare_candidates(
                     )
                 )
         finally:
+            ctx.telemetry.active_rule_family = previous_rule_family
             ctx.telemetry.rule_seconds[rule.family] += time.perf_counter() - started
     return prepared
 

@@ -93,15 +93,21 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     telemetry = mol_cache_get(mol, "candidate_telemetry")
     if telemetry is not None:
         telemetry.branch_prefix_calls += 1
+        active_rule_family = telemetry.active_rule_family or "unknown"
+        telemetry.branch_prefix_calls_by_rule[active_rule_family] += 1
+    else:
+        active_rule_family = ""
     cache = mol_cache_dict(mol, "branch_prefix_cache")
     key = (idx, parent_idx)
     cached = cache.get(key)
     if cached is not None:
         if telemetry is not None:
             telemetry.branch_prefix_cache_hits += 1
+            telemetry.branch_prefix_cache_hits_by_rule[active_rule_family] += 1
         return cached
     if telemetry is not None:
         telemetry.branch_prefix_cache_misses += 1
+        telemetry.branch_prefix_cache_misses_by_rule[active_rule_family] += 1
     in_progress = mol_cache_get(mol, "branch_prefix_in_progress")
     if in_progress is None:
         in_progress = mol_cache_set(mol, "branch_prefix_in_progress", set())

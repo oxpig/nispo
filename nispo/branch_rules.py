@@ -11,6 +11,12 @@ else:
     RDLogger.DisableLog("rdApp.*")
 
 from .branch import BranchRuleSpec, first_branch_name
+from .branch_rendering import (
+    branch_render_context,
+    record_branch_legacy_prefix_call,
+    render_branch_candidates,
+    select_branch_prefix_text,
+)
 from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import (
     join_locants as _join_locants,
@@ -18,7 +24,6 @@ from .formatting import (
     unsaturated_parent as _unsaturated_parent,
 )
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
-from .simple_prefixes import simple_external_prefix
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -119,11 +124,19 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
     in_progress.add(key)
     try:
-        atom = mol.GetAtomWithIdx(idx)
-        prefix = simple_external_prefix(mol, idx, parent_idx)
+        render_ctx = branch_render_context(mol, Chem)
+        prefix = select_branch_prefix_text(
+            render_ctx,
+            render_branch_candidates(render_ctx, idx, parent_idx),
+        )
         if prefix:
-            pass
-        elif atom.GetSymbol() == "H":
+            cache[key] = prefix
+            if telemetry is not None:
+                telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
+            return prefix
+        record_branch_legacy_prefix_call(render_ctx)
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() == "H":
             prefix = _isotopic_hydrogen_prefix(atom)
         elif atom.IsInRing():
             prefix = _ring_substituent_prefix(mol, idx, parent_idx)
@@ -141,7 +154,9 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         cache[key] = prefix
         if telemetry is not None:
-            telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
+            telemetry_key = _branch_prefix_telemetry_key(prefix)
+            telemetry.branch_prefix_produced[telemetry_key] += 1
+            telemetry.branch_legacy_prefix_produced[telemetry_key] += 1
         return prefix
     finally:
         in_progress.discard(key)

@@ -42,6 +42,12 @@ class CandidateTelemetry:
     branch_prefix_calls_by_rule: Counter[str] = field(default_factory=Counter)
     branch_prefix_cache_hits_by_rule: Counter[str] = field(default_factory=Counter)
     branch_prefix_cache_misses_by_rule: Counter[str] = field(default_factory=Counter)
+    branch_structured_prefix_candidates: Counter[str] = field(default_factory=Counter)
+    branch_structured_prefix_selected: Counter[str] = field(default_factory=Counter)
+    branch_structured_prefix_misses: Counter[str] = field(default_factory=Counter)
+    branch_legacy_prefix_calls: int = 0
+    branch_legacy_prefix_calls_by_rule: Counter[str] = field(default_factory=Counter)
+    branch_legacy_prefix_produced: Counter[str] = field(default_factory=Counter)
     active_rule_family: str = ""
     filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
@@ -72,6 +78,11 @@ _COUNTER_FIELDS = (
     "branch_prefix_calls_by_rule",
     "branch_prefix_cache_hits_by_rule",
     "branch_prefix_cache_misses_by_rule",
+    "branch_structured_prefix_candidates",
+    "branch_structured_prefix_selected",
+    "branch_structured_prefix_misses",
+    "branch_legacy_prefix_calls_by_rule",
+    "branch_legacy_prefix_produced",
     "filter_stage_count",
     "template_candidate_count",
     "substructure_match_calls_by_rule",
@@ -84,6 +95,7 @@ _INTEGER_FIELDS = (
     "branch_prefix_cache_hits",
     "branch_prefix_cache_misses",
     "branch_prefix_in_progress_rejections",
+    "branch_legacy_prefix_calls",
     "substructure_match_calls",
 )
 
@@ -156,6 +168,21 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_branch_prefix_cache_misses_by_rule": _top_items(
             telemetry.get("branch_prefix_cache_misses_by_rule", {})
         ),
+        "top_branch_structured_prefix_candidates": _top_items(
+            telemetry.get("branch_structured_prefix_candidates", {})
+        ),
+        "top_branch_structured_prefix_selected": _top_items(
+            telemetry.get("branch_structured_prefix_selected", {})
+        ),
+        "top_branch_structured_prefix_misses": _top_items(
+            telemetry.get("branch_structured_prefix_misses", {})
+        ),
+        "top_branch_legacy_prefix_calls_by_rule": _top_items(
+            telemetry.get("branch_legacy_prefix_calls_by_rule", {})
+        ),
+        "top_branch_legacy_prefix_produced": _top_items(
+            telemetry.get("branch_legacy_prefix_produced", {})
+        ),
         "total_candidate_facts": _sum_values(telemetry.get("candidate_facts_total", {})),
         "total_facts_suppressed_before_render": _sum_values(
             telemetry.get("facts_suppressed_before_render", {})
@@ -167,6 +194,19 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "total_branch_prefix_cache_misses": int(telemetry.get("branch_prefix_cache_misses", 0) or 0),
         "total_branch_prefix_in_progress_rejections": int(
             telemetry.get("branch_prefix_in_progress_rejections", 0) or 0
+        ),
+        "total_branch_legacy_prefix_calls": int(telemetry.get("branch_legacy_prefix_calls", 0) or 0),
+        "total_branch_structured_prefix_candidates": _sum_values(
+            telemetry.get("branch_structured_prefix_candidates", {})
+        ),
+        "total_branch_structured_prefix_selected": _sum_values(
+            telemetry.get("branch_structured_prefix_selected", {})
+        ),
+        "total_branch_structured_prefix_misses": _sum_values(
+            telemetry.get("branch_structured_prefix_misses", {})
+        ),
+        "total_branch_legacy_prefix_produced": _sum_values(
+            telemetry.get("branch_legacy_prefix_produced", {})
         ),
         "total_substructure_match_calls": int(telemetry.get("substructure_match_calls", 0) or 0),
     }

@@ -2671,6 +2671,7 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
             or not _has_carbonyl_group(ctx.mol, ctx.Chem)
+            or _nonring_heavy_atom_count(ctx.mol) < 2
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):

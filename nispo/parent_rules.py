@@ -2551,6 +2551,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
         profile = ctx.profile
         if profile.ring_count == 0:
             return
+        if _nonring_heavy_atom_count(mol) < 2:
+            return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return

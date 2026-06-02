@@ -649,6 +649,8 @@ def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
 
 
 def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    if not _attachment_in_multi_ring_system(mol, attachment_idx, parent_idx):
+        return ""
     curated = _fused_ring_substituent_prefix_from_templates(
         mol, attachment_idx, parent_idx, _curated_fused_templates(Chem), generated=False
     )
@@ -665,6 +667,22 @@ def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) ->
         mol, attachment_idx, parent_idx, broad_generated_templates, generated=True
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, broad_generated_templates)
     return generated
+
+
+def _attachment_in_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> bool:
+    rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if parent_idx not in ring]
+    containing = [ring for ring in rings if attachment_idx in ring]
+    if not containing:
+        return False
+    system = set(containing[0])
+    changed = True
+    while changed:
+        changed = False
+        for ring in rings:
+            if system & ring and not ring <= system:
+                system.update(ring)
+                changed = True
+    return sum(1 for ring in rings if ring <= system) >= 2
 
 
 def _fused_ring_substituent_prefix_from_templates(

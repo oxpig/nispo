@@ -46,6 +46,7 @@ class CandidateTelemetry:
     filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0
+    substructure_match_calls_by_rule: Counter[str] = field(default_factory=Counter)
 
 
 _COUNTER_FIELDS = (
@@ -73,6 +74,7 @@ _COUNTER_FIELDS = (
     "branch_prefix_cache_misses_by_rule",
     "filter_stage_count",
     "template_candidate_count",
+    "substructure_match_calls_by_rule",
 )
 
 _INTEGER_FIELDS = (
@@ -143,6 +145,9 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_selected_family": _top_items(telemetry.get("selected_family", {})),
         "top_selected_rule_family": _top_items(telemetry.get("selected_rule_family", {})),
         "top_template_candidate_count": _top_items(telemetry.get("template_candidate_count", {})),
+        "top_substructure_match_calls_by_rule": _top_items(
+            telemetry.get("substructure_match_calls_by_rule", {})
+        ),
         "top_branch_prefix_produced": _top_items(telemetry.get("branch_prefix_produced", {})),
         "top_branch_prefix_calls_by_rule": _top_items(telemetry.get("branch_prefix_calls_by_rule", {})),
         "top_branch_prefix_cache_hits_by_rule": _top_items(

@@ -20,6 +20,9 @@ from .telemetry import CandidateTelemetry
 from .molecule_cache import mol_cache_set
 
 
+_TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
+
+
 @dataclass(slots=True)
 class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
@@ -181,6 +184,8 @@ class MoleculeContext:
             matches = self.mol.GetSubstructMatches(query, params)
         if self.telemetry is not None:
             self.telemetry.substructure_match_calls += 1
+            active_rule_family = self.telemetry.active_rule_family or "unknown"
+            self.telemetry.substructure_match_calls_by_rule[active_rule_family] += 1
         result = tuple(tuple(match) for match in matches)
         self.cache.substruct_matches[key] = result
         return result
@@ -225,12 +230,20 @@ class MoleculeContext:
 
 
 def _template_collection_label(templates: tuple[dict, ...]) -> str:
+    cache_key = id(templates)
+    cached = _TEMPLATE_COLLECTION_LABEL_CACHE.get(cache_key)
+    if cached is not None and cached[0] is templates:
+        return cached[1]
     if not templates:
-        return "empty"
+        label = "empty"
+        _TEMPLATE_COLLECTION_LABEL_CACHE[cache_key] = (templates, label)
+        return label
     families = Counter(str(template.get("source_family") or "unknown") for template in templates)
     if len(families) == 1:
         family = next(iter(families))
-        return f"{family}:n={len(templates)}"
+        label = f"{family}:n={len(templates)}"
+        _TEMPLATE_COLLECTION_LABEL_CACHE[cache_key] = (templates, label)
+        return label
     top_families = sorted(
         families.items(),
         key=lambda item: (-item[1], item[0]),
@@ -242,4 +255,6 @@ def _template_collection_label(templates: tuple[dict, ...]) -> str:
     if len(families) > 3:
         top_count = sum(count for _, count in top_families)
         family_text += f"+other:{sum(families.values()) - top_count}"
-    return f"mixed:{family_text}:n={len(templates)}"
+    label = f"mixed:{family_text}:n={len(templates)}"
+    _TEMPLATE_COLLECTION_LABEL_CACHE[cache_key] = (templates, label)
+    return label

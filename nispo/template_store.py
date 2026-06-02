@@ -20,6 +20,7 @@ from .resource_templates import (
 from .template_index import candidate_templates as _candidate_templates
 from .template_index import molecule_features as _molecule_features
 from .template_index import ring_system_feature_key
+from .template_index import ring_system_with_graph_signature
 
 _MAX_COMPILED_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
 
@@ -54,6 +55,7 @@ class TemplateFeatures:
     elements: tuple[tuple[str, int], ...]
     ring_system_keys: tuple[tuple, ...]
     all_atoms_in_one_ring_system: bool
+    ring_system_graph_keys: tuple[tuple, ...] = ()
     has_stereochemistry: bool = False
     has_isotope: bool = False
     unsupported_flags: frozenset[str] = frozenset()
@@ -77,6 +79,11 @@ class TemplateFeatures:
             max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0)),
             elements=tuple(sorted(features["elements"].items())),
             ring_system_keys=tuple(ring_system_feature_key(system) for system in features.get("ring_systems", ())),
+            ring_system_graph_keys=tuple(
+                _ring_system_graph_key(system)
+                for system in features.get("ring_systems", ())
+                if system.get("graph_signature")
+            ),
             all_atoms_in_one_ring_system=bool(features["all_atoms_in_one_ring_system"]),
             has_stereochemistry=bool(features.get("has_stereochemistry", False)),
             has_isotope=bool(features.get("has_isotope", False)),
@@ -99,6 +106,10 @@ class TemplateFeatures:
         features["charged_atom_values"] = tuple(sorted(charged_atom_value_counts))
         features["charged_atom_value_counts"] = charged_atom_value_counts
         features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+        features["ring_systems"] = tuple(
+            ring_system_with_graph_signature(mol, dict(system), Chem)
+            for system in features.get("ring_systems", ())
+        )
         features["has_stereochemistry"] = has_stereochemistry or _mol_has_stereochemistry(mol, Chem)
         features["has_isotope"] = any(atom.GetIsotope() for atom in mol.GetAtoms())
         features["unsupported_flags"] = unsupported_flags
@@ -290,8 +301,12 @@ class TemplateStore:
             ring_system_feature_key(system)
             for system in features["ring_systems"]
         }
+        molecule_ring_system_graph_keys = _molecule_ring_system_graph_keys(mol, features, self.Chem)
         for system in features["ring_systems"]:
-            key = ring_system_feature_key(system)
+            if system.get("graph_signature"):
+                key = _ring_system_graph_key(system)
+            else:
+                key = ring_system_feature_key(system)
             for compiled in pure_ring_templates.get(key, ()):
                 marker = compiled.record.id
                 if marker in seen:
@@ -313,6 +328,11 @@ class TemplateStore:
                 if compiled.features.ring_system_keys and not any(
                     key in molecule_ring_system_keys
                     for key in compiled.features.ring_system_keys
+                ):
+                    continue
+                if compiled.features.ring_system_graph_keys and not any(
+                    key in molecule_ring_system_graph_keys
+                    for key in compiled.features.ring_system_graph_keys
                 ):
                     continue
                 if compiled.features.ring_count > features["ring_count"]:
@@ -346,7 +366,8 @@ class TemplateStore:
             compiled = self.compiled_template(template)
             features = compiled.features
             if features.all_atoms_in_one_ring_system:
-                for key in features.ring_system_keys:
+                keys = features.ring_system_graph_keys or features.ring_system_keys
+                for key in keys:
                     pure_ring_templates[key].append(compiled)
             else:
                 other_templates_by_atom_count[features.atom_count].append(compiled)
@@ -442,6 +463,31 @@ def _preferred_compiled_templates_by_scaffold(
 def _compiled_template_alias_preference_key(template: CompiledTemplate) -> tuple:
     name = template.record.name
     return (len(name), name)
+
+
+def _molecule_ring_system_graph_keys(mol, features: dict, Chem) -> set[tuple]:
+    keys: set[tuple] = set()
+    ring_systems = []
+    changed = False
+    for system in features.get("ring_systems", ()):
+        if system.get("graph_signature"):
+            enriched = system
+        else:
+            enriched = ring_system_with_graph_signature(mol, system, Chem)
+            changed = True
+        ring_systems.append(enriched)
+        if enriched.get("graph_signature"):
+            keys.add(_ring_system_graph_key(enriched))
+    if changed:
+        features["ring_systems"] = tuple(ring_systems)
+    return keys
+
+
+def _ring_system_graph_key(features: dict) -> tuple:
+    return (
+        *ring_system_feature_key(features),
+        features.get("graph_signature", ""),
+    )
 
 
 def _mol_has_stereochemistry(mol, Chem) -> bool:

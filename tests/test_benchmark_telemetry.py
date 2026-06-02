@@ -34,6 +34,7 @@ def test_run_nispo_chunk_returns_benchmark_visible_telemetry():
     assert "candidate_count" in telemetry
     assert "template_candidate_count" in telemetry
     assert "substructure_match_calls" in telemetry
+    assert "substructure_match_calls_by_rule" in telemetry
 
 
 def test_run_nispo_chunk_telemetry_import_fallback_does_not_mark_rows_failed(monkeypatch):

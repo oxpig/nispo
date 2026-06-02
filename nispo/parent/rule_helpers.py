@@ -22,6 +22,7 @@ from ..ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
     ring_parent_candidates as _ring_parent_candidates,
 )
+from ..simple_prefixes import simple_external_prefix
 from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
@@ -264,7 +265,7 @@ def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int])
                 return ""
             if _subtree_has_cumulated_diene(mol, nidx, mol_idx):
                 return ""
-            prefix = branch_prefix(mol, nidx, mol_idx)
+            prefix = simple_external_prefix(mol, nidx, mol_idx) or branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
@@ -872,7 +873,7 @@ def _name_fused_core_match(
             if not locant:
                 cache[cache_key] = ""
                 return ""
-            prefix = branch_prefix(mol, nidx, mol_idx)
+            prefix = simple_external_prefix(mol, nidx, mol_idx) or branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 cache[cache_key] = ""
                 return ""
@@ -1277,7 +1278,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             nidx = nbr.GetIdx()
             if nidx in ring_set:
                 continue
-            prefix = branch_prefix(mol, nidx, ring_idx)
+            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return []
             raw_subs.append((ring_idx, prefix))
@@ -1722,7 +1723,7 @@ def _simple_relative_stereo_external_prefix(mol, atom_idx: int, ring_atoms: set[
     ]
     if len(external) != 1:
         return ""
-    prefix = branch_prefix(mol, external[0], atom_idx)
+    prefix = simple_external_prefix(mol, external[0], atom_idx) or branch_prefix(mol, external[0], atom_idx)
     if prefix in _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS:
         return prefix
     if re.fullmatch(r"(?:[1-9]-)?(?:methyl|ethyl|propyl|butyl)oxy", prefix):

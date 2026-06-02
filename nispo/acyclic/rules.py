@@ -29,10 +29,11 @@ from ..formatting import preferred_parent_stem as _preferred_parent_stem
 from ..formatting import unsaturated_parent as _unsaturated_parent
 from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from ..simple_prefixes import simple_external_prefix
 from ..stereochemistry import assigned_atom_stereochemistry
 
 
-MAX_ACYCLIC_PARENT_PATHS = 48
+MAX_ACYCLIC_PARENT_PATHS = 16
 MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR = 2
 
 
@@ -179,8 +180,8 @@ def _oxidanium_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
     for endpoint in endpoints:
         if endpoint == carbon_idx:
             continue
-        path = Chem.rdmolops.GetShortestPath(mol, carbon_idx, endpoint)
-        if any(idx not in allowed for idx in path):
+        path = _shortest_path_in_allowed_graph(view, carbon_idx, endpoint, allowed)
+        if not path:
             continue
         path_len = len(path)
         if path_len > best_len:
@@ -379,8 +380,8 @@ def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[in
     best_len = 0
     for endpoint_group in endpoint_groups:
         for a, b in combinations(endpoint_group, 2):
-            path = Chem.rdmolops.GetShortestPath(mol, a, b)
-            if any(idx not in allowed_set for idx in path):
+            path = _shortest_path_in_allowed_graph(view, a, b, allowed_set)
+            if not path:
                 continue
             path_len = len(path)
             if path_len > best_len:
@@ -424,6 +425,39 @@ def _allowed_endpoint_groups(
         if len(group) >= 2:
             groups.append(group)
     return groups
+
+
+def _shortest_path_in_allowed_graph(
+    view: _AcyclicGraphView,
+    start: int,
+    target: int,
+    allowed_set: set[int],
+) -> tuple[int, ...]:
+    if start == target:
+        return (start,)
+    if start not in allowed_set or target not in allowed_set:
+        return ()
+    queue = [start]
+    previous: dict[int, int | None] = {start: None}
+    for idx in queue:
+        for nidx in view.neighbors[idx]:
+            if nidx not in allowed_set or nidx in previous:
+                continue
+            previous[nidx] = idx
+            if nidx == target:
+                return _reconstruct_path(previous, target)
+            queue.append(nidx)
+    return ()
+
+
+def _reconstruct_path(previous: dict[int, int | None], target: int) -> tuple[int, ...]:
+    path = []
+    current: int | None = target
+    while current is not None:
+        path.append(current)
+        current = previous[current]
+    path.reverse()
+    return tuple(path)
 
 
 def _oriented_paths_by_quality(mol, paths: Sequence[Sequence[int]]) -> list[tuple[tuple, tuple[int, ...]]]:
@@ -516,7 +550,7 @@ def _path_substituent_prefixes(
                 continue
             if skip_plain_hydrogen and nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = simple_external_prefix(mol, nidx, idx) or branch_prefix(mol, nidx, idx)
             if not prefix:
                 return None
             prefixes.append((str(pos), prefix))

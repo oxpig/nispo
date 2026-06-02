@@ -29,11 +29,16 @@ def candidate_templates(
         return cached
     features = features or molecule_features(mol, Chem)
     molecule_charge_counts = features.get("charged_atom_value_counts") or {}
+    molecule_ring_system_graph_keys: set[tuple] = set()
     pure_ring_templates, other_templates_by_atom_count = _template_index(templates, Chem)
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
-        key = ring_system_feature_key(system)
+        if system.get("element_graph_signature"):
+            key = _ring_system_index_key(system)
+        else:
+            system = ring_system_with_graph_signatures(mol, system, Chem)
+            key = _ring_system_index_key(system)
         for template in pure_ring_templates.get(key, ()):
             marker = id(template)
             if marker in seen:
@@ -50,6 +55,12 @@ def candidate_templates(
         )
     for _atom_count, entries in atom_count_items:
         for template, template_features in entries:
+            template_graph_keys = template_features.get("ring_system_graph_keys") or ()
+            if template_graph_keys:
+                if not molecule_ring_system_graph_keys:
+                    molecule_ring_system_graph_keys = _molecule_ring_system_graph_keys(mol, features, Chem)
+                if not any(key in molecule_ring_system_graph_keys for key in template_graph_keys):
+                    continue
             if template_features["ring_count"] > features["ring_count"]:
                 continue
             if template_features.get("max_ring_system_ring_count", 0) > features.get("max_ring_system_ring_count", 0):
@@ -86,7 +97,8 @@ def _template_index(
     for template in templates:
         template_features = _template_features(template, Chem)
         if template_features["all_atoms_in_one_ring_system"]:
-            pure_ring_templates.setdefault(ring_system_feature_key(template_features), []).append(template)
+            key = _ring_system_index_key(template_features)
+            pure_ring_templates.setdefault(key, []).append(template)
         else:
             other_templates_by_atom_count[template_features["atom_count"]].append((template, template_features))
     indexed = (
@@ -187,6 +199,46 @@ def ring_system_feature_key(features: dict) -> tuple:
     )
 
 
+def _ring_system_graph_key(features: dict) -> tuple:
+    return (
+        *ring_system_feature_key(features),
+        features.get("graph_signature", ""),
+    )
+
+
+def _ring_system_element_graph_key(features: dict) -> tuple:
+    return (
+        *ring_system_feature_key(features),
+        features.get("element_graph_signature", ""),
+    )
+
+
+def _ring_system_index_key(features: dict) -> tuple:
+    if features.get("element_graph_signature"):
+        return _ring_system_element_graph_key(features)
+    if features.get("graph_signature"):
+        return _ring_system_graph_key(features)
+    return ring_system_feature_key(features)
+
+
+def _molecule_ring_system_graph_keys(mol, features: dict, Chem) -> set[tuple]:
+    keys: set[tuple] = set()
+    ring_systems = []
+    changed = False
+    for system in features.get("ring_systems", ()):
+        if system.get("element_graph_signature"):
+            enriched = system
+        else:
+            enriched = ring_system_with_graph_signatures(mol, system, Chem)
+            changed = True
+        ring_systems.append(enriched)
+        if enriched.get("graph_signature"):
+            keys.add(_ring_system_index_key(enriched))
+    if changed:
+        features["ring_systems"] = tuple(ring_systems)
+    return keys
+
+
 def ring_system_with_graph_signatures(mol, features: dict, Chem) -> dict:
     if "graph_signature" in features and "element_graph_signature" in features:
         return features
@@ -199,10 +251,37 @@ def ring_system_with_graph_signatures(mol, features: dict, Chem) -> dict:
     return features
 
 
+def ring_system_with_graph_signature(mol, features: dict, Chem) -> dict:
+    if "graph_signature" in features:
+        return features
+    atom_indices = features.get("atom_indices")
+    if atom_indices is None:
+        return features
+    features["graph_signature"] = graph_signature_for_atom_set(mol, atom_indices, Chem)
+    return features
+
+
 def graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
     """Canonical graph-shape key for a ring system, ignoring atom labels and bond order."""
 
-    return graph_signatures_for_atom_set(mol, atom_indices, Chem)[0]
+    atom_indices = tuple(sorted(atom_indices))
+    if not atom_indices:
+        return ""
+    cache = mol_cache_dict(mol, "graph_signature_for_atom_set")
+    cached = cache.get(atom_indices)
+    if cached is not None:
+        return cached
+    atom_set = set(atom_indices)
+    graph_mol = Chem.RWMol()
+    graph_index_map = {old_idx: graph_mol.AddAtom(Chem.Atom("C")) for old_idx in atom_indices}
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin in atom_set and end in atom_set:
+            graph_mol.AddBond(graph_index_map[begin], graph_index_map[end], Chem.BondType.SINGLE)
+    signature = Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False)
+    cache[atom_indices] = signature
+    return signature
 
 
 def element_graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
@@ -225,6 +304,10 @@ def graph_signatures_for_atom_set(mol, atom_indices, Chem) -> tuple[str, str]:
     atom_indices = tuple(sorted(atom_indices))
     if not atom_indices:
         return "", ""
+    cache = mol_cache_dict(mol, "graph_signatures_for_atom_set")
+    cached = cache.get(atom_indices)
+    if cached is not None:
+        return cached
     atom_set = set(atom_indices)
     graph_mol = Chem.RWMol()
     element_mol = Chem.RWMol()
@@ -240,10 +323,13 @@ def graph_signatures_for_atom_set(mol, atom_indices, Chem) -> tuple[str, str]:
         if begin in atom_set and end in atom_set:
             graph_mol.AddBond(graph_index_map[begin], graph_index_map[end], Chem.BondType.SINGLE)
             element_mol.AddBond(element_index_map[begin], element_index_map[end], Chem.BondType.SINGLE)
-    return (
+    signatures = (
         Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False),
         Chem.MolToSmiles(element_mol.GetMol(), canonical=True, isomericSmiles=False),
     )
+    cache[atom_indices] = signatures
+    mol_cache_dict(mol, "graph_signature_for_atom_set")[atom_indices] = signatures[0]
+    return signatures
 
 
 @lru_cache(maxsize=None)
@@ -256,7 +342,20 @@ def _template_features(template: dict, Chem) -> dict:
     cached = _TEMPLATE_FEATURE_CACHE.get(cache_key)
     if cached is not None and cached[0] is template:
         return cached[1]
-    features = template_features_for_mol(template["mol"], Chem)
+    features = dict(template_features_for_mol(template["mol"], Chem))
+    enriched_ring_systems = tuple(
+        ring_system_with_graph_signatures(template["mol"], dict(system), Chem)
+        for system in features.get("ring_systems", ())
+    )
+    features["ring_systems"] = enriched_ring_systems
+    features["ring_system_graph_keys"] = tuple(
+        _ring_system_index_key(system)
+        for system in enriched_ring_systems
+        if system.get("graph_signature")
+    )
+    if features.get("all_atoms_in_one_ring_system") and enriched_ring_systems:
+        features["graph_signature"] = enriched_ring_systems[0].get("graph_signature", "")
+        features["element_graph_signature"] = enriched_ring_systems[0].get("element_graph_signature", "")
     _TEMPLATE_FEATURE_CACHE[cache_key] = (template, features)
     return features
 

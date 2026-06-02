@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from bisect import insort
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -63,10 +64,14 @@ from .template_index import ring_system_with_graph_signatures
 
 
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
-_RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 32
-_RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 24
+_RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 16
+_RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 16
 _SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 2
-_GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 32
+_GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 16
+_MAX_GENERATED_FUSED_PARENT_CANDIDATES = 32
+_RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE = 32
+_RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE = 16
+_MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES = 16
 
 
 def _parenthesized_if_complex(name: str) -> str:
@@ -3365,11 +3370,18 @@ class FusedParentRule:
                     continue
                 if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                     continue
+                mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
                 yield NameCandidate(
                     name=name,
                     family=self.family,
                     priority=self.priority,
                     sort_key=self._candidate_sort_key(mol, template, match, name),
+                    parent_atoms=frozenset(match),
+                    template_id=id(template),
+                    template_name=template_record_name(template),
+                    source_family=str(template.get("source_family", "")),
+                    source_file=str(template.get("source_file", "")),
+                    estimated_length=len(name),
                 )
                 yielded_names.add(name)
 
@@ -3391,6 +3403,7 @@ class FusedParentRule:
             if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                 continue
             yielded_names.add(name)
+            mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -3399,6 +3412,12 @@ class FusedParentRule:
                     _retained_topology_fused_candidate_rank(template_record_name(template), name),
                     self._candidate_sort_key(mol, template, match, name),
                 ),
+                parent_atoms=frozenset(match),
+                template_id=id(template),
+                template_name=template_record_name(template),
+                source_family=str(template.get("source_family", "")),
+                source_file=str(template.get("source_file", "")),
+                estimated_length=len(name),
             )
 
 
@@ -3459,25 +3478,29 @@ class RetainedRingScaffoldParentRule:
     def _candidate_facts(self, ctx) -> tuple["_RetainedRingScaffoldCandidateFacts", ...]:
         mol = ctx.mol
         facts: list[_RetainedRingScaffoldCandidateFacts] = []
-        compiled_templates = self._template_fact_render_set(ctx, self._candidate_template_facts(ctx))
+        compiled_templates = self._candidate_template_facts(ctx)
         telemetry = ctx.telemetry
         family = "retained-ring-scaffold-parent"
+        substructure_queries = 0
+        match_count = 0
+        after_extra_core_bonds = 0
+        after_unlocanted_external = 0
         for template_fact in compiled_templates:
             compiled = template_fact.compiled
             template = compiled.runtime
             matches = ctx.template_matches(template)
             if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:substructure_queries"] += 1
-                telemetry.filter_stage_count[f"{family}:matches"] += len(matches)
+                substructure_queries += 1
+                match_count += len(matches)
             for match in matches:
                 if _match_has_extra_core_bonds(mol, template, match):
                     continue
                 if telemetry is not None:
-                    telemetry.filter_stage_count[f"{family}:after_extra_core_bonds"] += 1
+                    after_extra_core_bonds += 1
                 if _match_has_unlocanted_external_substitution(mol, template, match):
                     continue
                 if telemetry is not None:
-                    telemetry.filter_stage_count[f"{family}:after_unlocanted_external"] += 1
+                    after_unlocanted_external += 1
                 facts.append(
                     _RetainedRingScaffoldCandidateFacts(
                         compiled=compiled,
@@ -3487,6 +3510,10 @@ class RetainedRingScaffoldParentRule:
                     )
                 )
         if telemetry is not None:
+            telemetry.filter_stage_count[f"{family}:substructure_queries"] += substructure_queries
+            telemetry.filter_stage_count[f"{family}:matches"] += match_count
+            telemetry.filter_stage_count[f"{family}:after_extra_core_bonds"] += after_extra_core_bonds
+            telemetry.filter_stage_count[f"{family}:after_unlocanted_external"] += after_unlocanted_external
             telemetry.filter_stage_count[f"{family}:facts"] += len(facts)
         return tuple(facts)
 
@@ -3494,41 +3521,65 @@ class RetainedRingScaffoldParentRule:
         mol = ctx.mol
         molecule_aromatic_atom_count = _aromatic_atom_count(mol)
         molecule_charged_atom_values = _charged_atom_values(mol)
-        facts: list[_RetainedRingScaffoldTemplateFacts] = []
+        selected_facts: list[tuple[tuple, object]] = []
         compiled_templates = ctx.candidate_compiled_templates(self._templates())
         telemetry = ctx.telemetry
         family = "retained-ring-scaffold-parent"
+        after_general_parent = 0
+        after_atom_count = 0
+        after_aromatic_count = 0
+        after_charge_values = 0
+        template_fact_count = 0
+        trimmed = False
         if telemetry is not None:
             telemetry.filter_stage_count[f"{family}:candidate_templates"] += len(compiled_templates)
         for compiled in compiled_templates:
             if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, self._Chem):
                 continue
             if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:after_general_parent"] += 1
+                after_general_parent += 1
             if compiled.features.atom_count >= mol.GetNumAtoms():
                 continue
             if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:after_atom_count"] += 1
+                after_atom_count += 1
             if compiled.features.aromatic_atom_count > molecule_aromatic_atom_count:
                 continue
             if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:after_aromatic_count"] += 1
+                after_aromatic_count += 1
             if (
                 compiled.features.charged_atom_values
                 and not all(value in molecule_charged_atom_values for value in compiled.features.charged_atom_values)
             ):
                 continue
             if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:after_charge_values"] += 1
-            facts.append(
-                _RetainedRingScaffoldTemplateFacts(
-                    compiled=compiled,
-                    structural_key=_retained_ring_scaffold_template_fact_sort_key(compiled),
-                )
-            )
+                after_charge_values += 1
+            template_fact_count += 1
+            structural_key = _retained_ring_scaffold_template_fact_sort_key(compiled)
+            entry = (structural_key, compiled)
+            if not trimmed:
+                selected_facts.append(entry)
+                if len(selected_facts) > _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE:
+                    selected_facts.sort(key=lambda item: item[0])
+                    selected_facts.pop()
+                    trimmed = True
+            elif structural_key < selected_facts[-1][0]:
+                selected_facts.pop()
+                insort(selected_facts, entry)
         if telemetry is not None:
-            telemetry.filter_stage_count[f"{family}:template_facts"] += len(facts)
-        return tuple(facts)
+            telemetry.filter_stage_count[f"{family}:after_general_parent"] += after_general_parent
+            telemetry.filter_stage_count[f"{family}:after_atom_count"] += after_atom_count
+            telemetry.filter_stage_count[f"{family}:after_aromatic_count"] += after_aromatic_count
+            telemetry.filter_stage_count[f"{family}:after_charge_values"] += after_charge_values
+            telemetry.filter_stage_count[f"{family}:template_facts"] += template_fact_count
+            telemetry.filter_stage_count[f"{family}:template_render_set"] += len(selected_facts)
+            telemetry.filter_stage_count[f"{family}:template_facts_suppressed_before_match"] += max(
+                0,
+                template_fact_count - len(selected_facts),
+            )
+        return tuple(
+            _RetainedRingScaffoldTemplateFacts(compiled=compiled, structural_key=structural_key)
+            for structural_key, compiled in selected_facts
+        )
 
     def _template_fact_render_set(
         self,
@@ -4047,6 +4098,7 @@ class GeneratedFusedParentRule(FusedParentRule):
             return
 
         yielded_names: set[str] = set()
+        yielded = 0
         render_rank = 0
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
@@ -4058,6 +4110,8 @@ class GeneratedFusedParentRule(FusedParentRule):
             if _unsafe_benz_a_anthracene_candidate(name):
                 continue
             yielded_names.add(name)
+            yielded += 1
+            mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -4067,6 +4121,8 @@ class GeneratedFusedParentRule(FusedParentRule):
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
+            if yielded >= _MAX_GENERATED_FUSED_PARENT_CANDIDATES:
+                return
 
         topology_templates = tuple(
             template
@@ -4092,6 +4148,8 @@ class GeneratedFusedParentRule(FusedParentRule):
             if not _allow_generated_topology_fused_candidate(template_record_name(template), name):
                 continue
             yielded_names.add(name)
+            yielded += 1
+            mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -4104,6 +4162,8 @@ class GeneratedFusedParentRule(FusedParentRule):
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
+            if yielded >= _MAX_GENERATED_FUSED_PARENT_CANDIDATES:
+                return
 
 
 class GeneratedSpiroFusedParentRule(GeneratedFusedParentRule):
@@ -4398,6 +4458,12 @@ class HydroFusedParentRule:
                     family=self.family,
                     priority=self.priority,
                     sort_key=(-len(match), name),
+                    parent_atoms=frozenset(match),
+                    template_id=id(template),
+                    template_name=template_record_name(template),
+                    source_family=str(template.get("source_family", "")),
+                    source_file=str(template.get("source_file", "")),
+                    estimated_length=len(name),
                 )
 
 
@@ -4465,6 +4531,10 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                     priority=self.priority,
                     sort_key=sort_key,
                     parent_atoms=frozenset(match),
+                    template_id=id(template),
+                    template_name=template_record_name(template),
+                    source_family=str(template.get("source_family", "")),
+                    source_file=str(template.get("source_file", "")),
                     estimated_length=len(name),
                     render_rank=render_rank,
                 )
@@ -4536,6 +4606,12 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
                         family=self.family,
                         priority=self.priority,
                         sort_key=sort_key,
+                        parent_atoms=frozenset(match),
+                        template_id=id(template),
+                        template_name=template_record_name(template),
+                        source_family=str(template.get("source_family", "")),
+                        source_file=str(template.get("source_file", "")),
+                        estimated_length=len(name),
                     )
                 )
         seen = set()
@@ -4737,6 +4813,12 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                             len(name),
                             name,
                         ),
+                        parent_atoms=frozenset(match),
+                        template_id=id(template),
+                        template_name=template_record_name(template),
+                        source_family=str(template.get("source_family", "")),
+                        source_file=str(template.get("source_file", "")),
+                        estimated_length=len(name),
                     )
                     if yielded >= 12:
                         return
@@ -4753,49 +4835,165 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        yielded_names: set[str] = set()
-        yielded = 0
+        facts: list[_RetainedTopologyReplacementCandidateFacts] = []
+        stage_counts: Counter[str] = Counter()
         for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
             if feature["ring_count"] < 2 or feature["ring_count"] > 5:
                 continue
             if set(feature["elements"]) <= {"C"}:
                 continue
+            stage_counts["ring_systems"] += 1
             feature = ring_system_with_graph_signatures(mol, feature, self._Chem)
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
-            for template in _retained_topology_replacement_parent_templates_for_graph(*key, self._Chem):
+            templates = _retained_topology_replacement_parent_templates_for_graph(*key, self._Chem)
+            stage_counts["graph_templates"] += len(templates)
+            for template in templates:
+                if _retained_topology_replacement_template_has_nh(template):
+                    continue
+                stage_counts["after_template_nh"] += 1
+                if not _retained_topology_replacement_template_elements_possible(feature["elements"], template):
+                    continue
+                stage_counts["after_element_counts"] += 1
                 query = _skeletal_replacement_query(template_record_mol(template), self._Chem)
                 if query.GetNumAtoms() != len(atom_set):
                     continue
-                for match in ctx.substruct_matches(query):
+                stage_counts["substructure_queries"] += 1
+                matches = ctx.substruct_matches(query)
+                stage_counts["matches"] += len(matches)
+                for match in matches:
                     if set(match) != set(atom_set):
                         continue
+                    stage_counts["after_atom_set"] += 1
                     if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
+                    stage_counts["after_hydrogen_compatibility"] += 1
                     parent_name = _retained_topology_replacement_parent_name(mol, template, match)
                     if not parent_name:
                         continue
-                    name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                    if not name or name in yielded_names:
-                        continue
-                    if _unsafe_retained_ring_scaffold_candidate(name):
-                        continue
-                    if _unsafe_benz_a_anthracene_candidate(name):
-                        continue
-                    yielded_names.add(name)
-                    yielded += 1
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=(
-                            _skeletal_replacement_sort_key(mol, match, parent_name),
-                            _substituent_locant_tuple(name),
-                            len(name),
-                            name,
+                    stage_counts["facts"] += 1
+                    facts.append(
+                        _RetainedTopologyReplacementCandidateFacts(
+                            template=template,
+                            match=tuple(match),
+                            parent_name=parent_name,
+                            structural_key=(
+                                _skeletal_replacement_sort_key(mol, match, parent_name),
+                                _template_source_rank(template),
+                                _hydrogenated_template_penalty(template_record_name(template)),
+                                len(parent_name),
+                                parent_name,
+                                tuple(match),
+                            ),
                         ),
                     )
-                    if yielded >= 24:
+                    if len(facts) >= _RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE:
+                        yield from self._render_facts(ctx, tuple(facts), stage_counts)
                         return
+
+        yield from self._render_facts(ctx, tuple(facts), stage_counts)
+
+    def _render_facts(
+        self,
+        ctx,
+        facts: tuple["_RetainedTopologyReplacementCandidateFacts", ...],
+        stage_counts: Counter[str],
+    ):
+        if ctx.telemetry is not None:
+            for stage, count in stage_counts.items():
+                ctx.telemetry.filter_stage_count[f"{self.family}:{stage}"] += count
+            ctx.telemetry.candidate_facts_total[self.family] += len(facts)
+        render_set = _retained_topology_replacement_render_set(facts)
+        if ctx.telemetry is not None:
+            ctx.telemetry.render_set_size[self.family] += len(render_set)
+            ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
+
+        mol = ctx.mol
+        yielded_names: set[str] = set()
+        yielded = 0
+        for render_rank, fact in enumerate(render_set, start=1):
+            name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            if not name or name in yielded_names:
+                continue
+            if _unsafe_retained_ring_scaffold_candidate(name):
+                continue
+            if _unsafe_benz_a_anthracene_candidate(name):
+                continue
+            yielded_names.add(name)
+            yielded += 1
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=(
+                    _skeletal_replacement_sort_key(mol, fact.match, fact.parent_name),
+                    _substituent_locant_tuple(name),
+                    len(name),
+                    name,
+                ),
+                parent_atoms=frozenset(fact.match),
+                template_id=id(fact.template),
+                template_name=template_record_name(fact.template),
+                source_family=str(fact.template.get("source_family", "")),
+                source_file=str(fact.template.get("source_file", "")),
+                estimated_length=len(name),
+                render_rank=render_rank,
+            )
+            if yielded >= _MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES:
+                return
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedTopologyReplacementCandidateFacts:
+    template: dict
+    match: tuple[int, ...]
+    parent_name: str
+    structural_key: tuple
+
+
+def _retained_topology_replacement_template_elements_possible(
+    molecule_elements: Counter[str],
+    template: dict,
+) -> bool:
+    return all(
+        count <= molecule_elements.get(symbol, 0)
+        for symbol, count in _retained_topology_replacement_template_noncarbon_elements(
+            template_record_mol(template)
+        )
+    )
+
+
+@lru_cache(maxsize=None)
+def _retained_topology_replacement_template_noncarbon_elements(template_mol) -> tuple[tuple[str, int], ...]:
+    counts = Counter(
+        atom.GetSymbol()
+        for atom in template_mol.GetAtoms()
+        if atom.GetSymbol() != "C"
+    )
+    return tuple(sorted(counts.items()))
+
+
+def _retained_topology_replacement_template_has_nh(template: dict) -> bool:
+    return _retained_topology_replacement_template_mol_has_nh(template_record_mol(template))
+
+
+@lru_cache(maxsize=None)
+def _retained_topology_replacement_template_mol_has_nh(template_mol) -> bool:
+    return any(
+        atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0
+        for atom in template_mol.GetAtoms()
+    )
+
+
+def _retained_topology_replacement_render_set(
+    facts: tuple[_RetainedTopologyReplacementCandidateFacts, ...],
+) -> tuple[_RetainedTopologyReplacementCandidateFacts, ...]:
+    if len(facts) <= _RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE:
+        return facts
+    return tuple(
+        sorted(facts, key=lambda fact: fact.structural_key)[
+            :_RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE
+        ]
+    )
 
 
 class OxidoFusedParentRule:
@@ -4835,6 +5033,12 @@ class OxidoFusedParentRule:
                     family=self.family,
                     priority=self.priority,
                     sort_key=(-len(match), name),
+                    parent_atoms=frozenset(match),
+                    template_id=id(template),
+                    template_name=template_record_name(template),
+                    source_family=str(template.get("source_family", "")),
+                    source_file=str(template.get("source_file", "")),
+                    estimated_length=len(name),
                 )
 
 
@@ -4919,6 +5123,10 @@ class _PolycyclicRecordParentRule:
                 priority=priority,
                 sort_key=(record_order, len(name), name),
                 stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem, name=name),
+                parent_atoms=frozenset(seq),
+                source_family=self.record_family,
+                estimated_length=len(name),
+                render_rank=record_order + 1,
             )
 
 
@@ -5005,7 +5213,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
         return cached
     template_sets = (
         ctx.candidate_templates(_curated_fused_templates(Chem)),
-        _candidate_generated_fused_templates(mol, Chem),
+        ctx.generated_fused_templates,
     )
     for templates in template_sets:
         for template, match in _iter_fused_template_matches(

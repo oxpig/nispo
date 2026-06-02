@@ -20,8 +20,9 @@ def resource_ring_parent_candidates(mol, ordered: tuple[int, ...], Chem) -> list
 
 def _resource_ring_parent_candidates_uncached(mol, ordered: tuple[int, ...], Chem) -> list[tuple[str, tuple[int, ...]]]:
     ring_set = set(ordered)
+    symbol_key = tuple(sorted(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ordered))
     candidates = []
-    for template in _single_ring_templates(Chem).get(len(ordered), ()):
+    for template in _single_ring_templates_by_symbols(Chem).get((len(ordered), symbol_key), ()):
         query = template_record_mol(template)
         for match in mol.GetSubstructMatches(query, uniquify=False):
             if set(match) != ring_set:
@@ -43,6 +44,17 @@ def _single_ring_templates(Chem) -> dict[int, tuple[dict, ...]]:
         seen.add(key)
         grouped.setdefault(template_record_mol(template).GetNumAtoms(), []).append(template)
     return {size: tuple(items) for size, items in grouped.items()}
+
+
+@lru_cache(maxsize=1)
+def _single_ring_templates_by_symbols(Chem) -> dict[tuple[int, tuple[str, ...]], tuple[dict, ...]]:
+    grouped: dict[tuple[int, tuple[str, ...]], list[dict]] = {}
+    for size, templates in _single_ring_templates(Chem).items():
+        for template in templates:
+            mol = template_record_mol(template)
+            symbol_key = tuple(sorted(atom.GetSymbol() for atom in mol.GetAtoms()))
+            grouped.setdefault((size, symbol_key), []).append(template)
+    return {key: tuple(items) for key, items in grouped.items()}
 
 
 def _sequence_from_match(template: dict, match: tuple[int, ...]) -> tuple[int, ...]:

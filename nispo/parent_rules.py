@@ -2531,8 +2531,13 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
     requires_acyclic_preference_signal = True
 
     def candidates(self, ctx):
+        mol = ctx.mol
         profile = ctx.profile
-        if profile.ring_count == 0 or not profile.may_prefer_acyclic_skeleton:
+        if (
+            profile.ring_count == 0
+            or not profile.may_prefer_acyclic_skeleton
+            or _nonring_heavy_atom_count(mol) < 2
+        ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
@@ -2617,6 +2622,7 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             or profile.has_charged_ring_atom
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
+            or _nonring_heavy_atom_count(mol) < 2
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):

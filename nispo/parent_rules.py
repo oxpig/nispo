@@ -2536,7 +2536,7 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         if (
             profile.ring_count == 0
             or not profile.may_prefer_acyclic_skeleton
-            or _nonring_heavy_atom_count(mol) < 4
+            or _nonring_heavy_atom_count(mol) < 5
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
@@ -2622,7 +2622,7 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             or profile.has_charged_ring_atom
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
-            or _nonring_heavy_atom_count(mol) < 4
+            or _nonring_heavy_atom_count(mol) < 5
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
@@ -2671,7 +2671,7 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
             or not _has_carbonyl_group(ctx.mol, ctx.Chem)
-            or _nonring_heavy_atom_count(ctx.mol) < 4
+            or _nonring_heavy_atom_count(ctx.mol) < 5
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):

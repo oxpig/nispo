@@ -4767,12 +4767,17 @@ class _PolycyclicRecordParentRule:
     def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
         return False
 
+    def _defer_all_records(self, ctx) -> bool:
+        return False
+
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
         priority = self._candidate_priority(mol)
         if priority is None:
+            return
+        if self._defer_all_records(ctx):
             return
         for record_order, (name, seq) in enumerate(ctx.polycyclic_parent_records(self.record_family)):
             if not self._accept_record(name, seq):
@@ -4858,6 +4863,9 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
 
     def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
+        return _has_retained_fused_parent_candidate(ctx, self._Chem)
+
+    def _defer_all_records(self, ctx) -> bool:
         return _has_retained_fused_parent_candidate(ctx, self._Chem)
 
 

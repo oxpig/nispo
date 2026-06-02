@@ -14,6 +14,7 @@ from nispo import smiles_to_iupac, smiles_to_iupac_batch
 from nispo.rule_dispatch import RuleSpec
 from nispo.rule_engine import (
     NameCandidate,
+    _apply_uniform_isotope_label,
     _candidate_key,
     _finalize_candidate_name,
     _prepare_candidates,
@@ -72,6 +73,14 @@ def test_finalizer_preserves_intrinsic_candidate_text_without_stereo_or_isotopes
     candidate = NameCandidate("1,1-dimethyl-ethyl", "branch-probe", 50)
 
     assert _finalize_candidate_name(mol, Chem, candidate) == candidate.name
+
+
+def test_uniform_isotope_label_fast_path_preserves_nonisotopic_names():
+    nonisotopic = Chem.MolFromSmiles("CCO")
+    isotopic = Chem.MolFromSmiles("[13CH3][13CH3]")
+
+    assert _apply_uniform_isotope_label(nonisotopic, "ethanol") == "ethanol"
+    assert _apply_uniform_isotope_label(isotopic, "ethan") == "ethan-13C2"
 
 
 @pytest.mark.parametrize(

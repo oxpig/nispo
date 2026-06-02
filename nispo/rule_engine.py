@@ -11,6 +11,7 @@ from .fragment_rules import (
     standalone_polyatomic_fragment_name,
 )
 from .naming_context import MoleculeContext
+from .molecule_cache import mol_cache_get, mol_cache_set
 from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
 from .telemetry import CandidateTelemetry
@@ -1023,6 +1024,8 @@ def _has_internal_locanted_stereo(name: str) -> bool:
 def _apply_uniform_isotope_label(mol, name: str) -> str:
     if not name:
         return name
+    if not _mol_has_isotope(mol):
+        return name
     labels: list[tuple[str, int, int]] = []
     for symbol in sorted({atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetSymbol() != "H"}):
         atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == symbol]
@@ -1051,6 +1054,13 @@ def _inline_single_fluorine_isotope(name: str) -> str:
     if "[18F]fluoro" in name:
         return name
     return name.replace("fluoro", "[18F]fluoro", 1) if "fluoro" in name else name
+
+
+def _mol_has_isotope(mol) -> bool:
+    cached = mol_cache_get(mol, "has_isotope")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
 
 
 def _fallback_stereo_atom_order(family: str, name: str = "") -> str:

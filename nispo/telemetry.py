@@ -29,5 +29,6 @@ class CandidateTelemetry:
     render_set_size: Counter[str] = field(default_factory=Counter)
     facts_suppressed_before_render: Counter[str] = field(default_factory=Counter)
     fallback_render_all_count: Counter[str] = field(default_factory=Counter)
+    filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0

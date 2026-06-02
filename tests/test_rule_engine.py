@@ -11,6 +11,7 @@ from rdkit import Chem
 import nispo.rule_engine as rule_engine
 from nispo.naming_context import MoleculeContext
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
+from nispo.parent_rules import parent_rules
 from nispo.rule_dispatch import RuleSpec
 from nispo.rule_engine import (
     NameCandidate,
@@ -192,6 +193,16 @@ def test_candidate_telemetry_records_structured_candidate_facts():
     assert telemetry.unstructured_candidate_count["probe-rule"] == 0
     assert telemetry.structured_selected_count["probe"] == 1
     assert telemetry.selected_with_parent_atoms == 1
+
+
+def test_retained_scaffold_telemetry_records_filter_stage_counts():
+    mol = Chem.MolFromSmiles("Cc1ccc(C)c(Cl)c1")
+    telemetry = CandidateTelemetry()
+
+    rule_engine.NamingEngine(Chem, parent_rules(Chem)).name(mol, telemetry=telemetry)
+
+    assert telemetry.filter_stage_count["retained-ring-scaffold-parent:candidate_templates"] > 0
+    assert telemetry.filter_stage_count["retained-ring-scaffold-parent:facts"] >= 0
 
 
 def test_structural_profile_detects_conjugated_carbonyl_diene_signal():

@@ -3440,21 +3440,40 @@ class RetainedRingScaffoldParentRule:
 
     def _candidate_facts(self, ctx) -> tuple["_RetainedRingScaffoldCandidateFacts", ...]:
         mol = ctx.mol
+        molecule_aromatic_atom_count = _aromatic_atom_count(mol)
         facts: list[_RetainedRingScaffoldCandidateFacts] = []
-        for compiled in ctx.candidate_compiled_templates(self._templates()):
+        compiled_templates = ctx.candidate_compiled_templates(self._templates())
+        telemetry = ctx.telemetry
+        family = "retained-ring-scaffold-parent"
+        if telemetry is not None:
+            telemetry.filter_stage_count[f"{family}:candidate_templates"] += len(compiled_templates)
+        for compiled in compiled_templates:
             template = compiled.runtime
             if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, self._Chem):
                 continue
-            template_mol = compiled.mol
-            if template_mol.GetNumAtoms() >= mol.GetNumAtoms():
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:after_general_parent"] += 1
+            if compiled.features.atom_count >= mol.GetNumAtoms():
                 continue
-            for match in ctx.template_matches(template):
-                if set(match) == set(range(mol.GetNumAtoms())):
-                    continue
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:after_atom_count"] += 1
+            if compiled.features.aromatic_atom_count > molecule_aromatic_atom_count:
+                continue
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:after_aromatic_count"] += 1
+            matches = ctx.template_matches(template)
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:substructure_queries"] += 1
+                telemetry.filter_stage_count[f"{family}:matches"] += len(matches)
+            for match in matches:
                 if _match_has_extra_core_bonds(mol, template, match):
                     continue
+                if telemetry is not None:
+                    telemetry.filter_stage_count[f"{family}:after_extra_core_bonds"] += 1
                 if _match_has_unlocanted_external_substitution(mol, template, match):
                     continue
+                if telemetry is not None:
+                    telemetry.filter_stage_count[f"{family}:after_unlocanted_external"] += 1
                 facts.append(
                     _RetainedRingScaffoldCandidateFacts(
                         compiled=compiled,
@@ -3463,6 +3482,8 @@ class RetainedRingScaffoldParentRule:
                         structural_key=_retained_ring_scaffold_fact_sort_key(compiled, match),
                     )
                 )
+        if telemetry is not None:
+            telemetry.filter_stage_count[f"{family}:facts"] += len(facts)
         return tuple(facts)
 
 
@@ -3510,6 +3531,10 @@ def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compile
     if features.ring_count > mol.GetRingInfo().NumRings():
         return False
     return True
+
+
+def _aromatic_atom_count(mol) -> int:
+    return sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
 
 
 @lru_cache(maxsize=1)

@@ -131,18 +131,6 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
                 prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         elif atom.GetSymbol() == "C":
             prefix = _carbon_branch_prefix(mol, idx, parent_idx)
-        elif atom.GetSymbol() == "O":
-            prefix = _simple_oxygen_prefix(mol, idx, parent_idx)
-            if not prefix:
-                rule_sets_by_symbol = _branch_rule_sets()
-                rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
-                prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
-        elif atom.GetSymbol() == "N":
-            prefix = _simple_nitrogen_prefix(mol, idx, parent_idx)
-            if not prefix:
-                rule_sets_by_symbol = _branch_rule_sets()
-                rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
-                prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         else:
             rule_sets_by_symbol = _branch_rule_sets()
             rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
@@ -186,42 +174,6 @@ def _terminal_halogen_prefix(mol, idx: int, parent_idx: int) -> str:
     if not name:
         return ""
     return f"[{isotope}{symbol}]{name}" if isotope else name
-
-
-def _simple_oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
-    atom = mol.GetAtomWithIdx(idx)
-    if atom.GetFormalCharge() != 0 or atom.GetIsotope():
-        return ""
-    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
-    if bond is None:
-        return ""
-    if bond.GetBondType() == Chem.BondType.DOUBLE:
-        if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
-            return ""
-        return "oxo"
-    if bond.GetBondType() != Chem.BondType.SINGLE:
-        return ""
-    if any(
-        nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
-        for nbr in atom.GetNeighbors()
-    ):
-        return ""
-    return "hydroxy"
-
-
-def _simple_nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
-    atom = mol.GetAtomWithIdx(idx)
-    if atom.GetFormalCharge() != 0:
-        return ""
-    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
-    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
-        return ""
-    if any(
-        nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
-        for nbr in atom.GetNeighbors()
-    ):
-        return ""
-    return "amino"
 
 
 from .branch.carbon import (

@@ -16,7 +16,7 @@ from ..formatting import loc_unsat
 from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
 )
-from ..molecule_cache import mol_cache_get, mol_cache_set
+from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from ..ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
@@ -829,8 +829,14 @@ def _has_n_oxide_on_match(mol, match: Sequence[int]) -> bool:
 def _name_fused_core_match(
     mol, template: dict, match: Sequence[int], parent_name: str | None = None
 ) -> str:
+    cache = mol_cache_dict(mol, "fused_core_match_name_cache")
+    cache_key = (id(template), tuple(match), parent_name)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     core_set = set(match)
     if ring_system_extends_core(mol, core_set):
+        cache[cache_key] = ""
         return ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
@@ -844,25 +850,34 @@ def _name_fused_core_match(
             if nidx in core_set:
                 continue
             if not locant:
+                cache[cache_key] = ""
                 return ""
             prefix = branch_prefix(mol, nidx, mol_idx)
             if not prefix:
+                cache[cache_key] = ""
                 return ""
             prefixes.append((locant, prefix))
     if not prefixes:
-        return _join_prefix_parent("", parent_name)
+        result = _join_prefix_parent("", parent_name)
+        cache[cache_key] = result
+        return result
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
     suffix_name = _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
     if suffix_name:
+        cache[cache_key] = suffix_name
         return suffix_name
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
     suffix_name = _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
     if suffix_name:
+        cache[cache_key] = suffix_name
         return suffix_name
     prefix_text = _format_prefixes(prefixes)
     if not prefix_text:
+        cache[cache_key] = ""
         return ""
-    return _join_prefix_parent(prefix_text, parent_name)
+    result = _join_prefix_parent(prefix_text, parent_name)
+    cache[cache_key] = result
+    return result
 
 
 def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:

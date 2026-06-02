@@ -3218,6 +3218,8 @@ class WholeMoleculeRetainedParentRule:
             return
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
+        formal_charge = _formal_charge(mol)
+        has_stereo_evidence = _has_stereo_evidence(mol, self._Chem)
         for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
             name = _standalone_whole_molecule_retained_name(template)
             if not name:
@@ -3226,11 +3228,11 @@ class WholeMoleculeRetainedParentRule:
                 continue
             if template_record_mol(template).GetNumAtoms() != atom_count:
                 continue
-            if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
+            if _formal_charge(template_record_mol(template)) != formal_charge:
                 continue
-            if _has_stereo_evidence(mol, self._Chem) and not template.get("stereochemical"):
+            if has_stereo_evidence and not template.get("stereochemical"):
                 continue
-            if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
+            if template.get("stereochemical") and not has_stereo_evidence:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
@@ -3283,7 +3285,10 @@ def _standalone_retained_acid_name(raw_name: str) -> str:
 
 
 def _formal_charge(mol) -> int:
-    return sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+    cached = mol_cache_get(mol, "formal_charge")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "formal_charge", sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
 
 
 _STANDALONE_RETAINED_ACID_STEM_EXCEPTIONS = {

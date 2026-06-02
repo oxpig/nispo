@@ -3404,7 +3404,7 @@ class RetainedRingScaffoldParentRule:
         yielded = 0
         for compiled in ctx.candidate_compiled_templates(self._templates()):
             template = compiled.runtime
-            if not _retained_ring_scaffold_template_can_be_general_parent(mol, template, self._Chem):
+            if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, self._Chem):
                 continue
             template_mol = compiled.mol
             if template_mol.GetNumAtoms() >= mol.GetNumAtoms():
@@ -3440,18 +3440,20 @@ class RetainedRingScaffoldParentRule:
                     return
 
 
-def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, Chem) -> bool:
-    if not template.get("general_parent_safe", True):
+def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, Chem) -> bool:
+    features = compiled.features
+    if not compiled.record.name:
         return False
-    flags = set(template.get("flags", ()))
-    if flags & {"radical", "organometallic", "general-parent-unsupported"}:
+    if "general-parent-unsupported" in features.unsupported_flags:
         return False
-    if template.get("stereochemical"):
-        if "caroten" not in template_record_name(template):
+    if features.unsupported_flags & {"radical", "organometallic"}:
+        return False
+    if features.has_stereochemistry:
+        if "caroten" not in compiled.record.name:
             return False
         if not _has_stereo_evidence(mol, Chem):
             return False
-    if template_record_mol(template).GetRingInfo().NumRings() > mol.GetRingInfo().NumRings():
+    if features.ring_count > mol.GetRingInfo().NumRings():
         return False
     return True
 

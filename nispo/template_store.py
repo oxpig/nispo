@@ -18,6 +18,7 @@ from .resource_templates import (
 )
 from .template_index import candidate_templates as _candidate_templates
 from .template_index import molecule_features as _molecule_features
+from .template_index import ring_system_feature_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,21 +41,53 @@ class TemplateFeatures:
 
     atom_count: int
     ring_count: int
+    heavy_atom_count: int
+    formal_charge: int
+    aromatic_atom_count: int
     max_ring_system_size: int
     max_ring_system_ring_count: int
     elements: tuple[tuple[str, int], ...]
+    ring_system_keys: tuple[tuple, ...]
     all_atoms_in_one_ring_system: bool
+    has_stereochemistry: bool = False
+    has_isotope: bool = False
+    unsupported_flags: frozenset[str] = frozenset()
 
     @classmethod
     def from_mapping(cls, features: Mapping) -> "TemplateFeatures":
         return cls(
             atom_count=int(features["atom_count"]),
             ring_count=int(features["ring_count"]),
+            heavy_atom_count=int(features.get("heavy_atom_count", features["atom_count"])),
+            formal_charge=int(features.get("formal_charge", 0)),
+            aromatic_atom_count=int(features.get("aromatic_atom_count", 0)),
             max_ring_system_size=int(features["max_ring_system_size"]),
             max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0)),
             elements=tuple(sorted(features["elements"].items())),
+            ring_system_keys=tuple(ring_system_feature_key(system) for system in features.get("ring_systems", ())),
             all_atoms_in_one_ring_system=bool(features["all_atoms_in_one_ring_system"]),
+            has_stereochemistry=bool(features.get("has_stereochemistry", False)),
+            has_isotope=bool(features.get("has_isotope", False)),
+            unsupported_flags=frozenset(str(flag) for flag in features.get("unsupported_flags", ())),
         )
+
+    @classmethod
+    def from_mol(
+        cls,
+        mol,
+        Chem,
+        *,
+        has_stereochemistry: bool = False,
+        unsupported_flags: frozenset[str] = frozenset(),
+    ) -> "TemplateFeatures":
+        features = dict(_molecule_features(mol, Chem))
+        features["heavy_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
+        features["formal_charge"] = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+        features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+        features["has_stereochemistry"] = has_stereochemistry or _mol_has_stereochemistry(mol, Chem)
+        features["has_isotope"] = any(atom.GetIsotope() for atom in mol.GetAtoms())
+        features["unsupported_flags"] = unsupported_flags
+        return cls.from_mapping(features)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,11 +278,16 @@ class TemplateStore:
         if cached is not None:
             return cached
         mol = template["mol"]
-        features = _molecule_features(mol, self.Chem)
+        record = self._record_for_template(template, key)
         compiled = CompiledTemplate(
-            record=self._record_for_template(template, key),
+            record=record,
             mol=mol,
-            features=TemplateFeatures.from_mapping(features),
+            features=TemplateFeatures.from_mol(
+                mol,
+                self.Chem,
+                has_stereochemistry=record.stereochemical,
+                unsupported_flags=record.flags,
+            ),
             scaffold_key=self.Chem.MolToSmiles(mol, canonical=True, isomericSmiles=False),
             runtime=template,
         )
@@ -291,6 +329,16 @@ class TemplateStore:
         for template in templates:
             grouped.setdefault(template.get("source_family", "unknown"), []).append(template)
         return {family: tuple(items) for family, items in sorted(grouped.items())}
+
+
+def _mol_has_stereochemistry(mol, Chem) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return True
+    for bond in mol.GetBonds():
+        if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            return True
+    return False
 
 
 @lru_cache(maxsize=8)

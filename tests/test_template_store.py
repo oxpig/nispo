@@ -27,6 +27,11 @@ def test_template_store_compiles_parent_resources():
     assert isinstance(compiled.record, TemplateRecord)
     assert isinstance(compiled.features, TemplateFeatures)
     assert compiled.scaffold_key
+    assert compiled.features.heavy_atom_count == compiled.features.atom_count
+    assert isinstance(compiled.features.formal_charge, int)
+    assert isinstance(compiled.features.aromatic_atom_count, int)
+    assert isinstance(compiled.features.ring_system_keys, tuple)
+    assert isinstance(compiled.features.unsupported_flags, frozenset)
 
 
 def test_template_store_does_not_cache_candidates_by_molecule_id():
@@ -58,6 +63,7 @@ def test_template_store_can_return_compiled_candidate_handles():
     assert all(isinstance(template, CompiledTemplate) for template in compiled)
     assert all(template.record.name for template in compiled)
     assert all(template.runtime for template in compiled)
+    assert all(template.features.atom_count <= mol.GetNumAtoms() for template in compiled)
 
 
 def test_opsin_retained_ring_csv_templates_are_locanted():

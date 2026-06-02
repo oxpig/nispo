@@ -855,6 +855,9 @@ def _name_fused_core_match(
     if ring_system_extends_core(mol, core_set):
         cache[cache_key] = ""
         return ""
+    if _match_has_unlocanted_external_substitution(mol, template, match, core_set=core_set):
+        cache[cache_key] = ""
+        return ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
@@ -903,6 +906,24 @@ def _name_fused_core_match(
     result = _join_prefix_parent(prefix_text, parent_name)
     cache[cache_key] = result
     return result
+
+
+def _match_has_unlocanted_external_substitution(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    *,
+    core_set: set[int] | None = None,
+) -> bool:
+    locants = template_record_locants(template)
+    core = core_set if core_set is not None else set(match)
+    for template_idx, mol_idx in enumerate(match):
+        if locants.get(template_idx):
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if any(nbr.GetIdx() not in core for nbr in atom.GetNeighbors()):
+            return True
+    return False
 
 
 def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:

@@ -3371,18 +3371,6 @@ def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, 
     return True
 
 
-def _match_has_unlocanted_external_substitution(mol, template: dict, match: Sequence[int]) -> bool:
-    locants = template_record_locants(template)
-    core = set(match)
-    for template_idx, mol_idx in enumerate(match):
-        if locants.get(template_idx):
-            continue
-        atom = mol.GetAtomWithIdx(mol_idx)
-        if any(nbr.GetIdx() not in core for nbr in atom.GetNeighbors()):
-            return True
-    return False
-
-
 @lru_cache(maxsize=1)
 def _general_retained_ring_scaffold_templates(Chem) -> tuple[dict, ...]:
     templates = []
@@ -5025,6 +5013,7 @@ from .parent.rule_helpers import (
     _guanidine_parent_templates,
     _iter_fused_template_matches,
     _match_has_extra_core_bonds,
+    _match_has_unlocanted_external_substitution,
     _name_acyclic_retained_core_match,
     _subtree_has_cumulated_diene,
     _skeletal_replacement_query,

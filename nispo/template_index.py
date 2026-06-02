@@ -143,13 +143,14 @@ def molecule_features(mol, Chem) -> dict:
     ring_system_features = []
     for system in ring_systems:
         system_rings = [set(ring) for ring in view.atom_rings if set(ring) <= system]
+        graph_signature, element_graph_signature = graph_signatures_for_atom_set(mol, system, Chem)
         ring_system_features.append(
             {
                 "atom_count": len(system),
                 "ring_count": len(system_rings),
                 "elements": Counter(view.symbols[idx] for idx in system),
-                "graph_signature": graph_signature_for_atom_set(mol, system, Chem),
-                "element_graph_signature": element_graph_signature_for_atom_set(mol, system, Chem),
+                "graph_signature": graph_signature,
+                "element_graph_signature": element_graph_signature,
             }
         )
     max_system_size = max((len(system) for system in ring_systems), default=0)
@@ -181,18 +182,7 @@ def ring_system_feature_key(features: dict) -> tuple:
 def graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
     """Canonical graph-shape key for a ring system, ignoring atom labels and bond order."""
 
-    atom_indices = tuple(sorted(atom_indices))
-    if not atom_indices:
-        return ""
-    atom_set = set(atom_indices)
-    rw_mol = Chem.RWMol()
-    index_map = {old_idx: rw_mol.AddAtom(Chem.Atom("C")) for old_idx in atom_indices}
-    for bond in mol.GetBonds():
-        begin = bond.GetBeginAtomIdx()
-        end = bond.GetEndAtomIdx()
-        if begin in atom_set and end in atom_set:
-            rw_mol.AddBond(index_map[begin], index_map[end], Chem.BondType.SINGLE)
-    return Chem.MolToSmiles(rw_mol.GetMol(), canonical=True, isomericSmiles=False)
+    return graph_signatures_for_atom_set(mol, atom_indices, Chem)[0]
 
 
 def element_graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
@@ -206,22 +196,34 @@ def element_graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
     charge naming is handled as a parent-name adjustment such as ``-ium``.
     """
 
+    return graph_signatures_for_atom_set(mol, atom_indices, Chem)[1]
+
+
+def graph_signatures_for_atom_set(mol, atom_indices, Chem) -> tuple[str, str]:
+    """Canonical graph-shape keys for a ring system, ignoring bond order."""
+
     atom_indices = tuple(sorted(atom_indices))
     if not atom_indices:
-        return ""
+        return "", ""
     atom_set = set(atom_indices)
-    rw_mol = Chem.RWMol()
-    index_map = {}
+    graph_mol = Chem.RWMol()
+    element_mol = Chem.RWMol()
+    graph_index_map = {old_idx: graph_mol.AddAtom(Chem.Atom("C")) for old_idx in atom_indices}
+    element_index_map = {}
     for old_idx in atom_indices:
         old_atom = mol.GetAtomWithIdx(old_idx)
         atom = Chem.Atom(old_atom.GetAtomicNum())
-        index_map[old_idx] = rw_mol.AddAtom(atom)
+        element_index_map[old_idx] = element_mol.AddAtom(atom)
     for bond in mol.GetBonds():
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         if begin in atom_set and end in atom_set:
-            rw_mol.AddBond(index_map[begin], index_map[end], Chem.BondType.SINGLE)
-    return Chem.MolToSmiles(rw_mol.GetMol(), canonical=True, isomericSmiles=False)
+            graph_mol.AddBond(graph_index_map[begin], graph_index_map[end], Chem.BondType.SINGLE)
+            element_mol.AddBond(element_index_map[begin], element_index_map[end], Chem.BondType.SINGLE)
+    return (
+        Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False),
+        Chem.MolToSmiles(element_mol.GetMol(), canonical=True, isomericSmiles=False),
+    )
 
 
 @lru_cache(maxsize=None)

@@ -2,11 +2,23 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from .molecule_cache import mol_cache_dict
 from .scaffold_catalog import parent_scaffold_catalog
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
 def resource_ring_parent_candidates(mol, ordered: tuple[int, ...], Chem) -> list[tuple[str, tuple[int, ...]]]:
+    cache = mol_cache_dict(mol, "resource_ring_parent_candidates")
+    cache_key = tuple(ordered)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
+    candidates = _resource_ring_parent_candidates_uncached(mol, ordered, Chem)
+    cache[cache_key] = tuple(candidates)
+    return candidates
+
+
+def _resource_ring_parent_candidates_uncached(mol, ordered: tuple[int, ...], Chem) -> list[tuple[str, tuple[int, ...]]]:
     ring_set = set(ordered)
     candidates = []
     for template in _single_ring_templates(Chem).get(len(ordered), ()):

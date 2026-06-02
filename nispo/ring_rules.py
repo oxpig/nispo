@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import join_locants as _join_locants, loc_unsat
+from .molecule_cache import mol_cache_dict
 from .ring.hydrogen import _drop_indicated_hydrogen_prefix, _indicated_hydrogen_prefix
 
 
@@ -130,6 +131,17 @@ def _single_indicated_hydrogen_n(mol, ordered: Sequence[int]) -> int | None:
 
 
 def ring_parent_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+    cache = mol_cache_dict(mol, "ring_parent_candidates")
+    cache_key = tuple(ordered)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
+    candidates = _ring_parent_candidates_uncached(mol, ordered)
+    cache[cache_key] = tuple(candidates)
+    return candidates
+
+
+def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
     n = len(ordered)
     symbols = [mol.GetAtomWithIdx(idx).GetSymbol() for idx in ordered]
     aromatic = [mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ordered]

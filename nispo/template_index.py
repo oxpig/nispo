@@ -11,7 +11,7 @@ _TemplateIndex = tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
-_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 2
+_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
 
 
 def candidate_templates(

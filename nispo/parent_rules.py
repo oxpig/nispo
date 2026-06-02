@@ -5237,12 +5237,6 @@ def parent_rules(Chem) -> tuple:
             kekulized_polycyclic.candidates,
         ),
         RuleSpec(
-            "functional-acyclic-skeleton-with-ring-substituents",
-            parent_priority("polycyclic-functional-skeleton"),
-            (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
-            functional_acyclic.candidates,
-        ),
-        RuleSpec(
             "acyclic-skeleton-with-ring-substituents",
             parent_priority("acyclic-with-ring-substituents"),
             (min_ring_count(1), acyclic_preference_signal),

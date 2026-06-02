@@ -61,6 +61,7 @@ def test_name_candidate_accepts_optional_structural_facts_without_breaking_legac
         source_family="exact-probe",
         safety=CandidateSafety(graph_complete=False),
         estimated_length=5,
+        render_rank=3,
     )
 
     assert legacy.name == "ethan"
@@ -155,7 +156,7 @@ def test_candidate_telemetry_records_rule_work_without_changing_output():
 
 def test_candidate_telemetry_records_selected_rule_family():
     mol = Chem.MolFromSmiles("CCc1ccccc1")
-    candidate = NameCandidate("ethylbenzene", "probe", 20)
+    candidate = NameCandidate("ethylbenzene", "probe", 20, render_rank=7)
     rule = RuleSpec(
         family="probe-rule",
         priority=20,
@@ -174,6 +175,9 @@ def test_candidate_telemetry_records_selected_rule_family():
     assert telemetry.rendered_candidate_count["probe-rule"] == 1
     assert telemetry.selected_family["probe"] == 1
     assert telemetry.selected_rule_family["probe-rule"] == 1
+    assert telemetry.selected_render_rank_count["probe-rule"] == 1
+    assert telemetry.selected_render_rank_total["probe-rule"] == 7
+    assert telemetry.selected_render_rank_bucket["probe-rule:5-8"] == 1
 
 
 def test_candidate_telemetry_records_structured_candidate_facts():

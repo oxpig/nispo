@@ -57,6 +57,7 @@ class NameCandidate:
     safety: CandidateSafety | None = None
     estimated_length: int | None = None
     render_cost: int = 1
+    render_rank: int | None = None
     rejection_reason: str = ""
 
 
@@ -215,6 +216,12 @@ def _select_best_prepared_candidate(
                     telemetry.selected_with_template_id += 1
                 if item.candidate.parent_atoms:
                     telemetry.selected_with_parent_atoms += 1
+                if item.candidate.render_rank is not None:
+                    telemetry.selected_render_rank_count[item.producer_family] += 1
+                    telemetry.selected_render_rank_total[item.producer_family] += item.candidate.render_rank
+                    telemetry.selected_render_rank_bucket[
+                        f"{item.producer_family}:{_render_rank_bucket(item.candidate.render_rank)}"
+                    ] += 1
                 telemetry.selected_safety_reasons.update(candidate_safety_reasons(item.candidate))
                 break
     return best_name
@@ -237,8 +244,21 @@ def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
         or candidate.safety is not None
         or candidate.estimated_length is not None
         or candidate.render_cost != 1
+        or candidate.render_rank is not None
         or candidate.rejection_reason
     )
+
+
+def _render_rank_bucket(rank: int) -> str:
+    if rank <= 4:
+        return str(rank)
+    if rank <= 8:
+        return "5-8"
+    if rank <= 16:
+        return "9-16"
+    if rank <= 32:
+        return "17-32"
+    return "33+"
 
 
 def _record_candidate_fact_telemetry(

@@ -3415,7 +3415,7 @@ class RetainedRingScaffoldParentRule:
             )
         yielded_names: set[str] = set()
         yielded = 0
-        for fact in finalists:
+        for render_rank, fact in enumerate(finalists, start=1):
             name = _name_fused_core_match(mol, fact.template, fact.match)
             if not name or name in yielded_names:
                 continue
@@ -3435,6 +3435,7 @@ class RetainedRingScaffoldParentRule:
                 source_family=fact.compiled.record.source_family,
                 source_file=fact.compiled.record.source_file,
                 estimated_length=len(name),
+                render_rank=render_rank,
             )
             if yielded >= _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES:
                 return

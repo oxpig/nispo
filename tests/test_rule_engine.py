@@ -19,6 +19,7 @@ from nispo.rule_engine import (
     _prepare_candidates,
     _select_best_prepared_candidate,
 )
+from nispo.structural_profile import structural_profile
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +99,14 @@ def test_candidate_pipeline_does_not_compact_selected_name(candidate_name):
 
     assert [item.name for item in prepared] == [candidate_name]
     assert _select_best_prepared_candidate(prepared) == candidate_name
+
+
+def test_structural_profile_detects_conjugated_carbonyl_diene_signal():
+    positive = structural_profile(Chem.MolFromSmiles("O=CC=CC=Cc1ccccc1"), Chem)
+    negative = structural_profile(Chem.MolFromSmiles("O=CCc1ccccc1"), Chem)
+
+    assert positive.has_conjugated_carbonyl_diene_signal
+    assert not negative.has_conjugated_carbonyl_diene_signal
 
 
 def test_nested_sort_key_parent_selection_does_not_empty_api_output():

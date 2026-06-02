@@ -35,6 +35,7 @@ from .rule_dispatch import (
     acyclic,
     acyclic_preference_signal,
     charged_ring_atom,
+    conjugated_carbonyl_diene_signal,
     exact_ring_system,
     functional_skeleton_signal,
     generic_bicyclic_topology,
@@ -4782,7 +4783,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "conjugated-carbonyl-acyclic-skeleton-with-ring-substituents",
             parent_priority("functional-acyclic-skeleton"),
-            (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
+            (
+                functional_skeleton_signal,
+                acyclic_preference_signal,
+                conjugated_carbonyl_diene_signal,
+                no_charged_ring_atom,
+            ),
             conjugated_carbonyl_acyclic.candidates,
         ),
         RuleSpec(
@@ -4911,7 +4917,12 @@ def parent_rules(Chem) -> tuple:
             (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
             functional_acyclic.candidates,
         ),
-        RuleSpec("acyclic-skeleton-with-ring-substituents", parent_priority("acyclic-with-ring-substituents"), (min_ring_count(1),), acyclic_with_ring_substituents.candidates),
+        RuleSpec(
+            "acyclic-skeleton-with-ring-substituents",
+            parent_priority("acyclic-with-ring-substituents"),
+            (min_ring_count(1), acyclic_preference_signal),
+            acyclic_with_ring_substituents.candidates,
+        ),
     )
 
 from .parent.rule_helpers import (

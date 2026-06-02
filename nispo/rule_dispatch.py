@@ -87,6 +87,10 @@ def acyclic_preference_signal(ctx) -> bool:
     return ctx.profile.may_prefer_acyclic_skeleton
 
 
+def conjugated_carbonyl_diene_signal(ctx) -> bool:
+    return ctx.profile.has_conjugated_carbonyl_diene_signal
+
+
 def kekulized_polycycle_signal(ctx) -> bool:
     return ctx.profile.has_kekulized_polycycle_signal
 

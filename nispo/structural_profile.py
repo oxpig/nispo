@@ -15,6 +15,8 @@ class StructuralProfile:
     nonring_imino_like_count: int
     exocyclic_carbonyl_count: int
     halogenated_alkene_count: int
+    carbonyl_count: int
+    nonring_conjugated_diene_count: int
     nitrile_like_count: int
     sulfone_like_count: int
     nonring_positive_sulfur_count: int
@@ -42,6 +44,10 @@ class StructuralProfile:
             or self.halogenated_alkene_count > 0
             or self.nonring_multiple_bond_count >= 1
         )
+
+    @property
+    def has_conjugated_carbonyl_diene_signal(self) -> bool:
+        return self.carbonyl_count > 0 and self.nonring_conjugated_diene_count > 0
 
     @property
     def may_prefer_acyclic_skeleton(self) -> bool:
@@ -99,6 +105,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     imino_like = 0
     exocyclic_carbonyl = 0
     halogenated_alkene = 0
+    carbonyl = 0
     nitrile_like = 0
     sulfone_like = 0
     nonring_positive_sulfur = 0
@@ -108,6 +115,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     nonring_neutral_pnictogen = 0
     nonring_neutral_group14 = 0
     aromatic_atoms = 0
+    nonring_carbon_double_neighbors: dict[int, set[int]] = {}
+    nonring_carbon_single_bonds: list[tuple[int, int]] = []
     for idx, symbol in enumerate(view.symbols):
         if view.aromatic_atoms[idx]:
             aromatic_atoms += 1
@@ -137,11 +146,29 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         if begin.IsInRing() and end.IsInRing():
             continue
         if order <= 1.0:
+            if (
+                order == 1.0
+                and begin_symbol == "C"
+                and end_symbol == "C"
+                and not begin.IsInRing()
+                and not end.IsInRing()
+            ):
+                nonring_carbon_single_bonds.append((begin.GetIdx(), end.GetIdx()))
             continue
         nonring_multiple += 1
         symbols = {begin_symbol, end_symbol}
-        if symbols == {"C", "O"} and order == 2.0 and (begin.IsInRing() or end.IsInRing()):
-            exocyclic_carbonyl += 1
+        if symbols == {"C", "O"} and order == 2.0:
+            carbonyl += 1
+            if begin.IsInRing() or end.IsInRing():
+                exocyclic_carbonyl += 1
+        if (
+            symbols == {"C"}
+            and order == 2.0
+            and not begin.IsInRing()
+            and not end.IsInRing()
+        ):
+            nonring_carbon_double_neighbors.setdefault(begin.GetIdx(), set()).add(end.GetIdx())
+            nonring_carbon_double_neighbors.setdefault(end.GetIdx(), set()).add(begin.GetIdx())
         if symbols == {"C"} and order == 2.0 and (
             _has_halogen_neighbor(begin, end.GetIdx()) or _has_halogen_neighbor(end, begin.GetIdx())
         ):
@@ -152,6 +179,12 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
             nitrile_like += 1
         if "S" in symbols and "O" in symbols:
             sulfone_like += 1
+    conjugated_diene = sum(
+        1
+        for begin_idx, end_idx in nonring_carbon_single_bonds
+        if any(nidx != end_idx for nidx in nonring_carbon_double_neighbors.get(begin_idx, ()))
+        and any(nidx != begin_idx for nidx in nonring_carbon_double_neighbors.get(end_idx, ()))
+    )
 
     return StructuralProfile(
         ring_count=view.ring_count,
@@ -163,6 +196,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         nonring_imino_like_count=imino_like,
         exocyclic_carbonyl_count=exocyclic_carbonyl,
         halogenated_alkene_count=halogenated_alkene,
+        carbonyl_count=carbonyl,
+        nonring_conjugated_diene_count=conjugated_diene,
         nitrile_like_count=nitrile_like,
         sulfone_like_count=sulfone_like,
         nonring_positive_sulfur_count=nonring_positive_sulfur,

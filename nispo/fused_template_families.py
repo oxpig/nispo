@@ -17,6 +17,7 @@ _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
 _MAX_GENERATED_RECORDS_PER_GRAPH = 256
 _MAX_GENERATED_ALIASES_PER_SCAFFOLD = 2
 _MAX_ORIENTATION_ALIASES_PER_SCAFFOLD = 2
+_MAX_RETAINED_TOPOLOGY_REPLACEMENT_TEMPLATES_PER_GRAPH = 24
 
 _TARGET_FUSION_COMPONENT_PREFIXES = (
     "imidazo",
@@ -197,7 +198,9 @@ def retained_topology_replacement_parent_templates_for_graph(
             continue
         seen.add(key)
         selected.append(template)
-    return tuple(sorted(selected, key=generated_template_key))
+    return tuple(sorted(selected, key=generated_template_key))[
+        :_MAX_RETAINED_TOPOLOGY_REPLACEMENT_TEMPLATES_PER_GRAPH
+    ]
 
 
 def candidate_generated_fused_templates(

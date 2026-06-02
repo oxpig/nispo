@@ -11,7 +11,7 @@ _TemplateIndex = tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
-_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 5
+_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 2
 
 
 def candidate_templates(
@@ -99,7 +99,7 @@ def _preferred_templates_by_scaffold(templates: list[dict], Chem) -> tuple[dict,
         grouped.setdefault(_template_scaffold_key(template, Chem), []).append(template)
     selected = []
     for group in grouped.values():
-        selected.extend(group[:_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD])
+        selected.extend(sorted(group, key=_template_alias_preference_key)[:_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD])
     return tuple(selected)
 
 
@@ -111,8 +111,17 @@ def _preferred_template_entries_by_scaffold(entries: list[tuple[dict, dict]], Ch
         grouped.setdefault(_template_scaffold_key(template, Chem), []).append((template, template_features))
     selected = []
     for group in grouped.values():
-        selected.extend(group[:_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD])
+        selected.extend(
+            sorted(group, key=lambda item: _template_alias_preference_key(item[0]))[
+                :_MAX_TEMPLATE_ALIASES_PER_SCAFFOLD
+            ]
+        )
     return tuple(selected)
+
+
+def _template_alias_preference_key(template: dict) -> tuple:
+    name = str(template.get("name", ""))
+    return (len(name), name)
 
 
 def _template_scaffold_key(template: dict, Chem) -> str:

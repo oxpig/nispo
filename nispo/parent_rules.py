@@ -3312,7 +3312,7 @@ class RetainedRingScaffoldParentRule:
         self._Chem = Chem
 
     def _templates(self) -> tuple[dict, ...]:
-        return parent_scaffold_catalog(self._Chem).opsin_retained_ring_csv_parent
+        return _general_retained_ring_scaffold_templates(self._Chem)
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -3364,6 +3364,21 @@ def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, 
     if template_record_mol(template).GetRingInfo().NumRings() > mol.GetRingInfo().NumRings():
         return False
     return True
+
+
+@lru_cache(maxsize=1)
+def _general_retained_ring_scaffold_templates(Chem) -> tuple[dict, ...]:
+    templates = []
+    for template in parent_scaffold_catalog(Chem).opsin_retained_ring_csv_parent:
+        if not template.get("general_parent_safe", True):
+            continue
+        flags = set(template.get("flags", ()))
+        if flags & {"radical", "organometallic", "general-parent-unsupported"}:
+            continue
+        if template.get("stereochemical") and "caroten" not in template_record_name(template):
+            continue
+        templates.append(template)
+    return tuple(templates)
 
 
 def _unsafe_retained_ring_scaffold_candidate(name: str) -> bool:

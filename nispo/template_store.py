@@ -213,16 +213,13 @@ class TemplateStore:
         *,
         exact_atom_count: bool = False,
     ) -> tuple[dict, ...]:
-        result = _candidate_templates(
+        return _candidate_templates(
             mol,
             templates,
             self.Chem,
             features=features,
             exact_atom_count=exact_atom_count,
         )
-        for template in result:
-            self.compiled_template(template)
-        return result
 
     def compiled_template(self, template: dict) -> CompiledTemplate:
         key = id(template)

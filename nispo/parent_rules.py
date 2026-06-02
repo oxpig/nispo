@@ -65,6 +65,7 @@ from .template_index import ring_system_with_graph_signatures
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
 _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 32
 _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 24
+_SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 2
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 32
 
 
@@ -4217,7 +4218,9 @@ class SingleRingParentRule:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        for ring in parent_rings:
+        ring_facts = self._ring_fact_render_set(ctx, self._candidate_ring_facts(ctx, parent_rings))
+        for render_rank, ring_fact in enumerate(ring_facts, start=1):
+            ring = ring_fact.ring
             for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
                 yield NameCandidate(
                     name=name,
@@ -4225,7 +4228,41 @@ class SingleRingParentRule:
                     priority=candidate_priority,
                     sort_key=_single_ring_candidate_sort_key(name),
                     stereo_prefix=stereo_prefix,
+                    parent_atoms=frozenset(ring),
+                    estimated_length=len(name),
+                    render_rank=render_rank,
                     )
+
+    def _candidate_ring_facts(self, ctx, parent_rings) -> tuple["_SingleRingParentFacts", ...]:
+        facts = tuple(
+            _SingleRingParentFacts(
+                ring=tuple(ring),
+                structural_key=_single_ring_parent_fact_sort_key(ctx.mol, ring),
+            )
+            for ring in parent_rings
+        )
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:ring_facts"] += len(facts)
+        return facts
+
+    def _ring_fact_render_set(
+        self,
+        ctx,
+        facts: tuple["_SingleRingParentFacts", ...],
+    ) -> tuple["_SingleRingParentFacts", ...]:
+        if len(facts) <= _SINGLE_RING_PARENT_RING_FACT_SET_SIZE:
+            finalists = facts
+        else:
+            finalists = tuple(
+                sorted(facts, key=lambda fact: fact.structural_key)[:_SINGLE_RING_PARENT_RING_FACT_SET_SIZE]
+            )
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:ring_render_set"] += len(finalists)
+            ctx.telemetry.filter_stage_count[f"{self.family}:ring_facts_suppressed_before_render"] += max(
+                0,
+                len(facts) - len(finalists),
+            )
+        return finalists
 
 
 class PositiveSingleRingParentRule(SingleRingParentRule):
@@ -4246,11 +4283,41 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     priority=self.priority,
                     sort_key=_single_ring_candidate_sort_key(name),
                     stereo_prefix=stereo_prefix,
+                    parent_atoms=frozenset(ring),
+                    estimated_length=len(name),
+                    render_rank=1,
                 )
 
 
 def _has_positive_ring_parent_name(name: str) -> bool:
     return bool(re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name))
+
+
+@dataclass(frozen=True, slots=True)
+class _SingleRingParentFacts:
+    ring: tuple[int, ...]
+    structural_key: tuple
+
+
+def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(idx) for idx in ring]
+    size = len(ring)
+    aromatic_atoms = sum(1 for atom in atoms if atom.GetIsAromatic())
+    hetero_atoms = sum(1 for atom in atoms if atom.GetSymbol() != "C")
+    external_bonds = sum(
+        1
+        for atom in atoms
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() not in ring_set
+    )
+    return (
+        0 if aromatic_atoms == size else 1,
+        abs(size - 6),
+        external_bonds,
+        hetero_atoms,
+        tuple(sorted(ring)),
+    )
 
 
 def _unfused_assembly_monocycle_parent_rings(ctx) -> tuple[tuple[int, ...], ...]:

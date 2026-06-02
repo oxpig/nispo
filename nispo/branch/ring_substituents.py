@@ -49,13 +49,20 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     return branch_rules.branch_prefix(mol, idx, parent_idx)
 
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    return _carbohydrate_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _simple_ring_substituent_prefix(
+    cache = mol_cache_dict(mol, "ring_substituent_prefix_cache")
+    cache_key = (attachment_idx, parent_idx)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    prefix = _carbohydrate_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _simple_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _fused_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem) or _generic_polycyclic_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     )
+    cache[cache_key] = prefix
+    return prefix
 
 
 def _carbohydrate_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:

@@ -13,6 +13,7 @@ from .fragment_rules import (
 from .naming_context import MoleculeContext
 from .rule_dispatch import RuleSpec
 from .stereochemistry import apply_stereochemical_prefix
+from .telemetry import CandidateTelemetry
 
 
 _DEFAULT_MAX_NAME_LENGTH = 180
@@ -49,7 +50,7 @@ class NamingEngine:
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
-    def name(self, mol) -> str:
+    def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
         if mol.GetNumAtoms() == 1:
             simple_name = simple_fragment_name(mol, self._Chem)
             if simple_name:
@@ -68,9 +69,10 @@ class NamingEngine:
         if polyatomic_name:
             return polyatomic_name
 
-        ctx = MoleculeContext(mol, self._Chem)
+        ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         best_name = _select_best_prepared_candidate(
-            _prepare_candidates(mol, self._Chem, ctx, self._rules)
+            _prepare_candidates(mol, self._Chem, ctx, self._rules),
+            telemetry=telemetry,
         )
 
         if best_name:
@@ -85,7 +87,8 @@ class NamingEngine:
                 self._rules,
                 max_length=fallback_evaluation_length,
                 output_max_length=fallback_max_length,
-            )
+            ),
+            telemetry=telemetry,
         )
         return fallback_name
 
@@ -103,14 +106,26 @@ def _prepare_candidates(
     for rule in rules:
         if not rule.applies(ctx):
             continue
+        if ctx.telemetry is not None:
+            ctx.telemetry.rule_applies[rule.family] += 1
         for candidate in rule.candidates(ctx):
+            if ctx.telemetry is not None:
+                ctx.telemetry.candidate_count[rule.family] += 1
             if not candidate.name:
+                if ctx.telemetry is not None:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
                 continue
             name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
             if not name:
+                if ctx.telemetry is not None:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
                 continue
             if output_max_length is not None and len(name) > output_max_length:
+                if ctx.telemetry is not None:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
                 continue
+            if ctx.telemetry is not None:
+                ctx.telemetry.rendered_candidate_count[rule.family] += 1
             prepared.append(
                 _PreparedCandidate(
                     name=name,
@@ -122,7 +137,11 @@ def _prepare_candidates(
     return prepared
 
 
-def _select_best_prepared_candidate(prepared: list[_PreparedCandidate]) -> str:
+def _select_best_prepared_candidate(
+    prepared: list[_PreparedCandidate],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
     best_name = ""
     best_key: tuple | None = None
     for item in prepared:
@@ -139,6 +158,11 @@ def _select_best_prepared_candidate(prepared: list[_PreparedCandidate]) -> str:
         if best_key is None or candidate_key < best_key:
             best_name = item.name
             best_key = candidate_key
+    if best_name and telemetry is not None:
+        for item in prepared:
+            if item.name == best_name:
+                telemetry.selected_family[item.candidate.family] += 1
+                break
     return best_name
 
 

@@ -20,6 +20,7 @@ from nispo.rule_engine import (
     _select_best_prepared_candidate,
 )
 from nispo.structural_profile import structural_profile
+from nispo.telemetry import CandidateTelemetry
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -99,6 +100,37 @@ def test_candidate_pipeline_does_not_compact_selected_name(candidate_name):
 
     assert [item.name for item in prepared] == [candidate_name]
     assert _select_best_prepared_candidate(prepared) == candidate_name
+
+
+def test_candidate_telemetry_records_rule_work_without_changing_output():
+    mol = Chem.MolFromSmiles("c1ccc2ccccc2c1CC")
+    telemetry = CandidateTelemetry()
+
+    plain = rule_engine.NamingEngine(Chem, ()).name(mol)
+    instrumented = rule_engine.NamingEngine(Chem, ()).name(mol, telemetry=telemetry)
+
+    assert instrumented == plain
+    assert isinstance(telemetry.substructure_match_calls, int)
+
+
+def test_candidate_telemetry_records_selected_rule_family():
+    mol = Chem.MolFromSmiles("CCc1ccccc1")
+    candidate = NameCandidate("ethylbenzene", "probe", 20)
+    rule = RuleSpec(
+        family="probe-rule",
+        priority=20,
+        gates=(lambda ctx: True,),
+        producer=lambda ctx: (candidate,),
+    )
+    telemetry = CandidateTelemetry()
+
+    name = rule_engine.NamingEngine(Chem, (rule,)).name(mol, telemetry=telemetry)
+
+    assert name == "ethylbenzene"
+    assert telemetry.rule_applies["probe-rule"] == 1
+    assert telemetry.candidate_count["probe-rule"] == 1
+    assert telemetry.rendered_candidate_count["probe-rule"] == 1
+    assert telemetry.selected_family["probe"] == 1
 
 
 def test_structural_profile_detects_conjugated_carbonyl_diene_signal():

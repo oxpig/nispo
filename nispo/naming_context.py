@@ -15,6 +15,7 @@ from .template_index import molecule_features
 from .template_index import ring_systems_for_mol
 from .template_store import TemplateStore, template_store
 from .ring_topology import RingSystemTopology, ring_system_topologies
+from .telemetry import CandidateTelemetry
 
 
 @dataclass(slots=True)
@@ -32,6 +33,7 @@ class MoleculeContext:
 
     mol: object
     Chem: object
+    telemetry: CandidateTelemetry | None = None
     cache: ContextCache = field(default_factory=ContextCache)
     _features: dict | None = None
     _generated_fused_templates: tuple[dict, ...] | None = None
@@ -65,6 +67,8 @@ class MoleculeContext:
                 )
             )
             self.cache.template_candidates[key] = cached
+            if self.telemetry is not None:
+                self.telemetry.template_candidate_count[str(id(templates))] += len(cached)
         return cached
 
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
@@ -148,6 +152,8 @@ class MoleculeContext:
             params.uniquify = False
             params.useChirality = True
             matches = self.mol.GetSubstructMatches(query, params)
+        if self.telemetry is not None:
+            self.telemetry.substructure_match_calls += 1
         result = tuple(tuple(match) for match in matches)
         self.cache.substruct_matches[key] = result
         return result

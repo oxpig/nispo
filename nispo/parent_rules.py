@@ -3721,18 +3721,47 @@ def _topology_match_has_external_hetero_substitution(mol, template: dict, match:
 
 
 def _topology_match_preserves_nonaromatic_template_bonds(mol, template: dict, match: Sequence[int]) -> bool:
-    template_mol = template_record_mol(template)
-    for bond in template_mol.GetBonds():
-        if bond.GetIsAromatic():
-            continue
-        mol_bond = mol.GetBondBetweenAtoms(match[bond.GetBeginAtomIdx()], match[bond.GetEndAtomIdx()])
+    mol_bonds = _topology_bond_facts(mol)
+    for begin_idx, end_idx, template_order in _topology_nonaromatic_bonds(template_record_mol(template)):
+        mol_bond = mol_bonds.get(_topology_bond_key(match[begin_idx], match[end_idx]))
         if mol_bond is None:
             return False
-        if mol_bond.GetIsAromatic():
+        mol_is_aromatic, mol_order = mol_bond
+        if mol_is_aromatic:
             return False
-        if mol_bond.GetBondTypeAsDouble() != bond.GetBondTypeAsDouble():
+        if mol_order != template_order:
             return False
     return True
+
+
+def _topology_nonaromatic_bonds(mol) -> tuple[tuple[int, int, float], ...]:
+    cached = mol_cache_get(mol, "topology_nonaromatic_bonds")
+    if cached is not None:
+        return cached
+    bonds = tuple(
+        (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), bond.GetBondTypeAsDouble())
+        for bond in mol.GetBonds()
+        if not bond.GetIsAromatic()
+    )
+    return mol_cache_set(mol, "topology_nonaromatic_bonds", bonds)
+
+
+def _topology_bond_facts(mol) -> dict[tuple[int, int], tuple[bool, float]]:
+    cached = mol_cache_get(mol, "topology_bond_facts")
+    if cached is not None:
+        return cached
+    bonds = {
+        _topology_bond_key(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()): (
+            bond.GetIsAromatic(),
+            bond.GetBondTypeAsDouble(),
+        )
+        for bond in mol.GetBonds()
+    }
+    return mol_cache_set(mol, "topology_bond_facts", bonds)
+
+
+def _topology_bond_key(a: int, b: int) -> tuple[int, int]:
+    return (a, b) if a < b else (b, a)
 
 
 class GeneratedFusedParentRule(FusedParentRule):

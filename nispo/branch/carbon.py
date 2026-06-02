@@ -105,6 +105,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     to select the only families that can possibly match.
     """
 
+    terminal_methyl = _terminal_methyl_prefix(mol, idx, parent_idx)
+    if terminal_methyl:
+        return terminal_methyl
     if _is_nitrile_carbon(mol, idx):
         return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("nitrile", "cyano"))
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
@@ -204,6 +207,20 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     if name:
         return _with_root_carbon_isotope(mol, idx, name)
     return _with_root_carbon_isotope(mol, idx, _carbon_prefix(mol, idx, parent_idx))
+
+
+def _terminal_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return ""
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if _path_has_isotopic_hydrogen(mol, (idx,)):
+        return ""
+    if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+        return ""
+    return "methyl"
 
 
 def _prefer_resource_carbon_prefix(name: str) -> bool:

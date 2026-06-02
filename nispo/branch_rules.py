@@ -11,7 +11,7 @@ else:
     RDLogger.DisableLog("rdApp.*")
 
 from .branch import BranchRuleSpec, first_branch_name
-from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
+from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import (
     join_locants as _join_locants,
     substituent_parent_suffix as _substituent_parent_suffix,
@@ -108,6 +108,12 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             prefix = _isotopic_hydrogen_prefix(atom)
         elif atom.IsInRing():
             prefix = _ring_substituent_prefix(mol, idx, parent_idx)
+        elif atom.GetSymbol() in HALO:
+            prefix = _terminal_halogen_prefix(mol, idx, parent_idx)
+            if not prefix:
+                rule_sets_by_symbol = _branch_rule_sets()
+                rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
+                prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         elif atom.GetSymbol() == "C":
             prefix = _carbon_branch_prefix(mol, idx, parent_idx)
         else:
@@ -126,6 +132,23 @@ def _isotopic_hydrogen_prefix(atom) -> str:
     if atom.GetIsotope() == 3:
         return "tritio"
     return ""
+
+
+def _terminal_halogen_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetFormalCharge() != 0:
+        return ""
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+        return ""
+    isotope = atom.GetIsotope()
+    symbol = atom.GetSymbol()
+    name = HALO.get(symbol, "")
+    if not name:
+        return ""
+    return f"[{isotope}{symbol}]{name}" if isotope else name
 
 
 from .branch.carbon import (

@@ -63,6 +63,7 @@ from .template_index import ring_system_with_graph_signatures
 
 
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
+_RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 32
 _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 24
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 32
 
@@ -3456,16 +3457,49 @@ class RetainedRingScaffoldParentRule:
 
     def _candidate_facts(self, ctx) -> tuple["_RetainedRingScaffoldCandidateFacts", ...]:
         mol = ctx.mol
+        facts: list[_RetainedRingScaffoldCandidateFacts] = []
+        compiled_templates = self._template_fact_render_set(ctx, self._candidate_template_facts(ctx))
+        telemetry = ctx.telemetry
+        family = "retained-ring-scaffold-parent"
+        for template_fact in compiled_templates:
+            compiled = template_fact.compiled
+            template = compiled.runtime
+            matches = ctx.template_matches(template)
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:substructure_queries"] += 1
+                telemetry.filter_stage_count[f"{family}:matches"] += len(matches)
+            for match in matches:
+                if _match_has_extra_core_bonds(mol, template, match):
+                    continue
+                if telemetry is not None:
+                    telemetry.filter_stage_count[f"{family}:after_extra_core_bonds"] += 1
+                if _match_has_unlocanted_external_substitution(mol, template, match):
+                    continue
+                if telemetry is not None:
+                    telemetry.filter_stage_count[f"{family}:after_unlocanted_external"] += 1
+                facts.append(
+                    _RetainedRingScaffoldCandidateFacts(
+                        compiled=compiled,
+                        template=template,
+                        match=tuple(match),
+                        structural_key=(*template_fact.structural_key, match),
+                    )
+                )
+        if telemetry is not None:
+            telemetry.filter_stage_count[f"{family}:facts"] += len(facts)
+        return tuple(facts)
+
+    def _candidate_template_facts(self, ctx) -> tuple["_RetainedRingScaffoldTemplateFacts", ...]:
+        mol = ctx.mol
         molecule_aromatic_atom_count = _aromatic_atom_count(mol)
         molecule_charged_atom_values = _charged_atom_values(mol)
-        facts: list[_RetainedRingScaffoldCandidateFacts] = []
+        facts: list[_RetainedRingScaffoldTemplateFacts] = []
         compiled_templates = ctx.candidate_compiled_templates(self._templates())
         telemetry = ctx.telemetry
         family = "retained-ring-scaffold-parent"
         if telemetry is not None:
             telemetry.filter_stage_count[f"{family}:candidate_templates"] += len(compiled_templates)
         for compiled in compiled_templates:
-            template = compiled.runtime
             if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, self._Chem):
                 continue
             if telemetry is not None:
@@ -3485,30 +3519,36 @@ class RetainedRingScaffoldParentRule:
                 continue
             if telemetry is not None:
                 telemetry.filter_stage_count[f"{family}:after_charge_values"] += 1
-            matches = ctx.template_matches(template)
-            if telemetry is not None:
-                telemetry.filter_stage_count[f"{family}:substructure_queries"] += 1
-                telemetry.filter_stage_count[f"{family}:matches"] += len(matches)
-            for match in matches:
-                if _match_has_extra_core_bonds(mol, template, match):
-                    continue
-                if telemetry is not None:
-                    telemetry.filter_stage_count[f"{family}:after_extra_core_bonds"] += 1
-                if _match_has_unlocanted_external_substitution(mol, template, match):
-                    continue
-                if telemetry is not None:
-                    telemetry.filter_stage_count[f"{family}:after_unlocanted_external"] += 1
-                facts.append(
-                    _RetainedRingScaffoldCandidateFacts(
-                        compiled=compiled,
-                        template=template,
-                        match=tuple(match),
-                        structural_key=_retained_ring_scaffold_fact_sort_key(compiled, match),
-                    )
+            facts.append(
+                _RetainedRingScaffoldTemplateFacts(
+                    compiled=compiled,
+                    structural_key=_retained_ring_scaffold_template_fact_sort_key(compiled),
                 )
+            )
         if telemetry is not None:
-            telemetry.filter_stage_count[f"{family}:facts"] += len(facts)
+            telemetry.filter_stage_count[f"{family}:template_facts"] += len(facts)
         return tuple(facts)
+
+    def _template_fact_render_set(
+        self,
+        ctx,
+        facts: tuple["_RetainedRingScaffoldTemplateFacts", ...],
+    ) -> tuple["_RetainedRingScaffoldTemplateFacts", ...]:
+        family = "retained-ring-scaffold-parent"
+        finalists = _retained_ring_scaffold_template_fact_render_set(facts)
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{family}:template_render_set"] += len(finalists)
+            ctx.telemetry.filter_stage_count[f"{family}:template_facts_suppressed_before_match"] += max(
+                0,
+                len(facts) - len(finalists),
+            )
+        return finalists
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedRingScaffoldTemplateFacts:
+    compiled: object
+    structural_key: tuple
 
 
 @dataclass(frozen=True, slots=True)
@@ -3519,15 +3559,15 @@ class _RetainedRingScaffoldCandidateFacts:
     structural_key: tuple
 
 
-def _retained_ring_scaffold_fact_sort_key(compiled, match: Sequence[int]) -> tuple:
+def _retained_ring_scaffold_template_fact_sort_key(compiled) -> tuple:
     template_name = compiled.record.name
     return (
         _template_source_rank(compiled.runtime),
         _hydrogenated_template_penalty(template_name),
-        -len(match),
+        -compiled.features.atom_count,
         len(template_name),
         template_name,
-        match,
+        compiled.record.id,
     )
 
 
@@ -3537,6 +3577,16 @@ def _retained_ring_scaffold_render_set(
     if len(facts) <= _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE:
         return facts
     return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE])
+
+
+def _retained_ring_scaffold_template_fact_render_set(
+    facts: tuple[_RetainedRingScaffoldTemplateFacts, ...],
+) -> tuple[_RetainedRingScaffoldTemplateFacts, ...]:
+    if len(facts) <= _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE:
+        return facts
+    return tuple(
+        sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE]
+    )
 
 
 def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, Chem) -> bool:
@@ -3996,9 +4046,11 @@ class GeneratedFusedParentRule(FusedParentRule):
             return
 
         yielded_names: set[str] = set()
+        render_rank = 0
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
         ):
+            render_rank += 1
             name = _name_fused_core_match(mol, template, match)
             if not name or name in yielded_names:
                 continue
@@ -4010,6 +4062,9 @@ class GeneratedFusedParentRule(FusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=self._candidate_sort_key(mol, template, match, name),
+                parent_atoms=frozenset(match),
+                estimated_length=len(name),
+                render_rank=render_rank,
             )
 
         topology_templates = tuple(
@@ -4025,6 +4080,7 @@ class GeneratedFusedParentRule(FusedParentRule):
             require_one_ring_system=True,
             reject_extra_core_bonds=True,
         ):
+            render_rank += 1
             if not _generated_topology_fused_match_is_hydrogen_compatible(mol, template, match):
                 continue
             name = _name_fused_core_match(mol, template, match)
@@ -4043,6 +4099,9 @@ class GeneratedFusedParentRule(FusedParentRule):
                     _generated_topology_fused_candidate_rank(template_record_name(template), name),
                     *self._candidate_sort_key(mol, template, match, name),
                 ),
+                parent_atoms=frozenset(match),
+                estimated_length=len(name),
+                render_rank=render_rank,
             )
 
 

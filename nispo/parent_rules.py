@@ -4448,7 +4448,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             ctx.telemetry.render_set_size[self.family] += len(render_set)
             ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
         candidates = []
-        for fact in render_set:
+        for render_rank, fact in enumerate(render_set, start=1):
             template = fact.template
             match = fact.match
             parent_name = fact.parent_name
@@ -4464,6 +4464,9 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                     family=self.family,
                     priority=self.priority,
                     sort_key=sort_key,
+                    parent_atoms=frozenset(match),
+                    estimated_length=len(name),
+                    render_rank=render_rank,
                 )
             )
         seen = set()

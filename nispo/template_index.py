@@ -28,6 +28,7 @@ def candidate_templates(
     if cached is not None:
         return cached
     features = features or molecule_features(mol, Chem)
+    molecule_charge_counts = features.get("charged_atom_value_counts") or {}
     pure_ring_templates, other_templates_by_atom_count = _template_index(templates, Chem)
     candidates = []
     seen: set[int] = set()
@@ -51,7 +52,15 @@ def candidate_templates(
         for template, template_features in entries:
             if template_features["ring_count"] > features["ring_count"]:
                 continue
+            if template_features.get("max_ring_system_ring_count", 0) > features.get("max_ring_system_ring_count", 0):
+                continue
             if template_features["max_ring_system_size"] > features["max_ring_system_size"]:
+                continue
+            template_charge_counts = template_features.get("charged_atom_value_counts") or {}
+            if template_charge_counts and any(
+                count > molecule_charge_counts.get(value, 0)
+                for value, count in template_charge_counts.items()
+            ):
                 continue
             if any(
                 count > features["elements"].get(symbol, 0)
@@ -162,6 +171,11 @@ def molecule_features(mol, Chem) -> dict:
         "max_ring_system_size": max_system_size,
         "max_ring_system_ring_count": max_system_ring_count,
         "elements": view.elements,
+        "charged_atom_value_counts": Counter(
+            atom.GetFormalCharge()
+            for atom in mol.GetAtoms()
+            if atom.GetFormalCharge()
+        ),
         "ring_systems": tuple(ring_system_features),
         "all_atoms_in_one_ring_system": bool(ring_systems)
         and any(len(system) == mol.GetNumAtoms() for system in ring_systems),

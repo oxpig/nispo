@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Mapping
@@ -47,6 +47,7 @@ class TemplateFeatures:
     heavy_atom_count: int
     formal_charge: int
     charged_atom_values: tuple[int, ...]
+    charged_atom_value_counts: tuple[tuple[int, int], ...]
     aromatic_atom_count: int
     max_ring_system_size: int
     max_ring_system_ring_count: int
@@ -65,6 +66,12 @@ class TemplateFeatures:
             heavy_atom_count=int(features.get("heavy_atom_count", features["atom_count"])),
             formal_charge=int(features.get("formal_charge", 0)),
             charged_atom_values=tuple(sorted(int(value) for value in features.get("charged_atom_values", ()))),
+            charged_atom_value_counts=tuple(
+                sorted(
+                    (int(value), int(count))
+                    for value, count in (features.get("charged_atom_value_counts") or {}).items()
+                )
+            ),
             aromatic_atom_count=int(features.get("aromatic_atom_count", 0)),
             max_ring_system_size=int(features["max_ring_system_size"]),
             max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0)),
@@ -88,9 +95,13 @@ class TemplateFeatures:
         features = dict(_molecule_features(mol, Chem))
         features["heavy_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
         features["formal_charge"] = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
-        features["charged_atom_values"] = tuple(
-            sorted({atom.GetFormalCharge() for atom in mol.GetAtoms() if atom.GetFormalCharge()})
+        charged_atom_value_counts = Counter(
+            atom.GetFormalCharge()
+            for atom in mol.GetAtoms()
+            if atom.GetFormalCharge()
         )
+        features["charged_atom_values"] = tuple(sorted(charged_atom_value_counts))
+        features["charged_atom_value_counts"] = charged_atom_value_counts
         features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
         features["has_stereochemistry"] = has_stereochemistry or _mol_has_stereochemistry(mol, Chem)
         features["has_isotope"] = any(atom.GetIsotope() for atom in mol.GetAtoms())
@@ -278,6 +289,7 @@ class TemplateStore:
         pure_ring_templates, other_templates_by_atom_count = self._compiled_template_index(templates)
         candidates: list[CompiledTemplate] = []
         seen: set[int] = set()
+        molecule_charge_counts = features.get("charged_atom_value_counts") or {}
         molecule_ring_system_keys = {
             ring_system_feature_key(system)
             for system in features["ring_systems"]
@@ -309,7 +321,14 @@ class TemplateStore:
                     continue
                 if compiled.features.ring_count > features["ring_count"]:
                     continue
+                if compiled.features.max_ring_system_ring_count > features.get("max_ring_system_ring_count", 0):
+                    continue
                 if compiled.features.max_ring_system_size > features["max_ring_system_size"]:
+                    continue
+                if compiled.features.charged_atom_value_counts and any(
+                    count > molecule_charge_counts.get(value, 0)
+                    for value, count in compiled.features.charged_atom_value_counts
+                ):
                     continue
                 if any(
                     count > features["elements"].get(symbol, 0)
@@ -405,7 +424,6 @@ class TemplateStore:
         for template in templates:
             grouped.setdefault(template.get("source_family", "unknown"), []).append(template)
         return {family: tuple(items) for family, items in sorted(grouped.items())}
-
 
 def _preferred_compiled_templates_by_scaffold(
     templates: list[CompiledTemplate],

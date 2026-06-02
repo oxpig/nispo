@@ -898,6 +898,8 @@ def _name_fused_core_match(
 
 
 def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:
+    if not _molecule_has_isotope(mol):
+        return parent_name
     grouped: dict[tuple[str, int], list[str]] = {}
     locants = template_record_locants(template)
     for template_idx, mol_idx in enumerate(match):
@@ -918,6 +920,13 @@ def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
         prefixes.append(f"({','.join(ordered)}-{isotope}{symbol}{count_text})")
     return "".join(prefixes) + parent_name if prefixes else parent_name
+
+
+def _molecule_has_isotope(mol) -> bool:
+    cached = mol_cache_get(mol, "has_isotope")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
 
 
 def _name_natural_product_topology_match(mol, Chem, template: dict, match: Sequence[int]) -> tuple[str, str] | None:

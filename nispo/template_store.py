@@ -221,6 +221,24 @@ class TemplateStore:
             exact_atom_count=exact_atom_count,
         )
 
+    def candidate_compiled_templates(
+        self,
+        mol,
+        templates: tuple[dict, ...],
+        features: dict | None = None,
+        *,
+        exact_atom_count: bool = False,
+    ) -> tuple[CompiledTemplate, ...]:
+        return tuple(
+            self.compiled_template(template)
+            for template in self.candidate_templates(
+                mol,
+                templates,
+                features=features,
+                exact_atom_count=exact_atom_count,
+            )
+        )
+
     def compiled_template(self, template: dict) -> CompiledTemplate:
         key = id(template)
         cached = self._compiled.get(key)

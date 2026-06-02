@@ -71,6 +71,20 @@ class MoleculeContext:
                 self.telemetry.template_candidate_count[str(id(templates))] += len(cached)
         return cached
 
+    def candidate_compiled_templates(
+        self,
+        templates: tuple[dict, ...],
+        *,
+        exact_atom_count: bool = False,
+    ):
+        return tuple(
+            self.templates.compiled_template(template)
+            for template in self.candidate_templates(
+                templates,
+                exact_atom_count=exact_atom_count,
+            )
+        )
+
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
         """Return the best acyclic skeleton name, computed once per molecule.
 

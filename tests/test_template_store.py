@@ -47,6 +47,19 @@ def test_template_index_does_not_mutate_template_records():
     assert not any(key.startswith("_nispo_") for key in template)
 
 
+def test_template_store_can_return_compiled_candidate_handles():
+    store = template_store(Chem)
+    mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")
+    catalog = parent_scaffold_catalog(Chem)
+
+    compiled = store.candidate_compiled_templates(mol, catalog.fused)
+
+    assert compiled
+    assert all(isinstance(template, CompiledTemplate) for template in compiled)
+    assert all(template.record.name for template in compiled)
+    assert all(template.runtime for template in compiled)
+
+
 def test_opsin_retained_ring_csv_templates_are_locanted():
     templates = build_opsin_retained_ring_csv_templates(Chem)
 

@@ -81,7 +81,13 @@ class AcyclicParentRule:
             return
         name = ctx.acyclic_name()
         if name:
-            yield NameCandidate(name, self.family, self.priority)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class SulfaniumParentRule:
@@ -2522,7 +2528,14 @@ class AcyclicSkeletonWithRingSubstituentsRule:
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
         if name:
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
@@ -2545,7 +2558,14 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
@@ -2563,7 +2583,14 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _chain_dominates_single_ring(mol, name):
-            yield NameCandidate(name, self.family, self.priority, sort_key=((750, 999, (), 999, name), len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=((750, 999, (), 999, name), len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRule):
@@ -2586,7 +2613,14 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
             and _polycyclic_substituent_chain_signal(name)
             and not _fragile_senior_spiro_chain_name(name)
         ):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
@@ -2604,7 +2638,14 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
             and "ium" in name
             and not any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
         ):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                estimated_length=len(name),
+            )
 
 
 class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
@@ -2631,7 +2672,14 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubstituentsRule):
@@ -2656,7 +2704,14 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(mol),
+                estimated_length=len(name),
+            )
 
 
 class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubstituentsRule):
@@ -2685,7 +2740,14 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             and "buta-1,3-diene" in name
             and _prefer_acyclic_skeleton_name(name)
         ):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                estimated_length=len(name),
+            )
 
 
 def _chain_dominates_single_ring(mol, name: str) -> bool:
@@ -2803,6 +2865,14 @@ def _fragile_senior_spiro_chain_name(name: str) -> bool:
 
 def _nonring_heavy_atom_count(mol) -> int:
     return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+
+
+def _heavy_atom_indices(mol) -> frozenset[int]:
+    return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
+
+
+def _nonring_heavy_atom_indices(mol) -> frozenset[int]:
+    return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
 
 
 def _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx) -> bool:
@@ -3332,10 +3402,11 @@ class RetainedRingScaffoldParentRule:
             return
         yielded_names: set[str] = set()
         yielded = 0
-        for template in ctx.candidate_templates(self._templates()):
+        for compiled in ctx.candidate_compiled_templates(self._templates()):
+            template = compiled.runtime
             if not _retained_ring_scaffold_template_can_be_general_parent(mol, template, self._Chem):
                 continue
-            template_mol = template_record_mol(template)
+            template_mol = compiled.mol
             if template_mol.GetNumAtoms() >= mol.GetNumAtoms():
                 continue
             for match in ctx.template_matches(template):
@@ -3357,6 +3428,13 @@ class RetainedRingScaffoldParentRule:
                     family=self.family,
                     priority=self.priority,
                     sort_key=_retained_ring_scaffold_parent_sort_key(template, match, name),
+                    parent_atoms=frozenset(match),
+                    locants=compiled.record.locants,
+                    template_id=compiled.record.id,
+                    template_name=compiled.record.name,
+                    source_family=compiled.record.source_family,
+                    source_file=compiled.record.source_file,
+                    estimated_length=len(name),
                 )
                 if yielded >= _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES:
                     return

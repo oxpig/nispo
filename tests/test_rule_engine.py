@@ -19,7 +19,13 @@ from nispo.rule_engine import (
     _finalize_candidate_name,
     _prepare_candidates,
     _select_best_prepared_candidate,
+    candidate_estimated_length,
+    candidate_has_complete_graph,
+    candidate_parent_atoms,
+    candidate_safety_reasons,
+    candidate_source_key,
 )
+from nispo.candidate_facts import CandidateSafety, GRAPH_INCOMPLETE
 from nispo.structural_profile import structural_profile
 from nispo.telemetry import CandidateTelemetry
 
@@ -41,6 +47,30 @@ def test_candidate_keys_are_comparable_across_descriptor_shapes():
     ]
 
     assert min(candidates, key=_candidate_key) is candidates[0]
+
+
+def test_name_candidate_accepts_optional_structural_facts_without_breaking_legacy_constructor():
+    legacy = NameCandidate("ethan", "probe", 10)
+    structured = NameCandidate(
+        "ethan",
+        "probe",
+        10,
+        parent_atoms=frozenset({0, 1}),
+        template_id=42,
+        source_family="exact-probe",
+        safety=CandidateSafety(graph_complete=False),
+        estimated_length=5,
+    )
+
+    assert legacy.name == "ethan"
+    assert candidate_parent_atoms(legacy) == frozenset()
+    assert candidate_source_key(legacy) == ("probe", None)
+    assert candidate_has_complete_graph(legacy) is False
+    assert candidate_parent_atoms(structured) == frozenset({0, 1})
+    assert candidate_source_key(structured) == ("exact-probe", 42)
+    assert candidate_safety_reasons(structured) == (GRAPH_INCOMPLETE,)
+    assert candidate_estimated_length(structured) == 5
+    assert candidate_has_complete_graph(structured) is False
 
 
 def test_rule_engine_has_no_final_shortening_pipeline():
@@ -142,6 +172,26 @@ def test_candidate_telemetry_records_selected_rule_family():
     assert telemetry.candidate_count["probe-rule"] == 1
     assert telemetry.rendered_candidate_count["probe-rule"] == 1
     assert telemetry.selected_family["probe"] == 1
+
+
+def test_candidate_telemetry_records_structured_candidate_facts():
+    mol = Chem.MolFromSmiles("CC")
+    candidate = NameCandidate("ethan", "probe", 20, parent_atoms=frozenset({0, 1}), estimated_length=5)
+    rule = RuleSpec(
+        family="probe-rule",
+        priority=20,
+        gates=(lambda ctx: True,),
+        producer=lambda ctx: (candidate,),
+    )
+    telemetry = CandidateTelemetry()
+
+    name = rule_engine.NamingEngine(Chem, (rule,)).name(mol, telemetry=telemetry)
+
+    assert name == "ethan"
+    assert telemetry.structured_candidate_count["probe-rule"] == 1
+    assert telemetry.unstructured_candidate_count["probe-rule"] == 0
+    assert telemetry.structured_selected_count["probe"] == 1
+    assert telemetry.selected_with_parent_atoms == 1
 
 
 def test_structural_profile_detects_conjugated_carbonyl_diene_signal():

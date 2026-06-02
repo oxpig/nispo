@@ -19,5 +19,11 @@ class CandidateTelemetry:
     rendered_candidate_count: Counter[str] = field(default_factory=Counter)
     rejected_candidate_count: Counter[str] = field(default_factory=Counter)
     selected_family: Counter[str] = field(default_factory=Counter)
+    structured_candidate_count: Counter[str] = field(default_factory=Counter)
+    unstructured_candidate_count: Counter[str] = field(default_factory=Counter)
+    structured_selected_count: Counter[str] = field(default_factory=Counter)
+    selected_with_template_id: int = 0
+    selected_with_parent_atoms: int = 0
+    selected_safety_reasons: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0

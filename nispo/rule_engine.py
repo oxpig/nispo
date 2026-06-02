@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 import time
 
+from .candidate_facts import (
+    CandidateSafety,
+    ChargeEvidence,
+    HydrogenEvidence,
+    PrefixCandidate,
+    StereoEvidence,
+    SuffixCandidate,
+)
 from .fragment_rules import (
     FragmentAssemblyRule,
     common_polyatomic_fragment_name,
@@ -34,6 +42,22 @@ class NameCandidate:
     priority: int
     sort_key: tuple = ()
     stereo_prefix: str = ""
+    parent_atoms: frozenset[int] = field(default_factory=frozenset)
+    locants: tuple[tuple[int, str], ...] = ()
+    template_id: int | None = None
+    template_name: str = ""
+    source_family: str = ""
+    source_file: str = ""
+    ring_system_atoms: frozenset[int] = field(default_factory=frozenset)
+    prefixes: tuple[PrefixCandidate, ...] = ()
+    suffixes: tuple[SuffixCandidate, ...] = ()
+    charge: ChargeEvidence | None = None
+    hydrogen: HydrogenEvidence | None = None
+    stereo: StereoEvidence | None = None
+    safety: CandidateSafety | None = None
+    estimated_length: int | None = None
+    render_cost: int = 1
+    rejection_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +155,7 @@ def _prepare_candidates(
         try:
             for candidate in rule.candidates(ctx):
                 ctx.telemetry.candidate_count[rule.family] += 1
+                _record_candidate_fact_telemetry(ctx.telemetry, rule.family, candidate)
                 if not candidate.name:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
@@ -180,8 +205,47 @@ def _select_best_prepared_candidate(
         for item in prepared:
             if item.name == best_name:
                 telemetry.selected_family[item.candidate.family] += 1
+                if _candidate_has_structured_facts(item.candidate):
+                    telemetry.structured_selected_count[item.candidate.family] += 1
+                if item.candidate.template_id is not None:
+                    telemetry.selected_with_template_id += 1
+                if item.candidate.parent_atoms:
+                    telemetry.selected_with_parent_atoms += 1
+                telemetry.selected_safety_reasons.update(candidate_safety_reasons(item.candidate))
                 break
     return best_name
+
+
+def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
+    return bool(
+        candidate.parent_atoms
+        or candidate.locants
+        or candidate.template_id is not None
+        or candidate.template_name
+        or candidate.source_family
+        or candidate.source_file
+        or candidate.ring_system_atoms
+        or candidate.prefixes
+        or candidate.suffixes
+        or candidate.charge is not None
+        or candidate.hydrogen is not None
+        or candidate.stereo is not None
+        or candidate.safety is not None
+        or candidate.estimated_length is not None
+        or candidate.render_cost != 1
+        or candidate.rejection_reason
+    )
+
+
+def _record_candidate_fact_telemetry(
+    telemetry: CandidateTelemetry,
+    rule_family: str,
+    candidate: NameCandidate,
+) -> None:
+    if _candidate_has_structured_facts(candidate):
+        telemetry.structured_candidate_count[rule_family] += 1
+    else:
+        telemetry.unstructured_candidate_count[rule_family] += 1
 
 
 def _empty_fallback_limits(mol, Chem) -> tuple[int, int]:
@@ -242,6 +306,30 @@ def _comparable_sort_key(value) -> tuple:
 
 def _candidate_is_stable_priority_winner(candidate: NameCandidate, priority: int) -> bool:
     return candidate.priority == priority and _opsin_stability_penalty(candidate.name) == 0
+
+
+def candidate_parent_atoms(candidate: NameCandidate) -> frozenset[int]:
+    return candidate.parent_atoms
+
+
+def candidate_source_key(candidate: NameCandidate) -> tuple[str, int | None]:
+    return (candidate.source_family or candidate.family, candidate.template_id)
+
+
+def candidate_safety_reasons(candidate: NameCandidate) -> tuple[str, ...]:
+    return candidate.safety.reasons if candidate.safety is not None else ()
+
+
+def candidate_estimated_length(candidate: NameCandidate) -> int:
+    if candidate.estimated_length is not None:
+        return candidate.estimated_length
+    return len(candidate.name)
+
+
+def candidate_has_complete_graph(candidate: NameCandidate) -> bool:
+    if candidate.safety is not None:
+        return candidate.safety.graph_complete
+    return bool(candidate.parent_atoms or candidate.template_id is not None)
 
 
 def _opsin_stability_penalty(name: str) -> int:

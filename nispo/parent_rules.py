@@ -4618,6 +4618,9 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
 
 def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     mol = ctx.mol
+    cached = mol_cache_get(mol, "has_retained_fused_parent_candidate")
+    if cached is not None:
+        return cached
     template_sets = (
         ctx.candidate_templates(_curated_fused_templates(Chem)),
         _candidate_generated_fused_templates(mol, Chem),
@@ -4631,8 +4634,8 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
         ):
             name = _name_fused_core_match(mol, template, match)
             if name and not _unsafe_benz_a_anthracene_candidate(name):
-                return True
-    return False
+                return mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
+    return mol_cache_set(mol, "has_retained_fused_parent_candidate", False)
 
 
 class ExactRetainedParentRule:

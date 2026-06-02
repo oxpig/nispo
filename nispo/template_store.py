@@ -265,7 +265,6 @@ class TemplateStore:
                 continue
             seen.add(key)
             unique.append(template)
-            self.compiled_template(template)
         return tuple(unique)
 
     @staticmethod

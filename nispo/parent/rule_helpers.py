@@ -225,13 +225,30 @@ def _iter_fused_template_matches(
 
 
 def _match_has_extra_core_bonds(mol, template: dict, match: Sequence[int]) -> bool:
+    cache = mol_cache_dict(mol, "extra_core_bonds_cache")
+    cache_key = (id(template), tuple(match))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     core_atoms = set(match)
+    neighbors = _atom_neighbor_indices(mol)
     core_bonds = sum(
         1
-        for bond in mol.GetBonds()
-        if bond.GetBeginAtomIdx() in core_atoms and bond.GetEndAtomIdx() in core_atoms
-    )
-    return core_bonds > template_record_mol(template).GetNumBonds()
+        for atom_idx in core_atoms
+        for nbr_idx in neighbors[atom_idx]
+        if nbr_idx in core_atoms
+    ) // 2
+    result = core_bonds > template_record_mol(template).GetNumBonds()
+    cache[cache_key] = result
+    return result
+
+
+def _atom_neighbor_indices(mol) -> tuple[tuple[int, ...], ...]:
+    cached = mol_cache_get(mol, "atom_neighbor_indices")
+    if cached is not None:
+        return cached
+    neighbors = tuple(tuple(nbr.GetIdx() for nbr in atom.GetNeighbors()) for atom in mol.GetAtoms())
+    return mol_cache_set(mol, "atom_neighbor_indices", neighbors)
 
 
 def _name_acyclic_retained_core_match(mol, template: dict, match: Sequence[int]) -> str:

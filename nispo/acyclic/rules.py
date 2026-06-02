@@ -33,6 +33,7 @@ from ..stereochemistry import assigned_atom_stereochemistry
 
 
 MAX_ACYCLIC_PARENT_PATHS = 48
+MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,19 +217,67 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
 
 def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
     orientations = _oriented_paths_by_quality(mol, paths)
+    _record_acyclic_filter_stage(mol, "path_facts", len(paths))
+    _record_acyclic_filter_stage(mol, "orientation_facts", len(orientations))
     index = 0
     while index < len(orientations):
         descriptor = orientations[index][0]
-        names = []
+        descriptor_orientations = []
         while index < len(orientations) and orientations[index][0] == descriptor:
             _descriptor, oriented = orientations[index]
+            descriptor_orientations.append(oriented)
+            index += 1
+        render_set = _acyclic_orientation_render_set(mol, descriptor_orientations)
+        _record_acyclic_filter_stage(mol, "orientation_render_set", len(render_set))
+        _record_acyclic_filter_stage(
+            mol,
+            "orientations_suppressed_before_render",
+            max(0, len(descriptor_orientations) - len(render_set)),
+        )
+        names = []
+        for oriented in render_set:
             name = _name_from_parent_path(mol, oriented, as_substituent=False)
             if name:
                 names.append(name)
-            index += 1
         if names:
             return min(names)
     return ""
+
+
+def _acyclic_orientation_render_set(
+    mol,
+    orientations: Sequence[Sequence[int]],
+) -> tuple[tuple[int, ...], ...]:
+    if len(orientations) <= MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR:
+        return tuple(tuple(path) for path in orientations)
+    return tuple(
+        sorted((tuple(path) for path in orientations), key=lambda path: _acyclic_orientation_fact_sort_key(mol, path))[
+            :MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR
+        ]
+    )
+
+
+def _acyclic_orientation_fact_sort_key(mol, path: Sequence[int]) -> tuple:
+    path_set = set(path)
+    view = _acyclic_graph_view(mol)
+    external_edges = 0
+    hetero_atoms = 0
+    unsaturation = 0
+    for idx in path:
+        if view.symbols[idx] != "C":
+            hetero_atoms += 1
+        for nidx in view.neighbors[idx]:
+            if nidx not in path_set:
+                external_edges += 1
+    for a, b in zip(path, path[1:]):
+        if view.bond_orders.get(_bond_key(a, b), 1.0) != 1.0:
+            unsaturation += 1
+    return (
+        external_edges,
+        hetero_atoms,
+        -unsaturation,
+        tuple(path),
+    )
 
 
 def _name_ketene(mol) -> str:
@@ -427,6 +476,16 @@ def _acyclic_graph_view(mol) -> _AcyclicGraphView:
     graph = graph_view(mol, Chem)
     view = _AcyclicGraphView(symbols=graph.symbols, neighbors=graph.neighbors, bond_orders=graph.bond_orders)
     return mol_cache_set(mol, "acyclic_graph_view", view)
+
+
+def _record_acyclic_filter_stage(mol, stage: str, count: int) -> None:
+    if count == 0:
+        return
+    telemetry = mol_cache_get(mol, "candidate_telemetry")
+    if telemetry is None:
+        return
+    family = telemetry.active_rule_family or "acyclic"
+    telemetry.filter_stage_count[f"{family}:acyclic_{stage}"] += count
 
 
 def _bond_key(a: int, b: int) -> tuple[int, int]:

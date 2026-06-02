@@ -26,6 +26,7 @@ from .ring_rules import ring_parent_candidates
 from .ring_resource_rules import resource_ring_parent_candidates
 from .ring_topology import ring_system_graph
 from .rule_engine import NameCandidate
+from .simple_prefixes import simple_external_prefix
 from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
@@ -43,6 +44,10 @@ _REPLACEMENT_TERMS = (
     "oxa",
     "aza",
 )
+
+
+def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
 
 
 def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]:
@@ -799,7 +804,7 @@ def _external_substituent_prefixes(
                 continue
             if not locant:
                 return None
-            prefix = branch_prefix(mol, nidx, atom_idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
             if not prefix:
                 return None
             prefixes.append((locant, prefix))

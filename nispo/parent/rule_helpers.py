@@ -204,26 +204,51 @@ def _iter_fused_template_matches(
     reject_extra_core_bonds: bool = False,
 ):
     mol = ctx.mol
-    for template in templates:
-        template_mol = template_record_mol(template)
-        if template.get("stereochemical") and not _has_stereo_evidence(mol, Chem):
-            continue
-        if require_one_ring_system and not _template_has_one_ring_system(template_mol):
-            continue
-        if require_fully_aromatic and not _template_is_fully_aromatic(template_mol):
-            continue
-        if topology_query:
-            query = _topology_query(template_mol, Chem)
-            if query.GetNumAtoms() > mol.GetNumAtoms():
+    telemetry = ctx.telemetry
+    stage_counts: Counter[str] | None = Counter() if telemetry is not None else None
+    try:
+        for template in templates:
+            if stage_counts is not None:
+                stage_counts["templates"] += 1
+            template_mol = template_record_mol(template)
+            if template.get("stereochemical") and not _has_stereo_evidence(mol, Chem):
                 continue
-            matches = ctx.substruct_matches(query)
-        else:
-            matches = ctx.template_matches(template)
-        for match in matches:
-            if reject_extra_core_bonds and _match_has_extra_core_bonds(mol, template, match):
+            if stage_counts is not None:
+                stage_counts["after_stereo"] += 1
+            if require_one_ring_system and not _template_has_one_ring_system(template_mol):
                 continue
-            yield template, match
-
+            if stage_counts is not None:
+                stage_counts["after_one_ring_system"] += 1
+            if require_fully_aromatic and not _template_is_fully_aromatic(template_mol):
+                continue
+            if stage_counts is not None:
+                stage_counts["after_fully_aromatic"] += 1
+            if topology_query:
+                query = _topology_query(template_mol, Chem)
+                if query.GetNumAtoms() > mol.GetNumAtoms():
+                    continue
+                if stage_counts is not None:
+                    stage_counts["substructure_queries"] += 1
+                matches = ctx.substruct_matches(query)
+            else:
+                if stage_counts is not None:
+                    stage_counts["substructure_queries"] += 1
+                matches = ctx.template_matches(template)
+            if stage_counts is not None:
+                stage_counts["matches"] += len(matches)
+            for match in matches:
+                if reject_extra_core_bonds and _match_has_extra_core_bonds(mol, template, match):
+                    if stage_counts is not None:
+                        stage_counts["rejected_extra_core_bonds"] += 1
+                    continue
+                if stage_counts is not None:
+                    stage_counts["yielded_matches"] += 1
+                yield template, match
+    finally:
+        if telemetry is not None and stage_counts:
+            family = telemetry.active_rule_family or "unknown"
+            for stage, count in stage_counts.items():
+                telemetry.filter_stage_count[f"{family}:fused_iter:{stage}"] += count
 
 def _match_has_extra_core_bonds(mol, template: dict, match: Sequence[int]) -> bool:
     cache = mol_cache_dict(mol, "extra_core_bonds_cache")

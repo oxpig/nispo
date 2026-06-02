@@ -11,6 +11,7 @@ from .formatting import join_locants as _join_locants
 from .formatting import join_prefix_parent as _join_prefix_parent
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
+from .simple_prefixes import simple_external_prefix
 from .stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 
 
@@ -19,6 +20,10 @@ def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, .
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_bicyclic_ring_system_candidate_records(mol, Chem, ring_system))
     return candidates
+
+
+def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
 
 
 def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -1156,7 +1161,7 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
             nidx = nbr.GetIdx()
             if nidx in core_atoms:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))
@@ -1201,7 +1206,7 @@ def _name_polycyclic_substituent(
             nidx = nbr.GetIdx()
             if nidx == blocked_idx or nidx in core_atoms:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((locant, prefix))

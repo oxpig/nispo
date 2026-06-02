@@ -1,31 +1,41 @@
 from __future__ import annotations
 
 from .constants import HALO
+from .molecule_cache import mol_cache_dict
 
 
 def simple_external_prefix(mol, idx: int, parent_idx: int) -> str:
     """Render safe terminal substituents without entering branch dispatch."""
 
+    cache = mol_cache_dict(mol, "simple_external_prefix_cache")
+    key = (idx, parent_idx)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
     atom = mol.GetAtomWithIdx(idx)
     bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if bond is None:
+        cache[key] = ""
         return ""
     order = bond.GetBondTypeAsDouble()
     symbol = atom.GetSymbol()
     if symbol in HALO:
-        return _terminal_halogen_prefix(atom, parent_idx, order)
-    if symbol == "C":
-        return _simple_fluoromethyl_prefix(mol, idx, parent_idx, order) or _simple_linear_alkyl_prefix(
+        prefix = _terminal_halogen_prefix(atom, parent_idx, order)
+    elif symbol == "C":
+        prefix = _simple_fluoromethyl_prefix(mol, idx, parent_idx, order) or _simple_linear_alkyl_prefix(
             mol,
             idx,
             parent_idx,
             order,
         )
-    if symbol == "O":
-        return _simple_oxygen_prefix(mol, atom, idx, parent_idx, order)
-    if symbol == "N":
-        return _simple_nitrogen_prefix(atom, parent_idx, order)
-    return ""
+    elif symbol == "O":
+        prefix = _simple_oxygen_prefix(mol, atom, idx, parent_idx, order)
+    elif symbol == "N":
+        prefix = _simple_nitrogen_prefix(atom, parent_idx, order)
+    else:
+        prefix = ""
+    cache[key] = prefix
+    return prefix
 
 
 def _terminal_halogen_prefix(atom, parent_idx: int, order: float) -> str:

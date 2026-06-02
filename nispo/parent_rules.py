@@ -58,6 +58,7 @@ from .rule_dispatch import (
 )
 from .rule_priority import parent_priority
 from .rule_engine import NameCandidate
+from .simple_prefixes import simple_external_prefix
 from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 from .template_index import ring_system_with_graph_signatures
@@ -78,6 +79,10 @@ def _parenthesized_if_complex(name: str) -> str:
     if name.startswith("(") and name.endswith(")"):
         return name
     return f"({name})" if "-" in name or name.startswith("(") else name
+
+
+def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
 
 
 class AcyclicParentRule:
@@ -132,7 +137,7 @@ class SulfaniumParentRule:
             return
         names = []
         for nidx in neighbors:
-            prefix = branch_prefix(mol, nidx, sidx)
+            prefix = _simple_or_branch_prefix(mol, nidx, sidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -173,7 +178,7 @@ class PhosphaniumParentRule:
             return
         names = []
         for nidx in neighbors:
-            prefix = branch_prefix(mol, nidx, pidx)
+            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -214,7 +219,7 @@ class AzaniumParentRule:
             return
         names = []
         for nbr_idx in neighbors:
-            prefix = branch_prefix(mol, nbr_idx, nidx)
+            prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -258,7 +263,7 @@ class NeutralAmineParentRule:
             return
         names = []
         for nbr_idx in neighbors:
-            prefix = branch_prefix(mol, nbr_idx, nidx)
+            prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -341,7 +346,7 @@ class Group14HydrideParentRule:
             neighbor = mol.GetAtomWithIdx(nidx)
             symbol = neighbor.GetSymbol()
             if symbol == "C":
-                prefix = branch_prefix(mol, nidx, cidx)
+                prefix = _simple_or_branch_prefix(mol, nidx, cidx)
                 if not prefix:
                     return
                 carbon_names.append(prefix)
@@ -485,7 +490,7 @@ class PhosphorusAcidParentRule:
             parent = "phosphinic acid"
         else:
             return
-        prefix = branch_prefix(mol, carbon_neighbors[0], pidx)
+        prefix = _simple_or_branch_prefix(mol, carbon_neighbors[0], pidx)
         if not prefix:
             return
         if _needs_substituent_parentheses(prefix):
@@ -537,7 +542,7 @@ class OrganophosphorusOxideParentRule:
             return
         names = []
         for nidx in carbon_neighbors:
-            prefix = branch_prefix(mol, nidx, pidx)
+            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -580,7 +585,7 @@ class PhosphoraneParentRule:
             if bond.GetBondType() != self._Chem.BondType.SINGLE:
                 return
             if nbr.GetSymbol() == "C":
-                prefix = branch_prefix(mol, nidx, pidx)
+                prefix = _simple_or_branch_prefix(mol, nidx, pidx)
                 if not prefix:
                     return
                 carbon_names.append(prefix)
@@ -666,7 +671,7 @@ class OrganomagnesiumHalideParentRule:
                 return
         if len(carbon_neighbors) != 1 or len(halogen_names) != 1:
             return
-        prefix = branch_prefix(mol, carbon_neighbors[0], midx)
+        prefix = _simple_or_branch_prefix(mol, carbon_neighbors[0], midx)
         if not prefix:
             return
         if _needs_substituent_parentheses(prefix):
@@ -709,7 +714,7 @@ class PnictogenHydrideParentRule:
             return
         names = []
         for nidx in neighbors:
-            prefix = branch_prefix(mol, nidx, pidx)
+            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
             if not prefix:
                 return
             names.append(prefix)
@@ -765,7 +770,7 @@ class OxidoNitrosoAzaniumRule:
                     organic.append(nbidx)
             if not ok or len(oxido) != 1 or len(nitroso) != 1 or len(organic) != 1:
                 continue
-            prefix = branch_prefix(mol, organic[0], nidx)
+            prefix = _simple_or_branch_prefix(mol, organic[0], nidx)
             if not prefix:
                 continue
             name = f"{prefix}(oxido)(nitroso)azanium"
@@ -801,7 +806,7 @@ class OxoSulfaniumParentRule:
                     break
             if not ok or len(oxo) != 1 or len(heavy) != 1:
                 continue
-            prefix = branch_prefix(mol, heavy[0], sidx)
+            prefix = _simple_or_branch_prefix(mol, heavy[0], sidx)
             if not prefix:
                 continue
             if _needs_substituent_parentheses(prefix):
@@ -968,7 +973,7 @@ def _sulfonohydrazide_motifs(mol, Chem) -> list[tuple[int, int, int, int]]:
 
 
 def _phenyl_sulfonohydrazide_base(mol, aryl_idx: int, sulfur_idx: int) -> str:
-    aryl = branch_prefix(mol, aryl_idx, sulfur_idx)
+    aryl = _simple_or_branch_prefix(mol, aryl_idx, sulfur_idx)
     if aryl == "phenyl":
         return "benzene"
     if aryl.endswith("phenyl"):
@@ -982,18 +987,18 @@ def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
         return existing
     carbon = mol.GetAtomWithIdx(carbon_idx)
     if carbon.IsInRing():
-        ring = branch_prefix(mol, carbon_idx, nitrogen_idx)
+        ring = _simple_or_branch_prefix(mol, carbon_idx, nitrogen_idx)
         if ring.endswith("yl"):
             return ring[: -len("yl")] + "ylidene"
         return ""
     substituents = [nbr.GetIdx() for nbr in carbon.GetNeighbors() if nbr.GetIdx() != nitrogen_idx]
     if len(substituents) == 1:
-        name = branch_prefix(mol, substituents[0], carbon_idx)
+        name = _simple_or_branch_prefix(mol, substituents[0], carbon_idx)
         if name == "1-oxo-2-oxaethyl":
             return "carboxymethylidene"
         return name + "methylidene" if name and not name.endswith("ylidene") else name
     if len(substituents) == 2:
-        names = [branch_prefix(mol, idx, carbon_idx) for idx in substituents]
+        names = [_simple_or_branch_prefix(mol, idx, carbon_idx) for idx in substituents]
         if any(not name for name in names):
             return ""
         if names.count("methyl") == 1:
@@ -1075,7 +1080,7 @@ class BoronicPinacolEsterParentRule:
         mol = ctx.mol
         seen = set()
         for boron_idx, owner_idx in _boronic_pinacol_ester_motifs(mol, self._Chem):
-            owner = _boronic_pinacol_owner_alias(branch_prefix(mol, owner_idx, boron_idx))
+            owner = _boronic_pinacol_owner_alias(_simple_or_branch_prefix(mol, owner_idx, boron_idx))
             if not _stable_boronic_pinacol_owner(owner):
                 continue
             name = f"{owner}boronic acid pinacol ester"
@@ -1259,7 +1264,7 @@ def _glutarimide_name_from_numbering(mol, Chem, seq: Sequence[int]) -> str:
                 continue
             if bond is not None and bond.GetBondType() != Chem.BondType.SINGLE:
                 return ""
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             locant = _glutarimide_substituent_locant(loc)
@@ -1427,7 +1432,7 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
         carboxyl_kind = _terminal_carboxyl_group_kind(mol, Chem, carboxyl[0], alpha_idx)
         sidechain_name = ""
         if sidechains:
-            sidechain_name = branch_prefix(mol, sidechains[0], alpha_idx)
+            sidechain_name = _simple_or_branch_prefix(mol, sidechains[0], alpha_idx)
         amino_acid = _AMINO_ACID_SIDECHAIN_NAMES.get(sidechain_name)
         if not amino_acid:
             continue
@@ -1447,7 +1452,7 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
         n_names = []
         ok = True
         for sub_idx in n_substituents:
-            name = branch_prefix(mol, sub_idx, nidx)
+            name = _simple_or_branch_prefix(mol, sub_idx, nidx)
             if not name:
                 ok = False
                 break
@@ -1741,7 +1746,7 @@ def _stable_ester_owner_name(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
         return ""
     if mol.GetAtomWithIdx(heavy[0]).GetSymbol() != "C":
         return ""
-    name = branch_prefix(mol, heavy[0], oxygen_idx)
+    name = _simple_or_branch_prefix(mol, heavy[0], oxygen_idx)
     if not name:
         return ""
     name = _retained_parent_substituent_alias(name)
@@ -1846,7 +1851,7 @@ def _generic_acyl_functional_parent_path_name(
                 continue
             if nidx in path_set:
                 return ""
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((str(pos), prefix))
@@ -2159,7 +2164,7 @@ def _external_substituent_names(mol, atom_idx: int, blocked_idx: int) -> list[st
         nidx = nbr.GetIdx()
         if nidx == blocked_idx or nbr.GetAtomicNum() <= 1:
             continue
-        name = branch_prefix(mol, nidx, atom_idx)
+        name = _simple_or_branch_prefix(mol, nidx, atom_idx)
         if not name:
             return None
         names.append(_retained_parent_substituent_alias(name))
@@ -2324,7 +2329,7 @@ def _simple_n_retained_parent_substituent(name: str) -> bool:
 
 
 def _sulfonamide_base_name(mol, sulfur_idx: int, substituent_idx: int) -> str:
-    substituent = branch_prefix(mol, substituent_idx, sulfur_idx)
+    substituent = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
     if not substituent:
         return ""
     simple_alkyl = {
@@ -2478,7 +2483,7 @@ def _biphenyl_name(mol, left_seq: Sequence[int], right_seq: Sequence[int]) -> st
             nidx = nbr.GetIdx()
             if nidx in all_ring_atoms:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((str(loc), prefix))
@@ -2487,7 +2492,7 @@ def _biphenyl_name(mol, left_seq: Sequence[int], right_seq: Sequence[int]) -> st
             nidx = nbr.GetIdx()
             if nidx in all_ring_atoms:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((f"{loc}'", prefix))
@@ -2509,7 +2514,7 @@ def _diphenylbenzene_name(
             nidx = nbr.GetIdx()
             if nidx in central_set:
                 continue
-            prefix = branch_prefix(mol, nidx, idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
                 return ""
             prefixes.append((str(loc), prefix))

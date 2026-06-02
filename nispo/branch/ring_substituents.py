@@ -32,6 +32,7 @@ from ..substituent_resource_rules import (
     resource_substituent_match as _resource_substituent_match,
     resource_substituent_prefix as _resource_substituent_prefix,
 )
+from ..simple_prefixes import simple_external_prefix
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 from ..template_store import template_store
 from .functional_groups import (
@@ -48,6 +49,11 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     from .. import branch_rules
 
     return branch_rules.branch_prefix(mol, idx, parent_idx)
+
+
+def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+
 
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     cache = mol_cache_dict(mol, "ring_substituent_prefix_cache")
@@ -217,7 +223,7 @@ def _aryloxy_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
 
 
 def _complex_oxymethyl_prefix(mol, oidx: int, carbon_idx: int) -> str:
-    oxy_prefix = branch_prefix(mol, oidx, carbon_idx)
+    oxy_prefix = _simple_or_branch_prefix(mol, oidx, carbon_idx)
     if not oxy_prefix or not oxy_prefix.endswith("oxy"):
         return ""
     if "sulfonyloxy" not in oxy_prefix:
@@ -499,7 +505,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             nidx = nbr.GetIdx()
             if nidx == parent_idx or nidx in ring_set:
                 continue
-            prefix = branch_prefix(mol, nidx, ring_idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return ""
             raw_subs.append((ring_idx, prefix))
@@ -803,7 +809,7 @@ def _fused_substituent_prefix_text(
                 continue
             if not core_loc or core_loc.endswith("a"):
                 return None
-            prefix = branch_prefix(mol, nidx, mol_idx)
+            prefix = _simple_or_branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return None
             prefixes.append((core_loc, prefix))

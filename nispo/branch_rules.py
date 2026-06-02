@@ -18,6 +18,7 @@ from .formatting import (
     unsaturated_parent as _unsaturated_parent,
 )
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from .simple_prefixes import simple_external_prefix
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -119,7 +120,10 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     in_progress.add(key)
     try:
         atom = mol.GetAtomWithIdx(idx)
-        if atom.GetSymbol() == "H":
+        prefix = simple_external_prefix(mol, idx, parent_idx)
+        if prefix:
+            pass
+        elif atom.GetSymbol() == "H":
             prefix = _isotopic_hydrogen_prefix(atom)
         elif atom.IsInRing():
             prefix = _ring_substituent_prefix(mol, idx, parent_idx)

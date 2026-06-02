@@ -51,4 +51,6 @@ def test_private_telemetry_batch_matches_public_batch():
     assert telemetry_outputs[1:3] == ["", ""]
     assert "rule_applies" in telemetry
     assert "candidate_count" in telemetry
+    assert "branch_prefix_calls" in telemetry
+    assert "branch_prefix_produced" in telemetry
     assert "substructure_match_calls" in telemetry

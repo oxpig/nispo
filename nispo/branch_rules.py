@@ -90,15 +90,24 @@ def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) ->
 
 
 def branch_prefix(mol, idx: int, parent_idx: int) -> str:
+    telemetry = mol_cache_get(mol, "candidate_telemetry")
+    if telemetry is not None:
+        telemetry.branch_prefix_calls += 1
     cache = mol_cache_dict(mol, "branch_prefix_cache")
     key = (idx, parent_idx)
     cached = cache.get(key)
     if cached is not None:
+        if telemetry is not None:
+            telemetry.branch_prefix_cache_hits += 1
         return cached
+    if telemetry is not None:
+        telemetry.branch_prefix_cache_misses += 1
     in_progress = mol_cache_get(mol, "branch_prefix_in_progress")
     if in_progress is None:
         in_progress = mol_cache_set(mol, "branch_prefix_in_progress", set())
     if key in in_progress:
+        if telemetry is not None:
+            telemetry.branch_prefix_in_progress_rejections += 1
         return ""
 
     in_progress.add(key)
@@ -121,9 +130,19 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
             prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         cache[key] = prefix
+        if telemetry is not None:
+            telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
         return prefix
     finally:
         in_progress.discard(key)
+
+
+def _branch_prefix_telemetry_key(prefix: str) -> str:
+    if not prefix:
+        return "empty"
+    if len(prefix) <= 40 and "(" not in prefix:
+        return prefix
+    return "complex"
 
 
 def _isotopic_hydrogen_prefix(atom) -> str:

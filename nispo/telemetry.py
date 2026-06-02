@@ -34,6 +34,11 @@ class CandidateTelemetry:
     render_set_size: Counter[str] = field(default_factory=Counter)
     facts_suppressed_before_render: Counter[str] = field(default_factory=Counter)
     fallback_render_all_count: Counter[str] = field(default_factory=Counter)
+    branch_prefix_calls: int = 0
+    branch_prefix_cache_hits: int = 0
+    branch_prefix_cache_misses: int = 0
+    branch_prefix_in_progress_rejections: int = 0
+    branch_prefix_produced: Counter[str] = field(default_factory=Counter)
     filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0
@@ -58,6 +63,7 @@ _COUNTER_FIELDS = (
     "render_set_size",
     "facts_suppressed_before_render",
     "fallback_render_all_count",
+    "branch_prefix_produced",
     "filter_stage_count",
     "template_candidate_count",
 )
@@ -65,6 +71,10 @@ _COUNTER_FIELDS = (
 _INTEGER_FIELDS = (
     "selected_with_template_id",
     "selected_with_parent_atoms",
+    "branch_prefix_calls",
+    "branch_prefix_cache_hits",
+    "branch_prefix_cache_misses",
+    "branch_prefix_in_progress_rejections",
     "substructure_match_calls",
 )
 
@@ -126,12 +136,19 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_selected_family": _top_items(telemetry.get("selected_family", {})),
         "top_selected_rule_family": _top_items(telemetry.get("selected_rule_family", {})),
         "top_template_candidate_count": _top_items(telemetry.get("template_candidate_count", {})),
+        "top_branch_prefix_produced": _top_items(telemetry.get("branch_prefix_produced", {})),
         "total_candidate_facts": _sum_values(telemetry.get("candidate_facts_total", {})),
         "total_facts_suppressed_before_render": _sum_values(
             telemetry.get("facts_suppressed_before_render", {})
         ),
         "total_rendered_candidates": _sum_values(telemetry.get("rendered_candidate_count", {})),
         "total_rejected_candidates": _sum_values(telemetry.get("rejected_candidate_count", {})),
+        "total_branch_prefix_calls": int(telemetry.get("branch_prefix_calls", 0) or 0),
+        "total_branch_prefix_cache_hits": int(telemetry.get("branch_prefix_cache_hits", 0) or 0),
+        "total_branch_prefix_cache_misses": int(telemetry.get("branch_prefix_cache_misses", 0) or 0),
+        "total_branch_prefix_in_progress_rejections": int(
+            telemetry.get("branch_prefix_in_progress_rejections", 0) or 0
+        ),
         "total_substructure_match_calls": int(telemetry.get("substructure_match_calls", 0) or 0),
     }
 

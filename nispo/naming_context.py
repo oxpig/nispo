@@ -17,6 +17,7 @@ from .template_index import ring_systems_for_mol
 from .template_store import TemplateStore, template_store
 from .ring_topology import RingSystemTopology, ring_system_topologies
 from .telemetry import CandidateTelemetry
+from .molecule_cache import mol_cache_set
 
 
 @dataclass(slots=True)
@@ -43,6 +44,10 @@ class MoleculeContext:
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
     _profile: StructuralProfile | None = None
     _template_store: TemplateStore | None = None
+
+    def __post_init__(self) -> None:
+        if self.telemetry is not None:
+            mol_cache_set(self.mol, "candidate_telemetry", self.telemetry)
 
     @property
     def templates(self) -> TemplateStore:

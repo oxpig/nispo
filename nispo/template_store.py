@@ -278,6 +278,10 @@ class TemplateStore:
         pure_ring_templates, other_templates_by_atom_count = self._compiled_template_index(templates)
         candidates: list[CompiledTemplate] = []
         seen: set[int] = set()
+        molecule_ring_system_keys = {
+            ring_system_feature_key(system)
+            for system in features["ring_systems"]
+        }
         for system in features["ring_systems"]:
             key = ring_system_feature_key(system)
             for compiled in pure_ring_templates.get(key, ()):
@@ -298,6 +302,11 @@ class TemplateStore:
             )
         for _atom_count, entries in atom_count_items:
             for compiled in entries:
+                if compiled.features.ring_system_keys and not any(
+                    key in molecule_ring_system_keys
+                    for key in compiled.features.ring_system_keys
+                ):
+                    continue
                 if compiled.features.ring_count > features["ring_count"]:
                     continue
                 if compiled.features.max_ring_system_size > features["max_ring_system_size"]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .acyclic_rules import name_acyclic
@@ -69,7 +70,7 @@ class MoleculeContext:
             )
             self.cache.template_candidates[key] = cached
             if self.telemetry is not None:
-                self.telemetry.template_candidate_count[str(id(templates))] += len(cached)
+                self.telemetry.template_candidate_count[_template_collection_label(templates)] += len(cached)
         return cached
 
     def candidate_compiled_templates(
@@ -89,7 +90,7 @@ class MoleculeContext:
             )
             self.cache.compiled_template_candidates[key] = cached
             if self.telemetry is not None:
-                self.telemetry.template_candidate_count[str(id(templates))] += len(cached)
+                self.telemetry.template_candidate_count[_template_collection_label(templates)] += len(cached)
         return cached
 
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
@@ -216,3 +217,24 @@ class MoleculeContext:
                     graph_filter=False,
                 )
         return self._generated_fused_templates
+
+
+def _template_collection_label(templates: tuple[dict, ...]) -> str:
+    if not templates:
+        return "empty"
+    families = Counter(str(template.get("source_family") or "unknown") for template in templates)
+    if len(families) == 1:
+        family = next(iter(families))
+        return f"{family}:n={len(templates)}"
+    top_families = sorted(
+        families.items(),
+        key=lambda item: (-item[1], item[0]),
+    )[:3]
+    family_text = "+".join(
+        f"{family}:{count}"
+        for family, count in top_families
+    )
+    if len(families) > 3:
+        top_count = sum(count for _, count in top_families)
+        family_text += f"+other:{sum(families.values()) - top_count}"
+    return f"mixed:{family_text}:n={len(templates)}"

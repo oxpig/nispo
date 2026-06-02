@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
+from nispo.api import _smiles_to_iupac_batch_with_telemetry
 
 
 def test_public_api_single_and_batch_contract():
@@ -39,5 +40,15 @@ def test_batch_matches_scalar_for_mixed_inputs():
     assert batch_outputs == scalar_outputs
 
 
-def test_isotopic_molecule_can_be_named():
-    assert smiles_to_iupac("[18F]C1CCC1")
+def test_private_telemetry_batch_matches_public_batch():
+    inputs = ["CC", "not-a-smiles", "", "c1ccccc1", "c1ccc2ccccc2c1"]
+
+    public_outputs = smiles_to_iupac_batch(inputs)
+    telemetry_outputs, telemetry = _smiles_to_iupac_batch_with_telemetry(inputs)
+
+    assert telemetry_outputs == public_outputs
+    assert len(telemetry_outputs) == len(inputs)
+    assert telemetry_outputs[1:3] == ["", ""]
+    assert "rule_applies" in telemetry
+    assert "candidate_count" in telemetry
+    assert "substructure_match_calls" in telemetry

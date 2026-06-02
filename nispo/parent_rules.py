@@ -58,6 +58,7 @@ from .rule_priority import parent_priority
 from .rule_engine import NameCandidate
 from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
+from .template_index import ring_system_with_graph_signatures
 
 
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 18
@@ -4337,6 +4338,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
         for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
             if feature["ring_count"] not in {3, 4} or set(feature["elements"]) <= {"C"}:
                 continue
+            feature = ring_system_with_graph_signatures(mol, feature, self._Chem)
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
             for template in _hydrocarbon_replacement_parent_templates_for_graph(*key, self._Chem):
                 query = _skeletal_replacement_query(template_record_mol(template), self._Chem)
@@ -4387,6 +4389,7 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
                 continue
             if set(feature["elements"]) <= {"C"}:
                 continue
+            feature = ring_system_with_graph_signatures(mol, feature, self._Chem)
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
             for template in _retained_topology_replacement_parent_templates_for_graph(*key, self._Chem):
                 query = _skeletal_replacement_query(template_record_mol(template), self._Chem)

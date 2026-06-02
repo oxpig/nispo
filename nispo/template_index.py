@@ -143,14 +143,12 @@ def molecule_features(mol, Chem) -> dict:
     ring_system_features = []
     for system in ring_systems:
         system_rings = [set(ring) for ring in view.atom_rings if set(ring) <= system]
-        graph_signature, element_graph_signature = graph_signatures_for_atom_set(mol, system, Chem)
         ring_system_features.append(
             {
+                "atom_indices": tuple(sorted(system)),
                 "atom_count": len(system),
                 "ring_count": len(system_rings),
                 "elements": Counter(view.symbols[idx] for idx in system),
-                "graph_signature": graph_signature,
-                "element_graph_signature": element_graph_signature,
             }
         )
     max_system_size = max((len(system) for system in ring_systems), default=0)
@@ -177,6 +175,18 @@ def ring_system_feature_key(features: dict) -> tuple:
         features["ring_count"],
         tuple(sorted(features["elements"].items())),
     )
+
+
+def ring_system_with_graph_signatures(mol, features: dict, Chem) -> dict:
+    if "graph_signature" in features and "element_graph_signature" in features:
+        return features
+    atom_indices = features.get("atom_indices")
+    if atom_indices is None:
+        return features
+    graph_signature, element_graph_signature = graph_signatures_for_atom_set(mol, atom_indices, Chem)
+    features["graph_signature"] = graph_signature
+    features["element_graph_signature"] = element_graph_signature
+    return features
 
 
 def graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:

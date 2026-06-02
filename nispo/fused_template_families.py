@@ -10,7 +10,7 @@ from .molecule_cache import mol_cache_get, mol_cache_set
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
 from .template_access import template_record_mol, template_record_name
-from .template_index import ring_system_feature_key, molecule_features
+from .template_index import molecule_features, ring_system_feature_key, ring_system_with_graph_signatures
 
 
 _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
@@ -148,7 +148,11 @@ def hydrocarbon_replacement_parent_templates_for_graph(
         features = molecule_features(template_record_mol(template), Chem)
         if features["ring_count"] != ring_count or set(features["elements"]) != {"C"}:
             continue
-        if not any(system["graph_signature"] == graph_signature for system in features["ring_systems"]):
+        if not any(
+            ring_system_with_graph_signatures(template_record_mol(template), system, Chem)["graph_signature"]
+            == graph_signature
+            for system in features["ring_systems"]
+        ):
             continue
         key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
         if key in seen:
@@ -191,7 +195,11 @@ def retained_topology_replacement_parent_templates_for_graph(
             continue
         if features["atom_count"] != atom_count:
             continue
-        if not any(system["graph_signature"] == graph_signature for system in features["ring_systems"]):
+        if not any(
+            ring_system_with_graph_signatures(template_record_mol(template), system, Chem)["graph_signature"]
+            == graph_signature
+            for system in features["ring_systems"]
+        ):
             continue
         key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
         if key in seen:
@@ -215,6 +223,8 @@ def candidate_generated_fused_templates(
     seen: set[int] = set()
     for system in features["ring_systems"]:
         key = json.dumps(ring_system_feature_key(system), separators=(",", ":"))
+        if graph_filter:
+            system = ring_system_with_graph_signatures(mol, system, Chem)
         graph_key = system.get("graph_signature", "")
         element_graph_key = system.get("element_graph_signature", "") if graph_filter else ""
         for template in _generated_templates_for_key(

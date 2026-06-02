@@ -137,6 +137,8 @@ def test_candidate_telemetry_records_selected_rule_family():
 
     assert name == "ethylbenzene"
     assert telemetry.rule_applies["probe-rule"] == 1
+    assert "probe-rule" in telemetry.rule_seconds
+    assert telemetry.rule_seconds["probe-rule"] >= 0
     assert telemetry.candidate_count["probe-rule"] == 1
     assert telemetry.rendered_candidate_count["probe-rule"] == 1
     assert telemetry.selected_family["probe"] == 1

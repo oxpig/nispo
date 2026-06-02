@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 import re
+import time
 
 from .fragment_rules import (
     FragmentAssemblyRule,
@@ -107,34 +108,50 @@ def _prepare_candidates(
     for rule in rules:
         if not rule.applies(ctx):
             continue
-        if ctx.telemetry is not None:
-            ctx.telemetry.rule_applies[rule.family] += 1
-        for candidate in rule.candidates(ctx):
-            if ctx.telemetry is not None:
-                ctx.telemetry.candidate_count[rule.family] += 1
-            if not candidate.name:
-                if ctx.telemetry is not None:
-                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
-                continue
-            name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-            if not name:
-                if ctx.telemetry is not None:
-                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
-                continue
-            if output_max_length is not None and len(name) > output_max_length:
-                if ctx.telemetry is not None:
-                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
-                continue
-            if ctx.telemetry is not None:
-                ctx.telemetry.rendered_candidate_count[rule.family] += 1
-            prepared.append(
-                _PreparedCandidate(
-                    name=name,
-                    candidate=candidate,
-                    stability_penalty=_candidate_selection_stability_penalty(name, candidate),
-                    selection_bonus=_candidate_selection_bonus(name, candidate),
+        if ctx.telemetry is None:
+            for candidate in rule.candidates(ctx):
+                if not candidate.name:
+                    continue
+                name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if not name:
+                    continue
+                if output_max_length is not None and len(name) > output_max_length:
+                    continue
+                prepared.append(
+                    _PreparedCandidate(
+                        name=name,
+                        candidate=candidate,
+                        stability_penalty=_candidate_selection_stability_penalty(name, candidate),
+                        selection_bonus=_candidate_selection_bonus(name, candidate),
+                    )
                 )
-            )
+            continue
+        ctx.telemetry.rule_applies[rule.family] += 1
+        started = time.perf_counter()
+        try:
+            for candidate in rule.candidates(ctx):
+                ctx.telemetry.candidate_count[rule.family] += 1
+                if not candidate.name:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if not name:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                if output_max_length is not None and len(name) > output_max_length:
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                ctx.telemetry.rendered_candidate_count[rule.family] += 1
+                prepared.append(
+                    _PreparedCandidate(
+                        name=name,
+                        candidate=candidate,
+                        stability_penalty=_candidate_selection_stability_penalty(name, candidate),
+                        selection_bonus=_candidate_selection_bonus(name, candidate),
+                    )
+                )
+        finally:
+            ctx.telemetry.rule_seconds[rule.family] += time.perf_counter() - started
     return prepared
 
 

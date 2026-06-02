@@ -14,10 +14,10 @@ class CandidateTelemetry:
     """
 
     rule_applies: Counter[str] = field(default_factory=Counter)
+    rule_seconds: Counter[str] = field(default_factory=Counter)
     candidate_count: Counter[str] = field(default_factory=Counter)
     rendered_candidate_count: Counter[str] = field(default_factory=Counter)
     rejected_candidate_count: Counter[str] = field(default_factory=Counter)
     selected_family: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0
-

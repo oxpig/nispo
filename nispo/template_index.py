@@ -171,11 +171,7 @@ def molecule_features(mol, Chem) -> dict:
         "max_ring_system_size": max_system_size,
         "max_ring_system_ring_count": max_system_ring_count,
         "elements": view.elements,
-        "charged_atom_value_counts": Counter(
-            atom.GetFormalCharge()
-            for atom in mol.GetAtoms()
-            if atom.GetFormalCharge()
-        ),
+        "charged_atom_value_counts": Counter(charge for charge in view.formal_charges if charge),
         "ring_systems": tuple(ring_system_features),
         "all_atoms_in_one_ring_system": bool(ring_systems)
         and any(len(system) == mol.GetNumAtoms() for system in ring_systems),

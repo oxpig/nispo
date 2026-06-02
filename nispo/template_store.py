@@ -95,11 +95,7 @@ class TemplateFeatures:
         features = dict(_molecule_features(mol, Chem))
         features["heavy_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
         features["formal_charge"] = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
-        charged_atom_value_counts = Counter(
-            atom.GetFormalCharge()
-            for atom in mol.GetAtoms()
-            if atom.GetFormalCharge()
-        )
+        charged_atom_value_counts = features.get("charged_atom_value_counts") or {}
         features["charged_atom_values"] = tuple(sorted(charged_atom_value_counts))
         features["charged_atom_value_counts"] = charged_atom_value_counts
         features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())

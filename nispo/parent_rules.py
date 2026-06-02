@@ -60,7 +60,7 @@ from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
-_MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 24
+_MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 20
 
 
 def _parenthesized_if_complex(name: str) -> str:

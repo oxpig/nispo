@@ -3208,7 +3208,7 @@ class WholeMoleculeRetainedParentRule:
         self._Chem = Chem
 
     def _templates(self) -> tuple[dict, ...]:
-        return _curated_exact_parent_templates(self._Chem)
+        return _standalone_whole_molecule_retained_templates(self._Chem)
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -3298,6 +3298,15 @@ _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES = {
     "simpleCyclicGroups.xml",
     "simpleGroups.xml",
 }
+
+
+@lru_cache(maxsize=1)
+def _standalone_whole_molecule_retained_templates(Chem) -> tuple[dict, ...]:
+    return tuple(
+        template
+        for template in _curated_exact_parent_templates(Chem)
+        if _standalone_whole_molecule_retained_name(template)
+    )
 
 
 def _whole_molecule_retained_candidate_family(name: str) -> str:

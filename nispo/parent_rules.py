@@ -64,6 +64,7 @@ from .template_index import ring_system_with_graph_signatures
 
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
 _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 32
+_GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 32
 
 
 def _parenthesized_if_complex(name: str) -> str:
@@ -4261,7 +4262,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
-        candidates = []
+        facts = []
         for template, match in _iter_fused_template_matches(
             ctx,
             ctx.generated_fused_templates,
@@ -4270,19 +4271,41 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             require_one_ring_system=True,
         ):
             for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
-                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                if not name:
-                    continue
                 fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
-                sort_key = (fusion_key, hydro_key, -len(match), name)
-                candidates.append(
-                    NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=sort_key,
+                facts.append(
+                    _GeneratedPartialHydroCandidateFacts(
+                        template=template,
+                        match=tuple(match),
+                        parent_name=parent_name,
+                        hydro_key=hydro_key,
+                        structural_key=(fusion_key, hydro_key, -len(match), parent_name, tuple(match)),
                     )
                 )
+        if ctx.telemetry is not None:
+            ctx.telemetry.candidate_facts_total[self.family] += len(facts)
+        render_set = _generated_partial_hydro_render_set(tuple(facts))
+        if ctx.telemetry is not None:
+            ctx.telemetry.render_set_size[self.family] += len(render_set)
+            ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
+        candidates = []
+        for fact in render_set:
+            template = fact.template
+            match = fact.match
+            parent_name = fact.parent_name
+            hydro_key = fact.hydro_key
+            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            if not name:
+                continue
+            fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
+            sort_key = (fusion_key, hydro_key, -len(match), name)
+            candidates.append(
+                NameCandidate(
+                    name=name,
+                    family=self.family,
+                    priority=self.priority,
+                    sort_key=sort_key,
+                )
+            )
         seen = set()
         yielded = 0
         for candidate in sorted(candidates, key=lambda item: item.sort_key):
@@ -4293,6 +4316,23 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             yielded += 1
             if yielded >= 16:
                 return
+
+
+@dataclass(frozen=True, slots=True)
+class _GeneratedPartialHydroCandidateFacts:
+    template: dict
+    match: tuple[int, ...]
+    parent_name: str
+    hydro_key: tuple
+    structural_key: tuple
+
+
+def _generated_partial_hydro_render_set(
+    facts: tuple[_GeneratedPartialHydroCandidateFacts, ...],
+) -> tuple[_GeneratedPartialHydroCandidateFacts, ...]:
+    if len(facts) <= _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE:
+        return facts
+    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE])
 
 
 class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule):

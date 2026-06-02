@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Mapping
@@ -19,6 +20,8 @@ from .resource_templates import (
 from .template_index import candidate_templates as _candidate_templates
 from .template_index import molecule_features as _molecule_features
 from .template_index import ring_system_feature_key
+
+_MAX_COMPILED_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,9 @@ class CompiledTemplate:
     runtime: dict
 
 
+_CompiledTemplateIndex = tuple[dict[tuple, tuple[CompiledTemplate, ...]], dict[int, tuple[CompiledTemplate, ...]]]
+
+
 @dataclass(frozen=True)
 class ParentScaffoldCatalog:
     """Data-driven parent scaffold families used by naming rules."""
@@ -126,6 +132,7 @@ class TemplateStore:
     def __init__(self, Chem):
         self.Chem = Chem
         self._compiled: dict[int, CompiledTemplate] = {}
+        self._compiled_indexes: dict[int, tuple[tuple[dict, ...], _CompiledTemplateIndex]] = {}
 
     @property
     def catalog(self) -> ParentScaffoldCatalog:
@@ -262,15 +269,70 @@ class TemplateStore:
         *,
         exact_atom_count: bool = False,
     ) -> tuple[CompiledTemplate, ...]:
-        return tuple(
-            self.compiled_template(template)
-            for template in self.candidate_templates(
-                mol,
-                templates,
-                features=features,
-                exact_atom_count=exact_atom_count,
+        features = features or _molecule_features(mol, self.Chem)
+        pure_ring_templates, other_templates_by_atom_count = self._compiled_template_index(templates)
+        candidates: list[CompiledTemplate] = []
+        seen: set[int] = set()
+        for system in features["ring_systems"]:
+            key = ring_system_feature_key(system)
+            for compiled in pure_ring_templates.get(key, ()):
+                marker = compiled.record.id
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                candidates.append(compiled)
+        if exact_atom_count:
+            atom_count_items = (
+                (features["atom_count"], other_templates_by_atom_count.get(features["atom_count"], ())),
             )
+        else:
+            atom_count_items = (
+                (atom_count, items)
+                for atom_count, items in other_templates_by_atom_count.items()
+                if atom_count <= features["atom_count"]
+            )
+        for _atom_count, entries in atom_count_items:
+            for compiled in entries:
+                if compiled.features.ring_count > features["ring_count"]:
+                    continue
+                if compiled.features.max_ring_system_size > features["max_ring_system_size"]:
+                    continue
+                if any(
+                    count > features["elements"].get(symbol, 0)
+                    for symbol, count in compiled.features.elements
+                ):
+                    continue
+                candidates.append(compiled)
+        candidates.sort(key=lambda item: item.features.atom_count, reverse=True)
+        return tuple(candidates)
+
+    def _compiled_template_index(self, templates: tuple[dict, ...]) -> _CompiledTemplateIndex:
+        cache_key = id(templates)
+        cached = self._compiled_indexes.get(cache_key)
+        if cached is not None and cached[0] is templates:
+            return cached[1]
+        pure_ring_templates: dict[tuple, list[CompiledTemplate]] = defaultdict(list)
+        other_templates_by_atom_count: dict[int, list[CompiledTemplate]] = defaultdict(list)
+        for template in templates:
+            compiled = self.compiled_template(template)
+            features = compiled.features
+            if features.all_atoms_in_one_ring_system:
+                for key in features.ring_system_keys:
+                    pure_ring_templates[key].append(compiled)
+            else:
+                other_templates_by_atom_count[features.atom_count].append(compiled)
+        indexed = (
+            {
+                key: _preferred_compiled_templates_by_scaffold(value)
+                for key, value in pure_ring_templates.items()
+            },
+            {
+                key: _preferred_compiled_templates_by_scaffold(value)
+                for key, value in other_templates_by_atom_count.items()
+            },
         )
+        self._compiled_indexes[cache_key] = (templates, indexed)
+        return indexed
 
     def compiled_template(self, template: dict) -> CompiledTemplate:
         key = id(template)
@@ -329,6 +391,29 @@ class TemplateStore:
         for template in templates:
             grouped.setdefault(template.get("source_family", "unknown"), []).append(template)
         return {family: tuple(items) for family, items in sorted(grouped.items())}
+
+
+def _preferred_compiled_templates_by_scaffold(
+    templates: list[CompiledTemplate],
+) -> tuple[CompiledTemplate, ...]:
+    if not templates:
+        return ()
+    grouped: dict[str, list[CompiledTemplate]] = {}
+    for template in templates:
+        grouped.setdefault(template.scaffold_key, []).append(template)
+    selected: list[CompiledTemplate] = []
+    for group in grouped.values():
+        selected.extend(
+            sorted(group, key=_compiled_template_alias_preference_key)[
+                :_MAX_COMPILED_TEMPLATE_ALIASES_PER_SCAFFOLD
+            ]
+        )
+    return tuple(selected)
+
+
+def _compiled_template_alias_preference_key(template: CompiledTemplate) -> tuple:
+    name = template.record.name
+    return (len(name), name)
 
 
 def _mol_has_stereochemistry(mol, Chem) -> bool:

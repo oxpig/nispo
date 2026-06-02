@@ -21,6 +21,7 @@ from .telemetry import CandidateTelemetry
 @dataclass(slots=True)
 class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
+    compiled_template_candidates: dict[tuple[int, bool], tuple[object, ...]] = field(default_factory=dict)
     acyclic_names: dict[bool, str] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
@@ -77,13 +78,19 @@ class MoleculeContext:
         *,
         exact_atom_count: bool = False,
     ):
-        return tuple(
-            self.templates.compiled_template(template)
-            for template in self.candidate_templates(
+        key = (id(templates), exact_atom_count)
+        cached = self.cache.compiled_template_candidates.get(key)
+        if cached is None:
+            cached = self.templates.candidate_compiled_templates(
+                self.mol,
                 templates,
+                features=self.features,
                 exact_atom_count=exact_atom_count,
             )
-        )
+            self.cache.compiled_template_candidates[key] = cached
+            if self.telemetry is not None:
+                self.telemetry.template_candidate_count[str(id(templates))] += len(cached)
+        return cached
 
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
         """Return the best acyclic skeleton name, computed once per molecule.

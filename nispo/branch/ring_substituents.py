@@ -19,6 +19,7 @@ from ..fused_template_families import (
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
 )
+from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict
 from ..ring.hydrogen import _drop_indicated_hydrogen_prefix
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
@@ -54,6 +55,9 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    if _same_ring_system_attachment(mol, attachment_idx, parent_idx):
+        cache[cache_key] = ""
+        return ""
     prefix = _carbohydrate_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _simple_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _fused_ring_substituent_prefix(
@@ -63,6 +67,17 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     )
     cache[cache_key] = prefix
     return prefix
+
+
+def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> bool:
+    attachment = mol.GetAtomWithIdx(attachment_idx)
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if not attachment.IsInRing() or not parent.IsInRing():
+        return False
+    for system in graph_view(mol, Chem).ring_systems:
+        if attachment_idx in system and parent_idx in system:
+            return True
+    return False
 
 
 def _carbohydrate_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:

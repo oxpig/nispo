@@ -19,6 +19,7 @@ class CandidateTelemetry:
     rendered_candidate_count: Counter[str] = field(default_factory=Counter)
     rejected_candidate_count: Counter[str] = field(default_factory=Counter)
     selected_family: Counter[str] = field(default_factory=Counter)
+    selected_rule_family: Counter[str] = field(default_factory=Counter)
     structured_candidate_count: Counter[str] = field(default_factory=Counter)
     unstructured_candidate_count: Counter[str] = field(default_factory=Counter)
     structured_selected_count: Counter[str] = field(default_factory=Counter)

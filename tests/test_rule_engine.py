@@ -173,6 +173,7 @@ def test_candidate_telemetry_records_selected_rule_family():
     assert telemetry.candidate_count["probe-rule"] == 1
     assert telemetry.rendered_candidate_count["probe-rule"] == 1
     assert telemetry.selected_family["probe"] == 1
+    assert telemetry.selected_rule_family["probe-rule"] == 1
 
 
 def test_candidate_telemetry_records_structured_candidate_facts():

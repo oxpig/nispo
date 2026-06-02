@@ -64,6 +64,7 @@ class NameCandidate:
 class _PreparedCandidate:
     name: str
     candidate: NameCandidate
+    producer_family: str
     stability_penalty: int
     selection_bonus: int
 
@@ -145,6 +146,7 @@ def _prepare_candidates(
                     _PreparedCandidate(
                         name=name,
                         candidate=candidate,
+                        producer_family=rule.family,
                         stability_penalty=_candidate_selection_stability_penalty(name, candidate),
                         selection_bonus=_candidate_selection_bonus(name, candidate),
                     )
@@ -171,6 +173,7 @@ def _prepare_candidates(
                     _PreparedCandidate(
                         name=name,
                         candidate=candidate,
+                        producer_family=rule.family,
                         stability_penalty=_candidate_selection_stability_penalty(name, candidate),
                         selection_bonus=_candidate_selection_bonus(name, candidate),
                     )
@@ -205,6 +208,7 @@ def _select_best_prepared_candidate(
         for item in prepared:
             if item.name == best_name:
                 telemetry.selected_family[item.candidate.family] += 1
+                telemetry.selected_rule_family[item.producer_family] += 1
                 if _candidate_has_structured_facts(item.candidate):
                     telemetry.structured_selected_count[item.candidate.family] += 1
                 if item.candidate.template_id is not None:

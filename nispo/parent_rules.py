@@ -60,6 +60,9 @@ from .stereochemistry import assigned_atom_stereochemistry
 from .template_access import template_record_locants, template_record_mol, template_record_name
 
 
+_MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 40
+
+
 def _parenthesized_if_complex(name: str) -> str:
     if name.startswith("(") and name.endswith(")"):
         return name
@@ -3318,6 +3321,7 @@ class RetainedRingScaffoldParentRule:
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         yielded_names: set[str] = set()
+        yielded = 0
         for template in ctx.candidate_templates(self._templates()):
             if not _retained_ring_scaffold_template_can_be_general_parent(mol, template, self._Chem):
                 continue
@@ -3335,12 +3339,15 @@ class RetainedRingScaffoldParentRule:
                 if _unsafe_retained_ring_scaffold_candidate(name):
                     continue
                 yielded_names.add(name)
+                yielded += 1
                 yield NameCandidate(
                     name=name,
                     family=self.family,
                     priority=self.priority,
                     sort_key=_retained_ring_scaffold_parent_sort_key(template, match, name),
                 )
+                if yielded >= _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES:
+                    return
 
 
 def _retained_ring_scaffold_template_can_be_general_parent(mol, template: dict, Chem) -> bool:

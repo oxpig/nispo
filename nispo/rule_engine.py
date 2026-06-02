@@ -180,13 +180,16 @@ def _empty_fallback_limits(mol, Chem) -> tuple[int, int]:
 
 
 def _has_assigned_stereo(mol, Chem) -> bool:
+    cached = mol_cache_get(mol, "has_assigned_stereo")
+    if cached is not None:
+        return cached
     for atom in mol.GetAtoms():
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
-            return True
+            return mol_cache_set(mol, "has_assigned_stereo", True)
     for bond in mol.GetBonds():
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
-            return True
-    return False
+            return mol_cache_set(mol, "has_assigned_stereo", True)
+    return mol_cache_set(mol, "has_assigned_stereo", False)
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:
@@ -986,7 +989,12 @@ def _finalize_candidate_name(
         name = _apply_uniform_isotope_label(mol, name)
         return name if len(name) <= max_length else ""
     skip_fallback_stereo = candidate.family == "retained-acid-ester-parent" and _has_internal_locanted_stereo(name)
-    if not candidate.stereo_prefix and not _has_retained_carbohydrate_substituent(name) and not skip_fallback_stereo:
+    if (
+        not candidate.stereo_prefix
+        and not _has_retained_carbohydrate_substituent(name)
+        and not skip_fallback_stereo
+        and _has_assigned_stereo(mol, Chem)
+    ):
         name = apply_stereochemical_prefix(
             mol,
             Chem,

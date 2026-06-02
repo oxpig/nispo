@@ -3849,22 +3849,38 @@ def _allow_generated_topology_template(template_name: str) -> bool:
 
 def _generated_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
     template_mol = template_record_mol(template)
+    template_charges, template_hydrogens, _template_heavy_neighbors = _topology_match_atom_facts(template_mol)
+    mol_charges, mol_hydrogens, mol_heavy_neighbors = _topology_match_atom_facts(mol)
     expected_hydrogens = 0
     actual_hydrogens = 0
     core = set(match)
     for template_idx, mol_idx in enumerate(match):
-        template_atom = template_mol.GetAtomWithIdx(template_idx)
-        mol_atom = mol.GetAtomWithIdx(mol_idx)
-        if template_atom.GetFormalCharge() != mol_atom.GetFormalCharge():
+        if template_charges[template_idx] != mol_charges[mol_idx]:
             return False
         external_neighbors = sum(
             1
-            for nbr in mol_atom.GetNeighbors()
-            if nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1
+            for nbr_idx in mol_heavy_neighbors[mol_idx]
+            if nbr_idx not in core
         )
-        expected_hydrogens += max(0, template_atom.GetTotalNumHs() - external_neighbors)
-        actual_hydrogens += mol_atom.GetTotalNumHs()
+        expected_hydrogens += max(0, template_hydrogens[template_idx] - external_neighbors)
+        actual_hydrogens += mol_hydrogens[mol_idx]
     return actual_hydrogens <= expected_hydrogens
+
+
+def _topology_match_atom_facts(mol) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, ...], ...]]:
+    cached = mol_cache_get(mol, "topology_match_atom_facts")
+    if cached is not None:
+        return cached
+    atoms = tuple(mol.GetAtoms())
+    facts = (
+        tuple(atom.GetFormalCharge() for atom in atoms),
+        tuple(atom.GetTotalNumHs() for atom in atoms),
+        tuple(
+            tuple(nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1)
+            for atom in atoms
+        ),
+    )
+    return mol_cache_set(mol, "topology_match_atom_facts", facts)
 
 
 def _generated_topology_fused_candidate_rank(template_name: str, name: str) -> tuple:

@@ -46,6 +46,7 @@ class TemplateFeatures:
     ring_count: int
     heavy_atom_count: int
     formal_charge: int
+    charged_atom_values: tuple[int, ...]
     aromatic_atom_count: int
     max_ring_system_size: int
     max_ring_system_ring_count: int
@@ -63,6 +64,7 @@ class TemplateFeatures:
             ring_count=int(features["ring_count"]),
             heavy_atom_count=int(features.get("heavy_atom_count", features["atom_count"])),
             formal_charge=int(features.get("formal_charge", 0)),
+            charged_atom_values=tuple(sorted(int(value) for value in features.get("charged_atom_values", ()))),
             aromatic_atom_count=int(features.get("aromatic_atom_count", 0)),
             max_ring_system_size=int(features["max_ring_system_size"]),
             max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0)),
@@ -86,6 +88,9 @@ class TemplateFeatures:
         features = dict(_molecule_features(mol, Chem))
         features["heavy_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
         features["formal_charge"] = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+        features["charged_atom_values"] = tuple(
+            sorted({atom.GetFormalCharge() for atom in mol.GetAtoms() if atom.GetFormalCharge()})
+        )
         features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
         features["has_stereochemistry"] = has_stereochemistry or _mol_has_stereochemistry(mol, Chem)
         features["has_isotope"] = any(atom.GetIsotope() for atom in mol.GetAtoms())

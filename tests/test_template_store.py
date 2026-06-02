@@ -29,6 +29,7 @@ def test_template_store_compiles_parent_resources():
     assert compiled.scaffold_key
     assert compiled.features.heavy_atom_count == compiled.features.atom_count
     assert isinstance(compiled.features.formal_charge, int)
+    assert isinstance(compiled.features.charged_atom_values, tuple)
     assert isinstance(compiled.features.aromatic_atom_count, int)
     assert isinstance(compiled.features.ring_system_keys, tuple)
     assert isinstance(compiled.features.unsupported_flags, frozenset)

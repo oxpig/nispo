@@ -3442,6 +3442,7 @@ class RetainedRingScaffoldParentRule:
     def _candidate_facts(self, ctx) -> tuple["_RetainedRingScaffoldCandidateFacts", ...]:
         mol = ctx.mol
         molecule_aromatic_atom_count = _aromatic_atom_count(mol)
+        molecule_charged_atom_values = _charged_atom_values(mol)
         facts: list[_RetainedRingScaffoldCandidateFacts] = []
         compiled_templates = ctx.candidate_compiled_templates(self._templates())
         telemetry = ctx.telemetry
@@ -3462,6 +3463,13 @@ class RetainedRingScaffoldParentRule:
                 continue
             if telemetry is not None:
                 telemetry.filter_stage_count[f"{family}:after_aromatic_count"] += 1
+            if (
+                compiled.features.charged_atom_values
+                and not all(value in molecule_charged_atom_values for value in compiled.features.charged_atom_values)
+            ):
+                continue
+            if telemetry is not None:
+                telemetry.filter_stage_count[f"{family}:after_charge_values"] += 1
             matches = ctx.template_matches(template)
             if telemetry is not None:
                 telemetry.filter_stage_count[f"{family}:substructure_queries"] += 1
@@ -3536,6 +3544,17 @@ def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compile
 
 def _aromatic_atom_count(mol) -> int:
     return sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+
+
+def _charged_atom_values(mol) -> frozenset[int]:
+    cached = mol_cache_get(mol, "charged_atom_values")
+    if cached is not None:
+        return cached
+    return mol_cache_set(
+        mol,
+        "charged_atom_values",
+        frozenset(atom.GetFormalCharge() for atom in mol.GetAtoms() if atom.GetFormalCharge()),
+    )
 
 
 @lru_cache(maxsize=1)

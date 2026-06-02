@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass
 from itertools import combinations
 from functools import lru_cache
 
@@ -62,6 +63,7 @@ from .template_index import ring_system_with_graph_signatures
 
 
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
+_RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 32
 
 
 def _parenthesized_if_complex(name: str) -> str:
@@ -3400,8 +3402,45 @@ class RetainedRingScaffoldParentRule:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
+        facts = self._candidate_facts(ctx)
+        if ctx.telemetry is not None:
+            ctx.telemetry.candidate_facts_total["retained-ring-scaffold-parent"] += len(facts)
+        finalists = _retained_ring_scaffold_render_set(facts)
+        if ctx.telemetry is not None:
+            ctx.telemetry.render_set_size["retained-ring-scaffold-parent"] += len(finalists)
+            ctx.telemetry.facts_suppressed_before_render["retained-ring-scaffold-parent"] += max(
+                0,
+                len(facts) - len(finalists),
+            )
         yielded_names: set[str] = set()
         yielded = 0
+        for fact in finalists:
+            name = _name_fused_core_match(mol, fact.template, fact.match)
+            if not name or name in yielded_names:
+                continue
+            if _unsafe_retained_ring_scaffold_candidate(name):
+                continue
+            yielded_names.add(name)
+            yielded += 1
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=_retained_ring_scaffold_parent_sort_key(fact.template, fact.match, name),
+                parent_atoms=frozenset(fact.match),
+                locants=fact.compiled.record.locants,
+                template_id=fact.compiled.record.id,
+                template_name=fact.compiled.record.name,
+                source_family=fact.compiled.record.source_family,
+                source_file=fact.compiled.record.source_file,
+                estimated_length=len(name),
+            )
+            if yielded >= _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES:
+                return
+
+    def _candidate_facts(self, ctx) -> tuple["_RetainedRingScaffoldCandidateFacts", ...]:
+        mol = ctx.mol
+        facts: list[_RetainedRingScaffoldCandidateFacts] = []
         for compiled in ctx.candidate_compiled_templates(self._templates()):
             template = compiled.runtime
             if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, self._Chem):
@@ -3416,28 +3455,43 @@ class RetainedRingScaffoldParentRule:
                     continue
                 if _match_has_unlocanted_external_substitution(mol, template, match):
                     continue
-                name = _name_fused_core_match(mol, template, match)
-                if not name or name in yielded_names:
-                    continue
-                if _unsafe_retained_ring_scaffold_candidate(name):
-                    continue
-                yielded_names.add(name)
-                yielded += 1
-                yield NameCandidate(
-                    name=name,
-                    family=self.family,
-                    priority=self.priority,
-                    sort_key=_retained_ring_scaffold_parent_sort_key(template, match, name),
-                    parent_atoms=frozenset(match),
-                    locants=compiled.record.locants,
-                    template_id=compiled.record.id,
-                    template_name=compiled.record.name,
-                    source_family=compiled.record.source_family,
-                    source_file=compiled.record.source_file,
-                    estimated_length=len(name),
+                facts.append(
+                    _RetainedRingScaffoldCandidateFacts(
+                        compiled=compiled,
+                        template=template,
+                        match=tuple(match),
+                        structural_key=_retained_ring_scaffold_fact_sort_key(compiled, match),
+                    )
                 )
-                if yielded >= _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES:
-                    return
+        return tuple(facts)
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedRingScaffoldCandidateFacts:
+    compiled: object
+    template: dict
+    match: tuple[int, ...]
+    structural_key: tuple
+
+
+def _retained_ring_scaffold_fact_sort_key(compiled, match: Sequence[int]) -> tuple:
+    template_name = compiled.record.name
+    return (
+        _template_source_rank(compiled.runtime),
+        _hydrogenated_template_penalty(template_name),
+        -len(match),
+        len(template_name),
+        template_name,
+        match,
+    )
+
+
+def _retained_ring_scaffold_render_set(
+    facts: tuple[_RetainedRingScaffoldCandidateFacts, ...],
+) -> tuple[_RetainedRingScaffoldCandidateFacts, ...]:
+    if len(facts) <= _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE:
+        return facts
+    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE])
 
 
 def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, Chem) -> bool:

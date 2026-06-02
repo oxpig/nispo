@@ -84,7 +84,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
     if symbol == "H":
         return _isotopic_hydrogen_prefix(atom, idx, parent_idx)
     if atom.IsInRing():
-        return None
+        return _simple_ring_prefix(mol, idx, parent_idx)
     if symbol == "C":
         return (
             _cyano_prefix(mol, idx, parent_idx)
@@ -197,6 +197,68 @@ def _nitro_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     elif mol.GetAtomWithIdx(parent_idx).GetSymbol() != "O":
         return None
     return _prefix_candidate("nitro", {idx, *oxygens}, idx, parent_idx, "nitro")
+
+
+def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if idx in ring and parent_idx not in ring]
+    if len(rings) != 1:
+        return None
+    ring = rings[0]
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
+    if any(
+        atom.GetSymbol() != "C"
+        or atom.GetFormalCharge() != 0
+        or atom.GetIsotope()
+        or _atom_has_assigned_stereo(atom)
+        or _atom_has_isotopic_hydrogen(atom)
+        for atom in atoms
+    ):
+        return None
+    for atom in atoms:
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom.GetIdx() == idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return None
+    if len(ring) == 6 and all(atom.GetIsAromatic() for atom in atoms):
+        return _prefix_candidate("phenyl", ring_set, idx, parent_idx, "simple-aryl-ring")
+    if any(atom.GetIsAromatic() for atom in atoms):
+        return None
+    if not _ring_bonds_are_single(mol, ring):
+        return None
+    names = {
+        3: "cyclopropyl",
+        4: "cyclobutyl",
+        5: "cyclopentyl",
+        6: "cyclohexyl",
+    }
+    text = names.get(len(ring))
+    if text is None:
+        return None
+    return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-cycloalkyl-ring")
+
+
+def _ring_bonds_are_single(mol, ring: tuple[int, ...]) -> bool:
+    ring_set = set(ring)
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        ring_neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() in ring_set]
+        if len(ring_neighbors) != 2:
+            return False
+        for nbr_idx in ring_neighbors:
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr_idx)
+            if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+                return False
+    return True
+
+
+def _atom_has_assigned_stereo(atom) -> bool:
+    return str(atom.GetChiralTag()) != "CHI_UNSPECIFIED"
 
 
 def _atom_has_isotopic_hydrogen(atom) -> bool:

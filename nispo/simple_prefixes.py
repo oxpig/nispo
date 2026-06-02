@@ -37,11 +37,16 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
     if symbol in HALO:
         candidate = _terminal_halogen_prefix(atom, idx, parent_idx, order)
     elif symbol == "C":
-        candidate = _simple_fluoromethyl_prefix(mol, idx, parent_idx, order) or _simple_linear_alkyl_prefix(
-            mol,
-            idx,
-            parent_idx,
-            order,
+        candidate = (
+            _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_branched_alkyl_prefix(mol, idx, parent_idx, order)
+            or _simple_benzyl_prefix(mol, idx, parent_idx, order)
+            or _simple_linear_alkyl_prefix(
+                mol,
+                idx,
+                parent_idx,
+                order,
+            )
         )
     elif symbol == "O":
         candidate = _simple_oxygen_prefix(mol, atom, idx, parent_idx, order)
@@ -124,6 +129,100 @@ def _simple_linear_alkyl_prefix(mol, idx: int, parent_idx: int, order: float) ->
             return None
         previous, current = current, next_idx
     return None
+
+
+def _simple_branched_alkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) not in {2, 3}:
+        return None
+    if not all(_is_terminal_methyl(mol, nbr_idx, idx) for nbr_idx in heavy):
+        return None
+    text = "isopropyl" if len(heavy) == 2 else "t-butyl"
+    return _prefix_candidate(text, {idx, *heavy}, idx, parent_idx, "branched-alkyl")
+
+
+def _is_terminal_methyl(mol, idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return False
+    if _atom_has_isotopic_hydrogen(atom):
+        return False
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return False
+    return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
+
+
+def _simple_benzyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    ring_idx = heavy[0]
+    ring_atom = mol.GetAtomWithIdx(ring_idx)
+    if not ring_atom.IsInRing():
+        return None
+    bond = mol.GetBondBetweenAtoms(idx, ring_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    ring = _unsubstituted_phenyl_ring(mol, ring_idx, idx)
+    if ring is None:
+        return None
+    return _prefix_candidate("benzyl", {idx, *ring}, idx, parent_idx, "benzyl")
+
+
+def _unsubstituted_phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:
+    rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if attachment_idx in ring and parent_idx not in ring]
+    if len(rings) != 1:
+        return None
+    ring = rings[0]
+    if len(ring) != 6:
+        return None
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
+    if any(
+        atom.GetSymbol() != "C"
+        or atom.GetFormalCharge() != 0
+        or atom.GetIsotope()
+        or not atom.GetIsAromatic()
+        or _atom_has_assigned_stereo(atom)
+        or _atom_has_isotopic_hydrogen(atom)
+        for atom in atoms
+    ):
+        return None
+    for atom in atoms:
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom.GetIdx() == attachment_idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return None
+    return ring
+
+
+def _atom_has_assigned_stereo(atom) -> bool:
+    return str(atom.GetChiralTag()) != "CHI_UNSPECIFIED"
 
 
 def _simple_oxygen_prefix(mol, atom, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

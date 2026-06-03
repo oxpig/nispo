@@ -303,9 +303,24 @@ def _carbamyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
         return None
     if nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing() or nitrogen.GetIsotope():
         return None
-    if any(nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1 for nbr in nitrogen.GetNeighbors()):
+    nitrogen_ligands = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(nitrogen_ligands) > 2:
         return None
-    return _prefix_candidate("carbamyl", {idx, double_oxygens[0], nitrogens[0]}, idx, parent_idx, "carbamyl")
+    if not all(_is_plain_terminal_methyl(mol, ligand_idx, nitrogens[0]) for ligand_idx in nitrogen_ligands):
+        return None
+    names = {0: "carbamyl", 1: "methylcarbamyl", 2: "dimethylcarbamyl"}
+    name = names[len(nitrogen_ligands)]
+    return _prefix_candidate(
+        name,
+        {idx, double_oxygens[0], nitrogens[0], *nitrogen_ligands},
+        idx,
+        parent_idx,
+        name,
+    )
 
 
 def _retained_alkoxycarbonyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

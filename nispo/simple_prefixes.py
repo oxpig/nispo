@@ -50,6 +50,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_alkenyl_prefix(mol, idx, parent_idx, order)
+            or _simple_oxaalkyl_prefix(mol, idx, parent_idx, order)
             or _simple_linear_alkyl_prefix(
                 mol,
                 idx,
@@ -225,6 +226,67 @@ def _simple_alkenyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Pref
     if any(nbr.GetIdx() != first_idx and nbr.GetAtomicNum() > 1 for nbr in second.GetNeighbors()):
         return None
     return _prefix_candidate("2-propen-1-yl", {idx, first_idx, second_idx}, idx, parent_idx, "alkenyl")
+
+
+def _simple_oxaalkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    external = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(external) != 1:
+        return None
+    carbon_idx = external[0]
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing() or carbon.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(carbon) or _atom_has_isotopic_hydrogen(carbon):
+        return None
+    carbon_bond = mol.GetBondBetweenAtoms(idx, carbon_idx)
+    if carbon_bond is None or carbon_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    carbon_external = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(carbon_external) != 1:
+        return None
+    oxygen_idx = carbon_external[0]
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0 or oxygen.IsInRing() or oxygen.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(oxygen):
+        return None
+    oxygen_bond = mol.GetBondBetweenAtoms(carbon_idx, oxygen_idx)
+    if oxygen_bond is None or oxygen_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    oxygen_external = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != carbon_idx and nbr.GetAtomicNum() > 1
+    ]
+    if not oxygen_external:
+        return _prefix_candidate("3-oxapropyl", {idx, carbon_idx, oxygen_idx}, idx, parent_idx, "oxaalkyl")
+    if len(oxygen_external) != 1:
+        return None
+    methyl_idx = oxygen_external[0]
+    if not _is_terminal_methyl(mol, methyl_idx, oxygen_idx):
+        return None
+    return _prefix_candidate(
+        "3-oxabutyl",
+        {idx, carbon_idx, oxygen_idx, methyl_idx},
+        idx,
+        parent_idx,
+        "oxaalkyl",
+    )
 
 
 def _same_terminal_halo_prefix(

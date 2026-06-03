@@ -72,6 +72,8 @@ class FragmentAssemblyRule:
 
 
 HALIDE_STEMS = {"F": "fluor", "Cl": "chlor", "Br": "brom", "I": "iod"}
+HALOGEN_ELEMENT_NAMES = {"F": "fluorine", "Cl": "chlorine", "Br": "bromine", "I": "iodine"}
+HALOGEN_ELECTROPOSITIVE_ORDER = {"F": 0, "Cl": 1, "Br": 2, "I": 3}
 
 NEUTRAL_HALIDE_SALTS = {
     symbol: "hydro" + stem + _suffix_value("ide")
@@ -127,6 +129,19 @@ COMPLEX_MULTIPLIERS = {
     5: "pentakis",
     6: "hexakis",
 }
+
+SMALL_RETAINED_TEMPLATES = (
+    ("azapyrone", "O=c1nccco1"),
+    ("azepinone", "O=c1cccccn1"),
+    ("azasydnone", "O=c1n[nH+][n-]o1"),
+    ("benzoylium", "O=[C+]c1ccccc1"),
+    ("diazirinone", "O=c1nn1"),
+    ("epoxyurea", "O=c1[nH]o[nH]1"),
+    ("furoxanone", "O=C1C=NO[NH+]1[O-]"),
+    ("4-oxazinone", "O=c1cconc1"),
+    ("oxalimide", "O=c1[nH]c1=O"),
+    ("thiapyrone", "O=c1ccccs1"),
+)
 
 PERFLUORO_ANIONS = {
     ("B", 4, -1): "tetrafluoroborate",
@@ -271,7 +286,8 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() < 2:
         return ""
     return (
-        _substituted_borohydride_name(mol, Chem)
+        _small_standalone_polyatomic_name(mol, Chem)
+        or _substituted_borohydride_name(mol, Chem)
         or _organotrifluoroborate_name(mol, Chem)
         or _tetraorganoborate_name(mol, Chem)
         or _azanide_name(mol, Chem)
@@ -292,12 +308,189 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() < 2:
         return ""
     return (
-        _azanol_name(mol, Chem)
+        _small_retained_template_name(mol, Chem)
+        or _azanol_name(mol, Chem)
         or _peracetate_name(mol, Chem)
         or _isothiouronium_name(mol, Chem)
         or _isouronium_name(mol, Chem)
         or _selenocysteamine_name(mol, Chem)
     )
+
+
+_SMALL_RETAINED_TEMPLATE_CACHE = {}
+
+
+def _small_retained_template_name(mol, Chem) -> str:
+    template_index = _small_retained_template_index(Chem)
+    if not template_index:
+        return ""
+    key = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+    return template_index.get(key, "")
+
+
+def _small_retained_template_index(Chem) -> dict[str, str]:
+    key = id(Chem)
+    cached = _SMALL_RETAINED_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    index = {}
+    for name, smiles in SMALL_RETAINED_TEMPLATES:
+        template = Chem.MolFromSmiles(smiles)
+        if template is None:
+            continue
+        index[Chem.MolToSmiles(template, canonical=True, isomericSmiles=True)] = name
+    _SMALL_RETAINED_TEMPLATE_CACHE[key] = index
+    return index
+
+
+def _small_standalone_polyatomic_name(mol, Chem) -> str:
+    return (
+        _oxidonitrogen_anion_name(mol, Chem)
+        or _diazenide_name(mol, Chem)
+        or _diselenide_name(mol, Chem)
+        or _halogen_oxide_name(mol, Chem)
+        or _interhalogen_name(mol, Chem)
+        or _haloazanide_name(mol, Chem)
+        or _acetonide_name(mol, Chem)
+        or _nitronite_name(mol, Chem)
+    )
+
+
+def _oxidonitrogen_anion_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"N": 1, "O": 1} or _total_charge(mol) != -1:
+        return ""
+    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
+    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+        return ""
+    return "oxidonitrogen(1-)" if nitrogen.GetFormalCharge() == -1 and oxygen.GetFormalCharge() == 0 else ""
+
+
+def _diazenide_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"N": 2} or _total_charge(mol) != -1:
+        return ""
+    atoms = list(mol.GetAtoms())
+    bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
+    return "diazenide" if bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE else ""
+
+
+def _diselenide_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"Se": 2} or _total_charge(mol) != -1:
+        return ""
+    atoms = list(mol.GetAtoms())
+    bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+        return ""
+    return "diselenide" if sum(atom.GetTotalNumHs() for atom in atoms) == 1 else ""
+
+
+def _halogen_oxide_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    halogens = [symbol for symbol in HALIDE_STEMS if counts.get(symbol) == 1]
+    if len(halogens) != 1 or counts.get("O") != 1 or sum(counts.values()) != 2:
+        return ""
+    if _total_charge(mol) != 0:
+        return ""
+    halogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == halogens[0])
+    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    bond = mol.GetBondBetweenAtoms(halogen.GetIdx(), oxygen.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if oxygen.GetFormalCharge() != -1 or halogen.GetFormalCharge() != 1 or halogen.GetTotalNumHs() != 1:
+        return ""
+    if halogen.GetSymbol() not in {"Cl", "Br", "I"}:
+        return ""
+    return HALIDE_STEMS[halogen.GetSymbol()] + "ane oxide"
+
+
+def _interhalogen_name(mol, Chem) -> str:
+    if mol.GetNumAtoms() != 2 or _total_charge(mol) != 0:
+        return ""
+    atoms = list(mol.GetAtoms())
+    if any(atom.GetSymbol() not in HALIDE_STEMS or atom.GetTotalNumHs() for atom in atoms):
+        return ""
+    bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    center, ligand = sorted(atoms, key=lambda atom: HALOGEN_ELECTROPOSITIVE_ORDER[atom.GetSymbol()], reverse=True)
+    return f"{HALOGEN_ELEMENT_NAMES[center.GetSymbol()]} {HALIDE_ANIONS[ligand.GetSymbol()]}"
+
+
+def _haloazanide_name(mol, Chem) -> str:
+    atoms = list(mol.GetAtoms())
+    nitrogens = [atom for atom in atoms if atom.GetSymbol() == "N"]
+    if len(nitrogens) != 1 or _total_charge(mol) != -1:
+        return ""
+    nitrogen = nitrogens[0]
+    if nitrogen.GetFormalCharge() != -1:
+        return ""
+    halogens = [atom for atom in atoms if atom.GetSymbol() in HALIDE_STEMS]
+    if len(halogens) not in {1, 2} or len(halogens) + 1 != len(atoms):
+        return ""
+    if nitrogen.GetTotalNumHs() + len(halogens) != 2:
+        return ""
+    prefixes = []
+    for halogen in halogens:
+        bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), halogen.GetIdx())
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE or halogen.GetTotalNumHs():
+            return ""
+        prefixes.append(HALIDE_STEMS[halogen.GetSymbol()] + "o")
+    counts: dict[str, int] = {}
+    for prefix in prefixes:
+        counts[prefix] = counts.get(prefix, 0) + 1
+    terms = []
+    for prefix, count in sorted(counts.items()):
+        if count == 1:
+            terms.append(prefix)
+        elif count == 2:
+            terms.append("di" + prefix)
+        else:
+            return ""
+    return "".join(terms) + "azanide"
+
+
+def _acetonide_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 3, "O": 1} or _total_charge(mol) != -1:
+        return ""
+    carbonyl_carbons = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+            for nbr in atom.GetNeighbors()
+        )
+    ]
+    if len(carbonyl_carbons) != 1:
+        return ""
+    carbonyl = carbonyl_carbons[0]
+    methyl = anionic_methylene = 0
+    for nbr in carbonyl.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbonyl.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 3:
+            methyl += 1
+        elif nbr.GetFormalCharge() == -1 and nbr.GetTotalNumHs() == 2:
+            anionic_methylene += 1
+    return "acetonide" if methyl == 1 and anionic_methylene == 1 else ""
+
+
+def _nitronite_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 1, "N": 1, "O": 1} or _total_charge(mol) != -1:
+        return ""
+    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
+    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    cn_bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nitrogen.GetIdx())
+    no_bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
+    if cn_bond is None or no_bond is None:
+        return ""
+    if cn_bond.GetBondType() != Chem.BondType.DOUBLE or no_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    return "nitronite" if oxygen.GetFormalCharge() == -1 else ""
 
 
 def _azanol_name(mol, Chem) -> str:

@@ -113,6 +113,25 @@ def test_retained_shortcuts_defer_to_roundtripping_systematic_alternatives(input
         "[O-]P([O-])([O-])=S",
         "[O-]P([O-])(=S)[S-]",
         "NO",
+        "[N-]=O",
+        "[N-]=N",
+        "[O-][ClH+]",
+        "[O-][BrH+]",
+        "[NH-]I",
+        "I[N-]I",
+        "[Se]=[SeH-]",
+        "[CH2-]C(C)=O",
+        "C=N[O-]",
+        "FI",
+        "BrI",
+        "O=c1nccco1",
+        "O=c1cccccn1",
+        "O=c1[nH]c1=O",
+        "O=c1[nH]o[nH]1",
+        "O=c1nn1",
+        "O=c1ccccs1",
+        "O=C1C=NO[NH+]1[O-]",
+        "O=[C+]c1ccccc1",
     ],
 )
 def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
@@ -206,6 +225,22 @@ def test_bridge_lactam_parent_roundtrips_with_opsin():
     ],
 )
 def test_retained_parent_aliases_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1ccc2cc3cc4cc5cc6cc7cc8ccccc8cc7cc6cc5cc4cc3cc2c1",
+        "c1ccc2cc3cc4cc5cc6cc7cc8cc9ccccc9cc8cc7cc6cc5cc4cc3cc2c1",
+        "c1ccc2cc3cc4cc5cc6cc7cc8cc9cc%10ccccc%10cc9cc8cc7cc6cc5cc4cc3cc2c1",
+    ],
+)
+def test_long_linear_acene_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

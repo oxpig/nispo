@@ -2660,6 +2660,127 @@ def _diphenylbenzene_name(
     return _join_prefix_parent(prefix_text, "benzene") if prefix_text else ""
 
 
+_ACENE_PARENT_NAMES = {
+    5: "pentacene",
+    6: "hexacene",
+    7: "heptacene",
+    8: "octacene",
+    9: "nonacene",
+    10: "decacene",
+    11: "undecacene",
+    12: "dodecacene",
+}
+
+
+class AceneParentRule:
+    family = "acene-retained-parent"
+    priority = parent_priority("whole-molecule-retained-parent")
+    min_ring_count = 5
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        name = _linear_acene_parent_name(ctx.mol)
+        if not name:
+            return
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            sort_key=(len(name), name),
+            parent_atoms=frozenset(range(ctx.mol.GetNumAtoms())),
+            estimated_length=len(name),
+        )
+
+
+def _linear_acene_parent_name(mol) -> str:
+    if _formal_charge(mol) != 0:
+        return ""
+    if any(atom.GetSymbol() != "C" or not atom.GetIsAromatic() for atom in mol.GetAtoms()):
+        return ""
+    rings = tuple(tuple(ring) for ring in mol.GetRingInfo().AtomRings())
+    ring_count = len(rings)
+    name = _ACENE_PARENT_NAMES.get(ring_count)
+    if not name:
+        return ""
+    if any(not _is_benzene_ring(mol, ring) for ring in rings):
+        return ""
+    ring_sets = [set(ring) for ring in rings]
+    if set().union(*ring_sets) != set(range(mol.GetNumAtoms())):
+        return ""
+    neighbors: dict[int, set[int]] = {idx: set() for idx in range(ring_count)}
+    shared_edges: dict[int, list[frozenset[int]]] = {idx: [] for idx in range(ring_count)}
+    for left, right in combinations(range(ring_count), 2):
+        shared = ring_sets[left] & ring_sets[right]
+        if not shared:
+            continue
+        if len(shared) != 2:
+            return ""
+        shared_edge = frozenset(shared)
+        if not _ring_contains_edge(mol, rings[left], shared_edge) or not _ring_contains_edge(
+            mol, rings[right], shared_edge
+        ):
+            return ""
+        neighbors[left].add(right)
+        neighbors[right].add(left)
+        shared_edges[left].append(shared_edge)
+        shared_edges[right].append(shared_edge)
+    if sum(len(value) for value in neighbors.values()) // 2 != ring_count - 1:
+        return ""
+    degrees = sorted(len(value) for value in neighbors.values())
+    if degrees != [1, 1] + [2] * (ring_count - 2):
+        return ""
+    if not _ring_graph_is_connected(neighbors):
+        return ""
+    for ring_index, edges in shared_edges.items():
+        if len(edges) == 2 and not _shared_edges_are_opposite_in_ring(mol, rings[ring_index], edges):
+            return ""
+    return name
+
+
+def _ring_contains_edge(mol, ring: Sequence[int], edge: frozenset[int]) -> bool:
+    seq = ordered_ring(mol, ring)
+    return any(
+        edge == frozenset((seq[index], seq[(index + 1) % len(seq)]))
+        for index in range(len(seq))
+    )
+
+
+def _shared_edges_are_opposite_in_ring(
+    mol,
+    ring: Sequence[int],
+    edges: Sequence[frozenset[int]],
+) -> bool:
+    seq = ordered_ring(mol, ring)
+    edge_positions = []
+    for edge in edges:
+        positions = [
+            index
+            for index in range(len(seq))
+            if edge == frozenset((seq[index], seq[(index + 1) % len(seq)]))
+        ]
+        if len(positions) != 1:
+            return False
+        edge_positions.append(positions[0])
+    distance = abs(edge_positions[0] - edge_positions[1])
+    return min(distance, len(seq) - distance) == 3
+
+
+def _ring_graph_is_connected(neighbors: dict[int, set[int]]) -> bool:
+    if not neighbors:
+        return False
+    seen = set()
+    stack = [next(iter(neighbors))]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(neighbors[current] - seen)
+    return len(seen) == len(neighbors)
+
+
 class AcyclicSkeletonWithRingSubstituentsRule:
     family = "acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("acyclic-with-ring-substituents")
@@ -5787,6 +5908,7 @@ def parent_rules(Chem) -> tuple:
     amino_acid = AminoAcidRetainedParentRule(Chem)
     biphenyl = BiphenylParentRule(Chem)
     diphenylbenzene = DiphenylbenzeneParentRule(Chem)
+    acene = AceneParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
@@ -5855,6 +5977,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("amino-acid-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), amino_acid.candidates),
         RuleSpec("biphenyl-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(2),), biphenyl.candidates),
         RuleSpec("diphenylbenzene-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(3),), diphenylbenzene.candidates),
+        RuleSpec("acene-retained-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(5),), acene.candidates),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",

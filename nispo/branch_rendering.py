@@ -309,8 +309,6 @@ def _retained_alkoxycarbonyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCan
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
         return None
-    if _has_nonaromatic_ring_amine_attachment(mol, parent_idx, idx):
-        return None
     double_oxygens = []
     single_oxygens = []
     for nbr in atom.GetNeighbors():
@@ -385,18 +383,6 @@ def _is_plain_terminal_methyl(mol, idx: int, parent_idx: int) -> bool:
     if bond is None or bond.GetBondTypeAsDouble() != 1.0:
         return False
     return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
-
-
-def _has_nonaromatic_ring_amine_attachment(mol, atom_idx: int, carbonyl_idx: int) -> bool:
-    atom = mol.GetAtomWithIdx(atom_idx)
-    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
-        return False
-    for nbr in atom.GetNeighbors():
-        if nbr.GetIdx() == carbonyl_idx:
-            continue
-        if nbr.GetAtomicNum() == 6 and nbr.IsInRing() and not nbr.GetIsAromatic():
-            return True
-    return False
 
 
 def _nitro_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

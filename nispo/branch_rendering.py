@@ -94,6 +94,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             _sem_methyl_prefix(mol, idx, parent_idx)
             or _cyano_prefix(mol, idx, parent_idx)
             or _formyl_prefix(mol, idx, parent_idx)
+            or _oxo_methyl_prefix(mol, idx, parent_idx)
             or _carboxylato_prefix(mol, idx, parent_idx)
             or _retained_acyl_prefix(mol, idx, parent_idx)
             or _carbamyl_prefix(mol, idx, parent_idx)
@@ -323,6 +324,34 @@ def _formyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if len(double_oxygens) != 1 or not _formyl_prefix_allowed(mol, idx, parent_idx):
         return None
     return _prefix_candidate("formyl", {idx, double_oxygens[0]}, idx, parent_idx, "formyl")
+
+
+def _oxo_methyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+        return None
+    if _atom_has_isotopic_hydrogen(atom):
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygens = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return None
+            double_oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 1 or _formyl_prefix_allowed(mol, idx, parent_idx):
+        return None
+    isotope = atom.GetIsotope()
+    text = f"1-oxo-methyl-{isotope}C" if isotope else "1-oxo-methyl"
+    return _prefix_candidate(text, {idx, double_oxygens[0]}, idx, parent_idx, "oxo-methyl")
 
 
 def _retained_acyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

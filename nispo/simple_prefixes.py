@@ -1009,6 +1009,7 @@ def _simple_retained_alkoxy_prefix(
         "benzyl": "benzyloxy",
         "difluoromethyl": "difluoromethoxy",
         "isobutyl": "isobutoxy",
+        "isopropyl": "isopropoxy",
         "trifluoromethyl": "trifluoromethoxy",
     }.get(candidate.text)
     if retained is None:

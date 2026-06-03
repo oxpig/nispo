@@ -263,6 +263,8 @@ def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
     orientations = _oriented_paths_by_quality(mol, paths)
     _record_acyclic_filter_stage(mol, "path_facts", len(paths))
     _record_acyclic_filter_stage(mol, "orientation_facts", len(orientations))
+    prefer_complete_stereo = _prefer_complete_acyclic_stereo_path(mol)
+    first_names: list[str] | None = None
     index = 0
     while index < len(orientations):
         descriptor = orientations[index][0]
@@ -278,14 +280,38 @@ def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
             "orientations_suppressed_before_render",
             max(0, len(descriptor_orientations) - len(render_set)),
         )
-        names = []
+        rendered_names: list[tuple[tuple[int, ...], str]] = []
         for oriented in render_set:
             name = _name_from_parent_path(mol, oriented, as_substituent=False)
             if name:
-                names.append(name)
+                rendered_names.append((oriented, name))
+        names = [name for _oriented, name in rendered_names]
         if names:
-            return min(names)
+            if not prefer_complete_stereo:
+                return min(names)
+            complete_stereo_names = [
+                name
+                for oriented, name in rendered_names
+                if _complete_path_stereo_prefix(mol, oriented)
+            ]
+            if complete_stereo_names:
+                return min(complete_stereo_names)
+            if first_names is None:
+                first_names = names
+    if first_names:
+        return min(first_names)
     return ""
+
+
+def _prefer_complete_acyclic_stereo_path(mol) -> bool:
+    return bool(assigned_atom_stereochemistry(mol, Chem, atom_order="idx") or _has_assigned_path_bond_stereo(mol))
+
+
+def _has_assigned_path_bond_stereo(mol) -> bool:
+    for bond in mol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            return True
+    return False
 
 
 def _acyclic_orientation_render_set(

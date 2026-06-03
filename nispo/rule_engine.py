@@ -1989,4 +1989,6 @@ def _mol_has_isotope(mol) -> bool:
 def _fallback_stereo_atom_order(family: str, name: str = "") -> str:
     if any(fragment in name for fragment in ("pseudouridin", "uridin", "spirostane")):
         return "idx"
-    return "idx_desc"
+    if ("pterin" in name or "pteridin" in name) and "tetrahydropterin" not in name:
+        return "idx_desc"
+    return "idx"

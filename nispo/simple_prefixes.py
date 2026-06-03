@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .candidate_facts import PrefixCandidate
-from .constants import HALO
+from .constants import HALO, MULT
 from .molecule_cache import mol_cache_dict, mol_cache_get
 
 
@@ -39,6 +39,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
     elif symbol == "C":
         candidate = (
             _simple_methylidene_prefix(mol, idx, parent_idx, order)
+            or _simple_isotopic_methyl_prefix(mol, idx, parent_idx, order)
             or _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
             or _simple_halomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_haloethyl_prefix(mol, idx, parent_idx, order)
@@ -92,6 +93,46 @@ def _simple_methylidene_prefix(mol, idx: int, parent_idx: int, order: float) -> 
     if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
         return None
     return _prefix_candidate("methylidene", {idx}, idx, parent_idx, "methylidene")
+
+
+def _simple_isotopic_methyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    deuterium_count = 0
+    tritium_count = 0
+    hydrogens = set()
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        if nbr.GetSymbol() != "H":
+            return None
+        hydrogens.add(nidx)
+        if nbr.GetIsotope() == 2:
+            deuterium_count += 1
+        elif nbr.GetIsotope() == 3:
+            tritium_count += 1
+        else:
+            return None
+    if deuterium_count and tritium_count:
+        return None
+    if deuterium_count:
+        text = _isotopic_methyl_text(deuterium_count, "deuterio")
+    elif tritium_count:
+        text = _isotopic_methyl_text(tritium_count, "tritio")
+    else:
+        return None
+    return _prefix_candidate(text, {idx, *hydrogens}, idx, parent_idx, "isotopic-methyl")
+
+
+def _isotopic_methyl_text(count: int, isotope_prefix: str) -> str:
+    if count == 1:
+        return isotope_prefix + "methyl"
+    multiplier = MULT.get(count)
+    return f"{multiplier}{isotope_prefix}methyl" if multiplier else ""
 
 
 def _simple_fluoromethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

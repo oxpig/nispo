@@ -89,12 +89,15 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
         return (
             _cyano_prefix(mol, idx, parent_idx)
             or _formyl_prefix(mol, idx, parent_idx)
+            or _retained_acyl_prefix(mol, idx, parent_idx)
             or _carbamyl_prefix(mol, idx, parent_idx)
             or _retained_alkoxycarbonyl_prefix(mol, idx, parent_idx)
             or _carboxy_prefix(mol, idx, parent_idx)
         )
     if symbol == "N":
         return _nitro_prefix(mol, idx, parent_idx)
+    if symbol == "S":
+        return _mesyl_prefix(mol, idx, parent_idx)
     return None
 
 
@@ -151,6 +154,47 @@ def _formyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if len(double_oxygens) != 1 or not _formyl_prefix_allowed(mol, idx, parent_idx):
         return None
     return _prefix_candidate("formyl", {idx, double_oxygens[0]}, idx, parent_idx, "formyl")
+
+
+def _retained_acyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygens = []
+    carbon_ligands = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondTypeAsDouble() == 1.0:
+            carbon_ligands.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 1 or len(carbon_ligands) != 1:
+        return None
+    oxygen = mol.GetAtomWithIdx(double_oxygens[0])
+    if oxygen.GetFormalCharge() != 0 or oxygen.GetIsotope():
+        return None
+    ligand_candidates = simple_external_prefix_candidates(mol, carbon_ligands[0], idx)
+    if len(ligand_candidates) != 1:
+        return None
+    ligand = ligand_candidates[0]
+    retained = {"methyl": "acetyl"}.get(ligand.text)
+    if retained is None:
+        return None
+    return _prefix_candidate(
+        retained,
+        {idx, double_oxygens[0], *ligand.atoms},
+        idx,
+        parent_idx,
+        "retained-acyl",
+    )
 
 
 def _carboxy_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
@@ -329,6 +373,35 @@ def _nitro_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     elif mol.GetAtomWithIdx(parent_idx).GetSymbol() != "O":
         return None
     return _prefix_candidate("nitro", {idx, *oxygens}, idx, parent_idx, "nitro")
+
+
+def _mesyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygens = []
+    methyl_ligands = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return None
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondTypeAsDouble() == 1.0:
+            if not _is_plain_terminal_methyl(mol, nidx, idx):
+                return None
+            methyl_ligands.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 2 or len(methyl_ligands) != 1:
+        return None
+    return _prefix_candidate("mesyl", {idx, *double_oxygens, methyl_ligands[0]}, idx, parent_idx, "mesyl")
 
 
 def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

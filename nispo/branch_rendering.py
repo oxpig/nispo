@@ -835,9 +835,14 @@ def _simple_five_member_heteroaryl_prefix(
     parent_idx: int,
 ) -> PrefixCandidate | None:
     ring_set = set(ring)
+    counts = _ring_symbol_counts(mol, ring)
+    if counts == {"C": 3, "N": 2}:
+        n_methyl_pyrazolyl = _n_methyl_pyrazolyl_prefix(mol, ring_set, idx, parent_idx)
+        if n_methyl_pyrazolyl is not None:
+            text, atoms = n_methyl_pyrazolyl
+            return _prefix_candidate(text, atoms, idx, parent_idx, "n-methyl-pyrazolyl-ring")
     if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
         return None
-    counts = _ring_symbol_counts(mol, ring)
     text = None
     if counts == {"C": 4, "O": 1}:
         text = _single_heteroaryl_prefix(mol, ring_set, idx, "O", "furyl")
@@ -854,6 +859,57 @@ def _simple_five_member_heteroaryl_prefix(
     if text is None:
         return None
     return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-five-member-heteroaryl-ring")
+
+
+def _n_methyl_pyrazolyl_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+) -> tuple[str, set[int]] | None:
+    if mol.GetAtomWithIdx(idx).GetSymbol() == "N":
+        return None
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 2:
+        return None
+    n1, n2 = nitrogens
+    if not _ring_atoms_adjacent(mol, ring_set, n1, n2):
+        return None
+    external = _ring_external_heavy_neighbors_by_atom(mol, ring_set)
+    for atom_idx, neighbors in external.items():
+        if atom_idx == idx:
+            if neighbors != [parent_idx]:
+                return None
+        elif atom_idx not in nitrogens and neighbors:
+            return None
+    substituted_nitrogens = [nidx for nidx in nitrogens if external[nidx]]
+    if len(substituted_nitrogens) != 1:
+        return None
+    substituted_nitrogen = substituted_nitrogens[0]
+    methyl_idx = external[substituted_nitrogen][0]
+    if not _is_plain_terminal_methyl(mol, methyl_idx, substituted_nitrogen):
+        return None
+    plain_nitrogen = n1 if substituted_nitrogen == n2 else n2
+    if external[plain_nitrogen]:
+        return None
+    if any(mol.GetAtomWithIdx(nidx).GetTotalNumHs() for nidx in nitrogens):
+        return None
+    locants = _pyrazole_locants(mol, ring_set, substituted_nitrogen, plain_nitrogen)
+    locant = locants.get(idx)
+    if locant not in {3, 4, 5}:
+        return None
+    return f"1-methylpyrazol-{locant}-yl", ring_set | {methyl_idx}
+
+
+def _ring_external_heavy_neighbors_by_atom(mol, ring_set: set[int]) -> dict[int, list[int]]:
+    external: dict[int, list[int]] = {}
+    for atom_idx in ring_set:
+        external[atom_idx] = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+            if nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1
+        ]
+    return external
 
 
 def _single_heteroaryl_prefix(

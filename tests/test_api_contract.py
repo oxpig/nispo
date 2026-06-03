@@ -208,6 +208,22 @@ def test_steroid_terminal_side_chain_natural_topology_roundtrips(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCC1(O)C(=O)Nc2nccc(Cl)c21",
+        "CC1(C)C(=O)Nc2cc(-c3ccccc3)cnc21",
+        "CC1(C)NC(=O)c2ccc(-c3c[nH]c4c(Cl)cccc34)nc21",
+    ],
+)
+def test_locanted_diazaindane_lactams_defer_to_roundtripping_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[CH2-]CCC",
         "[CH-]=CCC",
         "[CH2+]CCC",

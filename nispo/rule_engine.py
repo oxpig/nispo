@@ -1229,7 +1229,7 @@ def _has_fragile_azaindanone_alias(name: str, candidate: NameCandidate) -> bool:
         return False
     return bool(
         re.search(r"\b\d+-azaindan-\d+\(\dH\)-one\b", name)
-        or re.search(r"\b(?:di|tri)azaindan-\d+\(\dH\)-one\b", name)
+        or re.search(r"\b(?:\d+(?:,\d+)*-)?(?:di|tri)azaindane?-\d+\(\dH\)-one\b", name)
     )
 
 

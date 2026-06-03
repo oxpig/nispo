@@ -507,6 +507,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_sulfamoyl_benzene = _has_fragile_single_ring_sulfamoyl_benzene(name, item.candidate)
     fragile_fused_substituent_benzene = _has_fragile_single_ring_fused_substituent_benzene(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
+    fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -516,6 +517,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_sulfamoyl_benzene
         or fragile_fused_substituent_benzene
         or missing_relative_stereo
+        or fragile_bridge_h_ketone
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -537,6 +539,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=35, max_length=140
     ):
         penalty += 36
+    if fragile_bridge_h_ketone and _has_contextual_oxo_bridge_parent_alternative(item, prepared):
+        penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
     if has_graph_parent and aza_alias_penalty:
@@ -615,6 +619,47 @@ def _has_contextual_acyclic_parent_alternative(
         if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+_BRIDGE_PARENT_PATTERN = r"(?:bicyclo|tricyclo|tetracyclo|pentacyclo|hexacyclo|heptacyclo|spiro|dispiro)\["
+
+
+def _has_fragile_bridge_indicated_h_ketone_suffix(name: str) -> bool:
+    if not re.search(r"-\d+[a-z]?\(\d+[a-z]?H\)-one\b", name):
+        return False
+    return bool(re.search(rf"(?:^|[-(])[^()\s]*?{_BRIDGE_PARENT_PATTERN}[^\]]+\][^)]*-", name))
+
+
+def _has_contextual_oxo_bridge_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 30,
+    max_length: int = 140,
+) -> bool:
+    graph_oxo_families = {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "kekulized-generic-polycyclic-parent",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in graph_oxo_families:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if "-oxo-" not in other.name and not re.search(r"(?:^|-)\d+[a-z]?-oxo-", other.name):
+            continue
+        if not re.search(_BRIDGE_PARENT_PATTERN, other.name):
+            continue
+        if _has_fragile_bridge_indicated_h_ketone_suffix(other.name):
             continue
         return True
     return False

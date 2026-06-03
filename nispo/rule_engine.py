@@ -509,6 +509,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_fused_pyrazole_substituent = _has_fragile_fused_pyrazole_substituent_parent(name, item.candidate)
     fragile_fused_pyrazole_carbonyl = _has_fragile_fused_pyrazole_carbonyl_parent(name, item.candidate)
     fragile_retained_spiro_alias = _has_fragile_retained_spiro_alias(name, item.candidate)
+    fragile_dibenzofuran_alias = _has_fragile_dibenzofuran_alias(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
@@ -522,6 +523,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_fused_pyrazole_substituent
         or fragile_fused_pyrazole_carbonyl
         or fragile_retained_spiro_alias
+        or fragile_dibenzofuran_alias
         or missing_relative_stereo
         or fragile_bridge_h_ketone
         or aza_alias_penalty
@@ -557,6 +559,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=55, max_length=130
     ):
         penalty += 60
+    if fragile_dibenzofuran_alias and _has_contextual_oxafluoren_alternative(item, prepared):
+        penalty += 40
     if fragile_bridge_h_ketone and _has_contextual_oxo_bridge_parent_alternative(item, prepared):
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
@@ -690,6 +694,28 @@ def _has_contextual_component_spiro_alternative(
     return False
 
 
+def _has_contextual_oxafluoren_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 12,
+    max_length: int = 90,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "skeletal-replacement-fused-parent":
+            continue
+        if "oxafluoren" not in other.name:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
 _BRIDGE_PARENT_PATTERN = r"(?:bicyclo|tricyclo|tetracyclo|pentacyclo|hexacyclo|heptacyclo|spiro|dispiro)\["
 
 
@@ -788,6 +814,10 @@ def _has_fragile_retained_spiro_alias(name: str, candidate: NameCandidate) -> bo
             name,
         )
     )
+
+
+def _has_fragile_dibenzofuran_alias(name: str, candidate: NameCandidate) -> bool:
+    return "dibenzofuran" in name and "oxafluoren" not in name
 
 
 def _has_contextual_relative_stereo_alternative(

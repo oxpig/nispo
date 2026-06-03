@@ -3506,7 +3506,7 @@ class RetainedRingScaffoldParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() == 0:
+        if mol.GetRingInfo().NumRings() < 2:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return

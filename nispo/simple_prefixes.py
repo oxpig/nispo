@@ -439,8 +439,20 @@ def _simple_benzyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Prefi
     bond = mol.GetBondBetweenAtoms(idx, ring_idx)
     if bond is None or bond.GetBondTypeAsDouble() != 1.0:
         return None
-    ring = _unsubstituted_phenyl_ring(mol, ring_idx, idx)
+    ring = _phenyl_ring(mol, ring_idx, idx)
     if ring is None:
+        return None
+    substituent = _single_methoxybenzyl_substituent(mol, ring, ring_idx, idx)
+    if substituent is not None:
+        locant, methoxy_atoms = substituent
+        return _prefix_candidate(
+            f"{locant}-methoxybenzyl",
+            {idx, *ring, *methoxy_atoms},
+            idx,
+            parent_idx,
+            "substituted-benzyl",
+        )
+    if not _phenyl_ring_is_unsubstituted(mol, ring, ring_idx, idx):
         return None
     return _prefix_candidate("benzyl", {idx, *ring}, idx, parent_idx, "benzyl")
 
@@ -657,7 +669,7 @@ def _terminal_carboxyl_atoms(mol, carbon_idx: int, parent_idx: int) -> tuple[str
     return text, {carbon_idx, double_oxygens[0], single_oxygens[0]}
 
 
-def _unsubstituted_phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:
+def _phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:
     rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if attachment_idx in ring and parent_idx not in ring]
     if len(rings) != 1:
         return None
@@ -676,14 +688,76 @@ def _unsubstituted_phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tup
         for atom in atoms
     ):
         return None
+    return ring
+
+
+def _unsubstituted_phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:
+    ring = _phenyl_ring(mol, attachment_idx, parent_idx)
+    if ring is None or not _phenyl_ring_is_unsubstituted(mol, ring, attachment_idx, parent_idx):
+        return None
+    return ring
+
+
+def _phenyl_ring_is_unsubstituted(mol, ring: tuple[int, ...], attachment_idx: int, parent_idx: int) -> bool:
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
     for atom in atoms:
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx in ring_set or (atom.GetIdx() == attachment_idx and nidx == parent_idx):
                 continue
             if nbr.GetAtomicNum() > 1:
+                return False
+    return True
+
+
+def _single_methoxybenzyl_substituent(
+    mol,
+    ring: tuple[int, ...],
+    attachment_idx: int,
+    parent_idx: int,
+) -> tuple[int, frozenset[int]] | None:
+    ring_set = set(ring)
+    substituents = []
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom_idx == attachment_idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() <= 1:
+                continue
+            candidates = simple_external_prefix_candidates(mol, nidx, atom_idx)
+            if len(candidates) != 1:
                 return None
-    return ring
+            candidate = candidates[0]
+            if candidate.text != "methoxy":
+                return None
+            substituents.append((atom_idx, candidate))
+    if len(substituents) != 1:
+        return None
+    atom_idx, candidate = substituents[0]
+    locant = _ring_locant(mol, ring_set, attachment_idx, atom_idx)
+    if locant is None or locant <= 1:
+        return None
+    return locant, candidate.atoms
+
+
+def _ring_locant(mol, ring_set: set[int], start_idx: int, target_idx: int) -> int | None:
+    seen = {start_idx}
+    frontier = [(start_idx, 0)]
+    while frontier:
+        atom_idx, distance = frontier.pop(0)
+        if atom_idx == target_idx:
+            return distance + 1
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring_set or nidx in seen:
+                continue
+            seen.add(nidx)
+            frontier.append((nidx, distance + 1))
+    return None
 
 
 def _atom_has_assigned_stereo(atom) -> bool:

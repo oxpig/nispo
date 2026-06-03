@@ -196,9 +196,14 @@ def _select_best_prepared_candidate(
     best_key: tuple | None = None
     for item in prepared:
         candidate = item.candidate
-        stability_penalty = item.stability_penalty + _candidate_selection_contextual_penalty(item, prepared)
+        stability_penalty = (
+            item.stability_penalty
+            + _candidate_selection_contextual_penalty(item, prepared)
+            + _candidate_selection_broad_graph_parent_penalty(item, prepared)
+        )
+        selection_bonus = item.selection_bonus + _candidate_selection_graph_parent_bonus(candidate)
         candidate_key = (
-            len(item.name) + stability_penalty - item.selection_bonus,
+            len(item.name) + stability_penalty - selection_bonus,
             len(item.name),
             stability_penalty,
             candidate.priority,
@@ -520,6 +525,79 @@ _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES = {
     "preferred-acyclic-skeleton-with-ring-substituents",
     "single-ring-parent",
 }
+
+
+_GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY = {
+    "acyclic-skeleton-with-ring-substituents": 19,
+    "chain-dominant-acyclic-skeleton-with-ring-substituents": 19,
+    "component-dispiro-parent": 21,
+    "component-spiro-parent": 21,
+    "functional-generic-bicyclic-parent": 24,
+    "generated-fused-parent": 24,
+    "generated-hydro-fused-parent": 24,
+    "generated-partial-hydro-fused-parent": 21,
+    "generic-bicyclic-parent": 24,
+    "generic-spiro-parent": 24,
+    "kekulized-generic-polycyclic-parent": 30,
+    "poly-component-spiro-parent": 21,
+    "preferred-acyclic-skeleton-with-ring-substituents": 19,
+}
+
+_BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES = (
+    _CONTEXTUAL_GRAPH_PARENT_FAMILIES
+    | _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES
+    | {
+        "component-dispiro-parent",
+        "functional-generic-bicyclic-parent",
+        "poly-component-spiro-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
+_BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES = {
+    "acyclic-parent",
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-hydro-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "retained-topology-replacement-fused-parent",
+    "skeletal-replacement-fused-parent",
+    "single-ring-parent",
+    "whole-molecule-retained-parent",
+}
+
+
+def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
+    return _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
+
+
+def _candidate_selection_broad_graph_parent_penalty(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
+        return 0
+    if not _has_contextual_broad_graph_parent_alternative(item, prepared):
+        return 0
+    return 70
+
+
+def _has_contextual_broad_graph_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > 240 or len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
 
 
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:

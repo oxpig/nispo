@@ -83,6 +83,8 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
     symbol = atom.GetSymbol()
     if symbol == "H":
         return _isotopic_hydrogen_prefix(atom, idx, parent_idx)
+    if symbol == "B":
+        return _pinacol_boronate_prefix(mol, idx, parent_idx) or _borono_prefix(mol, idx, parent_idx)
     if atom.IsInRing():
         return _simple_ring_prefix(mol, idx, parent_idx)
     if symbol == "C":
@@ -109,8 +111,6 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             or _thioxo_prefix(mol, idx, parent_idx)
             or _mesyl_prefix(mol, idx, parent_idx)
         )
-    if symbol == "B":
-        return _borono_prefix(mol, idx, parent_idx)
     return None
 
 
@@ -514,6 +514,87 @@ def _borono_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if len(oxygens) != 2:
         return None
     return _prefix_candidate("borono", {idx, *oxygens}, idx, parent_idx, "borono")
+
+
+def _pinacol_boronate_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    oxygen_indices = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondTypeAsDouble() == 1.0:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return None
+            oxygen_indices.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(oxygen_indices) != 2:
+        return None
+    ring_carbons = []
+    for oxygen_idx in oxygen_indices:
+        carbon_idx = _single_heavy_neighbor_with_symbol(mol, oxygen_idx, idx, "C")
+        if carbon_idx is None:
+            return None
+        ring_carbons.append(carbon_idx)
+    if len(set(ring_carbons)) != 2:
+        return None
+    carbon_bond = mol.GetBondBetweenAtoms(ring_carbons[0], ring_carbons[1])
+    if carbon_bond is None or carbon_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    methyl_atoms = []
+    for carbon_idx in ring_carbons:
+        carbon = mol.GetAtomWithIdx(carbon_idx)
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.GetIsotope():
+            return None
+        methyls = []
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_carbons or nidx in oxygen_indices:
+                continue
+            if not _is_plain_terminal_methyl(mol, nidx, carbon_idx):
+                return None
+            methyls.append(nidx)
+        if len(methyls) != 2:
+            return None
+        methyl_atoms.extend(methyls)
+    return _prefix_candidate(
+        "4,4,5,5-tetramethyl-1,3,2-dioxaborolan-2-yl",
+        {idx, *oxygen_indices, *ring_carbons, *methyl_atoms},
+        idx,
+        parent_idx,
+        "pinacol-boronate",
+    )
+
+
+def _single_heavy_neighbor_with_symbol(
+    mol,
+    atom_idx: int,
+    blocked_idx: int,
+    symbol: str,
+) -> int | None:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != blocked_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    neighbor_idx = heavy[0]
+    neighbor = mol.GetAtomWithIdx(neighbor_idx)
+    bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+    if neighbor.GetSymbol() != symbol or bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    return neighbor_idx
 
 
 def _is_terminal_hydroxy_oxygen(mol, oxygen_idx: int, parent_idx: int) -> bool:

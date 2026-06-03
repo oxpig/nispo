@@ -67,6 +67,7 @@ from .template_index import ring_system_with_graph_signatures
 _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
 _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 1
 _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 16
+_RETAINED_FUSED_RENDER_SET_SIZE = 16
 _SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 1
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 1
 _GENERATED_FUSED_RENDER_SET_SIZE = 8
@@ -3366,30 +3367,33 @@ class FusedParentRule:
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
-        yielded_names: set[str] = set()
+        facts = self._candidate_facts(ctx)
+        if ctx.telemetry is not None:
+            ctx.telemetry.candidate_facts_total[self.family] += len(facts)
+        render_set = _retained_fused_render_set(facts)
+        if ctx.telemetry is not None:
+            ctx.telemetry.render_set_size[self.family] += len(render_set)
+            ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
+
+        yield from self._render_facts(ctx, render_set)
+
+    def _candidate_facts(self, ctx) -> tuple["_RetainedFusedCandidateFacts", ...]:
+        mol = ctx.mol
+        facts: list[_RetainedFusedCandidateFacts] = []
+        exact_facts = 0
+        topology_facts = 0
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
         ):
-            name = _name_fused_core_match(mol, template, match)
-            if name:
-                if _unsafe_benz_a_anthracene_candidate(name):
-                    continue
-                if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
-                    continue
-                mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
-                yield NameCandidate(
-                    name=name,
-                    family=self.family,
-                    priority=self.priority,
-                    sort_key=self._candidate_sort_key(mol, template, match, name),
-                    parent_atoms=frozenset(match),
-                    template_id=id(template),
-                    template_name=template_record_name(template),
-                    source_family=str(template.get("source_family", "")),
-                    source_file=str(template.get("source_file", "")),
-                    estimated_length=len(name),
+            facts.append(
+                _RetainedFusedCandidateFacts(
+                    template=template,
+                    match=tuple(match),
+                    topology_query=False,
+                    structural_key=_retained_fused_fact_sort_key(template, match, topology_query=False),
                 )
-                yielded_names.add(name)
+            )
+            exact_facts += 1
 
         for template, match in _iter_fused_template_matches(
             ctx,
@@ -3401,30 +3405,90 @@ class FusedParentRule:
         ):
             if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
                 continue
+            facts.append(
+                _RetainedFusedCandidateFacts(
+                    template=template,
+                    match=tuple(match),
+                    topology_query=True,
+                    structural_key=_retained_fused_fact_sort_key(template, match, topology_query=True),
+                )
+            )
+            topology_facts += 1
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
+            ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += topology_facts
+        return tuple(facts)
+
+    def _render_facts(self, ctx, facts: tuple["_RetainedFusedCandidateFacts", ...]):
+        mol = ctx.mol
+        yielded_names: set[str] = set()
+        for render_rank, fact in enumerate(facts, start=1):
+            template = fact.template
+            match = fact.match
             name = _name_fused_core_match(mol, template, match)
             if not name or name in yielded_names:
                 continue
-            if not _allow_retained_topology_fused_candidate(template_record_name(template), name):
+            if _unsafe_benz_a_anthracene_candidate(name):
                 continue
             if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                 continue
+            if fact.topology_query and not _allow_retained_topology_fused_candidate(template_record_name(template), name):
+                continue
+            sort_key = self._candidate_sort_key(mol, template, match, name)
+            if fact.topology_query:
+                sort_key = (
+                    _retained_topology_fused_candidate_rank(template_record_name(template), name),
+                    sort_key,
+                )
             yielded_names.add(name)
             mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=self.priority,
-                sort_key=(
-                    _retained_topology_fused_candidate_rank(template_record_name(template), name),
-                    self._candidate_sort_key(mol, template, match, name),
-                ),
+                sort_key=sort_key,
                 parent_atoms=frozenset(match),
                 template_id=id(template),
                 template_name=template_record_name(template),
                 source_family=str(template.get("source_family", "")),
                 source_file=str(template.get("source_file", "")),
                 estimated_length=len(name),
+                render_rank=render_rank,
             )
+
+
+@dataclass(frozen=True, slots=True)
+class _RetainedFusedCandidateFacts:
+    template: dict
+    match: tuple[int, ...]
+    topology_query: bool
+    structural_key: tuple
+
+
+def _retained_fused_fact_sort_key(
+    template: dict,
+    match: Sequence[int],
+    *,
+    topology_query: bool,
+) -> tuple:
+    template_name = template_record_name(template)
+    return (
+        1 if topology_query else 0,
+        _template_source_rank(template),
+        _hydrogenated_template_penalty(template_name),
+        -len(match),
+        len(template_name),
+        template_name,
+        tuple(match),
+    )
+
+
+def _retained_fused_render_set(
+    facts: tuple[_RetainedFusedCandidateFacts, ...],
+) -> tuple[_RetainedFusedCandidateFacts, ...]:
+    if len(facts) <= _RETAINED_FUSED_RENDER_SET_SIZE:
+        return facts
+    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_FUSED_RENDER_SET_SIZE])
 
 
 class RetainedRingScaffoldParentRule:

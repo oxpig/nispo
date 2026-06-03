@@ -48,6 +48,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_hydroxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_alkoxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_aminomethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_dimethylaminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_acetenyl_prefix(mol, idx, parent_idx, order)
@@ -659,6 +660,46 @@ def _simple_aminomethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> 
     if any(nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1 for nbr in nitrogen.GetNeighbors()):
         return None
     return _prefix_candidate("aminomethyl", {idx, nitrogen_idx}, idx, parent_idx, "aminomethyl")
+
+
+def _simple_dimethylaminomethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    nitrogen_idx = heavy[0]
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing() or nitrogen.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(nitrogen):
+        return None
+    bond = mol.GetBondBetweenAtoms(idx, nitrogen_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    methyls = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(methyls) != 2 or not all(_is_terminal_methyl(mol, methyl_idx, nitrogen_idx) for methyl_idx in methyls):
+        return None
+    return _prefix_candidate(
+        "dimethylaminomethyl",
+        {idx, nitrogen_idx, *methyls},
+        idx,
+        parent_idx,
+        "dimethylaminomethyl",
+    )
 
 
 def _simple_cyanomethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

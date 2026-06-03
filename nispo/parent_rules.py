@@ -3378,7 +3378,7 @@ class WholeMoleculeRetainedParentRule:
                 if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
                     continue
                 candidate_name = _template_isotope_prefixed_parent_name(mol, template, match, name)
-                candidate_name = _preferred_parent_stem(candidate_name)
+                candidate_name = _opsin_parseable_retained_parent_name(candidate_name)
                 stereo_prefix = ""
                 if template.get("source_file") == "naturalProducts.xml" and template.get("stereochemical"):
                     stereo_prefix = _locanted_template_stereo_prefix(mol, self._Chem, template, match)
@@ -3402,19 +3402,19 @@ def _standalone_whole_molecule_retained_name(template: dict) -> str:
         if carbohydrate_name:
             return carbohydrate_name
     if source_file == "naturalProducts.xml" and "'" not in raw_name and not raw_name.endswith("ylic"):
-        return _preferred_parent_stem(name)
+        return _opsin_parseable_retained_parent_name(name)
     if source_file in _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES:
         acid_name = _standalone_retained_acid_name(raw_name)
         if acid_name:
             return acid_name
-        return _preferred_parent_stem(name)
+        return _opsin_parseable_retained_parent_name(name)
     if source_file == "opsin_retained_mono_fused_ring_smiles.csv":
         acid_name = _standalone_retained_acid_name(raw_name)
         if acid_name:
             return acid_name
-        return _preferred_parent_stem(name)
+        return _opsin_parseable_retained_parent_name(name)
     if name in {"benzyn", "tropylium"}:
-        return _preferred_parent_stem(name)
+        return _opsin_parseable_retained_parent_name(name)
     return ""
 
 
@@ -5164,6 +5164,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
         yielded = 0
         for render_rank, fact in enumerate(render_set, start=1):
             name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            name = _opsin_parseable_retained_parent_name(name)
             if not name or name in yielded_names:
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
@@ -5296,6 +5297,7 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
         yielded = 0
         for render_rank, fact in enumerate(render_set, start=1):
             name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            name = _opsin_parseable_retained_parent_name(name)
             if not name or name in yielded_names:
                 continue
             if _unsafe_retained_ring_scaffold_candidate(name):
@@ -5656,7 +5658,7 @@ class ExactRetainedParentRule:
                         else self.family
                     )
                     yield NameCandidate(
-                        name=_preferred_parent_stem(template_record_name(template)),
+                        name=_opsin_parseable_retained_parent_name(template_record_name(template)),
                         family=family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
@@ -5697,7 +5699,7 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                         else self.family
                     )
                     yield NameCandidate(
-                        name=_preferred_parent_stem(template_record_name(template)),
+                        name=_opsin_parseable_retained_parent_name(template_record_name(template)),
                         family=family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
@@ -6018,6 +6020,7 @@ from .parent.rule_helpers import (
     _has_n_oxide_on_match,
     _name_fused_core_match,
     _name_natural_product_topology_match,
+    _opsin_parseable_retained_parent_name,
     _fused_oxo_suffix_name,
     _adjust_fused_parent_for_charge,
     _drop_indicated_hydrogen_prefix,

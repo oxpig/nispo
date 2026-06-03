@@ -146,6 +146,23 @@ def test_neutral_iodane_parent_roundtrips_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "COc1ccc(O)cc1",
+        "O=C(O)c1ccc(O)cc1",
+        "CC1(C)OBOC1(C)C",
+        "O=C1COc2ccccc2N1",
+    ],
+)
+def test_retained_parent_aliases_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

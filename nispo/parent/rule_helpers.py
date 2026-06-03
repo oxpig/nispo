@@ -26,6 +26,18 @@ from ..simple_prefixes import simple_external_prefix
 from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
+_OPSIN_PARSEABLE_RETAINED_PARENT_ALIASES = {
+    "4-azachroman-3(4H)-one": "3,4-dihydro-2H-1,4-benzoxazin-3-one",
+    "boronicacidpinacolester": "4,4,5,5-tetramethyl-1,3,2-dioxaborolane",
+    "mequinol": "4-methoxyphenol",
+    "paraben": "4-hydroxybenzoic acid",
+}
+
+
+def _opsin_parseable_retained_parent_name(name: str) -> str:
+    preferred = _preferred_parent_stem(name)
+    return _OPSIN_PARSEABLE_RETAINED_PARENT_ALIASES.get(preferred, preferred)
+
 _BICYCLIC_FUSION_BASES = {
     "indole",
     "indazole",
@@ -389,7 +401,7 @@ def _retained_topology_replacement_parent_name(mol, template: dict, match: Seque
     parent_name = _terminal_retained_parent_name(template_record_name(template))
     if parent_name == "gon":
         parent_name = "cyclopenta[a]phenanthren"
-    return "-".join(parts) + parent_name
+    return _opsin_parseable_retained_parent_name("-".join(parts) + parent_name)
 
 
 def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) -> tuple:
@@ -887,6 +899,7 @@ def _name_fused_core_match(
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
+    parent_name = _opsin_parseable_retained_parent_name(parent_name)
     prefixes = []
     for mol_idx in match:
         template_idx = reverse[mol_idx]
@@ -1316,6 +1329,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
         if not adjusted_parent:
             continue
         adjusted_parent = _append_ring_parent_isotope_suffixes(mol, adjusted_parent, seq)
+        adjusted_parent = _opsin_parseable_retained_parent_name(adjusted_parent)
         if not raw_subs:
             name = _join_prefix_parent("", adjusted_parent)
             key = ([], name)
@@ -1381,6 +1395,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_seq = seq
     if not best_name:
         return []
+    best_name = _opsin_parseable_retained_parent_name(best_name)
     return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name))]
 
 

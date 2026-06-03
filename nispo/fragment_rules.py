@@ -136,10 +136,13 @@ PERFLUORO_ANIONS = {
 }
 
 OXOANIONS = {
+    ("C", 2, -1, 0): "formate",
+    ("C", 2, 0, 1): "formic acid",
     ("C", 3, -2, 0): "carbonate",
     ("C", 3, -1, 1): "hydrogen carbonate",
     ("N", 2, -1, 0): "nitrite",
     ("N", 3, -1, 0): "nitrate",
+    ("N", 3, -2, 0): "azonate",
     ("P", 4, -3, 0): "phosphate",
     ("P", 4, -2, 1): "hydrogen phosphate",
     ("P", 4, -1, 2): "dihydrogen phosphate",
@@ -156,6 +159,7 @@ OXOANIONS = {
     ("Br", 3, -1, 0): "bromate",
     ("Br", 4, -1, 0): "perbromate",
     ("I", 1, -1, 0): "hypoiodite",
+    ("I", 2, -1, 0): "iodite",
     ("I", 3, -1, 0): "iodate",
     ("I", 4, -1, 0): "periodate",
 }
@@ -272,7 +276,9 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _tetraorganoborate_name(mol, Chem)
         or _azanide_name(mol, Chem)
         or _perfluoro_counterion_name(mol, Chem)
+        or _trifluoroacetate_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
+        or _phosphorus_thiooxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
         or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
@@ -286,11 +292,27 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() < 2:
         return ""
     return (
-        _peracetate_name(mol, Chem)
+        _azanol_name(mol, Chem)
+        or _peracetate_name(mol, Chem)
         or _isothiouronium_name(mol, Chem)
         or _isouronium_name(mol, Chem)
         or _selenocysteamine_name(mol, Chem)
     )
+
+
+def _azanol_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"N": 1, "O": 1} or _total_charge(mol) != 0:
+        return ""
+    nitrogen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"), None)
+    oxygen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"), None)
+    if nitrogen is None or oxygen is None:
+        return ""
+    bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if nitrogen.GetNumRadicalElectrons() or oxygen.GetNumRadicalElectrons():
+        return ""
+    return "azanol" if nitrogen.GetTotalNumHs() == 2 and oxygen.GetTotalNumHs() == 1 else ""
 
 
 def _peracetate_name(mol, Chem) -> str:
@@ -622,6 +644,41 @@ def _perfluoro_counterion_name(mol, Chem) -> str:
     return PERFLUORO_ANIONS.get((center.GetSymbol(), len(fluorines), total_charge), "")
 
 
+def _trifluoroacetate_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 2, "F": 3, "O": 2} or _total_charge(mol) != -1:
+        return ""
+    carbonyl_carbons = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+            for nbr in atom.GetNeighbors()
+        )
+    ]
+    if len(carbonyl_carbons) != 1:
+        return ""
+    carbonyl = carbonyl_carbons[0]
+    has_anionic_oxygen = False
+    trifluoromethyl_neighbor = None
+    for nbr in carbonyl.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbonyl.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            has_anionic_oxygen = True
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            trifluoromethyl_neighbor = nbr
+    if not has_anionic_oxygen or trifluoromethyl_neighbor is None:
+        return ""
+    fluorine_neighbors = [
+        nbr
+        for nbr in trifluoromethyl_neighbor.GetNeighbors()
+        if nbr.GetSymbol() == "F"
+        and mol.GetBondBetweenAtoms(trifluoromethyl_neighbor.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    return "trifluoroacetate" if len(fluorine_neighbors) == 3 and trifluoromethyl_neighbor.GetDegree() == 4 else ""
+
+
 def _oxoanion_name(mol, Chem) -> str:
     atoms = list(mol.GetAtoms())
     centers = [atom for atom in atoms if atom.GetSymbol() != "O"]
@@ -635,6 +692,36 @@ def _oxoanion_name(mol, Chem) -> str:
         return ""
     hydroxy_count = sum(oxygen.GetTotalNumHs() for oxygen in oxygens)
     return OXOANIONS.get((center.GetSymbol(), len(oxygens), _total_charge(mol), hydroxy_count), "")
+
+
+def _phosphorus_thiooxoanion_name(mol, Chem) -> str:
+    if _total_charge(mol) != -3:
+        return ""
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    pidx = phosphorus.GetIdx()
+    single_oxido = 0
+    single_sulfido = 0
+    double_sulfur = 0
+    for nbr in phosphorus.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(pidx, nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            single_oxido += 1
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            single_sulfido += 1
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur += 1
+        else:
+            return ""
+    if double_sulfur != 1:
+        return ""
+    if single_oxido == 3 and single_sulfido == 0:
+        return "thiophosphate"
+    if single_oxido == 2 and single_sulfido == 1:
+        return "dithiophosphate"
+    return ""
 
 
 def _organophosphorus_oxoanion_name(mol, Chem) -> str:

@@ -3326,6 +3326,12 @@ def _standalone_whole_molecule_retained_name(template: dict) -> str:
     raw_name = template_record_name(template)
     name = _terminal_retained_parent_name(raw_name)
     source_file = template.get("source_file", "")
+    if source_file == "aminoAcids.xml" and not _template_has_carbonyl_group(template):
+        return ""
+    if source_file == "carbohydrates.xml":
+        carbohydrate_name = _standalone_carbohydrate_name(name)
+        if carbohydrate_name:
+            return carbohydrate_name
     if source_file == "naturalProducts.xml" and "'" not in raw_name and not raw_name.endswith("ylic"):
         return _preferred_parent_stem(name)
     if source_file in _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES:
@@ -3355,6 +3361,19 @@ def _standalone_retained_acid_name(raw_name: str) -> str:
     return ""
 
 
+def _template_has_carbonyl_group(template: dict) -> bool:
+    mol = template_record_mol(template)
+    return any(
+        atom.GetSymbol() == "C"
+        and any(
+            nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondTypeAsDouble() == 2.0
+            for nbr in atom.GetNeighbors()
+        )
+        for atom in mol.GetAtoms()
+    )
+
+
 def _formal_charge(mol) -> int:
     cached = mol_cache_get(mol, "formal_charge")
     if cached is not None:
@@ -3374,6 +3393,42 @@ _EXACT_WHOLE_MOLECULE_RETAINED_SOURCE_FILES = {
     "simpleCyclicGroups.xml",
     "simpleGroups.xml",
 }
+
+
+_CARBOHYDRATE_STANDALONE_NAMES = {
+    "abequ": "abequose",
+    "all": "allose",
+    "altr": "altrose",
+    "api": "apiose",
+    "arabin": "arabinose",
+    "erythr": "erythrose",
+    "erythrul": "erythrulose",
+    "fruct": "fructose",
+    "fuc": "fucose",
+    "galact": "galactose",
+    "gluc": "glucose",
+    "glycer": "D-glyceraldehyde",
+    "gul": "gulose",
+    "id": "idose",
+    "lyx": "lyxose",
+    "mann": "mannose",
+    "psic": "psicose",
+    "rhamn": "rhamnose",
+    "rib": "ribose",
+    "ribul": "ribulose",
+    "sorb": "sorbose",
+    "tagat": "tagatose",
+    "tal": "talose",
+    "tetr": "erythrose",
+    "thre": "threose",
+    "tri": "D-glyceraldehyde",
+    "xyl": "xylose",
+    "xylul": "xylulose",
+}
+
+
+def _standalone_carbohydrate_name(name: str) -> str:
+    return _CARBOHYDRATE_STANDALONE_NAMES.get(name, "")
 
 
 @lru_cache(maxsize=1)

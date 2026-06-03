@@ -83,6 +83,43 @@ def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "[O-][I+][O-]",
+        "[O-][NH+]([O-])[O-]",
+        "O=C[O-]",
+        "O=CO",
+        "O=C([O-])C(F)(F)F",
+        "[O-]P([O-])([O-])=S",
+        "[O-]P([O-])(=S)[S-]",
+        "NO",
+    ],
+)
+def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@H](O)[C@@H](O)[C@@H](O)[C@H](O)C=O",
+        "O=C(CO)[C@H](O)[C@H](O)[C@H](O)CO",
+        "O=C[C@H](O)CO",
+    ],
+)
+def test_standalone_carbohydrate_retained_stems_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

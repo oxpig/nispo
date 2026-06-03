@@ -556,6 +556,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_ergosta_side_chain = _has_fragile_ergosta_terminal_side_chain_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
+    fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
+    fragile_late_retained_render = _has_late_retained_render_candidate(item.candidate)
+    fragile_decomposed_bis_bridge = _has_fragile_decomposed_bis_bridge_parent(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -592,6 +595,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_ergosta_side_chain
         or missing_relative_stereo
         or fragile_bridge_h_ketone
+        or fragile_short_fused_alias
+        or fragile_late_retained_render
+        or fragile_decomposed_bis_bridge
         or retained_shortcut
         or aza_alias_penalty
         or spiro_penalty
@@ -713,6 +719,22 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     ):
         penalty += 20
     if fragile_bridge_h_ketone and _has_contextual_oxo_bridge_parent_alternative(item, prepared):
+        penalty += 80
+    if fragile_short_fused_alias and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=80, max_length=140
+    ):
+        penalty += 95
+    if fragile_short_fused_alias and _has_contextual_systematic_parent_alternative(
+        item, prepared, max_extra=45, max_length=110
+    ):
+        penalty += 60
+    if fragile_late_retained_render and _has_contextual_lower_retained_render_alternative(
+        item, prepared, max_extra=45, max_length=150
+    ):
+        penalty += 55
+    if fragile_decomposed_bis_bridge and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=75, max_length=180
+    ):
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
@@ -955,6 +977,32 @@ def _has_contextual_natural_topology_alternative(
             continue
         if any(stem in other.name for stem in stems):
             return True
+    return False
+
+
+def _has_contextual_lower_retained_render_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 45,
+    max_length: int = 150,
+) -> bool:
+    item_rank = item.candidate.render_rank
+    if item_rank is None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != item.candidate.family:
+            continue
+        other_rank = other.candidate.render_rank
+        if other_rank is None or other_rank >= item_rank:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
     return False
 
 
@@ -1315,6 +1363,62 @@ def _has_fragile_ergosta_terminal_side_chain_parent(name: str, candidate: NameCa
     if "ergosta-" not in name:
         return False
     return bool(re.search(r"(?:22,)?24,25-(?:di|tri|tetra)?ene|22,24,25-triene", name))
+
+
+_SHORT_FUSED_ALIAS_PATTERN = re.compile(
+    r"(?:"
+    r"purin|adenin|indazol|anthranil|chroman|flavan|coumarin|coumaron|"
+    r"cepham|trypt(?:yl|amin)|oxanaphthalin|azacoumarin|benzothiazin|"
+    r"azaind(?:an|en)|oxindol|indolin|tetralin|tetracene|naphthalin"
+    r")"
+)
+
+
+def _has_fragile_short_fused_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        return False
+    if _has_generic_polycyclic_parent_descriptor(name):
+        return False
+    parent = re.sub(r"^\([^)]*\)-", "", name)
+    if len(parent) > 42:
+        return False
+    if "[" in parent and not re.search(r"(?:coumaron|purino|imidazo|pyrrolo|thieno)", parent):
+        return False
+    return bool(_SHORT_FUSED_ALIAS_PATTERN.search(parent))
+
+
+def _has_late_retained_render_candidate(candidate: NameCandidate) -> bool:
+    if candidate.render_rank is None or candidate.render_rank <= 4:
+        return False
+    return candidate.family in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+
+
+def _has_fragile_decomposed_bis_bridge_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+    }:
+        return False
+    if "bis(" not in name or "bicyclo[" not in name:
+        return False
+    return bool(re.search(r"bis\(\([^)]*(?:diaza|oxa|thia)[^)]*bicyclo\[[^\]]+\][^)]*\)", name))
 
 
 def _has_fragile_whole_molecule_retained_stub(name: str, candidate: NameCandidate) -> bool:
@@ -1931,4 +2035,6 @@ def _mol_has_isotope(mol) -> bool:
 def _fallback_stereo_atom_order(family: str, name: str = "") -> str:
     if any(fragment in name for fragment in ("pseudouridin", "uridin", "spirostane")):
         return "idx"
-    return "idx_desc"
+    if ("pterin" in name or "pteridin" in name) and "tetrahydropterin" not in name:
+        return "idx_desc"
+    return "idx"

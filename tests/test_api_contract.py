@@ -248,6 +248,23 @@ def test_long_linear_acene_parents_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C1=Cc2occc2OC1",
+        "O=C1C[C@H]2SC(Cl)CCN12",
+        "Oc1cc(O)c2c(c1)O[C@H](c1ccc(O)c(O)c1)[C@@H](O)C2",
+        "Nc1nc2c(c(=O)[nH]1)N[C@H](CNc1ccc(C(=O)N[C@@H](CCC(=O)[O-])C(=O)O)cc1)CN2",
+    ],
+)
+def test_fragile_fused_alias_and_stereo_fallbacks_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

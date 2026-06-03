@@ -824,6 +824,11 @@ def _simple_saturated_heterocycle_prefix(
         if dioxopiperidyl is not None:
             text, atoms = dioxopiperidyl
             return _prefix_candidate(text, atoms, idx, parent_idx, "dioxopiperidyl-ring")
+    if len(ring) == 6 and counts == {"C": 4, "N": 2}:
+        n_methyl_piperazino = _n_methyl_piperazino_prefix(mol, ring_set, idx, parent_idx)
+        if n_methyl_piperazino is not None:
+            text, atoms = n_methyl_piperazino
+            return _prefix_candidate(text, atoms, idx, parent_idx, "n-methyl-piperazino-ring")
     if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
         return None
     text = None
@@ -899,6 +904,36 @@ def _dioxopiperidyl_prefix(
     if locant not in {3, 4}:
         return None
     return f"2,6-dioxo-{locant}-piperidyl", ring_set | set(carbonyl_oxygens)
+
+
+def _n_methyl_piperazino_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+) -> tuple[str, set[int]] | None:
+    if mol.GetAtomWithIdx(idx).GetSymbol() != "N":
+        return None
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 2:
+        return None
+    other_nitrogen = nitrogens[0] if idx == nitrogens[1] else nitrogens[1]
+    if _ring_distance(mol, ring_set, idx, other_nitrogen) != 3:
+        return None
+    external = _ring_external_heavy_neighbors_by_atom(mol, ring_set)
+    for atom_idx, neighbors in external.items():
+        if atom_idx == idx:
+            if neighbors != [parent_idx]:
+                return None
+        elif atom_idx == other_nitrogen:
+            if len(neighbors) != 1:
+                return None
+        elif neighbors:
+            return None
+    methyl_idx = external[other_nitrogen][0]
+    if not _is_plain_terminal_methyl(mol, methyl_idx, other_nitrogen):
+        return None
+    return "4-methylpiperazino", ring_set | {methyl_idx}
 
 
 def _ring_symbol_counts(mol, ring: tuple[int, ...]) -> dict[str, int]:

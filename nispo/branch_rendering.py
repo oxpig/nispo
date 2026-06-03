@@ -334,6 +334,7 @@ def _retained_alkoxycarbonyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCan
     names = {
         "methyl": "carbmethoxy",
         "ethyl": "carbethoxy",
+        "benzyl": "cbz",
         "t-butyl": "boc",
     }
     name = names.get(text)
@@ -368,6 +369,10 @@ def _retained_alkoxy_group(mol, oxygen_idx: int, carbonyl_idx: int) -> tuple[str
         return ("methyl", {carbon_idx})
     if len(external) == 1 and _is_plain_terminal_methyl(mol, external[0], carbon_idx):
         return ("ethyl", {carbon_idx, external[0]})
+    if len(external) == 1:
+        ring = _simple_ring_prefix(mol, external[0], carbon_idx)
+        if ring is not None and ring.text == "phenyl":
+            return ("benzyl", {carbon_idx, *ring.atoms})
     if len(external) == 3 and all(_is_plain_terminal_methyl(mol, nbr_idx, carbon_idx) for nbr_idx in external):
         return ("t-butyl", {carbon_idx, *external})
     return None

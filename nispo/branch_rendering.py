@@ -104,7 +104,8 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
         )
     if symbol == "S":
         return (
-            _simple_sulfur_prefix(mol, idx, parent_idx)
+            _aminosulfonyl_prefix(mol, idx, parent_idx)
+            or _simple_sulfur_prefix(mol, idx, parent_idx)
             or _thioxo_prefix(mol, idx, parent_idx)
             or _mesyl_prefix(mol, idx, parent_idx)
         )
@@ -604,6 +605,42 @@ def _mesyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if len(double_oxygens) != 2 or len(methyl_ligands) != 1:
         return None
     return _prefix_candidate("mesyl", {idx, *double_oxygens, methyl_ligands[0]}, idx, parent_idx, "mesyl")
+
+
+def _aminosulfonyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygens = []
+    nitrogen_ligands = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return None
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "N" and bond.GetBondTypeAsDouble() == 1.0:
+            nitrogen_ligands.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 2 or len(nitrogen_ligands) != 1:
+        return None
+    nitrogen = simple_external_prefix_candidates(mol, nitrogen_ligands[0], idx)
+    if len(nitrogen) != 1 or nitrogen[0].text != "amino":
+        return None
+    return _prefix_candidate(
+        "aminosulfonyl",
+        {idx, *double_oxygens, *nitrogen[0].atoms},
+        idx,
+        parent_idx,
+        "aminosulfonyl",
+    )
 
 
 def _simple_sulfur_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

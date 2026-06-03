@@ -465,8 +465,7 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
     ring_set = set(ring)
     atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
     if any(
-        atom.GetSymbol() != "C"
-        or atom.GetFormalCharge() != 0
+        atom.GetFormalCharge() != 0
         or atom.GetIsotope()
         or _atom_has_assigned_stereo(atom)
         or _atom_has_isotopic_hydrogen(atom)
@@ -474,7 +473,13 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
     ):
         return None
     if len(ring) == 6 and all(atom.GetIsAromatic() for atom in atoms):
-        return _simple_phenyl_prefix(mol, ring, idx, parent_idx)
+        if all(atom.GetSymbol() == "C" for atom in atoms):
+            return _simple_phenyl_prefix(mol, ring, idx, parent_idx)
+        pyridyl = _simple_pyridyl_prefix(mol, ring, idx, parent_idx)
+        if pyridyl is not None:
+            return pyridyl
+    if any(atom.GetSymbol() != "C" for atom in atoms):
+        return None
     for atom in atoms:
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -496,6 +501,33 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
     if text is None:
         return None
     return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-cycloalkyl-ring")
+
+
+def _simple_pyridyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int) -> PrefixCandidate | None:
+    ring_set = set(ring)
+    nitrogen_indices = []
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        symbol = atom.GetSymbol()
+        if symbol == "N":
+            nitrogen_indices.append(atom_idx)
+        elif symbol != "C":
+            return None
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom_idx == idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return None
+    if len(nitrogen_indices) != 1 or idx == nitrogen_indices[0]:
+        return None
+    distance = _ring_distance(mol, ring_set, nitrogen_indices[0], idx)
+    if distance is None:
+        return None
+    locant = distance + 1
+    if locant not in {2, 3, 4}:
+        return None
+    return _prefix_candidate(f"{locant}-pyridyl", ring_set, idx, parent_idx, "simple-pyridyl-ring")
 
 
 def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int) -> PrefixCandidate | None:
@@ -533,6 +565,23 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
     )
 
 
+def _ring_distance(mol, ring_set: set[int], start_idx: int, target_idx: int) -> int | None:
+    seen = {start_idx}
+    frontier = [(start_idx, 0)]
+    while frontier:
+        atom_idx, distance = frontier.pop(0)
+        if atom_idx == target_idx:
+            return distance
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring_set or nidx in seen:
+                continue
+            seen.add(nidx)
+            frontier.append((nidx, distance + 1))
+    return None
+
+
 _PHENYL_SIMPLE_SUBSTITUENTS = {
     "amino",
     "bromo",
@@ -547,20 +596,8 @@ _PHENYL_SIMPLE_SUBSTITUENTS = {
 
 
 def _phenyl_substituent_locant(mol, ring_set: set[int], attachment_idx: int, substituent_atom_idx: int) -> int | None:
-    seen = {attachment_idx}
-    frontier = [(attachment_idx, 0)]
-    while frontier:
-        atom_idx, distance = frontier.pop(0)
-        if atom_idx == substituent_atom_idx:
-            return distance + 1
-        atom = mol.GetAtomWithIdx(atom_idx)
-        for nbr in atom.GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx not in ring_set or nidx in seen:
-                continue
-            seen.add(nidx)
-            frontier.append((nidx, distance + 1))
-    return None
+    distance = _ring_distance(mol, ring_set, attachment_idx, substituent_atom_idx)
+    return None if distance is None else distance + 1
 
 
 def _ring_bonds_are_single(mol, ring: tuple[int, ...]) -> bool:

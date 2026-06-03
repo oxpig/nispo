@@ -41,6 +41,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
             or _simple_branched_alkyl_prefix(mol, idx, parent_idx, order)
             or _simple_benzyl_prefix(mol, idx, parent_idx, order)
+            or _simple_hydroxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_linear_alkyl_prefix(
                 mol,
                 idx,
@@ -190,6 +191,35 @@ def _simple_benzyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Prefi
     if ring is None:
         return None
     return _prefix_candidate("benzyl", {idx, *ring}, idx, parent_idx, "benzyl")
+
+
+def _simple_hydroxymethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    oxygen_idx = heavy[0]
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0 or oxygen.IsInRing() or oxygen.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(oxygen):
+        return None
+    bond = mol.GetBondBetweenAtoms(idx, oxygen_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    if any(nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1 for nbr in oxygen.GetNeighbors()):
+        return None
+    return _prefix_candidate("hydroxymethyl", {idx, oxygen_idx}, idx, parent_idx, "hydroxymethyl")
 
 
 def _unsubstituted_phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:

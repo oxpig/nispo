@@ -1002,6 +1002,10 @@ def _simple_saturated_heterocycle_prefix(
             text, atoms = dioxopiperidyl
             return _prefix_candidate(text, atoms, idx, parent_idx, "dioxopiperidyl-ring")
     if len(ring) == 6 and counts == {"C": 4, "N": 2}:
+        boc_piperazino = _boc_piperazino_prefix(mol, ring_set, idx, parent_idx)
+        if boc_piperazino is not None:
+            text, atoms = boc_piperazino
+            return _prefix_candidate(text, atoms, idx, parent_idx, "boc-piperazino-ring")
         n_methyl_piperazino = _n_methyl_piperazino_prefix(mol, ring_set, idx, parent_idx)
         if n_methyl_piperazino is not None:
             text, atoms = n_methyl_piperazino
@@ -1111,6 +1115,36 @@ def _n_methyl_piperazino_prefix(
     if not _is_plain_terminal_methyl(mol, methyl_idx, other_nitrogen):
         return None
     return "4-methylpiperazino", ring_set | {methyl_idx}
+
+
+def _boc_piperazino_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+) -> tuple[str, set[int]] | None:
+    if mol.GetAtomWithIdx(idx).GetSymbol() != "N":
+        return None
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 2:
+        return None
+    other_nitrogen = nitrogens[0] if idx == nitrogens[1] else nitrogens[1]
+    if _ring_distance(mol, ring_set, idx, other_nitrogen) != 3:
+        return None
+    external = _ring_external_heavy_neighbors_by_atom(mol, ring_set)
+    for atom_idx, neighbors in external.items():
+        if atom_idx == idx:
+            if neighbors != [parent_idx]:
+                return None
+        elif atom_idx == other_nitrogen:
+            if len(neighbors) != 1:
+                return None
+        elif neighbors:
+            return None
+    boc = _retained_alkoxycarbonyl_prefix(mol, external[other_nitrogen][0], other_nitrogen)
+    if boc is None or boc.text != "boc":
+        return None
+    return "4-bocpiperazino", ring_set | set(boc.atoms)
 
 
 def _ring_symbol_counts(mol, ring: tuple[int, ...]) -> dict[str, int]:

@@ -543,14 +543,9 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
         if pyridyl is not None:
             return pyridyl
     if any(atom.GetSymbol() != "C" for atom in atoms):
+        return _simple_saturated_heterocycle_prefix(mol, ring, idx, parent_idx)
+    if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
         return None
-    for atom in atoms:
-        for nbr in atom.GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in ring_set or (atom.GetIdx() == idx and nidx == parent_idx):
-                continue
-            if nbr.GetAtomicNum() > 1:
-                return None
     if any(atom.GetIsAromatic() for atom in atoms):
         return None
     if not _ring_bonds_are_single(mol, ring):
@@ -565,6 +560,109 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
     if text is None:
         return None
     return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-cycloalkyl-ring")
+
+
+def _simple_saturated_heterocycle_prefix(
+    mol,
+    ring: tuple[int, ...],
+    idx: int,
+    parent_idx: int,
+) -> PrefixCandidate | None:
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
+    if any(atom.GetIsAromatic() for atom in atoms):
+        return None
+    if not _ring_bonds_are_single(mol, ring):
+        return None
+    if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
+        return None
+    counts = _ring_symbol_counts(mol, ring)
+    text = None
+    if len(ring) == 6 and counts == {"C": 4, "N": 1, "O": 1}:
+        text = _morpholine_prefix(mol, ring_set, idx)
+    elif len(ring) == 6 and counts == {"C": 4, "N": 2}:
+        text = _piperazine_prefix(mol, ring_set, idx)
+    elif len(ring) == 6 and counts == {"C": 5, "N": 1}:
+        text = _piperidine_prefix(mol, ring_set, idx)
+    elif len(ring) == 5 and counts == {"C": 4, "N": 1}:
+        text = "pyrrolidino" if mol.GetAtomWithIdx(idx).GetSymbol() == "N" else None
+    elif len(ring) in {4, 5, 6} and counts == {"C": len(ring) - 1, "O": 1}:
+        text = _simple_oxa_ring_prefix(mol, ring_set, idx, len(ring))
+    if text is None:
+        return None
+    return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-saturated-heterocycle")
+
+
+def _ring_symbol_counts(mol, ring: tuple[int, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for atom_idx in ring:
+        symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
+        counts[symbol] = counts.get(symbol, 0) + 1
+    return counts
+
+
+def _ring_has_only_parent_external(mol, ring_set: set[int], idx: int, parent_idx: int) -> bool:
+    for atom_idx in ring_set:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom_idx == idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return False
+    return True
+
+
+def _morpholine_prefix(mol, ring_set: set[int], idx: int) -> str | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N":
+        return None
+    oxygens = _ring_atoms_by_symbol(mol, ring_set, "O")
+    if len(oxygens) != 1:
+        return None
+    distance = _ring_distance(mol, ring_set, oxygens[0], idx)
+    return "morpholino" if distance == 3 else None
+
+
+def _piperazine_prefix(mol, ring_set: set[int], idx: int) -> str | None:
+    if mol.GetAtomWithIdx(idx).GetSymbol() != "N":
+        return None
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 2:
+        return None
+    other = nitrogens[0] if idx == nitrogens[1] else nitrogens[1]
+    distance = _ring_distance(mol, ring_set, idx, other)
+    return "piperazino" if distance == 3 else None
+
+
+def _piperidine_prefix(mol, ring_set: set[int], idx: int) -> str | None:
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 1:
+        return None
+    if idx == nitrogens[0]:
+        return "piperidino"
+    distance = _ring_distance(mol, ring_set, nitrogens[0], idx)
+    if distance is None:
+        return None
+    locant = distance + 1
+    return f"{locant}-piperidyl" if locant in {2, 3, 4} else None
+
+
+def _simple_oxa_ring_prefix(mol, ring_set: set[int], idx: int, size: int) -> str | None:
+    oxygens = _ring_atoms_by_symbol(mol, ring_set, "O")
+    if len(oxygens) != 1 or idx == oxygens[0]:
+        return None
+    distance = _ring_distance(mol, ring_set, oxygens[0], idx)
+    if distance is None:
+        return None
+    locant = distance + 1
+    stems = {4: "oxetan", 5: "oxolan", 6: "oxan"}
+    stem = stems.get(size)
+    return f"{stem}-{locant}-yl" if stem is not None and locant >= 2 else None
+
+
+def _ring_atoms_by_symbol(mol, ring_set: set[int], symbol: str) -> list[int]:
+    return [atom_idx for atom_idx in ring_set if mol.GetAtomWithIdx(atom_idx).GetSymbol() == symbol]
 
 
 def _simple_pyridyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int) -> PrefixCandidate | None:

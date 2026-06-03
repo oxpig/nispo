@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .candidate_facts import PrefixCandidate
-from .constants import HALO, MULT
+from .constants import HALO, MULT, ROOTS
 from .molecule_cache import mol_cache_dict, mol_cache_get
 
 
@@ -43,6 +43,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
             or _simple_halomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_haloethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_fluoroalkyl_prefix(mol, idx, parent_idx, order)
             or _simple_branched_alkyl_prefix(mol, idx, parent_idx, order)
             or _simple_benzyl_prefix(mol, idx, parent_idx, order)
             or _simple_hydroxymethyl_prefix(mol, idx, parent_idx, order)
@@ -224,6 +225,57 @@ def _simple_haloethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Pr
     )
 
 
+def _simple_fluoroalkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    previous = parent_idx
+    current = idx
+    path: list[int] = []
+    fluoro_locs: list[int] = []
+    fluorines: set[int] = set()
+    while len(path) < max(ROOTS):
+        atom = mol.GetAtomWithIdx(current)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+            return None
+        if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+            return None
+        bond = mol.GetBondBetweenAtoms(previous, current)
+        if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+            return None
+        path.append(current)
+        locant = len(path)
+        next_carbons: list[int] = []
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == previous or nbr.GetAtomicNum() <= 1:
+                continue
+            nbr_bond = mol.GetBondBetweenAtoms(current, nidx)
+            if nbr_bond is None or nbr_bond.GetBondTypeAsDouble() != 1.0:
+                return None
+            if nbr.GetSymbol() == "F" and nbr.GetFormalCharge() == 0 and not nbr.GetIsotope():
+                if any(extra.GetIdx() != current and extra.GetAtomicNum() > 1 for extra in nbr.GetNeighbors()):
+                    return None
+                fluoro_locs.append(locant)
+                fluorines.add(nidx)
+                continue
+            if nbr.GetSymbol() != "C":
+                return None
+            next_carbons.append(nidx)
+        if len(next_carbons) > 1:
+            return None
+        if not next_carbons:
+            if not fluoro_locs or len(path) < 4:
+                return None
+            root = ROOTS.get(len(path))
+            fluoro_prefix = _locanted_multiplier_prefix(fluoro_locs, "fluoro")
+            if not root or not fluoro_prefix:
+                return None
+            text = f"{fluoro_prefix}{root}yl"
+            return _prefix_candidate(text, {*path, *fluorines}, idx, parent_idx, "fluoroalkyl")
+        previous, current = current, next_carbons[0]
+    return None
+
+
 def _simple_alkenyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
     if order != 1.0:
         return None
@@ -401,6 +453,16 @@ def _halo_count_prefix(symbol: str, count: int) -> str:
     if count == 1:
         return text
     return {2: "di", 3: "tri"}.get(count, "") + text
+
+
+def _locanted_multiplier_prefix(locs: list[int], term: str) -> str:
+    if not locs:
+        return ""
+    ordered = sorted(locs)
+    locant_text = ",".join(str(value) for value in ordered)
+    if len(ordered) == 1:
+        return f"{locant_text}-{term}"
+    return f"{locant_text}-{MULT.get(len(ordered), '')}{term}"
 
 
 def _simple_linear_alkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

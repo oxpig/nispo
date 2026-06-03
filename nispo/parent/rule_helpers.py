@@ -1741,6 +1741,8 @@ _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
     "carbamoyl",
     "cyano",
     "dimethylamino",
+    "dimethylcarbamyl",
+    "dimethylcarbamoyl",
     "ethyl",
     "ethylamino",
     "ethoxy",
@@ -1784,7 +1786,36 @@ def _simple_relative_stereo_external_prefix(mol, atom_idx: int, ring_atoms: set[
         return prefix
     if re.fullmatch(r"\(\(?1,1-dimethyl-ethyl\)?oxycarbonyl\)amino", prefix):
         return prefix
+    if _safe_rendered_relative_stereo_external_prefix(prefix):
+        return prefix
     return ""
+
+
+def _safe_rendered_relative_stereo_external_prefix(prefix: str) -> bool:
+    if not prefix or len(prefix) > 96:
+        return False
+    if prefix.count("(") != prefix.count(")"):
+        return False
+    if re.search(r"^\([^)]+\)-", prefix):
+        return False
+    if "methylmethyl" in prefix:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", prefix):
+        return False
+    if any(term in prefix for term in ("ylidene", "imino", "hydrazono")):
+        return False
+    return bool(
+        re.search(
+            r"(?:"
+            r"hydroxymethyl|isopropyl|t-butyl|tert-butyl|"
+            r"(?:methyl|ethyl|propyl|butyl)$|"
+            r"(?:carboxy|carbamyl|carbamoyl|cyano|oxo|hydroxy|amino)[a-z0-9,\-()']+|"
+            r"[a-z0-9,\-()']+(?:azetidin|piperidin|piperazin|morpholin|pyrrolidin|"
+            r"indazol|imidazol|pyrazol|pyrid|phenyl|cycloprop|cyclobut|cyclopent|cyclohex)[a-z0-9,\-()']*"
+            r")",
+            prefix,
+        )
+    )
 
 
 def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:

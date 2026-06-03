@@ -555,6 +555,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_imidazothiophene = _has_fragile_imidazothiophene_bridge_alias(name, item.candidate)
     fragile_ergosta_side_chain = _has_fragile_ergosta_terminal_side_chain_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
+    locanted_stereo_miss = _has_unlocanted_atom_stereo_prefix(name) and _has_contextual_locanted_stereo_alternative(
+        item,
+        prepared,
+    )
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
     fragile_decomposed_bis_bridge = _has_fragile_decomposed_bis_bridge_parent(name, item.candidate)
@@ -593,6 +597,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_imidazothiophene
         or fragile_ergosta_side_chain
         or missing_relative_stereo
+        or locanted_stereo_miss
         or fragile_bridge_h_ketone
         or fragile_short_fused_alias
         or fragile_decomposed_bis_bridge
@@ -732,6 +737,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
+    if locanted_stereo_miss:
+        penalty += 34
     if retained_shortcut:
         penalty += 140
     if aza_alias_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=90, max_length=180):
@@ -1431,6 +1438,28 @@ def _has_contextual_relative_stereo_alternative(
     return False
 
 
+def _has_contextual_locanted_stereo_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 35,
+    max_length: int = 140,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if _locanted_atom_stereo_descriptor_count(other.name) == 0:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if other.candidate.family not in _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES | _CONTEXTUAL_GRAPH_PARENT_FAMILIES:
+            continue
+        return True
+    return False
+
+
 def _unlocanted_multicenter_stereo_penalty(name: str, candidate: NameCandidate) -> int:
     if not _has_unlocanted_multicenter_stereo_prefix(name):
         return 0
@@ -1636,6 +1665,16 @@ def _has_unlocanted_multicenter_stereo_prefix(name: str) -> bool:
     descriptors = match.group(1).split(",")
     atom_descriptors = [descriptor for descriptor in descriptors if descriptor in {"R", "S", "r", "s"}]
     if len(atom_descriptors) < 2:
+        return False
+    return not any(re.fullmatch(r"\d+'?[RSrs]", descriptor) for descriptor in descriptors)
+
+
+def _has_unlocanted_atom_stereo_prefix(name: str) -> bool:
+    match = re.match(r"^\(([^)]*)\)-", name)
+    if not match:
+        return False
+    descriptors = match.group(1).split(",")
+    if not any(descriptor in {"R", "S", "r", "s"} for descriptor in descriptors):
         return False
     return not any(re.fullmatch(r"\d+'?[RSrs]", descriptor) for descriptor in descriptors)
 

@@ -701,6 +701,10 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
         pyridyl = _simple_pyridyl_prefix(mol, ring, idx, parent_idx)
         if pyridyl is not None:
             return pyridyl
+    if len(ring) == 5 and all(atom.GetIsAromatic() for atom in atoms):
+        heteroaryl = _simple_five_member_heteroaryl_prefix(mol, ring, idx, parent_idx)
+        if heteroaryl is not None:
+            return heteroaryl
     if any(atom.GetSymbol() != "C" for atom in atoms):
         return _simple_saturated_heterocycle_prefix(mol, ring, idx, parent_idx)
     if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
@@ -822,6 +826,175 @@ def _simple_oxa_ring_prefix(mol, ring_set: set[int], idx: int, size: int) -> str
 
 def _ring_atoms_by_symbol(mol, ring_set: set[int], symbol: str) -> list[int]:
     return [atom_idx for atom_idx in ring_set if mol.GetAtomWithIdx(atom_idx).GetSymbol() == symbol]
+
+
+def _simple_five_member_heteroaryl_prefix(
+    mol,
+    ring: tuple[int, ...],
+    idx: int,
+    parent_idx: int,
+) -> PrefixCandidate | None:
+    ring_set = set(ring)
+    if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
+        return None
+    counts = _ring_symbol_counts(mol, ring)
+    text = None
+    if counts == {"C": 4, "O": 1}:
+        text = _single_heteroaryl_prefix(mol, ring_set, idx, "O", "furyl")
+    elif counts == {"C": 4, "S": 1}:
+        text = _single_heteroaryl_prefix(mol, ring_set, idx, "S", "thienyl")
+    elif counts == {"C": 4, "N": 1}:
+        text = _pyrrole_prefix(mol, ring_set, idx)
+    elif counts == {"C": 3, "N": 2}:
+        text = _diazole_prefix(mol, ring_set, idx)
+    elif counts == {"C": 3, "N": 1, "O": 1}:
+        text = _azole_prefix(mol, ring_set, idx, "O", "oxazol")
+    elif counts == {"C": 3, "N": 1, "S": 1}:
+        text = _azole_prefix(mol, ring_set, idx, "S", "thiazol")
+    if text is None:
+        return None
+    return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-five-member-heteroaryl-ring")
+
+
+def _single_heteroaryl_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    hetero_symbol: str,
+    suffix: str,
+) -> str | None:
+    hetero_atoms = _ring_atoms_by_symbol(mol, ring_set, hetero_symbol)
+    if len(hetero_atoms) != 1 or idx == hetero_atoms[0]:
+        return None
+    locant = _min_ring_distance_locant(mol, ring_set, hetero_atoms[0], idx)
+    return f"{locant}-{suffix}" if locant in {2, 3} else None
+
+
+def _pyrrole_prefix(mol, ring_set: set[int], idx: int) -> str | None:
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 1 or idx == nitrogens[0]:
+        return None
+    nitrogen = mol.GetAtomWithIdx(nitrogens[0])
+    if nitrogen.GetTotalNumHs() != 1:
+        return None
+    locant = _min_ring_distance_locant(mol, ring_set, nitrogens[0], idx)
+    return f"1H-pyrrol-{locant}-yl" if locant in {2, 3} else None
+
+
+def _diazole_prefix(mol, ring_set: set[int], idx: int) -> str | None:
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 2 or idx in nitrogens:
+        return None
+    n_h = [nidx for nidx in nitrogens if mol.GetAtomWithIdx(nidx).GetTotalNumHs() == 1]
+    n_plain = [nidx for nidx in nitrogens if mol.GetAtomWithIdx(nidx).GetTotalNumHs() == 0]
+    if len(n_h) != 1 or len(n_plain) != 1:
+        return None
+    nh_idx = n_h[0]
+    plain_idx = n_plain[0]
+    if _ring_atoms_adjacent(mol, ring_set, nh_idx, plain_idx):
+        locants = _pyrazole_locants(mol, ring_set, nh_idx, plain_idx)
+        parent = "pyrazol"
+    else:
+        locants = _imidazole_locants(mol, ring_set, nh_idx, plain_idx)
+        parent = "imidazol"
+    locant = locants.get(idx)
+    return f"1H-{parent}-{locant}-yl" if locant in {2, 3, 4, 5} else None
+
+
+def _azole_prefix(mol, ring_set: set[int], idx: int, hetero_symbol: str, parent: str) -> str | None:
+    hetero_atoms = _ring_atoms_by_symbol(mol, ring_set, hetero_symbol)
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(hetero_atoms) != 1 or len(nitrogens) != 1 or idx in {hetero_atoms[0], nitrogens[0]}:
+        return None
+    locants = _one_three_azole_locants(mol, ring_set, hetero_atoms[0], nitrogens[0])
+    locant = locants.get(idx)
+    return f"{parent}-{locant}-yl" if locant in {2, 4, 5} else None
+
+
+def _pyrazole_locants(mol, ring_set: set[int], nh_idx: int, plain_idx: int) -> dict[int, int]:
+    locants = {nh_idx: 1, plain_idx: 2}
+    path = _ring_path_between(mol, ring_set, plain_idx, nh_idx, forbidden_edge=(plain_idx, nh_idx))
+    if len(path) == 5:
+        for locant, atom_idx in enumerate(path[1:-1], start=3):
+            locants[atom_idx] = locant
+    return locants
+
+
+def _imidazole_locants(mol, ring_set: set[int], nh_idx: int, plain_idx: int) -> dict[int, int]:
+    locants = {nh_idx: 1, plain_idx: 3}
+    short_path = _shortest_ring_path(mol, ring_set, nh_idx, plain_idx)
+    if len(short_path) == 3:
+        locants[short_path[1]] = 2
+    long_path = _ring_path_between(
+        mol,
+        ring_set,
+        plain_idx,
+        nh_idx,
+        forbidden_edge=(plain_idx, short_path[1]) if len(short_path) == 3 else None,
+    )
+    if len(long_path) == 4:
+        locants[long_path[1]] = 4
+        locants[long_path[2]] = 5
+    return locants
+
+
+def _one_three_azole_locants(mol, ring_set: set[int], hetero_idx: int, nitrogen_idx: int) -> dict[int, int]:
+    locants = {hetero_idx: 1, nitrogen_idx: 3}
+    short_path = _shortest_ring_path(mol, ring_set, hetero_idx, nitrogen_idx)
+    if len(short_path) == 3:
+        locants[short_path[1]] = 2
+    long_path = _ring_path_between(
+        mol,
+        ring_set,
+        nitrogen_idx,
+        hetero_idx,
+        forbidden_edge=(nitrogen_idx, short_path[1]) if len(short_path) == 3 else None,
+    )
+    if len(long_path) == 4:
+        locants[long_path[1]] = 4
+        locants[long_path[2]] = 5
+    return locants
+
+
+def _min_ring_distance_locant(mol, ring_set: set[int], start_idx: int, target_idx: int) -> int | None:
+    distance = _ring_distance(mol, ring_set, start_idx, target_idx)
+    return None if distance is None else distance + 1
+
+
+def _ring_atoms_adjacent(mol, ring_set: set[int], left: int, right: int) -> bool:
+    bond = mol.GetBondBetweenAtoms(left, right)
+    return bond is not None and left in ring_set and right in ring_set
+
+
+def _shortest_ring_path(mol, ring_set: set[int], start_idx: int, target_idx: int) -> tuple[int, ...]:
+    path = _ring_path_between(mol, ring_set, start_idx, target_idx)
+    return path
+
+
+def _ring_path_between(
+    mol,
+    ring_set: set[int],
+    start_idx: int,
+    target_idx: int,
+    *,
+    forbidden_edge: tuple[int, int] | None = None,
+) -> tuple[int, ...]:
+    forbidden = frozenset(forbidden_edge or ())
+    queue: list[tuple[int, tuple[int, ...]]] = [(start_idx, (start_idx,))]
+    seen = {start_idx}
+    while queue:
+        atom_idx, path = queue.pop(0)
+        if atom_idx == target_idx:
+            return path
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring_set or nidx in seen:
+                continue
+            if forbidden and frozenset((atom_idx, nidx)) == forbidden:
+                continue
+            seen.add(nidx)
+            queue.append((nidx, path + (nidx,)))
+    return ()
 
 
 def _simple_pyridyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int) -> PrefixCandidate | None:

@@ -737,9 +737,14 @@ def _simple_saturated_heterocycle_prefix(
         return None
     if not _ring_bonds_are_single(mol, ring):
         return None
+    counts = _ring_symbol_counts(mol, ring)
+    if len(ring) == 6 and counts == {"C": 5, "N": 1}:
+        dioxopiperidyl = _dioxopiperidyl_prefix(mol, ring_set, idx, parent_idx)
+        if dioxopiperidyl is not None:
+            text, atoms = dioxopiperidyl
+            return _prefix_candidate(text, atoms, idx, parent_idx, "dioxopiperidyl-ring")
     if not _ring_has_only_parent_external(mol, ring_set, idx, parent_idx):
         return None
-    counts = _ring_symbol_counts(mol, ring)
     text = None
     if len(ring) == 6 and counts == {"C": 4, "N": 1, "O": 1}:
         text = _morpholine_prefix(mol, ring_set, idx)
@@ -754,6 +759,65 @@ def _simple_saturated_heterocycle_prefix(
     if text is None:
         return None
     return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-saturated-heterocycle")
+
+
+def _dioxopiperidyl_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+) -> tuple[str, set[int]] | None:
+    if mol.GetAtomWithIdx(idx).GetSymbol() != "C":
+        return None
+    nitrogens = _ring_atoms_by_symbol(mol, ring_set, "N")
+    if len(nitrogens) != 1:
+        return None
+    nitrogen = nitrogens[0]
+    if mol.GetAtomWithIdx(nitrogen).GetTotalNumHs() != 1:
+        return None
+    external = _ring_external_heavy_neighbors_by_atom(mol, ring_set)
+    carbonyl_carbons = []
+    carbonyl_oxygens = []
+    for atom_idx, neighbors in external.items():
+        if atom_idx == idx:
+            if neighbors != [parent_idx]:
+                return None
+            continue
+        if atom_idx == nitrogen:
+            if neighbors:
+                return None
+            continue
+        if not neighbors:
+            continue
+        if len(neighbors) != 1:
+            return None
+        oxygen_idx = neighbors[0]
+        oxygen = mol.GetAtomWithIdx(oxygen_idx)
+        bond = mol.GetBondBetweenAtoms(atom_idx, oxygen_idx)
+        if (
+            oxygen.GetSymbol() != "O"
+            or oxygen.GetFormalCharge() != 0
+            or oxygen.GetIsotope()
+            or oxygen.IsInRing()
+            or bond is None
+            or bond.GetBondTypeAsDouble() != 2.0
+        ):
+            return None
+        carbonyl_carbons.append(atom_idx)
+        carbonyl_oxygens.append(oxygen_idx)
+    if len(carbonyl_carbons) != 2:
+        return None
+    if not all(_ring_atoms_adjacent(mol, ring_set, nitrogen, carbonyl_idx) for carbonyl_idx in carbonyl_carbons):
+        return None
+    c1, c2 = carbonyl_carbons
+    path = _ring_path_between(mol, ring_set, c1, c2, forbidden_edge=(c1, nitrogen))
+    if len(path) != 5 or idx not in path[1:-1]:
+        return None
+    locant = path.index(idx) + 2
+    locant = min(locant, 8 - locant)
+    if locant not in {3, 4}:
+        return None
+    return f"2,6-dioxo-{locant}-piperidyl", ring_set | set(carbonyl_oxygens)
 
 
 def _ring_symbol_counts(mol, ring: tuple[int, ...]) -> dict[str, int]:

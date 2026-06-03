@@ -96,7 +96,11 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             or _carboxy_prefix(mol, idx, parent_idx)
         )
     if symbol == "N":
-        return _nitro_prefix(mol, idx, parent_idx) or _bocamino_prefix(mol, idx, parent_idx)
+        return (
+            _azido_prefix(mol, idx, parent_idx)
+            or _nitro_prefix(mol, idx, parent_idx)
+            or _bocamino_prefix(mol, idx, parent_idx)
+        )
     if symbol == "S":
         return (
             _simple_sulfur_prefix(mol, idx, parent_idx)
@@ -406,6 +410,44 @@ def _nitro_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     elif mol.GetAtomWithIdx(parent_idx).GetSymbol() != "O":
         return None
     return _prefix_candidate("nitro", {idx, *oxygens}, idx, parent_idx, "nitro")
+
+
+def _azido_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetIsotope() or atom.IsInRing():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    middle_candidates = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        if nbr.GetSymbol() == "N" and nbr.GetFormalCharge() > 0 and not nbr.GetIsotope():
+            middle_candidates.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(middle_candidates) != 1:
+        return None
+    middle_idx = middle_candidates[0]
+    terminal_candidates = []
+    middle = mol.GetAtomWithIdx(middle_idx)
+    for nbr in middle.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == idx:
+            continue
+        if nbr.GetSymbol() == "N" and nbr.GetFormalCharge() < 0 and not nbr.GetIsotope():
+            terminal_candidates.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(terminal_candidates) != 1:
+        return None
+    terminal_idx = terminal_candidates[0]
+    terminal = mol.GetAtomWithIdx(terminal_idx)
+    if any(nbr.GetIdx() != middle_idx and nbr.GetAtomicNum() > 1 for nbr in terminal.GetNeighbors()):
+        return None
+    return _prefix_candidate("azido", {idx, middle_idx, terminal_idx}, idx, parent_idx, "azido")
 
 
 def _bocamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

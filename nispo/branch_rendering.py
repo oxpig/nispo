@@ -105,6 +105,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             _azido_prefix(mol, idx, parent_idx)
             or _nitro_prefix(mol, idx, parent_idx)
             or _mesylamino_prefix(mol, idx, parent_idx)
+            or _ethenylcarbonyl_amino_prefix(mol, idx, parent_idx)
             or _retained_amido_prefix(mol, idx, parent_idx)
             or _bocamino_prefix(mol, idx, parent_idx)
         )
@@ -807,6 +808,34 @@ def _mesylamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None
     if ligand is None:
         return None
     return _prefix_candidate("mesylamino", {idx, *ligand.atoms}, idx, parent_idx, "mesylamino")
+
+
+def _ethenylcarbonyl_amino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
+    ]
+    if len(heavy) != 1:
+        return None
+    acyl = _retained_acyl_prefix(mol, heavy[0], idx)
+    if acyl is None or acyl.text != "acroyl":
+        return None
+    return _prefix_candidate(
+        "(ethen-1-ylcarbonyl)amino",
+        {idx, *acyl.atoms},
+        idx,
+        parent_idx,
+        "ethenylcarbonyl-amino",
+    )
 
 
 def _bocamino_prefix_allowed(mol, amino_idx: int, parent_idx: int) -> bool:

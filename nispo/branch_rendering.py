@@ -85,6 +85,8 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
         return _isotopic_hydrogen_prefix(atom, idx, parent_idx)
     if symbol == "B":
         return _pinacol_boronate_prefix(mol, idx, parent_idx) or _borono_prefix(mol, idx, parent_idx)
+    if symbol == "O":
+        return _tbdms_silanoxy_prefix(mol, idx, parent_idx)
     if atom.IsInRing():
         return _simple_ring_prefix(mol, idx, parent_idx)
     if symbol == "C":
@@ -202,6 +204,77 @@ def _trimethylsilyl_atoms(mol, silicon_idx: int, blocked_idx: int) -> set[int] |
     if not all(_is_plain_terminal_methyl(mol, methyl_idx, silicon_idx) for methyl_idx in methyls):
         return None
     return {silicon_idx, *methyls}
+
+
+def _tbdms_silanoxy_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "O" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    silicon_idx = _single_nonring_heavy_neighbor_with_symbol(mol, idx, parent_idx, "Si")
+    if silicon_idx is None:
+        return None
+    silicon_atoms = _tbdms_atoms(mol, silicon_idx, idx)
+    if silicon_atoms is None:
+        return None
+    return _prefix_candidate(
+        "t-butyl(dimethyl)silanoxy",
+        {idx, *silicon_atoms},
+        idx,
+        parent_idx,
+        "tbdms-silanoxy",
+    )
+
+
+def _tbdms_atoms(mol, silicon_idx: int, blocked_idx: int) -> set[int] | None:
+    silicon = mol.GetAtomWithIdx(silicon_idx)
+    if silicon.GetSymbol() != "Si" or silicon.GetFormalCharge() != 0 or silicon.IsInRing() or silicon.GetIsotope():
+        return None
+    carbon_ligands = [
+        nbr.GetIdx()
+        for nbr in silicon.GetNeighbors()
+        if nbr.GetIdx() != blocked_idx and nbr.GetSymbol() == "C"
+    ]
+    if len(carbon_ligands) != 3:
+        return None
+    methyls = [carbon_idx for carbon_idx in carbon_ligands if _is_plain_terminal_methyl(mol, carbon_idx, silicon_idx)]
+    tert_butyls = [
+        carbon_idx
+        for carbon_idx in carbon_ligands
+        if not _is_plain_terminal_methyl(mol, carbon_idx, silicon_idx)
+        and _tert_butyl_ligand_atoms(mol, carbon_idx, silicon_idx) is not None
+    ]
+    if len(methyls) != 2 or len(tert_butyls) != 1:
+        return None
+    tert_atoms = _tert_butyl_ligand_atoms(mol, tert_butyls[0], silicon_idx)
+    if tert_atoms is None:
+        return None
+    return {silicon_idx, *methyls, *tert_atoms}
+
+
+def _tert_butyl_ligand_atoms(mol, carbon_idx: int, center_idx: int) -> set[int] | None:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing() or carbon.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(carbon) or _atom_has_isotopic_hydrogen(carbon):
+        return None
+    bond = mol.GetBondBetweenAtoms(carbon_idx, center_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    methyls = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != center_idx and nbr.GetSymbol() == "C"
+    ]
+    if len(methyls) != 3:
+        return None
+    if not all(_is_plain_terminal_methyl(mol, methyl_idx, carbon_idx) for methyl_idx in methyls):
+        return None
+    return {carbon_idx, *methyls}
 
 
 def _cyano_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

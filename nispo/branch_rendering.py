@@ -99,6 +99,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
         return (
             _azido_prefix(mol, idx, parent_idx)
             or _nitro_prefix(mol, idx, parent_idx)
+            or _retained_amido_prefix(mol, idx, parent_idx)
             or _bocamino_prefix(mol, idx, parent_idx)
         )
     if symbol == "S":
@@ -273,6 +274,32 @@ def _carboxy_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if any(nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1 for nbr in oxygen.GetNeighbors()):
         return None
     return _prefix_candidate("carboxy", {idx, double_oxygens[0], single_oxygens[0]}, idx, parent_idx, "carboxy")
+
+
+def _retained_amido_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    acyl = _retained_acyl_prefix(mol, heavy[0], idx)
+    if acyl is None or acyl.text != "acetyl":
+        return None
+    return _prefix_candidate(
+        "acetamido",
+        {idx, *acyl.atoms},
+        idx,
+        parent_idx,
+        "acetamido",
+    )
 
 
 def _carbamyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

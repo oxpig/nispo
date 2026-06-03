@@ -132,6 +132,14 @@ def test_retained_shortcuts_defer_to_roundtripping_systematic_alternatives(input
         "O=c1ccccs1",
         "O=C1C=NO[NH+]1[O-]",
         "O=[C+]c1ccccc1",
+        "b1ccco1",
+        "c1coo1",
+        "c1cso1",
+        "c1nnno1",
+        "O=c1nn[nH]o1",
+        "c1cccoocc1",
+        "O=S([O-])([O-])=S",
+        "NS(=[NH2+])O",
     ],
 )
 def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):

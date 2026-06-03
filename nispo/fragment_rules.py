@@ -294,6 +294,7 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _perfluoro_counterion_name(mol, Chem)
         or _trifluoroacetate_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
+        or _chalcogen_thiooxoanion_name(mol, Chem)
         or _phosphorus_thiooxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
@@ -310,7 +311,9 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     return (
         _small_retained_template_name(mol, Chem)
         or _azanol_name(mol, Chem)
+        or _sulfur_oxo_cation_name(mol, Chem)
         or _peracetate_name(mol, Chem)
+        or _thiauronium_name(mol, Chem)
         or _isothiouronium_name(mol, Chem)
         or _isouronium_name(mol, Chem)
         or _selenocysteamine_name(mol, Chem)
@@ -549,6 +552,28 @@ def _isothiouronium_name(mol, Chem) -> str:
 
 def _isouronium_name(mol, Chem) -> str:
     return _chalcogenouronium_name(mol, Chem, "O", "isouronium")
+
+
+def _thiauronium_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"N": 2, "O": 1, "S": 1} or _total_charge(mol) != 1:
+        return ""
+    sulfur = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"), None)
+    if sulfur is None:
+        return ""
+    single_n = double_cation_n = single_o = 0
+    for nbr in sulfur.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(sulfur.GetIdx(), nbr.GetIdx())
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_n += 1
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() > 0:
+            double_cation_n += 1
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_o += 1
+        else:
+            return ""
+    return "thiauronium" if single_n == 1 and double_cation_n == 1 and single_o == 1 else ""
 
 
 def _chalcogenouronium_name(mol, Chem, chalcogen: str, name: str) -> str:
@@ -885,6 +910,117 @@ def _oxoanion_name(mol, Chem) -> str:
         return ""
     hydroxy_count = sum(oxygen.GetTotalNumHs() for oxygen in oxygens)
     return OXOANIONS.get((center.GetSymbol(), len(oxygens), _total_charge(mol), hydroxy_count), "")
+
+
+def _chalcogen_thiooxoanion_name(mol, Chem) -> str:
+    return (
+        _terminal_chalcogen_oxoanion_name(
+            mol,
+            Chem,
+            center_symbol="S",
+            terminal_symbol="S",
+            oxygen_count=3,
+            double_oxygen_count=1,
+            dianion_name="thiosulfate",
+            hydrogen_name="hydrogen thiosulfate",
+        )
+        or _terminal_chalcogen_oxoanion_name(
+            mol,
+            Chem,
+            center_symbol="S",
+            terminal_symbol="S",
+            oxygen_count=2,
+            double_oxygen_count=0,
+            dianion_name="thiosulfite",
+            hydrogen_name="hydrogen thiosulfite",
+        )
+        or _terminal_chalcogen_oxoanion_name(
+            mol,
+            Chem,
+            center_symbol="Se",
+            terminal_symbol="S",
+            oxygen_count=3,
+            double_oxygen_count=1,
+            dianion_name="thioselenate",
+            hydrogen_name="",
+        )
+        or _terminal_chalcogen_oxoanion_name(
+            mol,
+            Chem,
+            center_symbol="S",
+            terminal_symbol="Se",
+            oxygen_count=3,
+            double_oxygen_count=1,
+            dianion_name="selenosulfate",
+            hydrogen_name="",
+        )
+    )
+
+
+def _terminal_chalcogen_oxoanion_name(
+    mol,
+    Chem,
+    *,
+    center_symbol: str,
+    terminal_symbol: str,
+    oxygen_count: int,
+    double_oxygen_count: int,
+    dianion_name: str,
+    hydrogen_name: str,
+) -> str:
+    counts = _element_counts(mol)
+    expected = {"O": oxygen_count}
+    expected[center_symbol] = expected.get(center_symbol, 0) + 1
+    expected[terminal_symbol] = expected.get(terminal_symbol, 0) + 1
+    if counts != expected:
+        return ""
+    centers = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == center_symbol]
+    for center in centers:
+        single_oxido = hydroxy = double_oxygen = double_terminal = 0
+        for nbr in center.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(center.GetIdx(), nbr.GetIdx())
+            if bond is None:
+                return ""
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen += 1
+            elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+                if nbr.GetFormalCharge() < 0:
+                    single_oxido += 1
+                elif nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                    hydroxy += 1
+                else:
+                    return ""
+            elif nbr.GetSymbol() == terminal_symbol and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_terminal += 1
+            else:
+                return ""
+        if double_terminal != 1 or double_oxygen != double_oxygen_count:
+            continue
+        total_charge = _total_charge(mol)
+        if total_charge == -2 and single_oxido == oxygen_count - double_oxygen_count and hydroxy == 0:
+            return dianion_name
+        if hydrogen_name and total_charge == -1 and single_oxido == oxygen_count - double_oxygen_count - 1 and hydroxy == 1:
+            return hydrogen_name
+    return ""
+
+
+def _sulfur_oxo_cation_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts not in ({"O": 1, "S": 1}, {"O": 2, "S": 1}) or _total_charge(mol) != 1:
+        return ""
+    sulfur = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"), None)
+    if sulfur is None or sulfur.GetFormalCharge() <= 0 or sulfur.GetTotalNumHs() != 1:
+        return ""
+    oxygen_count = counts["O"]
+    double_oxygen = 0
+    for nbr in sulfur.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(sulfur.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() != "O" or bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+            return ""
+        double_oxygen += 1
+    if double_oxygen != oxygen_count:
+        return ""
+    return "oxosulfonium" if oxygen_count == 1 else "dioxosulfonium"
 
 
 def _phosphorus_thiooxoanion_name(mol, Chem) -> str:

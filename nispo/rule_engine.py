@@ -427,6 +427,8 @@ def _opsin_stability_penalty(name: str) -> int:
         penalty += 35
     if _has_fragile_imido_oxycarbonyl_alias(name):
         penalty += 35
+    if _has_fragile_ethanediylidene_alias(name):
+        penalty += 45
     if "2-methyl-2-((" in name and "carbamyloxy)propan" in name:
         penalty += 80
     if "alpha-fmocamino-alpha-" in name:
@@ -706,9 +708,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     ):
         penalty += 35
     if fragile_oxo_hydro_fused and _has_contextual_generic_bridge_parent_alternative(
-        item, prepared, max_extra=25, max_length=80
+        item, prepared, max_extra=70, max_length=125
     ):
-        penalty += 30
+        penalty += 95
     if fragile_hydro_fused_bridge_alias and _has_contextual_generic_bridge_parent_alternative(
         item, prepared, max_extra=8, max_length=55
     ):
@@ -1310,7 +1312,9 @@ def _has_fragile_oxo_hydro_fused_alias(name: str, candidate: NameCandidate) -> b
         return False
     if "oxo-" not in name or "dihydro-" not in name:
         return False
-    return "pyrrolo[" in name and "pyridin" in name
+    if "pyrrolo[" in name and any(parent in name for parent in ("pyridin", "pyrimidin", "benzene")):
+        return True
+    return bool(re.search(r"\b(?:acridin|phenanthridin|carbazol|xanthen)\b", name))
 
 
 def _has_fragile_hydro_fused_bridge_alias(name: str, candidate: NameCandidate) -> bool:
@@ -1916,6 +1920,19 @@ def _has_fragile_bicyclic_carbamate_lactam_name(name: str) -> bool:
 
 def _has_fragile_imido_oxycarbonyl_alias(name: str) -> bool:
     return bool(re.search(r"\b\d+,\d+-dioxopyrrolidino\)?oxycarbonyl\b", name))
+
+
+def _has_fragile_ethanediylidene_alias(name: str) -> bool:
+    return "ethanediylidene" in name and any(
+        fragment in name
+        for fragment in (
+            "az",
+            "oxa",
+            "thia",
+            "dioxo",
+            "bicyclo[",
+        )
+    )
 
 
 def _finalize_candidate_name(

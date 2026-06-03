@@ -1387,6 +1387,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
+        imino_name = _single_ring_imino_suffix_name(prefixes, adjusted_parent)
+        if imino_name:
+            imino_key = (locants, 0, imino_name)
+            if best_key is None or imino_key < best_key:
+                best_key = imino_key
+                best_name = imino_name
+                best_seq = seq
         carbonyl_name = _single_ring_oxo_methylidene_suffix_name(prefixes, adjusted_parent)
         if carbonyl_name:
             carbonyl_key = (locants, 0, carbonyl_name)
@@ -1879,6 +1886,9 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
         return ""
     remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
     prefix_text = _format_prefixes(remaining)
+    if parent_name == "1,2,3-triazoxole" and oxo_locs == ["5"]:
+        name = "1,2,3-triazoxol-5(3H)-one"
+        return _join_prefix_parent(prefix_text, name) if prefix_text else name
     parent = _oxo_adjusted_unsaturated_carbocycle_parent(parent_name, oxo_locs)
     if not parent:
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
@@ -1886,6 +1896,18 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
     suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
     name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _single_ring_imino_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    if parent_name != "1,2,3-triazoxole":
+        return ""
+    imino_locs = [loc for loc, prefix in prefixes if prefix == "imino" and loc.isdigit()]
+    if imino_locs != ["5"]:
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "imino"]
+    prefix_text = _format_prefixes(remaining)
+    name = "1,2,3-triazoxol-5(3H)-imine"
+    return _join_prefix_parent(prefix_text, name) if prefix_text else name
 
 
 def _single_ring_oxo_methylidene_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

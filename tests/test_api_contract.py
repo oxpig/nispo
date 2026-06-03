@@ -116,6 +116,8 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
         "C1=CC[IH]C=C1",
         "C1=C[IH][IH]C1",
         "C1=C[IH]N=C1",
+        "C" * 50,
+        ("C" * 22) + "O" + ("C" * 22),
     ],
 )
 def test_empty_output_family_regressions_roundtrip_with_opsin(input_smiles):

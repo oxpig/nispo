@@ -48,6 +48,7 @@ class CandidateTelemetry:
     branch_legacy_prefix_calls: int = 0
     branch_legacy_prefix_calls_by_rule: Counter[str] = field(default_factory=Counter)
     branch_legacy_prefix_produced: Counter[str] = field(default_factory=Counter)
+    branch_legacy_prefix_detail: Counter[str] = field(default_factory=Counter)
     active_rule_family: str = ""
     filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)
@@ -83,6 +84,7 @@ _COUNTER_FIELDS = (
     "branch_structured_prefix_misses",
     "branch_legacy_prefix_calls_by_rule",
     "branch_legacy_prefix_produced",
+    "branch_legacy_prefix_detail",
     "filter_stage_count",
     "template_candidate_count",
     "substructure_match_calls_by_rule",
@@ -183,6 +185,9 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_branch_legacy_prefix_produced": _top_items(
             telemetry.get("branch_legacy_prefix_produced", {})
         ),
+        "top_branch_legacy_prefix_detail": _top_items(
+            telemetry.get("branch_legacy_prefix_detail", {})
+        ),
         "total_candidate_facts": _sum_values(telemetry.get("candidate_facts_total", {})),
         "total_facts_suppressed_before_render": _sum_values(
             telemetry.get("facts_suppressed_before_render", {})
@@ -207,6 +212,9 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         ),
         "total_branch_legacy_prefix_produced": _sum_values(
             telemetry.get("branch_legacy_prefix_produced", {})
+        ),
+        "total_branch_legacy_prefix_detail": _sum_values(
+            telemetry.get("branch_legacy_prefix_detail", {})
         ),
         "total_substructure_match_calls": int(telemetry.get("substructure_match_calls", 0) or 0),
     }

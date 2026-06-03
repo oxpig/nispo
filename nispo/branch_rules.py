@@ -157,6 +157,7 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             telemetry_key = _branch_prefix_telemetry_key(prefix)
             telemetry.branch_prefix_produced[telemetry_key] += 1
             telemetry.branch_legacy_prefix_produced[telemetry_key] += 1
+            telemetry.branch_legacy_prefix_detail[_branch_prefix_detail_telemetry_key(prefix)] += 1
         return prefix
     finally:
         in_progress.discard(key)
@@ -168,6 +169,18 @@ def _branch_prefix_telemetry_key(prefix: str) -> str:
     if len(prefix) <= 40 and "(" not in prefix:
         return prefix
     return "complex"
+
+
+def _branch_prefix_detail_telemetry_key(prefix: str) -> str:
+    if not prefix:
+        return "empty"
+    if len(prefix) <= 160:
+        return prefix
+    if prefix.startswith("("):
+        return "long-parenthesized"
+    if prefix[:1].isdigit():
+        return "long-locanted"
+    return "long-prefix"
 
 
 def _isotopic_hydrogen_prefix(atom) -> str:

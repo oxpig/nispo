@@ -350,6 +350,8 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
         for atom in atoms
     ):
         return None
+    if len(ring) == 6 and all(atom.GetIsAromatic() for atom in atoms):
+        return _simple_phenyl_prefix(mol, ring, idx, parent_idx)
     for atom in atoms:
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -357,8 +359,6 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
                 continue
             if nbr.GetAtomicNum() > 1:
                 return None
-    if len(ring) == 6 and all(atom.GetIsAromatic() for atom in atoms):
-        return _prefix_candidate("phenyl", ring_set, idx, parent_idx, "simple-aryl-ring")
     if any(atom.GetIsAromatic() for atom in atoms):
         return None
     if not _ring_bonds_are_single(mol, ring):
@@ -373,6 +373,71 @@ def _simple_ring_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | Non
     if text is None:
         return None
     return _prefix_candidate(text, ring_set, idx, parent_idx, "simple-cycloalkyl-ring")
+
+
+def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int) -> PrefixCandidate | None:
+    ring_set = set(ring)
+    substituents = []
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or (atom_idx == idx and nidx == parent_idx):
+                continue
+            if nbr.GetAtomicNum() <= 1:
+                continue
+            candidates = simple_external_prefix_candidates(mol, nidx, atom_idx)
+            if len(candidates) != 1:
+                return None
+            candidate = candidates[0]
+            if candidate.text not in _PHENYL_SIMPLE_SUBSTITUENTS:
+                return None
+            substituents.append((atom_idx, candidate))
+    if not substituents:
+        return _prefix_candidate("phenyl", ring_set, idx, parent_idx, "simple-aryl-ring")
+    if len(substituents) != 1:
+        return None
+    atom_idx, candidate = substituents[0]
+    locant = _phenyl_substituent_locant(mol, ring_set, idx, atom_idx)
+    if locant is None or locant <= 1:
+        return None
+    return _prefix_candidate(
+        f"{locant}-{candidate.text}phenyl",
+        ring_set | set(candidate.atoms),
+        idx,
+        parent_idx,
+        "substituted-aryl-ring",
+    )
+
+
+_PHENYL_SIMPLE_SUBSTITUENTS = {
+    "amino",
+    "bromo",
+    "chloro",
+    "fluoro",
+    "hydroxy",
+    "iodo",
+    "methoxy",
+    "methyl",
+    "trifluoromethyl",
+}
+
+
+def _phenyl_substituent_locant(mol, ring_set: set[int], attachment_idx: int, substituent_atom_idx: int) -> int | None:
+    seen = {attachment_idx}
+    frontier = [(attachment_idx, 0)]
+    while frontier:
+        atom_idx, distance = frontier.pop(0)
+        if atom_idx == substituent_atom_idx:
+            return distance + 1
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring_set or nidx in seen:
+                continue
+            seen.add(nidx)
+            frontier.append((nidx, distance + 1))
+    return None
 
 
 def _ring_bonds_are_single(mol, ring: tuple[int, ...]) -> bool:

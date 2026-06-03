@@ -53,4 +53,5 @@ def test_private_telemetry_batch_matches_public_batch():
     assert "candidate_count" in telemetry
     assert "branch_prefix_calls" in telemetry
     assert "branch_prefix_produced" in telemetry
+    assert "branch_legacy_prefix_detail" in telemetry
     assert "substructure_match_calls" in telemetry

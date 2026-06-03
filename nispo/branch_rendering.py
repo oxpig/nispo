@@ -98,7 +98,11 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
     if symbol == "N":
         return _nitro_prefix(mol, idx, parent_idx)
     if symbol == "S":
-        return _thioxo_prefix(mol, idx, parent_idx) or _mesyl_prefix(mol, idx, parent_idx)
+        return (
+            _simple_sulfur_prefix(mol, idx, parent_idx)
+            or _thioxo_prefix(mol, idx, parent_idx)
+            or _mesyl_prefix(mol, idx, parent_idx)
+        )
     return None
 
 
@@ -440,6 +444,28 @@ def _mesyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if len(double_oxygens) != 2 or len(methyl_ligands) != 1:
         return None
     return _prefix_candidate("mesyl", {idx, *double_oxygens, methyl_ligands[0]}, idx, parent_idx, "mesyl")
+
+
+def _simple_sulfur_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if not heavy:
+        return _prefix_candidate("sulfanyl", {idx}, idx, parent_idx, "simple-sulfur")
+    if len(heavy) != 1:
+        return None
+    methyl_idx = heavy[0]
+    if not _is_plain_terminal_methyl(mol, methyl_idx, idx):
+        return None
+    return _prefix_candidate("methylsulfanyl", {idx, methyl_idx}, idx, parent_idx, "simple-sulfur")
 
 
 def _thioxo_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

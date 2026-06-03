@@ -567,7 +567,7 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
                 continue
             if nbr.GetAtomicNum() <= 1:
                 continue
-            candidates = simple_external_prefix_candidates(mol, nidx, atom_idx)
+            candidates = _simple_phenyl_substituent_candidates(mol, nidx, atom_idx)
             if len(candidates) != 1:
                 return None
             candidate = candidates[0]
@@ -591,6 +591,16 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
     )
 
 
+def _simple_phenyl_substituent_candidates(mol, idx: int, parent_idx: int) -> tuple[PrefixCandidate, ...]:
+    candidates = simple_external_prefix_candidates(mol, idx, parent_idx)
+    if candidates:
+        return candidates
+    if mol.GetAtomWithIdx(idx).IsInRing():
+        return ()
+    candidate = _local_functional_prefix_candidate(mol, idx, parent_idx)
+    return (candidate,) if candidate is not None else ()
+
+
 def _ring_distance(mol, ring_set: set[int], start_idx: int, target_idx: int) -> int | None:
     seen = {start_idx}
     frontier = [(start_idx, 0)]
@@ -611,12 +621,15 @@ def _ring_distance(mol, ring_set: set[int], start_idx: int, target_idx: int) -> 
 _PHENYL_SIMPLE_SUBSTITUENTS = {
     "amino",
     "bromo",
+    "carboxy",
     "chloro",
+    "cyano",
     "fluoro",
     "hydroxy",
     "iodo",
     "methoxy",
     "methyl",
+    "nitro",
     "trifluoromethyl",
 }
 

@@ -2670,6 +2670,13 @@ class AcyclicSkeletonWithRingSubstituentsRule:
         if mol.GetRingInfo().NumRings() == 0:
             return
         name = ctx.acyclic_name(allow_ring_atoms=False)
+        if (
+            name
+            and mol.GetRingInfo().NumRings() >= 2
+            and _has_pterin_retained_fused_parent_substituent_name(name)
+            and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name)
+        ):
+            return
         if name:
             yield NameCandidate(
                 name,
@@ -3067,6 +3074,13 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         and _has_functional_ring_substituent_chain_shape(name)
     ):
         return True
+    if (
+        ctx.polycyclic_parent_records("kekulized")
+        and _has_pterin_retained_fused_parent_substituent_name(name)
+        and _has_stemmed_short_acyclic_parent_suffix(name)
+        and _has_functional_ring_substituent_chain_shape(name)
+    ):
+        return True
     if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
         return True
     if "diamyl" in name and "dioxolan" in name:
@@ -3225,6 +3239,8 @@ def _has_functional_ring_substituent_chain_shape(name: str) -> bool:
         for term in (
             "cyclo",
             "phenyl",
+            "pteridin",
+            "pterin",
             "pyrid",
             "pyraz",
             "imidaz",
@@ -3270,8 +3286,14 @@ def _has_short_functional_acyclic_parent_suffix(name: str) -> bool:
     )
 
 
+def _has_stemmed_short_acyclic_parent_suffix(name: str) -> bool:
+    return bool(re.search(r"(?:meth|eth|prop|but|pent|hex|hept|oct)an$", name))
+
+
 def _has_retained_fused_parent_substituent_name(name: str) -> bool:
     if _has_fused_bracket_descriptor(name):
+        return True
+    if _has_pterin_retained_fused_parent_substituent_name(name):
         return True
     return any(
         term in name
@@ -3300,6 +3322,10 @@ def _has_retained_fused_parent_substituent_name(name: str) -> bool:
             "xanthen",
         )
     )
+
+
+def _has_pterin_retained_fused_parent_substituent_name(name: str) -> bool:
+    return "pterin" in name or "pteridin" in name
 
 
 def _has_fused_bracket_descriptor(name: str) -> bool:

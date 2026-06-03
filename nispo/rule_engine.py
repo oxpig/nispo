@@ -521,6 +521,26 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_retained_spiro_alias = _has_fragile_retained_spiro_alias(name, item.candidate)
     fragile_dibenzofuran_alias = _has_fragile_dibenzofuran_alias(name, item.candidate)
     fragile_isoindolinone_alias = _has_fragile_isoindolinone_alias(name)
+    fragile_indolinone_alias = _has_fragile_indolinone_alias(name, item.candidate)
+    fragile_azaindanone_alias = _has_fragile_azaindanone_alias(name, item.candidate)
+    fragile_oxaanthracen_alias = _has_fragile_oxaanthracen_alias(name, item.candidate)
+    fragile_pterin_substituent = _has_fragile_pterin_substituent_parent(name, item.candidate)
+    fragile_pterin_chain = _has_fragile_pterin_substituent_chain_parent(name, item.candidate)
+    fragile_bis_bicyclic_diazene = _has_fragile_bis_bicyclic_diazene_chain_parent(name, item.candidate)
+    fragile_retained_amide = _has_fragile_retained_unsaturated_amide_parent(name, item.candidate)
+    fragile_neutral_guanidine = _has_fragile_neutral_guanidine_parent(name, item.candidate)
+    fragile_retained_stub = _has_fragile_whole_molecule_retained_stub(name, item.candidate)
+    fragile_anthranil_alias = _has_fragile_anthranil_ketone_alias(name, item.candidate)
+    fragile_retained_like_polycycle = _has_fragile_retained_like_generic_polycycle_alias(name, item.candidate)
+    fragile_pentaazaind_alias = _has_fragile_pentaazaind_replacement_alias(name, item.candidate)
+    fragile_diazenyl_pyridone = _has_fragile_diazenyl_pyridone_parent(name, item.candidate)
+    fragile_imino_purine = _has_fragile_imino_purine_parent(name, item.candidate)
+    fragile_imino_purine_alias = _has_fragile_imino_purine_alias(name, item.candidate)
+    fragile_acyclic_oxoindolin = _has_fragile_acyclic_oxoindolin_substituent_parent(name, item.candidate)
+    fragile_oxo_hydro_fused = _has_fragile_oxo_hydro_fused_alias(name, item.candidate)
+    fragile_hydro_fused_bridge_alias = _has_fragile_hydro_fused_bridge_alias(name, item.candidate)
+    fragile_imidazothiophene = _has_fragile_imidazothiophene_bridge_alias(name, item.candidate)
+    fragile_ergosta_side_chain = _has_fragile_ergosta_terminal_side_chain_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
@@ -536,6 +556,26 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_retained_spiro_alias
         or fragile_dibenzofuran_alias
         or fragile_isoindolinone_alias
+        or fragile_indolinone_alias
+        or fragile_azaindanone_alias
+        or fragile_oxaanthracen_alias
+        or fragile_pterin_substituent
+        or fragile_pterin_chain
+        or fragile_bis_bicyclic_diazene
+        or fragile_retained_amide
+        or fragile_neutral_guanidine
+        or fragile_retained_stub
+        or fragile_anthranil_alias
+        or fragile_retained_like_polycycle
+        or fragile_pentaazaind_alias
+        or fragile_diazenyl_pyridone
+        or fragile_imino_purine
+        or fragile_imino_purine_alias
+        or fragile_acyclic_oxoindolin
+        or fragile_oxo_hydro_fused
+        or fragile_hydro_fused_bridge_alias
+        or fragile_imidazothiophene
+        or fragile_ergosta_side_chain
         or missing_relative_stereo
         or fragile_bridge_h_ketone
         or aza_alias_penalty
@@ -575,6 +615,88 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 40
     if fragile_isoindolinone_alias and _has_contextual_isoindolinone_alternative(item, prepared):
         penalty += 90
+    if fragile_indolinone_alias and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=35, max_length=90
+    ):
+        penalty += 60
+    if fragile_azaindanone_alias and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=45, max_length=90
+    ):
+        penalty += 70
+    if fragile_oxaanthracen_alias and _has_contextual_oxo_bridge_parent_alternative(
+        item, prepared, max_extra=80, max_length=160
+    ):
+        penalty += 80
+    if fragile_pterin_substituent and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=30, max_length=100
+    ):
+        penalty += 70
+    if fragile_pterin_chain and _has_contextual_pterin_parent_alternative(
+        item, prepared, max_extra=45, max_length=150
+    ):
+        penalty += 80
+    if fragile_bis_bicyclic_diazene and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=90, max_length=190
+    ):
+        penalty += 70
+    if fragile_retained_amide and _has_contextual_acyclic_parent_alternative(
+        item, prepared, max_extra=20, max_length=90
+    ):
+        penalty += 16
+    if fragile_neutral_guanidine and _has_contextual_ium_parent_alternative(item, prepared):
+        penalty += 10
+    if fragile_retained_stub and _has_contextual_systematic_parent_alternative(
+        item, prepared, max_extra=90, max_length=150
+    ):
+        penalty += 90
+    if fragile_anthranil_alias and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=20, max_length=70
+    ):
+        penalty += 40
+    if fragile_retained_like_polycycle and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=40, max_length=90
+    ):
+        penalty += 60
+    if fragile_retained_like_polycycle and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=115, max_length=180
+    ):
+        penalty += 110
+    if fragile_pentaazaind_alias and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=40, max_length=90
+    ):
+        penalty += 45
+    if fragile_diazenyl_pyridone and _has_contextual_acyclic_parent_alternative(
+        item, prepared, max_extra=10, max_length=70
+    ):
+        penalty += 20
+    if fragile_imino_purine and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=70, max_length=130
+    ):
+        penalty += 70
+    if fragile_imino_purine_alias and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=35, max_length=115
+    ):
+        penalty += 32
+    if fragile_acyclic_oxoindolin and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=45, max_length=90
+    ):
+        penalty += 35
+    if fragile_oxo_hydro_fused and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=25, max_length=80
+    ):
+        penalty += 30
+    if fragile_hydro_fused_bridge_alias and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=8, max_length=55
+    ):
+        penalty += 10
+    if fragile_imidazothiophene and _has_contextual_generic_bridge_parent_alternative(
+        item, prepared, max_extra=10, max_length=170
+    ):
+        penalty += 20
+    if fragile_ergosta_side_chain and _has_contextual_natural_topology_alternative(
+        item, prepared, stems=("cholest", "cholesta"), max_extra=25, max_length=90
+    ):
+        penalty += 20
     if fragile_bridge_h_ketone and _has_contextual_oxo_bridge_parent_alternative(item, prepared):
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
@@ -682,6 +804,34 @@ def _has_contextual_generic_bicyclic_alternative(
     return False
 
 
+def _has_contextual_generic_bridge_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 90,
+    max_length: int = 180,
+) -> bool:
+    bridge_families = {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "kekulized-generic-polycyclic-parent",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in bridge_families:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if not re.search(_BRIDGE_PARENT_PATTERN, other.name):
+            continue
+        return True
+    return False
+
+
 def _has_contextual_component_spiro_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -703,6 +853,98 @@ def _has_contextual_component_spiro_alternative(
         if other.stability_penalty >= item.stability_penalty + 60:
             continue
         if "spiro[" not in other.name:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_pterin_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 45,
+    max_length: int = 150,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in {
+            "fused-retained-parent",
+            "generated-fused-parent",
+            "generated-hydro-fused-parent",
+            "generated-partial-hydro-fused-parent",
+            "retained-topology-replacement-fused-parent",
+        }:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        template_name = other.candidate.template_name or ""
+        if "pterin" in template_name or "pteridin" in template_name:
+            return True
+        if re.search(r"(?:^|-|[)])(?:pterin|pteridin)\b", other.name):
+            return True
+    return False
+
+
+def _has_contextual_ium_parent_alternative(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> bool:
+    ium_name = item.name + "ium"
+    for other in prepared:
+        if other is item:
+            continue
+        if other.candidate.family != item.candidate.family:
+            continue
+        if other.name == ium_name:
+            return True
+    return False
+
+
+def _has_contextual_natural_topology_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    stems: tuple[str, ...],
+    max_extra: int = 25,
+    max_length: int = 90,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "natural-product-topology-parent":
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if any(stem in other.name for stem in stems):
+            return True
+    return False
+
+
+def _has_contextual_systematic_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 90,
+    max_length: int = 150,
+) -> bool:
+    systematic_families = _CONTEXTUAL_GRAPH_PARENT_FAMILIES | {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "functional-generic-bicyclic-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in systematic_families:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
             continue
         return True
     return False
@@ -859,6 +1101,220 @@ def _has_fragile_dibenzofuran_alias(name: str, candidate: NameCandidate) -> bool
 
 def _has_fragile_isoindolinone_alias(name: str) -> bool:
     return bool(re.search(r"isoindolin-\d+\(2H\)-one", name))
+
+
+def _has_fragile_indolinone_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {"fused-retained-parent", "hydro-fused-retained-parent"}:
+        return False
+    return bool(re.search(r"indolin-\d+\(\dH\)-one\b", name))
+
+
+def _has_fragile_azaindanone_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    return bool(
+        re.search(r"\b\d+-azaindan-\d+\(\dH\)-one\b", name)
+        or re.search(r"\b(?:di|tri)azaindan-\d+\(\dH\)-one\b", name)
+    )
+
+
+def _has_fragile_oxaanthracen_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "skeletal-replacement-fused-parent":
+        return False
+    return bool(re.search(r"(?:^|-)\d+-oxo-\d+-oxaanthracen(?:e)?\b", name))
+
+
+def _has_fragile_pterin_substituent_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if "pterin-" not in name and "pteridin-" not in name:
+        return False
+    return "benz" in name or "phenyl" in name
+
+
+def _has_fragile_pterin_substituent_chain_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-acid-ester-parent",
+    }:
+        return False
+    if "pterin-" not in name and "pteridin-" not in name:
+        return False
+    return "benzoyl" in name or "benzene" in name or "benzoate" in name
+
+
+def _has_fragile_bis_bicyclic_diazene_chain_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+    }:
+        return False
+    if "bis(" not in name or "bicyclo[" not in name:
+        return False
+    return bool(re.search(r"\bdiaza\d*-decen\b|\bdiaza\d*-ethen\b|\bthianonan\b|\bthianonyl\b", name))
+
+
+def _has_fragile_retained_unsaturated_amide_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "retained-amide-parent":
+        return False
+    if not re.match(r"^\([EZ]\)-N-[^-]+-", name):
+        return False
+    return bool(re.search(r"\(\d+[EZ]\)-\d+-[a-z]+enamide\b", name))
+
+
+def _has_fragile_neutral_guanidine_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "guanidine-retained-parent":
+        return False
+    return name.endswith("guanidin")
+
+
+def _has_fragile_anthranil_ketone_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    return bool(re.search(r"anthranil-\d+\(\dH\)-one\b", name))
+
+
+def _has_fragile_retained_like_generic_polycycle_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        return False
+    if _has_generic_polycyclic_parent_descriptor(name):
+        return False
+    if _has_natural_product_topology_stem(name):
+        return False
+    return bool(
+        re.search(
+            r"(?:di|tri|tetra|penta)?(?:aza|oxa|thia).*(?:"
+            r"acephenanthren|acephenanthrylen|aceanthren|acenaphthen|acenaphtho|azachroman|chroman|anthracen|oxaanthracen|xanthen"
+            r")",
+            name,
+        )
+    )
+
+
+def _has_fragile_pentaazaind_replacement_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    return "pentaazaind" in name and "-one" in name
+
+
+def _has_fragile_diazenyl_pyridone_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    return "diazenyl" in name and "pyridin-2-on" in name
+
+
+def _has_fragile_imino_purine_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "imino-functional-acyclic-skeleton-with-ring-substituents":
+        return False
+    return "imino" in name and "purin" in name
+
+
+def _has_fragile_imino_purine_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "single-ring-parent",
+    }:
+        return False
+    return bool(re.search(r"(?:imino.*purin|iminopurin)", name))
+
+
+def _has_fragile_acyclic_oxoindolin_substituent_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+    }:
+        return False
+    return "oxoindolin-2-yl" in name
+
+
+def _has_fragile_oxo_hydro_fused_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+    }:
+        return False
+    if "oxo-" not in name or "dihydro-" not in name:
+        return False
+    return "pyrrolo[" in name and "pyridin" in name
+
+
+def _has_fragile_hydro_fused_bridge_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+    }:
+        return False
+    if "dihydro-" not in name:
+        return False
+    return bool(re.search(r"(?:imidazo|pyrimido|pyrido)\[[^\]]+\]pyrimidin", name))
+
+
+def _has_fragile_imidazothiophene_bridge_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "generated-partial-hydro-fused-parent":
+        return False
+    if "imidazo[" not in name or "thiophene" not in name:
+        return False
+    return "thianonyl" in name or "diazabicyclo[" in name
+
+
+def _has_fragile_ergosta_terminal_side_chain_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family != "natural-product-topology-parent":
+        return False
+    if "ergosta-" not in name:
+        return False
+    return bool(re.search(r"(?:22,)?24,25-(?:di|tri|tetra)?ene|22,24,25-triene", name))
+
+
+def _has_fragile_whole_molecule_retained_stub(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "whole-molecule-retained-parent",
+        "whole-molecule-retained-parent-with-stereo",
+    }:
+        return False
+    if candidate.source_file not in {
+        "aminoAcids.xml",
+        "carbohydrates.xml",
+        "naturalProducts.xml",
+    }:
+        return False
+    parent = re.sub(r"^\([^)]*\)-", "", name)
+    if len(parent) > 24:
+        return False
+    if candidate.source_file == "carbohydrates.xml":
+        return not parent.endswith(("ose", "ulose"))
+    return not parent.endswith(
+        (
+            "ane",
+            "ene",
+            "en",
+            "one",
+            "ol",
+            "al",
+            "acid",
+            "ium",
+            "ide",
+            "ate",
+            "ose",
+            "in",
+            "ine",
+        )
+    )
 
 
 def _has_contextual_relative_stereo_alternative(

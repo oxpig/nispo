@@ -3414,6 +3414,12 @@ class WholeMoleculeRetainedParentRule:
                     priority=self.priority,
                     sort_key=(len(candidate_name), template.get("source_family", ""), candidate_name),
                     stereo_prefix=stereo_prefix,
+                    parent_atoms=frozenset(match),
+                    template_id=id(template),
+                    template_name=template_record_name(template),
+                    source_family=str(template.get("source_family", "")),
+                    source_file=str(template.get("source_file", "")),
+                    estimated_length=len(candidate_name),
                 )
 
 

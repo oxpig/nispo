@@ -506,6 +506,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
     fragile_sulfamoyl_benzene = _has_fragile_single_ring_sulfamoyl_benzene(name, item.candidate)
     fragile_fused_substituent_benzene = _has_fragile_single_ring_fused_substituent_benzene(name, item.candidate)
+    fragile_fused_pyrazole_substituent = _has_fragile_fused_pyrazole_substituent_parent(name, item.candidate)
+    fragile_fused_pyrazole_carbonyl = _has_fragile_fused_pyrazole_carbonyl_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
@@ -516,6 +518,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generic_polycycle
         or fragile_sulfamoyl_benzene
         or fragile_fused_substituent_benzene
+        or fragile_fused_pyrazole_substituent
+        or fragile_fused_pyrazole_carbonyl
         or missing_relative_stereo
         or fragile_bridge_h_ketone
         or aza_alias_penalty
@@ -539,6 +543,14 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=35, max_length=140
     ):
         penalty += 36
+    if fragile_fused_pyrazole_substituent and _has_contextual_named_graph_parent_alternative(
+        item, prepared, max_extra=20, max_length=90
+    ):
+        penalty += 14
+    if fragile_fused_pyrazole_carbonyl and _has_contextual_generic_bicyclic_alternative(
+        item, prepared, max_extra=25, max_length=75
+    ):
+        penalty += 24
     if fragile_bridge_h_ketone and _has_contextual_oxo_bridge_parent_alternative(item, prepared):
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
@@ -624,6 +636,28 @@ def _has_contextual_acyclic_parent_alternative(
     return False
 
 
+def _has_contextual_generic_bicyclic_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 70,
+    max_length: int = 140,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in {"functional-generic-bicyclic-parent", "generic-bicyclic-parent"}:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if "bicyclo[" not in other.name:
+            continue
+        return True
+    return False
+
+
 _BRIDGE_PARENT_PATTERN = r"(?:bicyclo|tricyclo|tetracyclo|pentacyclo|hexacyclo|heptacyclo|spiro|dispiro)\["
 
 
@@ -671,6 +705,34 @@ def _has_fragile_single_ring_fused_substituent_benzene(name: str, candidate: Nam
     if not any(fragment in name for fragment in ("benzodioxan-", "benzofuran-", "benzothiophen-", "carbazol-")):
         return False
     return "benzyl" in name or "phenyloxy" in name or "benzonitrile" in name
+
+
+_FUSED_PYRAZOLE_PATTERN = re.compile(
+    r"(?:pyrido|pyrimido|quino|triazolo|s-triazolo)\[[^\]]+\](?:pyrazol|indazol)|"
+    r"(?:pyrazolo|indazolo)\[[^\]]+\](?:pyridin|pyrimidin|quinolin)"
+)
+
+
+def _has_fragile_fused_pyrazole_substituent_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+        "single-ring-parent",
+    }:
+        return False
+    if not _FUSED_PYRAZOLE_PATTERN.search(name):
+        return False
+    return "-yl)" in name or "-yl" in name
+
+
+def _has_fragile_fused_pyrazole_carbonyl_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {"generated-fused-parent", "generated-partial-hydro-fused-parent"}:
+        return False
+    if not _FUSED_PYRAZOLE_PATTERN.search(name):
+        return False
+    return bool(re.search(r"(?:^|-)\d+-oxo-\d+,\d+-dihydro-", name) or re.search(r"-\d+\(\dH\)-one\b", name))
 
 
 def _has_contextual_relative_stereo_alternative(

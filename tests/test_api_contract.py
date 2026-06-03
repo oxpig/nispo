@@ -108,6 +108,27 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "[CH2-]CCC",
+        "[CH-]=CCC",
+        "[CH2+]CCC",
+        "O=C1C=CC(=O)N1",
+        "C1CC[IH]C1",
+        "C1=CC[IH]C=C1",
+        "C1=C[IH][IH]C1",
+        "C1=C[IH]N=C1",
+    ],
+)
+def test_empty_output_family_regressions_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C[C@H](O)[C@@H](O)[C@@H](O)[C@H](O)C=O",
         "O=C(CO)[C@H](O)[C@H](O)[C@H](O)CO",
         "O=C[C@H](O)CO",

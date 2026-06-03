@@ -45,6 +45,10 @@ class _AcyclicGraphView:
 
 
 def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
+    terminal_charge_name = _name_terminal_linear_hydrocarbon_charge(mol)
+    if terminal_charge_name:
+        return terminal_charge_name
+
     profile = _acyclic_functional_profile(mol)
     for signal, namer in (
         ("oxidanium", _name_oxidanium),
@@ -63,6 +67,45 @@ def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
         return ""
 
     return _best_acyclic_name_from_paths(mol, paths)
+
+
+def _name_terminal_linear_hydrocarbon_charge(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    atom_count = mol.GetNumAtoms()
+    if atom_count == 0:
+        return ""
+    atoms = tuple(mol.GetAtoms())
+    if any(atom.GetSymbol() != "C" for atom in atoms):
+        return ""
+    charged_atoms = [
+        atom.GetIdx()
+        for atom in atoms
+        if atom.GetFormalCharge() in {-1, 1}
+    ]
+    if len(charged_atoms) != 1:
+        return ""
+    charge_idx = charged_atoms[0]
+    charge = mol.GetAtomWithIdx(charge_idx).GetFormalCharge()
+    if any(atom.GetFormalCharge() != 0 for atom in atoms if atom.GetIdx() != charge_idx):
+        return ""
+    view = _acyclic_graph_view(mol)
+    if any(len(neighbors) > 2 for neighbors in view.neighbors):
+        return ""
+    if atom_count == 1:
+        path = (charge_idx,)
+    else:
+        endpoints = [idx for idx, neighbors in enumerate(view.neighbors) if len(neighbors) <= 1]
+        if len(endpoints) != 2 or charge_idx not in endpoints:
+            return ""
+        other_endpoint = endpoints[0] if endpoints[1] == charge_idx else endpoints[1]
+        path = _shortest_path_in_allowed_graph(view, charge_idx, other_endpoint, set(range(atom_count)))
+        if not path or len(path) != atom_count:
+            return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if not parent:
+        return ""
+    return f"{parent}{'ide' if charge < 0 else 'ylium'}"
 
 
 def _acyclic_functional_profile(mol) -> dict[str, bool]:

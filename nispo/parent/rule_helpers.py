@@ -1350,6 +1350,14 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             )
         ]
         locants = sorted(pos[idx] for idx, _ in raw_subs)
+        if not prefixes:
+            name = _join_prefix_parent("", adjusted_parent)
+            key = (locants, 0, name)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_name = name
+                best_seq = seq
+            continue
         prefix_text = _format_prefixes(prefixes)
         if not prefix_text:
             continue

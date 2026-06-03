@@ -155,6 +155,10 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
     kekulized_aromatic = _kekulized_aromatic_ring(mol, ordered, symbols)
     candidates: list[tuple[str, tuple[int, ...]]] = []
 
+    candidates = _simple_iodine_ring_candidates(mol, ordered, symbols)
+    if candidates:
+        return candidates
+
     if n == 3 and symbols.count("C") == 1 and symbols.count("N") == 2:
         candidates.extend(
             _ring_pattern_candidates(
@@ -958,6 +962,82 @@ def _ring_pattern_candidates(
             continue
         candidates.append((parent, seq))
     return candidates
+
+
+def _simple_iodine_ring_candidates(
+    mol,
+    ordered: Sequence[int],
+    symbols: Sequence[str],
+) -> list[tuple[str, tuple[int, ...]]]:
+    if "I" not in symbols:
+        return []
+    if _has_external_heavy_substituent(mol, ordered):
+        return []
+    if any(mol.GetAtomWithIdx(idx).GetFormalCharge() != 0 for idx in ordered):
+        return []
+    counts = Counter(symbols)
+    double_count = sum(
+        1
+        for left, right in zip(ordered, ordered[1:] + ordered[:1])
+        if mol.GetBondBetweenAtoms(left, right).GetBondTypeAsDouble() == 2.0
+    )
+    parent = ""
+    if counts == Counter({"C": 3, "I": 1}) and len(ordered) == 4 and double_count == 1:
+        parent = "iodetine"
+    elif counts == Counter({"C": 4, "I": 1}) and len(ordered) == 5:
+        if double_count == 0:
+            parent = "iodolane"
+        elif double_count == 1:
+            parent = "iodoline"
+    elif counts == Counter({"C": 5, "I": 1}) and len(ordered) == 6:
+        if double_count == 0:
+            parent = "iodinane"
+        elif double_count == 2:
+            parent = "iodinine"
+    elif counts == Counter({"C": 3, "I": 1, "N": 1}) and len(ordered) == 5 and double_count == 2:
+        parent = "iodazole"
+    elif (
+        counts == Counter({"C": 3, "I": 2})
+        and len(ordered) == 5
+        and double_count == 1
+        and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 1
+    ):
+        parent = "diiodol"
+    elif (
+        counts == Counter({"C": 2, "I": 3})
+        and len(ordered) == 5
+        and double_count == 1
+        and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 2
+    ):
+        parent = "triiodol"
+    if not parent:
+        return []
+    return [(parent, _ring_sequence_starting_with(mol, ordered, "I"))]
+
+
+def _has_external_heavy_substituent(mol, ordered: Sequence[int]) -> bool:
+    ring_set = set(ordered)
+    return any(
+        nbr.GetIdx() not in ring_set and nbr.GetAtomicNum() > 1
+        for idx in ordered
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
+    )
+
+
+def _adjacent_symbol_bond_count(mol, ordered: Sequence[int], left_symbol: str, right_symbol: str) -> int:
+    count = 0
+    for left, right in zip(ordered, ordered[1:] + ordered[:1]):
+        symbols = {mol.GetAtomWithIdx(left).GetSymbol(), mol.GetAtomWithIdx(right).GetSymbol()}
+        if symbols == {left_symbol, right_symbol}:
+            count += 1
+    return count
+
+
+def _ring_sequence_starting_with(mol, ordered: Sequence[int], symbol: str) -> tuple[int, ...]:
+    for seq in _ring_numberings(ordered):
+        if mol.GetAtomWithIdx(seq[0]).GetSymbol() == symbol:
+            return tuple(seq)
+    return tuple(ordered)
 
 
 def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:

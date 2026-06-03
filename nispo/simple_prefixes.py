@@ -443,12 +443,12 @@ def _simple_benzyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Prefi
     ring = _phenyl_ring(mol, ring_idx, idx)
     if ring is None:
         return None
-    substituent = _single_methoxybenzyl_substituent(mol, ring, ring_idx, idx)
+    substituent = _single_substituted_benzyl_substituent(mol, ring, ring_idx, idx)
     if substituent is not None:
-        locant, methoxy_atoms = substituent
+        locant, substituent_text, substituent_atoms = substituent
         return _prefix_candidate(
-            f"{locant}-methoxybenzyl",
-            {idx, *ring, *methoxy_atoms},
+            f"{locant}-{substituent_text}benzyl",
+            {idx, *ring, *substituent_atoms},
             idx,
             parent_idx,
             "substituted-benzyl",
@@ -783,12 +783,25 @@ def _phenyl_ring_is_unsubstituted(mol, ring: tuple[int, ...], attachment_idx: in
     return True
 
 
-def _single_methoxybenzyl_substituent(
+_BENZYL_SIMPLE_SUBSTITUENTS = {
+    "amino",
+    "bromo",
+    "chloro",
+    "fluoro",
+    "hydroxy",
+    "iodo",
+    "methoxy",
+    "methyl",
+    "trifluoromethyl",
+}
+
+
+def _single_substituted_benzyl_substituent(
     mol,
     ring: tuple[int, ...],
     attachment_idx: int,
     parent_idx: int,
-) -> tuple[int, frozenset[int]] | None:
+) -> tuple[int, str, frozenset[int]] | None:
     ring_set = set(ring)
     substituents = []
     for atom_idx in ring:
@@ -803,7 +816,7 @@ def _single_methoxybenzyl_substituent(
             if len(candidates) != 1:
                 return None
             candidate = candidates[0]
-            if candidate.text != "methoxy":
+            if candidate.text not in _BENZYL_SIMPLE_SUBSTITUENTS:
                 return None
             substituents.append((atom_idx, candidate))
     if len(substituents) != 1:
@@ -812,7 +825,7 @@ def _single_methoxybenzyl_substituent(
     locant = _ring_locant(mol, ring_set, attachment_idx, atom_idx)
     if locant is None or locant <= 1:
         return None
-    return locant, candidate.atoms
+    return locant, candidate.text, candidate.atoms
 
 
 def _ring_locant(mol, ring_set: set[int], start_idx: int, target_idx: int) -> int | None:

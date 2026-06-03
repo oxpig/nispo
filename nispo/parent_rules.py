@@ -3506,7 +3506,7 @@ class RetainedRingScaffoldParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
+        if ctx.features.get("max_ring_system_ring_count", 0) < 2:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
@@ -5704,7 +5704,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "retained-ring-scaffold-parent",
             parent_priority("retained-fused-parent"),
-            (min_ring_count(1),),
+            (min_ring_system_ring_count(2),),
             retained_ring_scaffold.candidates,
         ),
         RuleSpec(

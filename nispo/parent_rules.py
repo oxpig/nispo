@@ -684,6 +684,73 @@ class OrganomagnesiumHalideParentRule:
         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class IodaneParentRule:
+    family = "iodane-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for iodine in mol.GetAtoms():
+            if iodine.GetSymbol() != "I" or iodine.GetFormalCharge() != 0 or iodine.IsInRing():
+                continue
+            iodine_idx = iodine.GetIdx()
+            neighbors = [
+                nbr.GetIdx()
+                for nbr in iodine.GetNeighbors()
+                if nbr.GetAtomicNum() > 1
+            ]
+            if len(neighbors) != 3:
+                continue
+            ligand_names = []
+            covered = {iodine_idx}
+            for nidx in neighbors:
+                bond = mol.GetBondBetweenAtoms(iodine_idx, nidx)
+                if bond is None or bond.GetBondType() != self._Chem.BondType.SINGLE:
+                    break
+                name = _simple_or_branch_prefix(mol, nidx, iodine_idx)
+                if not name:
+                    break
+                ligand_names.append(name)
+                covered.update(_collect_component_atoms(mol, nidx, iodine_idx))
+            else:
+                if covered != atom_set:
+                    continue
+                name = _iodane_parent_name(ligand_names)
+                if name:
+                    yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _iodane_parent_name(ligand_names: Sequence[str]) -> str:
+    if len(ligand_names) != 3:
+        return ""
+    counts = Counter(ligand_names)
+    parts = []
+    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+        parts.append(_iodane_ligand_prefix(ligand, count))
+    if not all(parts):
+        return ""
+    return "".join(parts) + "-lambda3-iodane"
+
+
+def _iodane_ligand_prefix(ligand: str, count: int) -> str:
+    ligand = _strip_outer_parentheses(ligand)
+    if count == 1:
+        return _parenthesized_if_complex(ligand)
+    multiplier = MULT.get(count)
+    if not multiplier:
+        return ""
+    if _simple_unparenthesized_n_substituent(ligand):
+        return f"{multiplier}{ligand}"
+    if multiplier == "di":
+        return f"bis({ligand})"
+    return f"{multiplier}({ligand})"
+
+
 class PnictogenHydrideParentRule:
     family = "pnictogen-hydride-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1437,6 +1504,8 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
         sidechain_name = ""
         if sidechains:
             sidechain_name = _simple_or_branch_prefix(mol, sidechains[0], alpha_idx)
+            if not sidechain_name:
+                continue
         amino_acid = _AMINO_ACID_SIDECHAIN_NAMES.get(sidechain_name)
         if not amino_acid:
             continue
@@ -5667,6 +5736,7 @@ def parent_rules(Chem) -> tuple:
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
+    iodane = IodaneParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -5729,6 +5799,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
+        RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",

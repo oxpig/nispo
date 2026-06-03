@@ -10,6 +10,7 @@ from rdkit import Chem
 
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
 from nispo.api import _smiles_to_iupac_batch_with_telemetry
+import nispo.parent_rules as parent_rules
 
 
 def test_public_api_single_and_batch_contract():
@@ -113,6 +114,31 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_standalone_carbohydrate_retained_stems_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_amino_acid_parent_rejects_unrendered_sidechain():
+    mol = Chem.MolFromSmiles(
+        "CNc1ccc2ccc(N(CC[C@H](N)C(=O)O)C(=O)[C@H]3O"
+        "[C@@H](n4cc(-c5ccn(C)n5)c5c(N)ncnc54)[C@H](O)[C@@H]3O)cc2n1"
+    )
+
+    assert parent_rules._amino_acid_parent_names(mol, Chem) == []
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "ClI(c1ccccc1)c1ccccc1",
+        "Cc1ccc(I(Cl)c2ccccc2)cc1",
+        "CC(C)(C)c1ccc(I(Cl)c2ccccc2)cc1",
+    ],
+)
+def test_neutral_iodane_parent_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

@@ -88,6 +88,13 @@ def _with_root_carbon_isotope(mol, idx: int, name: str) -> str:
 
 def _halogen_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
+    if atom.GetFormalCharge() != 0:
+        return ""
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+        return ""
     symbol = atom.GetSymbol()
     name = HALO.get(symbol, "")
     if not name:

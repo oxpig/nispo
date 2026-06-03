@@ -38,7 +38,8 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
         candidate = _terminal_halogen_prefix(atom, idx, parent_idx, order)
     elif symbol == "C":
         candidate = (
-            _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
+            _simple_methylidene_prefix(mol, idx, parent_idx, order)
+            or _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
             or _simple_halomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_haloethyl_prefix(mol, idx, parent_idx, order)
             or _simple_branched_alkyl_prefix(mol, idx, parent_idx, order)
@@ -48,6 +49,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_aminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_alkenyl_prefix(mol, idx, parent_idx, order)
             or _simple_linear_alkyl_prefix(
                 mol,
                 idx,
@@ -75,6 +77,19 @@ def _terminal_halogen_prefix(atom, idx: int, parent_idx: int, order: float) -> P
     symbol = atom.GetSymbol()
     text = f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     return _prefix_candidate(text, {idx}, idx, parent_idx, "terminal-halogen")
+
+
+def _simple_methylidene_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 2.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+        return None
+    return _prefix_candidate("methylidene", {idx}, idx, parent_idx, "methylidene")
 
 
 def _simple_fluoromethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
@@ -161,6 +176,55 @@ def _simple_haloethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Pr
         parent_idx,
         "haloethyl",
     )
+
+
+def _simple_alkenyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    external = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(external) != 1:
+        return None
+    first_idx = external[0]
+    first = mol.GetAtomWithIdx(first_idx)
+    if first.GetSymbol() != "C" or first.GetFormalCharge() != 0 or first.IsInRing() or first.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(first) or _atom_has_isotopic_hydrogen(first):
+        return None
+    first_bond = mol.GetBondBetweenAtoms(idx, first_idx)
+    if first_bond is None:
+        return None
+    first_external = [
+        nbr.GetIdx()
+        for nbr in first.GetNeighbors()
+        if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
+    ]
+    if first_bond.GetBondTypeAsDouble() == 2.0:
+        if first_external:
+            return None
+        return _prefix_candidate("ethen-1-yl", {idx, first_idx}, idx, parent_idx, "alkenyl")
+    if first_bond.GetBondTypeAsDouble() != 1.0 or len(first_external) != 1:
+        return None
+    second_idx = first_external[0]
+    second = mol.GetAtomWithIdx(second_idx)
+    if second.GetSymbol() != "C" or second.GetFormalCharge() != 0 or second.IsInRing() or second.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(second) or _atom_has_isotopic_hydrogen(second):
+        return None
+    second_bond = mol.GetBondBetweenAtoms(first_idx, second_idx)
+    if second_bond is None or second_bond.GetBondTypeAsDouble() != 2.0:
+        return None
+    if any(nbr.GetIdx() != first_idx and nbr.GetAtomicNum() > 1 for nbr in second.GetNeighbors()):
+        return None
+    return _prefix_candidate("2-propen-1-yl", {idx, first_idx, second_idx}, idx, parent_idx, "alkenyl")
 
 
 def _same_terminal_halo_prefix(

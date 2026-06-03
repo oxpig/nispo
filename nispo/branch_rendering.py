@@ -1579,6 +1579,10 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
             substituents.append((atom_idx, candidate))
     if not substituents:
         return _prefix_candidate("phenyl", ring_set, idx, parent_idx, "simple-aryl-ring")
+    if len(substituents) == 2:
+        difluoro = _difluorophenyl_prefix(mol, ring_set, idx, parent_idx, substituents)
+        if difluoro is not None:
+            return difluoro
     if len(substituents) != 1:
         return None
     atom_idx, candidate = substituents[0]
@@ -1591,6 +1595,30 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
         idx,
         parent_idx,
         "substituted-aryl-ring",
+    )
+
+
+def _difluorophenyl_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+    substituents: list[tuple[int, PrefixCandidate]],
+) -> PrefixCandidate | None:
+    if len(substituents) != 2 or any(candidate.text != "fluoro" for _, candidate in substituents):
+        return None
+    locants = _phenyl_disubstituent_locants(mol, ring_set, idx, [atom_idx for atom_idx, _ in substituents])
+    if locants is None or any(locant <= 1 for locant in locants):
+        return None
+    atoms = set(ring_set)
+    for _, candidate in substituents:
+        atoms.update(candidate.atoms)
+    return _prefix_candidate(
+        f"{','.join(str(locant) for locant in locants)}-difluorophenyl",
+        atoms,
+        idx,
+        parent_idx,
+        "difluoro-aryl-ring",
     )
 
 
@@ -1640,6 +1668,58 @@ _PHENYL_SIMPLE_SUBSTITUENTS = {
 def _phenyl_substituent_locant(mol, ring_set: set[int], attachment_idx: int, substituent_atom_idx: int) -> int | None:
     distance = _ring_distance(mol, ring_set, attachment_idx, substituent_atom_idx)
     return None if distance is None else distance + 1
+
+
+def _phenyl_disubstituent_locants(
+    mol,
+    ring_set: set[int],
+    attachment_idx: int,
+    substituent_atom_indices: list[int],
+) -> tuple[int, int] | None:
+    ring_neighbors = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(attachment_idx).GetNeighbors()
+        if nbr.GetIdx() in ring_set
+    ]
+    if len(ring_neighbors) != 2:
+        return None
+    options = []
+    for first_idx in ring_neighbors:
+        seq = _oriented_ring_sequence(mol, ring_set, attachment_idx, first_idx)
+        if len(seq) != len(ring_set) or set(seq) != ring_set:
+            continue
+        try:
+            locants = tuple(sorted(seq.index(atom_idx) + 1 for atom_idx in substituent_atom_indices))
+        except ValueError:
+            continue
+        options.append(locants)
+    return min(options) if options else None
+
+
+def _oriented_ring_sequence(
+    mol,
+    ring_set: set[int],
+    start_idx: int,
+    first_idx: int,
+) -> tuple[int, ...]:
+    seq = [start_idx]
+    previous = start_idx
+    current = first_idx
+    while len(seq) < len(ring_set):
+        if current not in ring_set or current in seq:
+            return ()
+        seq.append(current)
+        if len(seq) == len(ring_set):
+            break
+        next_indices = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(current).GetNeighbors()
+            if nbr.GetIdx() in ring_set and nbr.GetIdx() != previous
+        ]
+        if len(next_indices) != 1:
+            return ()
+        previous, current = current, next_indices[0]
+    return tuple(seq)
 
 
 def _ring_bonds_are_single(mol, ring: tuple[int, ...]) -> bool:

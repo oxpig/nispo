@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import subprocess
+import tempfile
+from pathlib import Path
+from shutil import which
+
+import pytest
+from rdkit import Chem
+
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
 from nispo.api import _smiles_to_iupac_batch_with_telemetry
 
@@ -55,3 +63,59 @@ def test_private_telemetry_batch_matches_public_batch():
     assert "branch_prefix_produced" in telemetry
     assert "branch_legacy_prefix_detail" in telemetry
     assert "substructure_match_calls" in telemetry
+
+
+def test_positive_replacement_heterocycle_parent_roundtrips_with_opsin():
+    input_smiles = "C1CC[PH2+]CC1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
+    input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def _opsin_parse_name(name: str) -> str:
+    opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
+    if not opsin_jar.exists():
+        pytest.skip("OPSIN jar is not available")
+    java_executable = _java_executable()
+    if not java_executable:
+        pytest.skip("Java runtime is not available")
+
+    with tempfile.TemporaryDirectory() as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        names_file = temp_dir / "names.txt"
+        output_file = temp_dir / "opsin.smi"
+        names_file.write_text(name + "\n")
+        completed = subprocess.run(
+            [java_executable, "-jar", str(opsin_jar), "-o", "smi", str(names_file), str(output_file)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if "Unable to locate a Java Runtime" in completed.stderr:
+            pytest.skip("Java runtime is not available")
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+        return output_file.read_text().strip()
+
+
+def _canonical_smiles(smiles: str) -> str:
+    mol = Chem.MolFromSmiles(smiles)
+    assert mol is not None
+    return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+
+
+def _java_executable() -> str:
+    homebrew_java = Path("/opt/homebrew/opt/openjdk/bin/java")
+    if homebrew_java.exists():
+        return str(homebrew_java)
+    return which("java") or ""

@@ -1456,6 +1456,9 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
         n_names = []
         ok = True
         for sub_idx in n_substituents:
+            if _amino_acid_n_substituent_is_opsin_fragile(mol, Chem, sub_idx, nidx):
+                ok = False
+                break
             name = _simple_or_branch_prefix(mol, sub_idx, nidx)
             if not name:
                 ok = False
@@ -1471,6 +1474,58 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
         prefix = _amino_acid_n_substituent_prefix(n_names)
         names.append(stereo + prefix + parent)
     return names
+
+
+def _amino_acid_n_substituent_is_opsin_fragile(mol, Chem, sub_idx: int, nitrogen_idx: int) -> bool:
+    component = _collect_component_atoms(mol, sub_idx, nitrogen_idx)
+    if len(component) < 8:
+        return False
+    if not _is_n_acyl_or_carbamate_link(mol, Chem, sub_idx, nitrogen_idx):
+        return False
+    return _component_has_nonring_carbon_unsaturation(mol, Chem, component) or _component_has_fused_ring_system(
+        mol,
+        component,
+    )
+
+
+def _is_n_acyl_or_carbamate_link(mol, Chem, carbon_idx: int, nitrogen_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C":
+        return False
+    bond_to_n = mol.GetBondBetweenAtoms(carbon_idx, nitrogen_idx)
+    if bond_to_n is None or bond_to_n.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    return any(
+        nbr.GetIdx() != nitrogen_idx
+        and nbr.GetSymbol() == "O"
+        and (bond := mol.GetBondBetweenAtoms(carbon_idx, nbr.GetIdx())) is not None
+        and bond.GetBondType() == Chem.BondType.DOUBLE
+        for nbr in carbon.GetNeighbors()
+    )
+
+
+def _component_has_nonring_carbon_unsaturation(mol, Chem, component: set[int]) -> bool:
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        if begin.GetIdx() not in component or end.GetIdx() not in component:
+            continue
+        if begin.IsInRing() or end.IsInRing():
+            continue
+        if begin.GetSymbol() != "C" or end.GetSymbol() != "C":
+            continue
+        if bond.GetBondType() in {Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}:
+            return True
+    return False
+
+
+def _component_has_fused_ring_system(mol, component: set[int]) -> bool:
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= component]
+    return any(
+        len(left & right) >= 2
+        for idx, left in enumerate(rings)
+        for right in rings[idx + 1 :]
+    )
 
 
 def _amino_acid_parent_for_carboxyl_kind(name: str, kind: str) -> str:

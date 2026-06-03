@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -883,6 +884,9 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
         if atom.GetSymbol() in {"O", "S"}:
             stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
             return f"{stem}-{loc}-ium"
+        if atom.GetSymbol() != "C" and _is_replacement_heterocycle_parent(parent_name, atom.GetSymbol()):
+            stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+            return f"{stem}-{loc}-ium"
         if atom.GetSymbol() != "N":
             continue
         charge_base = _drop_indicated_hydrogen_prefix(parent_name)
@@ -933,6 +937,13 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name
+
+
+def _is_replacement_heterocycle_parent(parent_name: str, charged_symbol: str) -> bool:
+    replacement = REPLACEMENT.get(charged_symbol)
+    if not replacement:
+        return False
+    return bool(re.search(rf"(?:^|-)\d+-{re.escape(replacement)}", parent_name))
 
 
 def _ring_pattern_candidates(

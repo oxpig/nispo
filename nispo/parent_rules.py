@@ -3363,7 +3363,7 @@ class FusedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() < 2:
+        if ctx.features.get("max_ring_system_ring_count", 0) < 2:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
@@ -5725,7 +5725,7 @@ def parent_rules(Chem) -> tuple:
             (min_ring_system_ring_count(2), generic_bicyclic_topology),
             preferred_bicyclic.candidates,
         ),
-        RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_count(2),), fused.candidates),
+        RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_system_ring_count(2),), fused.candidates),
         RuleSpec("hydro-fused-retained-parent", parent_priority("hydro-retained-fused-parent"), (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
         RuleSpec(
             "generated-spiro-partial-hydro-parent",

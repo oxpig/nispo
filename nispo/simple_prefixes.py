@@ -49,6 +49,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_alkoxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_aminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_dimethylaminomethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_bocaminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_acetenyl_prefix(mol, idx, parent_idx, order)
@@ -700,6 +701,109 @@ def _simple_dimethylaminomethyl_prefix(mol, idx: int, parent_idx: int, order: fl
         parent_idx,
         "dimethylaminomethyl",
     )
+
+
+def _simple_bocaminomethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    nitrogen_idx = heavy[0]
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing() or nitrogen.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(nitrogen):
+        return None
+    bond = mol.GetBondBetweenAtoms(idx, nitrogen_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    carbonyls = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if nbr.GetSymbol() == "C" and bond is not None and bond.GetBondTypeAsDouble() == 1.0:
+            boc_atoms = _terminal_boc_carbonyl_atoms(mol, nidx, nitrogen_idx)
+            if boc_atoms is None:
+                return None
+            carbonyls.append(boc_atoms)
+        else:
+            return None
+    if len(carbonyls) != 1:
+        return None
+    return _prefix_candidate(
+        "bocaminomethyl",
+        {idx, nitrogen_idx, *carbonyls[0]},
+        idx,
+        parent_idx,
+        "bocaminomethyl",
+    )
+
+
+def _terminal_boc_carbonyl_atoms(mol, carbonyl_idx: int, nitrogen_idx: int) -> set[int] | None:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing() or carbonyl.GetIsotope():
+        return None
+    double_oxygens = []
+    single_oxygens = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return None
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond is not None and bond.GetBondTypeAsDouble() == 1.0:
+            if nbr.GetFormalCharge() != 0 or nbr.IsInRing() or nbr.GetIsotope():
+                return None
+            single_oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 1 or len(single_oxygens) != 1:
+        return None
+    tert_butyl = _tert_butyl_oxy_atoms(mol, single_oxygens[0], carbonyl_idx)
+    if tert_butyl is None:
+        return None
+    return {carbonyl_idx, double_oxygens[0], single_oxygens[0], *tert_butyl}
+
+
+def _tert_butyl_oxy_atoms(mol, oxygen_idx: int, carbonyl_idx: int) -> set[int] | None:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    heavy = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    central_idx = heavy[0]
+    central = mol.GetAtomWithIdx(central_idx)
+    if central.GetSymbol() != "C" or central.GetFormalCharge() != 0 or central.IsInRing() or central.GetIsotope():
+        return None
+    bond = mol.GetBondBetweenAtoms(oxygen_idx, central_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    methyls = [
+        nbr.GetIdx()
+        for nbr in central.GetNeighbors()
+        if nbr.GetIdx() != oxygen_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(methyls) != 3 or not all(_is_terminal_methyl(mol, methyl_idx, central_idx) for methyl_idx in methyls):
+        return None
+    return {central_idx, *methyls}
 
 
 def _simple_cyanomethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

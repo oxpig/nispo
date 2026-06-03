@@ -87,6 +87,24 @@ def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(N)C(=O)O",
+        "CC[C@@H](C)[C@@H](N)C(=O)O",
+        "OC[C@H]1O[C@@H](O[C@H]2[C@H](O)[C@@H](O)[C@@H](O)O[C@@H]2CO)[C@H](O)[C@@H](O)[C@H]1O",
+        "CC(C)=CCC[C@H](C)CCO",
+        "[NH3+][O-]",
+    ],
+)
+def test_retained_shortcuts_defer_to_roundtripping_systematic_alternatives(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[O-][I+][O-]",
         "[O-][NH+]([O-])[O-]",
         "O=C[O-]",

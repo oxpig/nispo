@@ -506,6 +506,19 @@ _CONTEXTUAL_GRAPH_PARENT_FAMILIES = {
     "single-ring-parent",
 }
 
+_CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES = {
+    "acyclic-parent",
+    "acyclic-skeleton-with-ring-substituents",
+    "chain-dominant-acyclic-skeleton-with-ring-substituents",
+    "functional-acyclic-skeleton-with-ring-substituents",
+    "functional-generic-bicyclic-parent",
+    "generic-bicyclic-parent",
+    "kekulized-generic-polycyclic-parent",
+    "positive-single-ring-parent",
+    "preferred-acyclic-skeleton-with-ring-substituents",
+    "single-ring-parent",
+}
+
 
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
@@ -543,6 +556,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_ergosta_side_chain = _has_fragile_ergosta_terminal_side_chain_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
+    retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -578,6 +592,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_ergosta_side_chain
         or missing_relative_stereo
         or fragile_bridge_h_ketone
+        or retained_shortcut
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -701,11 +716,32 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 80
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
+    if retained_shortcut:
+        penalty += 140
     if aza_alias_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=90, max_length=180):
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
         penalty += 12
     return penalty
+
+
+def _has_contextual_systematic_alternative_for_retained_shortcut(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in {"amino-acid-retained-parent", "whole-molecule-retained-parent"}:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_graph_parent_alternative(

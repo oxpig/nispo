@@ -96,7 +96,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             or _carboxy_prefix(mol, idx, parent_idx)
         )
     if symbol == "N":
-        return _nitro_prefix(mol, idx, parent_idx)
+        return _nitro_prefix(mol, idx, parent_idx) or _bocamino_prefix(mol, idx, parent_idx)
     if symbol == "S":
         return (
             _simple_sulfur_prefix(mol, idx, parent_idx)
@@ -401,6 +401,58 @@ def _nitro_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     elif mol.GetAtomWithIdx(parent_idx).GetSymbol() != "O":
         return None
     return _prefix_candidate("nitro", {idx, *oxygens}, idx, parent_idx, "nitro")
+
+
+def _bocamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if parent.GetSymbol() == "C" and parent.IsInRing() and not parent.GetIsAromatic():
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
+    ]
+    if len(heavy) != 1:
+        return None
+    ligand = _retained_alkoxycarbonyl_prefix(mol, heavy[0], idx)
+    if ligand is None or ligand.text != "boc":
+        return None
+    if not _bocamino_prefix_allowed(mol, idx, parent_idx):
+        return None
+    return _prefix_candidate("bocamino", {idx, *ligand.atoms}, idx, parent_idx, "bocamino")
+
+
+def _bocamino_prefix_allowed(mol, amino_idx: int, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if not parent.IsInRing() or mol.GetRingInfo().NumRings() < 2:
+        return True
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or not atom.IsInRing():
+            continue
+        cidx = atom.GetIdx()
+        has_exocyclic_oxo = False
+        has_ring_nitrogen = False
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if (
+                nbr.GetSymbol() == "O"
+                and not nbr.IsInRing()
+                and bond is not None
+                and bond.GetBondTypeAsDouble() == 2.0
+            ):
+                has_exocyclic_oxo = True
+            elif nbr.GetSymbol() == "N" and nbr.IsInRing() and nidx != amino_idx:
+                has_ring_nitrogen = True
+        if has_exocyclic_oxo and has_ring_nitrogen:
+            return False
+    return True
 
 
 def _mesyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

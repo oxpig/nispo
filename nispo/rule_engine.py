@@ -476,9 +476,19 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
     penalty = _opsin_stability_penalty(name)
     if candidate.family == "skeletal-replacement-fused-parent":
         penalty += _skeletal_replacement_fused_parent_penalty(name)
+    if candidate.family == "kekulized-generic-polycyclic-parent":
+        penalty += _kekulized_polycyclic_late_render_rank_penalty(name, candidate)
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
     return penalty
+
+
+def _kekulized_polycyclic_late_render_rank_penalty(name: str, candidate: NameCandidate) -> int:
+    if candidate.render_rank is None:
+        return 0
+    if "tetraaza" in name:
+        return 0
+    return max(0, candidate.render_rank - 4) * 2
 
 
 _CONTEXTUAL_GRAPH_PARENT_FAMILIES = {

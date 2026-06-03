@@ -107,6 +107,8 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             or _thioxo_prefix(mol, idx, parent_idx)
             or _mesyl_prefix(mol, idx, parent_idx)
         )
+    if symbol == "B":
+        return _borono_prefix(mol, idx, parent_idx)
     return None
 
 
@@ -448,6 +450,37 @@ def _azido_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     if any(nbr.GetIdx() != middle_idx and nbr.GetAtomicNum() > 1 for nbr in terminal.GetNeighbors()):
         return None
     return _prefix_candidate("azido", {idx, middle_idx, terminal_idx}, idx, parent_idx, "azido")
+
+
+def _borono_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    oxygens = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        if _is_terminal_hydroxy_oxygen(mol, nidx, idx):
+            oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(oxygens) != 2:
+        return None
+    return _prefix_candidate("borono", {idx, *oxygens}, idx, parent_idx, "borono")
+
+
+def _is_terminal_hydroxy_oxygen(mol, oxygen_idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(oxygen_idx)
+    if atom.GetSymbol() != "O" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return False
+    bond = mol.GetBondBetweenAtoms(oxygen_idx, parent_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return False
+    return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
 
 
 def _bocamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

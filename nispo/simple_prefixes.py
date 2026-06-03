@@ -51,6 +51,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_alkenyl_prefix(mol, idx, parent_idx, order)
             or _simple_oxaalkyl_prefix(mol, idx, parent_idx, order)
+            or _simple_cycloalkylmethyl_prefix(mol, idx, parent_idx, order)
             or _simple_linear_alkyl_prefix(
                 mol,
                 idx,
@@ -457,6 +458,37 @@ def _simple_benzyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Prefi
     return _prefix_candidate("benzyl", {idx, *ring}, idx, parent_idx, "benzyl")
 
 
+def _simple_cycloalkylmethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    ring_idx = heavy[0]
+    ring = _simple_cycloalkyl_ring(mol, ring_idx, idx)
+    if ring is None:
+        return None
+    names = {
+        3: "cyclopropylmethyl",
+        4: "cyclobutylmethyl",
+        5: "cyclopentylmethyl",
+        6: "cyclohexylmethyl",
+    }
+    text = names.get(len(ring))
+    if text is None:
+        return None
+    return _prefix_candidate(text, {idx, *ring}, idx, parent_idx, "cycloalkylmethyl")
+
+
 def _simple_hydroxymethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
     if order != 1.0:
         return None
@@ -688,6 +720,46 @@ def _phenyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] |
         for atom in atoms
     ):
         return None
+    return ring
+
+
+def _simple_cycloalkyl_ring(mol, attachment_idx: int, parent_idx: int) -> tuple[int, ...] | None:
+    rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if attachment_idx in ring and parent_idx not in ring]
+    if len(rings) != 1:
+        return None
+    ring = rings[0]
+    if len(ring) not in {3, 4, 5, 6}:
+        return None
+    ring_set = set(ring)
+    atoms = [mol.GetAtomWithIdx(atom_idx) for atom_idx in ring]
+    if any(
+        atom.GetSymbol() != "C"
+        or atom.GetFormalCharge() != 0
+        or atom.GetIsotope()
+        or atom.GetIsAromatic()
+        or _atom_has_assigned_stereo(atom)
+        or _atom_has_isotopic_hydrogen(atom)
+        for atom in atoms
+    ):
+        return None
+    for atom in atoms:
+        ring_neighbor_count = 0
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(atom.GetIdx(), nidx)
+            if nidx in ring_set:
+                if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+                    return None
+                ring_neighbor_count += 1
+                continue
+            if atom.GetIdx() == attachment_idx and nidx == parent_idx:
+                if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+                    return None
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return None
+        if ring_neighbor_count != 2:
+            return None
     return ring
 
 

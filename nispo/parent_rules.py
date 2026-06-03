@@ -72,6 +72,8 @@ _SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 1
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 1
 _GENERATED_FUSED_RENDER_SET_SIZE = 8
 _MAX_GENERATED_FUSED_PARENT_CANDIDATES = 32
+_SKELETAL_REPLACEMENT_FACT_SCAN_SIZE = 32
+_SKELETAL_REPLACEMENT_RENDER_SET_SIZE = 12
 _RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE = 32
 _RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE = 2
 _MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES = 16
@@ -4918,47 +4920,113 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
-        yielded = 0
+        facts: list[_SkeletalReplacementCandidateFacts] = []
+        stage_counts: Counter[str] = Counter()
         for atom_set, feature in zip(ctx.ring_systems, ctx.features["ring_systems"], strict=True):
             if feature["ring_count"] not in {3, 4} or set(feature["elements"]) <= {"C"}:
                 continue
+            stage_counts["ring_systems"] += 1
             feature = ring_system_with_graph_signatures(mol, feature, self._Chem)
             key = (feature["atom_count"], feature["ring_count"], feature.get("graph_signature", ""))
-            for template in _hydrocarbon_replacement_parent_templates_for_graph(*key, self._Chem):
+            templates = _hydrocarbon_replacement_parent_templates_for_graph(*key, self._Chem)
+            stage_counts["graph_templates"] += len(templates)
+            for template in templates:
                 query = _skeletal_replacement_query(template_record_mol(template), self._Chem)
                 if query.GetNumAtoms() != len(atom_set):
                     continue
+                stage_counts["substructure_queries"] += 1
                 for match in ctx.substruct_matches(query):
+                    stage_counts["matches"] += 1
                     if set(match) != set(atom_set):
                         continue
+                    stage_counts["after_atom_set"] += 1
                     parent_name = _skeletal_replacement_parent_name(mol, template, match)
                     if not parent_name:
                         continue
-                    name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-                    if not name:
-                        continue
-                    if _unsafe_benz_a_anthracene_candidate(name):
-                        continue
-                    yielded += 1
-                    yield NameCandidate(
-                        name=name,
-                        family=self.family,
-                        priority=self.priority,
-                        sort_key=(
-                            _skeletal_replacement_sort_key(mol, match, parent_name),
-                            _substituent_locant_tuple(name),
-                            len(name),
-                            name,
-                        ),
-                        parent_atoms=frozenset(match),
-                        template_id=id(template),
-                        template_name=template_record_name(template),
-                        source_family=str(template.get("source_family", "")),
-                        source_file=str(template.get("source_file", "")),
-                        estimated_length=len(name),
+                    stage_counts["facts"] += 1
+                    facts.append(
+                        _SkeletalReplacementCandidateFacts(
+                            template=template,
+                            match=tuple(match),
+                            parent_name=parent_name,
+                            structural_key=(
+                                _skeletal_replacement_sort_key(mol, match, parent_name),
+                                _template_source_rank(template),
+                                _hydrogenated_template_penalty(template_record_name(template)),
+                                len(parent_name),
+                                parent_name,
+                                tuple(match),
+                            ),
+                        )
                     )
-                    if yielded >= 12:
+                    if len(facts) >= _SKELETAL_REPLACEMENT_FACT_SCAN_SIZE:
+                        yield from self._render_facts(ctx, tuple(facts), stage_counts)
                         return
+
+        yield from self._render_facts(ctx, tuple(facts), stage_counts)
+
+    def _render_facts(
+        self,
+        ctx,
+        facts: tuple["_SkeletalReplacementCandidateFacts", ...],
+        stage_counts: Counter[str],
+    ):
+        if ctx.telemetry is not None:
+            for stage, count in stage_counts.items():
+                ctx.telemetry.filter_stage_count[f"{self.family}:{stage}"] += count
+            ctx.telemetry.candidate_facts_total[self.family] += len(facts)
+        render_set = _skeletal_replacement_render_set(facts)
+        if ctx.telemetry is not None:
+            ctx.telemetry.render_set_size[self.family] += len(render_set)
+            ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
+
+        mol = ctx.mol
+        yielded_names: set[str] = set()
+        yielded = 0
+        for render_rank, fact in enumerate(render_set, start=1):
+            name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            if not name or name in yielded_names:
+                continue
+            if _unsafe_benz_a_anthracene_candidate(name):
+                continue
+            yielded_names.add(name)
+            yielded += 1
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=(
+                    _skeletal_replacement_sort_key(mol, fact.match, fact.parent_name),
+                    _substituent_locant_tuple(name),
+                    len(name),
+                    name,
+                ),
+                parent_atoms=frozenset(fact.match),
+                template_id=id(fact.template),
+                template_name=template_record_name(fact.template),
+                source_family=str(fact.template.get("source_family", "")),
+                source_file=str(fact.template.get("source_file", "")),
+                estimated_length=len(name),
+                render_rank=render_rank,
+            )
+            if yielded >= _SKELETAL_REPLACEMENT_RENDER_SET_SIZE:
+                return
+
+
+@dataclass(frozen=True, slots=True)
+class _SkeletalReplacementCandidateFacts:
+    template: dict
+    match: tuple[int, ...]
+    parent_name: str
+    structural_key: tuple
+
+
+def _skeletal_replacement_render_set(
+    facts: tuple[_SkeletalReplacementCandidateFacts, ...],
+) -> tuple[_SkeletalReplacementCandidateFacts, ...]:
+    if len(facts) <= _SKELETAL_REPLACEMENT_RENDER_SET_SIZE:
+        return facts
+    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_SKELETAL_REPLACEMENT_RENDER_SET_SIZE])
 
 
 class RetainedTopologyReplacementFusedParentRule(FusedParentRule):

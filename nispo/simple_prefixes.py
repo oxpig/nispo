@@ -50,6 +50,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_aminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_acetenyl_prefix(mol, idx, parent_idx, order)
             or _simple_alkenyl_prefix(mol, idx, parent_idx, order)
             or _simple_oxaalkyl_prefix(mol, idx, parent_idx, order)
             or _simple_cycloalkylmethyl_prefix(mol, idx, parent_idx, order)
@@ -268,6 +269,35 @@ def _simple_alkenyl_prefix(mol, idx: int, parent_idx: int, order: float) -> Pref
     if any(nbr.GetIdx() != first_idx and nbr.GetAtomicNum() > 1 for nbr in second.GetNeighbors()):
         return None
     return _prefix_candidate("2-propen-1-yl", {idx, first_idx, second_idx}, idx, parent_idx, "alkenyl")
+
+
+def _simple_acetenyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(atom):
+        return None
+    external = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(external) != 1:
+        return None
+    terminal_idx = external[0]
+    terminal = mol.GetAtomWithIdx(terminal_idx)
+    if terminal.GetSymbol() != "C" or terminal.GetFormalCharge() != 0 or terminal.IsInRing() or terminal.GetIsotope():
+        return None
+    if _atom_has_isotopic_hydrogen(terminal):
+        return None
+    triple_bond = mol.GetBondBetweenAtoms(idx, terminal_idx)
+    if triple_bond is None or triple_bond.GetBondTypeAsDouble() != 3.0:
+        return None
+    if any(nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1 for nbr in terminal.GetNeighbors()):
+        return None
+    return _prefix_candidate("acetenyl", {idx, terminal_idx}, idx, parent_idx, "acetenyl")
 
 
 def _simple_oxaalkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

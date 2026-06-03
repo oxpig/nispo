@@ -408,15 +408,46 @@ def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) 
     saturation_penalty = _skeletal_replacement_saturation_penalty(mol, match, parent_name)
     spiro_norbornene_penalty = _spiro_norbornene_locant_penalty(parent_name)
     replacement_count = sum(parent_name.count(term) for term in _SKELETAL_REPLACEMENT_PREFIXES.values())
+    replacement_locants = _skeletal_replacement_locant_tuple(parent_name)
+    replacement_prefix_locants = _skeletal_replacement_prefix_locant_key(parent_name)
     fusion_locant_penalty = parent_name.count("a-")
     return (
         saturation_penalty,
         spiro_norbornene_penalty,
         fusion_locant_penalty,
         replacement_count,
+        replacement_prefix_locants,
+        replacement_locants,
         len(parent_name),
         parent_name,
     )
+
+
+def _skeletal_replacement_locant_tuple(parent_name: str) -> tuple[int, ...]:
+    grouped = _skeletal_replacement_locants_by_prefix(parent_name)
+    locants: list[int] = []
+    for prefix_locants in grouped.values():
+        locants.extend(prefix_locants)
+    return tuple(sorted(locants)) or (999,)
+
+
+def _skeletal_replacement_prefix_locant_key(parent_name: str) -> tuple[tuple[int, ...], ...]:
+    grouped = _skeletal_replacement_locants_by_prefix(parent_name)
+    prefix_order = ("aza", "oxa", "thia", "phospha", "selena", "tellura", "bora", "sila", "germa", "stanna", "arsa")
+    return tuple(tuple(sorted(grouped.get(prefix, (999,)))) for prefix in prefix_order)
+
+
+def _skeletal_replacement_locants_by_prefix(parent_name: str) -> dict[str, list[int]]:
+    replacement_terms = tuple(sorted(_SKELETAL_REPLACEMENT_PREFIXES.values(), key=len, reverse=True))
+    replacement_pattern = "|".join(re.escape(term) for term in replacement_terms)
+    grouped: dict[str, list[int]] = {}
+    for match in re.finditer(rf"(?<![\d^])(\d+(?:,\d+)*)-([a-z]*?(?:{replacement_pattern}))", parent_name):
+        prefix_text = match.group(2)
+        replacement = next((term for term in replacement_terms if prefix_text.endswith(term)), "")
+        if not replacement:
+            continue
+        grouped.setdefault(replacement, []).extend(int(locant) for locant in match.group(1).split(","))
+    return grouped
 
 
 def _spiro_norbornene_locant_penalty(parent_name: str) -> int:

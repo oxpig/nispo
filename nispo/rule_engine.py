@@ -565,6 +565,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
     fragile_decomposed_bis_bridge = _has_fragile_decomposed_bis_bridge_parent(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
+    retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
+    retained_aryl_urea = _has_contextual_aryl_urea_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -604,6 +606,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_short_fused_alias
         or fragile_decomposed_bis_bridge
         or retained_shortcut
+        or retained_ester_shortcut
+        or retained_aryl_urea
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -743,6 +747,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 34
     if retained_shortcut:
         penalty += 140
+    if retained_ester_shortcut:
+        penalty += 160
+    if retained_aryl_urea:
+        penalty += 90
     if aza_alias_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=90, max_length=180):
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
@@ -762,6 +770,52 @@ def _has_contextual_systematic_alternative_for_retained_shortcut(
         if other.candidate.family not in _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES:
             continue
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_retained_acid_ester_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in {"retained-acid-ester-parent", "single-ring-parent"}:
+        return False
+    if "yloxy" not in item.name or any(term in item.name for term in ("oate", "ate", " acid")):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "retained-acid-ester-parent":
+            continue
+        if "oate" not in other.name:
+            continue
+        if len(other.name) > 170 or len(other.name) - len(item.name) > 100:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_aryl_urea_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family != "urea-retained-parent":
+        return False
+    if not re.search(r"\bN,N'-di.*(?:phenyl|tolyl)urea\b", item.name):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "single-ring-parent":
+            continue
+        if "carbamyl)amino" not in other.name:
+            continue
+        if len(other.name) > 100 or len(other.name) - len(item.name) > 70:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
             continue

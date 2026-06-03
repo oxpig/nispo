@@ -153,6 +153,61 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCOC(=O)CCC#N",
+        "N#CCC(=O)N",
+    ],
+)
+def test_acyl_parent_paths_do_not_absorb_nitrile_carbons(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_skeletal_replacement_fused_parent_prefers_numeric_replacement_locants():
+    input_smiles = "c1ccc2c(c1)Nc1cc3ccccc3cc1O2"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "N[C@@H](Cc1ccc(O)c(O)c1)C(=O)OCc1ccccc1",
+        "Cc1cccc(NC(=O)Nc2cccc(C)c2)c1",
+        "Cc1ccccc1NC(=O)Nc1ccccc1C",
+    ],
+)
+def test_retained_alias_shortcuts_defer_to_systematic_candidates(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C=C(CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CCC4CCCC[C@]4(C)[C@H]3CC[C@]12C)C(=O)O",
+        "C=C(CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CCC4CCCC[C@]4(C)[C@H]3CC[C@]12C)C(=O)[O-]",
+    ],
+)
+def test_steroid_terminal_side_chain_natural_topology_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[CH2-]CCC",
         "[CH-]=CCC",
         "[CH2+]CCC",

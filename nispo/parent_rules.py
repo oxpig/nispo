@@ -9,6 +9,7 @@ from itertools import combinations
 from functools import lru_cache
 
 from .branch_rules import branch_prefix
+from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
@@ -1918,6 +1919,7 @@ def _ester_acyl_parent_paths(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> lis
         if mol.GetAtomWithIdx(idx).GetSymbol() == "C"
         and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
         and not mol.GetAtomWithIdx(idx).IsInRing()
+        and not _is_nitrile_carbon(mol, idx)
     }
     if acyl_idx not in allowed:
         return []
@@ -5159,6 +5161,7 @@ class NaturalProductTopologyParentRule(FusedParentRule):
     def _candidate_sort_key(self, template: dict, match: Sequence[int], name: str) -> tuple:
         return (
             -template_record_mol(template).GetNumAtoms(),
+            _natural_product_terminal_side_chain_key(name),
             _substituent_locant_tuple(name),
             len(name),
             name,
@@ -5197,6 +5200,16 @@ class NaturalProductTopologyParentRule(FusedParentRule):
                 sort_key=self._candidate_sort_key(template, match, name),
                 stereo_prefix=stereo_prefix,
             )
+
+
+def _natural_product_terminal_side_chain_key(name: str) -> tuple[int, int]:
+    match = re.search(
+        r"(?:^|-)(2[0-9])-(?:hydroxy|oxido)-\1-oxo-(?:cholest|cholesta|ergost|ergosta|stigmast|stigmasta)-25-ene\b",
+        name,
+    )
+    if match is None:
+        return (0, 0)
+    return (-int(match.group(1)), 1)
 
 
 def _should_defer_natural_product_to_generic_polycycle(ctx, mol, Chem, template: dict) -> bool:

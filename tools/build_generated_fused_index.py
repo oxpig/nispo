@@ -13,7 +13,21 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NISPO_SOURCE = PROJECT_ROOT
-OPSIN_JAR = Path(os.environ.get("OPSIN_JAR", PROJECT_ROOT / "opsin-cli-2.9.0-jar-with-dependencies.jar"))
+
+
+def _default_opsin_jar() -> Path:
+    if "OPSIN_JAR" in os.environ:
+        return Path(os.environ["OPSIN_JAR"])
+    for path in (
+        PROJECT_ROOT / "opsin-cli-2.9.0-jar-with-dependencies.jar",
+        PROJECT_ROOT.parent / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar",
+    ):
+        if path.exists():
+            return path
+    return PROJECT_ROOT / "opsin-cli-2.9.0-jar-with-dependencies.jar"
+
+
+OPSIN_JAR = _default_opsin_jar()
 DEFAULT_INPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json"
 DEFAULT_OUTPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index.json"
 NS = {"c": "http://www.xml-cml.org/schema"}

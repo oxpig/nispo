@@ -22,6 +22,9 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
         return name
 
     bond_descriptors = _bond_stereochemistry(mol, Chem)
+    locanted_bond_descriptors = _locanted_bond_stereo_descriptors_in_name(name)
+    if locanted_bond_descriptors:
+        bond_descriptors = _remove_locanted_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
     descriptors = []
     locanted_atom_descriptors = _locanted_atom_stereo_descriptors_in_name(name)
     if not _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_atom_descriptors):
@@ -62,7 +65,14 @@ def _has_leading_stereochemical_prefix(name: str) -> bool:
 def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     return [
         descriptor[-1]
-        for descriptor in re.findall(r"(?<![A-Za-z])\d+[RS](?![a-z])", name)
+        for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name)
+    ]
+
+
+def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
+    return [
+        descriptor[-1]
+        for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name)
     ]
 
 

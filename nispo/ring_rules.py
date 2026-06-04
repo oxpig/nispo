@@ -103,7 +103,15 @@ _AROMATIC_6_TRIAZINE_NAMES = {
     (1, 2, 4): "1,2,4-triazine",
     (1, 2, 3): "v-triazine",
 }
-_AROMATIC_5_SINGLE_HETERO_NAMES = {"O": "furan", "S": "thiophene", "N": "1H-pyrrole"}
+_AROMATIC_5_SINGLE_HETERO_NAMES = {
+    "B": "borole",
+    "N": "1H-pyrrole",
+    "O": "furan",
+    "P": "phosphole",
+    "S": "thiophene",
+    "Se": "selenole",
+    "Si": "silole",
+}
 _AROMATIC_5_DIAZOLE_NAMES = {2: "pyrazole", 3: "imidazole"}
 _AROMATIC_5_TRIAZOLE_NAMES = {
     (1, 2, 3): "1,2,3-triazole",
@@ -119,6 +127,16 @@ _AROMATIC_5_DIAZOLE_HETERO_LOCANTS = {
     (1, 2, 4): "1,2,4",
     (1, 2, 5): "1,2,5",
     (1, 3, 4): "1,3,4",
+}
+_MEDIUM_AROMATIC_N_RING_PARENT = {
+    (8, 1): "azocine",
+    (8, 2): "diazocine",
+    (8, 3): "triazocine",
+    (8, 4): "tetrazocine",
+    (9, 1): "azonine",
+    (9, 2): "diazonine",
+    (9, 3): "triazonine",
+    (9, 4): "tetrazonine",
 }
 
 
@@ -464,6 +482,16 @@ def _five_membered_aromatic_candidates(
                 candidates.append((names[n_locs[0]], seq))
         return candidates
 
+    if counts == Counter({"C": 3, "B": 1, "N": 1}):
+        for seq in _numberings_with_atom_at(ordered, mol, "N"):
+            locs = tuple(
+                i + 1
+                for i, idx in enumerate(seq)
+                if mol.GetAtomWithIdx(idx).GetSymbol() in {"B", "N"}
+            )
+            candidates.append((f"{_join_locants(locs)}-azaborole", seq))
+        return candidates
+
     if counts == Counter({"C": 3, "S": 2}):
         candidates.extend(
             _ring_pattern_candidates(
@@ -527,6 +555,13 @@ def _four_membered_aromatic_heterocycle_candidates(
 def _medium_aromatic_heterocycle_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
+    nitrogen_count = counts.get("N", 0)
+    if counts == Counter({"C": len(ordered) - nitrogen_count, "N": nitrogen_count}):
+        parent = _MEDIUM_AROMATIC_N_RING_PARENT.get((len(ordered), nitrogen_count))
+        if parent:
+            if nitrogen_count == 1:
+                return [(parent, seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
+            return _aromatic_polynitrogen_ring_candidates(mol, ordered, parent)
     if len(ordered) == 8 and counts == Counter({"C": 6, "O": 2}):
         return [
             ("1,2-dioxocine", seq)
@@ -553,6 +588,11 @@ def _medium_oxaaza_candidates(mol, ordered: Sequence[int], parent: str) -> list[
 def _five_membered_oxoheterole_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
+    if counts == Counter({"B": 2, "C": 2, "O": 1}):
+        return [
+            (f"{_join_locants(_symbol_locants(mol, seq, 'B'))}-diboroxole", seq)
+            for seq in _numberings_with_atom_at(ordered, mol, "O")
+        ]
     families = {
         "B": "oxaborole",
         "P": "oxaphosphole",

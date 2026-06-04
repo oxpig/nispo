@@ -140,6 +140,7 @@ SMALL_RETAINED_TEMPLATES = (
     ("furoxanone", "O=C1C=NO[NH+]1[O-]"),
     ("4-oxazinone", "O=c1cconc1"),
     ("oxalimide", "O=c1[nH]c1=O"),
+    ("selenazolium", "c1c[se]c[nH+]1"),
     ("thiapyrone", "O=c1ccccs1"),
 )
 
@@ -161,6 +162,8 @@ OXOANIONS = {
     ("P", 4, -3, 0): "phosphate",
     ("P", 4, -2, 1): "hydrogen phosphate",
     ("P", 4, -1, 2): "dihydrogen phosphate",
+    ("P", 3, -3, 0): "phosphite",
+    ("P", 2, -1, 0): "hypophosphite",
     ("S", 3, -2, 0): "sulfite",
     ("S", 3, -1, 1): "hydrogen sulfite",
     ("S", 4, -2, 0): "sulfate",
@@ -294,6 +297,10 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _perfluoro_counterion_name(mol, Chem)
         or _trifluoroacetate_name(mol, Chem)
         or _oxoanion_name(mol, Chem)
+        or _diphosphite_name(mol, Chem)
+        or _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem)
+        or _phosphorus_hydrido_thiooxoanion_name(mol, Chem)
+        or _simple_thiosulfur_oxoanion_name(mol, Chem)
         or _chalcogen_thiooxoanion_name(mol, Chem)
         or _phosphorus_thiooxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
@@ -957,6 +964,34 @@ def _chalcogen_thiooxoanion_name(mol, Chem) -> str:
     )
 
 
+def _simple_thiosulfur_oxoanion_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts not in ({"O": 1, "S": 2}, {"O": 2, "S": 2}) or _total_charge(mol) != -1:
+        return ""
+    centers = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetTotalNumHs() == 1]
+    for center in centers:
+        single_oxido = double_oxygen = double_sulfur = 0
+        for nbr in center.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(center.GetIdx(), nbr.GetIdx())
+            if bond is None:
+                return ""
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+                single_oxido += 1
+            elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen += 1
+            elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_sulfur += 1
+            else:
+                return ""
+        if single_oxido != 1 or double_sulfur != 1:
+            continue
+        if counts["O"] == 1 and double_oxygen == 0:
+            return "thiosulfinate"
+        if counts["O"] == 2 and double_oxygen == 1:
+            return "thiosulfonate"
+    return ""
+
+
 def _terminal_chalcogen_oxoanion_name(
     mol,
     Chem,
@@ -1050,6 +1085,92 @@ def _phosphorus_thiooxoanion_name(mol, Chem) -> str:
         return "thiophosphate"
     if single_oxido == 2 and single_sulfido == 1:
         return "dithiophosphate"
+    return ""
+
+
+def _diphosphite_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts != {"O": 5, "P": 2} or _total_charge(mol) != -4:
+        return ""
+    bridging_oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O" and atom.GetDegree() == 2]
+    if len(bridging_oxygens) != 1:
+        return ""
+    bridge = bridging_oxygens[0]
+    phosphorus_neighbors = [nbr for nbr in bridge.GetNeighbors() if nbr.GetSymbol() == "P"]
+    if len(phosphorus_neighbors) != 2:
+        return ""
+    for phosphorus in phosphorus_neighbors:
+        terminal_oxido = 0
+        for nbr in phosphorus.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), nbr.GetIdx())
+            if nbr.GetIdx() == bridge.GetIdx() and bond.GetBondType() == Chem.BondType.SINGLE:
+                continue
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+                terminal_oxido += 1
+            else:
+                return ""
+        if terminal_oxido != 2:
+            return ""
+    return "diphosphite"
+
+
+def _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts not in ({"N": 1, "O": 3, "P": 1}, {"O": 3, "P": 1, "Se": 1}):
+        return ""
+    if _total_charge(mol) != -3:
+        return ""
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    single_oxido = double_nitrogen = double_selenium = 0
+    for nbr in phosphorus.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_oxido += 1
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_nitrogen += 1
+        elif nbr.GetSymbol() == "Se" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_selenium += 1
+        else:
+            return ""
+    if single_oxido != 3:
+        return ""
+    if double_nitrogen == 1 and double_selenium == 0:
+        return "imidophosphate"
+    if double_selenium == 1 and double_nitrogen == 0:
+        return "selenophosphate"
+    return ""
+
+
+def _phosphorus_hydrido_thiooxoanion_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts not in ({"O": 2, "P": 1, "S": 1}, {"O": 1, "P": 1, "S": 2}):
+        return ""
+    if _total_charge(mol) != -2:
+        return ""
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    single_oxido = single_sulfido = double_sulfur = 0
+    for nbr in phosphorus.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_oxido += 1
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_sulfido += 1
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur += 1
+        else:
+            return ""
+    if double_sulfur != 1:
+        return ""
+    if single_oxido == 2 and single_sulfido == 0:
+        return "thiophosphonate"
+    if single_oxido == 1 and single_sulfido == 1:
+        return "dithiophosphonate"
     return ""
 
 

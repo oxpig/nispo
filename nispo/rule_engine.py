@@ -951,7 +951,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if fragile_pterin_chain and _has_contextual_pterin_parent_alternative(
         item, prepared, max_extra=45, max_length=150
     ):
-        penalty += 80
+        penalty += 190
     if fragile_bis_bicyclic_diazene and _has_contextual_generic_bridge_parent_alternative(
         item, prepared, max_extra=90, max_length=190
     ):

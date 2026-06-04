@@ -535,7 +535,7 @@ _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY = {
     "component-dispiro-parent": 21,
     "component-spiro-parent": 21,
     "functional-generic-bicyclic-parent": 24,
-    "generated-fused-parent": 24,
+    "generated-fused-parent": 144,
     "generated-hydro-fused-parent": 24,
     "generated-partial-hydro-fused-parent": 21,
     "generic-bicyclic-parent": 24,

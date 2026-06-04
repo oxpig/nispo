@@ -26,7 +26,7 @@ from .stereochemistry import apply_stereochemical_prefix
 from .telemetry import CandidateTelemetry
 
 
-_DEFAULT_MAX_NAME_LENGTH = 180
+_DEFAULT_MAX_NAME_LENGTH = 260
 _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
@@ -642,6 +642,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
     fragile_decomposed_bis_bridge = _has_fragile_decomposed_bis_bridge_parent(name, item.candidate)
+    fragile_component_fused_alias = _has_fragile_component_fused_alias(name, item.candidate)
+    fragile_short_fusion_orientation = _has_fragile_short_fusion_orientation_alias(name, item.candidate)
+    fragile_purine_tautomer_alias = _has_fragile_purine_tautomer_alias(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
@@ -684,6 +687,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_bridge_h_ketone
         or fragile_short_fused_alias
         or fragile_decomposed_bis_bridge
+        or fragile_component_fused_alias
+        or fragile_short_fusion_orientation
+        or fragile_purine_tautomer_alias
         or retained_shortcut
         or retained_ester_shortcut
         or acyclic_carbalkoxy_ester
@@ -696,7 +702,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     penalty = 0
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
     if has_graph_parent and unstable_benzimidazolyl:
-        penalty += 24
+        penalty += 85
     if has_graph_parent and unstable_replacement:
         penalty += 32
     if generic_polycycle and _has_contextual_named_graph_parent_alternative(item, prepared, max_extra=45, max_length=155):
@@ -821,6 +827,18 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=75, max_length=180
     ):
         penalty += 80
+    if fragile_component_fused_alias and _has_contextual_bridge_descriptor_alternative(
+        item, prepared, max_extra=150, max_length=260
+    ):
+        penalty += 150
+    if fragile_short_fusion_orientation and _has_contextual_generated_exact_fusion_alternative(
+        item, prepared, max_extra=12, max_length=90
+    ):
+        penalty += 36
+    if fragile_purine_tautomer_alias and _has_contextual_generated_exact_fusion_alternative(
+        item, prepared, max_extra=35, max_length=120
+    ):
+        penalty += 48
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
     if locanted_stereo_miss:
@@ -1055,6 +1073,50 @@ def _has_contextual_generic_bridge_parent_alternative(
         if other.stability_penalty >= item.stability_penalty + 60:
             continue
         if not re.search(_BRIDGE_PARENT_PATTERN, other.name):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_bridge_descriptor_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 120,
+    max_length: int = 220,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        if not re.search(_BRIDGE_PARENT_PATTERN, other.name):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_generated_exact_fusion_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_extra: int = 12,
+    max_length: int = 90,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in {"generated-exact-parent", "generated-fused-parent"}:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 50:
+            continue
+        if not re.search(r"\[[^\]]+\]", other.name):
             continue
         return True
     return False
@@ -1541,6 +1603,54 @@ def _has_fragile_short_fused_alias(name: str, candidate: NameCandidate) -> bool:
     return bool(_SHORT_FUSED_ALIAS_PATTERN.search(parent))
 
 
+def _has_fragile_component_fused_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        return False
+    if _has_generic_polycyclic_parent_descriptor(name):
+        return False
+    return bool(
+        re.search(
+            r"(?:(?:\d+[a-z]?[-,])?(?:aza|oxa|thia|diaza|triaza|tetraaza|pentaaza|diox|dioxa|trioxa|dithia|thioxa)-?)+"
+            r"[a-z]*?(?:azuleno|indeno)\[[^\]]+\]benzene",
+            name,
+        )
+        or re.search(
+            r"(?:aza|oxa|thia|diaza|triaza|tetraaza|pentaaza|diox|dioxa|trioxa|dithia|thioxa)"
+            r"[a-z]*?(?:as-indacen|s-indacen|acenaphthen|aceanthren|phenalen)",
+            name,
+        )
+    )
+
+
+def _has_fragile_short_fusion_orientation_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {"generated-exact-parent", "generated-fused-parent"}:
+        return False
+    return bool(
+        re.search(r"\b(?:quino|isoquino|cinnolino|phthalazino)\[[^\]]+\](?:pyrazole|imidazole|pyrrole)\b", name)
+        or re.search(r"\b(?:pyridazino|pyrimido|pyrido)\[[^\]]+\](?:indol|indazol)\b", name)
+    )
+
+
+def _has_fragile_purine_tautomer_alias(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family not in {
+        "exact-retained-parent",
+        "fused-retained-parent",
+        "whole-molecule-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+    }:
+        return False
+    return bool(re.search(r"\b(?:purin|adenin|guanin|xanthin|hypoxanthin)(?:-\d+-yl)?\b", name))
+
+
 def _has_fragile_decomposed_bis_bridge_parent(name: str, candidate: NameCandidate) -> bool:
     if candidate.family not in {
         "acyclic-skeleton-with-ring-substituents",
@@ -1723,6 +1833,8 @@ def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
 
     if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
         return 0
+    if _has_stable_oxafluorene_alias(name):
+        return 0
     if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
         return 0
     if re.search(
@@ -1731,11 +1843,19 @@ def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
         name,
     ):
         return 35
+    if re.search(
+        r"(?:^|-)(?:\d+[a-z]?(?:,\d+[a-z]?)*-)?(?:di|tri|tetra|penta)?(?:aza|oxa|thia)"
+        r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
+        name,
+    ):
+        return 28
     return 0
 
 
 def _has_unstable_replacement_polycycle_alias(name: str) -> bool:
     if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
+        return False
+    if _has_stable_oxafluorene_alias(name):
         return False
     if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
         return False
@@ -1745,7 +1865,16 @@ def _has_unstable_replacement_polycycle_alias(name: str) -> bool:
             r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
             name,
         )
+        or re.search(
+            r"(?:^|-)(?:\d+[a-z]?(?:,\d+[a-z]?)*-)(?:di|tri|tetra|penta)?(?:aza|oxa|thia)"
+            r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
+            name,
+        )
     )
+
+
+def _has_stable_oxafluorene_alias(name: str) -> bool:
+    return bool(re.search(r"(?:^|-)(?:\d+[a-z]?-)?oxafluoren\b", name))
 
 
 def _has_unstable_benzimidazolyl_orientation_artifact(name: str) -> bool:
@@ -1754,6 +1883,7 @@ def _has_unstable_benzimidazolyl_orientation_artifact(name: str) -> bool:
     return bool(
         re.search(r"\b(?:\d+[a-z]?H-)?\d+-benzimidazolyl\b", name)
         or re.search(r"\b\d+(?:-[a-z]+)?1H-\d-benzimidazolyl\b", name)
+        or re.search(r"\b(?:\d+[a-z]?H-)?benzimidazol-\d+-yl\b", name)
     )
 
 

@@ -499,11 +499,10 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
             if nidx == previous or nbr.GetAtomicNum() <= 1:
                 continue
             nbr_bond = mol.GetBondBetweenAtoms(current, nidx)
-            if nbr.GetSymbol() == "C" and nbr_bond is not None and nbr_bond.GetBondType() == Chem.BondType.SINGLE:
-                if _terminal_functional_group_term(mol, nidx, current):
-                    terminal_groups.append(nidx)
-                else:
-                    next_carbons.append(nidx)
+            if _terminal_functional_group_term(mol, nidx, current):
+                terminal_groups.append(nidx)
+            elif nbr.GetSymbol() == "C" and nbr_bond is not None and nbr_bond.GetBondType() == Chem.BondType.SINGLE:
+                next_carbons.append(nidx)
             else:
                 return ""
         if terminal_groups and not next_carbons:
@@ -513,6 +512,8 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
             root = ROOTS.get(len(chain))
             if not term or not root:
                 return ""
+            if "-" in term or "(" in term or ")" in term:
+                term = f"({term})"
             return f"{len(chain)}-{term}{root}yl"
         if len(next_carbons) != 1:
             return ""
@@ -522,6 +523,8 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
 
 def _terminal_functional_group_term(mol, group_idx: int, chain_idx: int) -> str:
     atom = mol.GetAtomWithIdx(group_idx)
+    if atom.GetSymbol() in {"N", "O", "S"}:
+        return _terminal_hetero_functional_group_term(mol, group_idx, chain_idx)
     if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
         return ""
     bond_to_chain = mol.GetBondBetweenAtoms(group_idx, chain_idx)
@@ -560,6 +563,25 @@ def _terminal_functional_group_term(mol, group_idx: int, chain_idx: int) -> str:
         ]
         if not extras and nitrogen.GetFormalCharge() == 0:
             return "carbamyl"
+    return ""
+
+
+def _terminal_hetero_functional_group_term(mol, group_idx: int, chain_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(group_idx)
+    if atom.IsInRing() or atom.GetIsotope():
+        return ""
+    bond_to_chain = mol.GetBondBetweenAtoms(group_idx, chain_idx)
+    if bond_to_chain is None or bond_to_chain.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    term = branch_prefix(mol, group_idx, chain_idx)
+    if not term:
+        return ""
+    if term.endswith(("amino", "azaniumyl", "azanidyl", "diazo", "diazenyl", "hydrazono")):
+        return term
+    if term in {"azido", "nitro", "nitroso", "hydroxy", "oxido", "oxidaniumyl", "sulfanyl"}:
+        return term
+    if term.endswith(("oxy", "sulfanyl", "sulfinyl", "sulfonyl", "sulfonamido")):
+        return term
     return ""
 
 

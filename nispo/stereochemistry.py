@@ -5,6 +5,9 @@ import re
 from .molecule_cache import mol_cache_get, mol_cache_set
 
 
+_STEREO_ATOM_LOCANT_RE = re.compile(r"^\d+'?$")
+
+
 def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_desc") -> str:
     """Prepend OPSIN bracket stereochemistry for assigned input stereo.
 
@@ -35,6 +38,50 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
     if not descriptors:
         return name
     return f"({','.join(descriptors)})-{name}"
+
+
+def apply_locanted_stereochemical_prefix(
+    mol,
+    Chem,
+    name: str,
+    locants: tuple[tuple[int, str], ...],
+    *,
+    atom_order: str = "idx_desc",
+) -> str:
+    """Prepend a locanted stereo prefix when a candidate provides atom locants.
+
+    Mapped parent stereocenters are locanted. Unmapped centers/bonds keep the
+    existing unlocanted fallback descriptors, after removing descriptors already
+    represented inside the rendered name.
+    """
+
+    if not name or _has_leading_stereochemical_prefix(name):
+        return name
+    if not locants or not _has_assigned_stereo(mol, Chem):
+        return name
+    locant_by_atom = _stereo_locant_map(locants)
+    if not locant_by_atom:
+        return name
+
+    atom_pieces, unlocanted_atom_descriptors = _locanted_atom_stereo_pieces(
+        mol,
+        Chem,
+        locant_by_atom,
+        name,
+        atom_order=atom_order,
+    )
+    bond_pieces, unlocanted_bond_descriptors = _locanted_bond_stereo_pieces(
+        _indexed_bond_stereochemistry(mol, Chem),
+        locant_by_atom,
+        name,
+    )
+    pieces = atom_pieces + bond_pieces
+    if not pieces:
+        return name
+    locanted = [piece for _sort_key, piece in sorted(pieces)]
+    descriptors = locanted + unlocanted_atom_descriptors + unlocanted_bond_descriptors
+    prefix = ",".join(descriptors)
+    return f"({prefix})-{name}"
 
 
 def _has_assigned_stereo(mol, Chem) -> bool:
@@ -74,6 +121,14 @@ def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
         descriptor[-1]
         for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name)
     ]
+
+
+def _locanted_atom_stereo_texts_in_name(name: str) -> set[str]:
+    return set(re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name))
+
+
+def _locanted_bond_stereo_texts_in_name(name: str) -> set[str]:
+    return set(re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name))
 
 
 def _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_descriptors: list[str]) -> bool:
@@ -137,6 +192,94 @@ def _atom_cip_stereochemistry_from_props(mol) -> list[tuple[int, str]]:
         if descriptor in {"R", "S"}:
             assigned.append((atom.GetIdx(), descriptor))
     return assigned
+
+
+def _stereo_locant_map(locants: tuple[tuple[int, str], ...]) -> dict[int, str]:
+    mapped: dict[int, str] = {}
+    for item in locants:
+        if not isinstance(item, tuple) or len(item) != 2:
+            continue
+        atom_idx, locant = item
+        if not isinstance(atom_idx, int):
+            continue
+        text = str(locant)
+        if not text or not _STEREO_ATOM_LOCANT_RE.match(text):
+            continue
+        mapped[atom_idx] = text
+    return mapped
+
+
+def _locanted_atom_stereo_pieces(
+    mol,
+    Chem,
+    locant_by_atom: dict[int, str],
+    name: str,
+    *,
+    atom_order: str,
+) -> tuple[list[tuple[tuple, str]], list[str]]:
+    existing = _locanted_atom_stereo_texts_in_name(name)
+    pieces = []
+    unlocanted = []
+    for atom_idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order=atom_order):
+        locant = locant_by_atom.get(atom_idx)
+        if not locant:
+            unlocanted.append(descriptor)
+            continue
+        text = f"{locant}{descriptor}"
+        if text in existing:
+            continue
+        pieces.append((_stereo_locant_sort_key(locant), text))
+    if unlocanted:
+        unlocanted = _remove_locanted_atom_descriptors(unlocanted, _locanted_atom_stereo_descriptors_in_name(name))
+    return pieces, unlocanted
+
+
+def _indexed_bond_stereochemistry(mol, Chem) -> list[tuple[int, int, str]]:
+    cached = mol_cache_get(mol, "indexed_bond_stereochemistry")
+    if cached is not None:
+        return cached
+    records: list[tuple[int, int, str]] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        records.append((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), descriptor))
+    return mol_cache_set(mol, "indexed_bond_stereochemistry", records)
+
+
+def _locanted_bond_stereo_pieces(
+    records: list[tuple[int, int, str]],
+    locant_by_atom: dict[int, str],
+    name: str,
+) -> tuple[list[tuple[tuple, str]], list[str]]:
+    existing = _locanted_bond_stereo_texts_in_name(name)
+    pieces = []
+    unlocanted = []
+    for begin_idx, end_idx, descriptor in records:
+        begin_locant = locant_by_atom.get(begin_idx)
+        end_locant = locant_by_atom.get(end_idx)
+        if not begin_locant or not end_locant:
+            unlocanted.append(descriptor)
+            continue
+        locant = min(begin_locant, end_locant, key=_stereo_locant_sort_key)
+        text = f"{locant}{descriptor}"
+        if text in existing:
+            continue
+        pieces.append((_stereo_locant_sort_key(locant), text))
+    if unlocanted:
+        unlocanted = _remove_locanted_atom_descriptors(unlocanted, _locanted_bond_stereo_descriptors_in_name(name))
+    return pieces, unlocanted
+
+
+def _stereo_locant_sort_key(locant: str) -> tuple[int, int, str]:
+    base = locant.rstrip("'")
+    return (int(base), locant.count("'"), locant)
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

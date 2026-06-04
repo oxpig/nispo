@@ -3980,6 +3980,7 @@ class FusedParentRule:
                 priority=self.priority,
                 sort_key=sort_key,
                 parent_atoms=frozenset(match),
+                stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_record_name(template),
                 source_family=str(template.get("source_family", "")),
@@ -4067,6 +4068,7 @@ class RetainedRingScaffoldParentRule:
                 sort_key=_retained_ring_scaffold_parent_sort_key(fact.template, fact.match, name),
                 parent_atoms=frozenset(fact.match),
                 locants=fact.compiled.record.locants,
+                stereo_locants=_template_match_stereo_locants(fact.compiled.runtime, fact.match),
                 template_id=fact.compiled.record.id,
                 template_name=fact.compiled.record.name,
                 source_family=fact.compiled.record.source_family,
@@ -4672,6 +4674,15 @@ def _topology_bond_key(a: int, b: int) -> tuple[int, int]:
     return (a, b) if a < b else (b, a)
 
 
+def _template_match_stereo_locants(template: dict, match: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    locants = template_record_locants(template)
+    return tuple(
+        (int(mol_idx), str(locant))
+        for template_idx, mol_idx in enumerate(match)
+        if (locant := locants.get(template_idx, ""))
+    )
+
+
 class GeneratedFusedParentRule(FusedParentRule):
     """Fallback OPSIN-fusion scaffold family.
 
@@ -4784,6 +4795,7 @@ class GeneratedFusedParentRule(FusedParentRule):
                 priority=self.priority,
                 sort_key=sort_key,
                 parent_atoms=frozenset(match),
+                stereo_locants=_template_match_stereo_locants(template, match),
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
@@ -5128,6 +5140,7 @@ class HydroFusedParentRule:
                     priority=self.priority,
                     sort_key=(-len(match), name),
                     parent_atoms=frozenset(match),
+                    stereo_locants=_template_match_stereo_locants(template, match),
                     template_id=id(template),
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),
@@ -5200,6 +5213,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                     priority=self.priority,
                     sort_key=sort_key,
                     parent_atoms=frozenset(match),
+                    stereo_locants=_template_match_stereo_locants(template, match),
                     template_id=id(template),
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),
@@ -5276,6 +5290,7 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
                         priority=self.priority,
                         sort_key=sort_key,
                         parent_atoms=frozenset(match),
+                        stereo_locants=_template_match_stereo_locants(template, match),
                         template_id=id(template),
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
@@ -5544,6 +5559,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                     name,
                 ),
                 parent_atoms=frozenset(fact.match),
+                stereo_locants=_template_match_stereo_locants(fact.template, fact.match),
                 template_id=id(fact.template),
                 template_name=template_record_name(fact.template),
                 source_family=str(fact.template.get("source_family", "")),
@@ -5679,6 +5695,7 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
                     name,
                 ),
                 parent_atoms=frozenset(fact.match),
+                stereo_locants=_template_match_stereo_locants(fact.template, fact.match),
                 template_id=id(fact.template),
                 template_name=template_record_name(fact.template),
                 source_family=str(fact.template.get("source_family", "")),
@@ -5782,6 +5799,7 @@ class OxidoFusedParentRule:
                     priority=self.priority,
                     sort_key=(-len(match), name),
                     parent_atoms=frozenset(match),
+                    stereo_locants=_template_match_stereo_locants(template, match),
                     template_id=id(template),
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),

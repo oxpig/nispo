@@ -22,7 +22,7 @@ from .fragment_rules import (
 from .naming_context import MoleculeContext
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .rule_dispatch import RuleSpec
-from .stereochemistry import apply_stereochemical_prefix
+from .stereochemistry import apply_locanted_stereochemical_prefix, apply_stereochemical_prefix
 from .telemetry import CandidateTelemetry
 
 
@@ -44,6 +44,7 @@ class NameCandidate:
     stereo_prefix: str = ""
     parent_atoms: frozenset[int] = field(default_factory=frozenset)
     locants: tuple[tuple[int, str], ...] = ()
+    stereo_locants: tuple[tuple[int, str], ...] = ()
     template_id: int | None = None
     template_name: str = ""
     source_family: str = ""
@@ -239,6 +240,7 @@ def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
     return bool(
         candidate.parent_atoms
         or candidate.locants
+        or candidate.stereo_locants
         or candidate.template_id is not None
         or candidate.template_name
         or candidate.source_family
@@ -2402,8 +2404,21 @@ def _finalize_candidate_name(
     """
 
     name = candidate.name
+    structured_stereo_applied = False
     if candidate.stereo_prefix and not name.startswith("("):
         name = f"({candidate.stereo_prefix})-{name}"
+        structured_stereo_applied = True
+    elif candidate.stereo_locants:
+        locanted_name = apply_locanted_stereochemical_prefix(
+            mol,
+            Chem,
+            name,
+            candidate.stereo_locants,
+            atom_order=_fallback_stereo_atom_order(candidate.family, name),
+        )
+        if locanted_name != name:
+            name = locanted_name
+            structured_stereo_applied = True
     if candidate.family in {
         "whole-molecule-retained-parent",
         "natural-product-topology-parent",
@@ -2418,6 +2433,7 @@ def _finalize_candidate_name(
     } and _has_internal_locanted_stereo(name)
     if (
         not candidate.stereo_prefix
+        and not structured_stereo_applied
         and not _has_retained_carbohydrate_substituent(name)
         and not skip_fallback_stereo
         and _has_assigned_stereo(mol, Chem)

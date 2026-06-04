@@ -47,6 +47,7 @@ def apply_locanted_stereochemical_prefix(
     locants: tuple[tuple[int, str], ...],
     *,
     atom_order: str = "idx_desc",
+    include_unlocanted: bool = True,
 ) -> str:
     """Prepend a locanted stereo prefix when a candidate provides atom locants.
 
@@ -79,7 +80,9 @@ def apply_locanted_stereochemical_prefix(
     if not pieces:
         return name
     locanted = [piece for _sort_key, piece in sorted(pieces)]
-    descriptors = locanted + unlocanted_atom_descriptors + unlocanted_bond_descriptors
+    descriptors = locanted
+    if include_unlocanted:
+        descriptors += unlocanted_atom_descriptors + unlocanted_bond_descriptors
     prefix = ",".join(descriptors)
     return f"({prefix})-{name}"
 

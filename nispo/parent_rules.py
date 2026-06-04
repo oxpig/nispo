@@ -3378,6 +3378,8 @@ def _complete_acyclic_stereo_locants(
         )
     }
     missing_atoms = assigned_atoms - locanted_atoms
+    if missing_atoms and _has_retained_carbohydrate_substituent_name(name):
+        return locants if assigned_atoms & locanted_atoms else ()
     if len(missing_atoms) > _internal_locanted_atom_stereo_count(name):
         return ()
 
@@ -3389,6 +3391,26 @@ def _complete_acyclic_stereo_locants(
     if len(missing_bonds) > _internal_locanted_bond_stereo_count(name):
         return ()
     return locants
+
+
+def _has_retained_carbohydrate_substituent_name(name: str) -> bool:
+    return any(
+        fragment in name
+        for fragment in (
+            "glucopyranosyl",
+            "galactopyranosyl",
+            "mannopyranosyl",
+            "fucopyranosyl",
+            "ribofuranosyl",
+            "fructofuranosyl",
+            "apiofuranosyl",
+            "glucosaminyl",
+            "galactosaminyl",
+            "mannosaminyl",
+            "muramyl",
+            "neuraminyl",
+        )
+    )
 
 
 def _assigned_bond_stereo_atom_sets(ctx) -> tuple[frozenset[int], ...]:

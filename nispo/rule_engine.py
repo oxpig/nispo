@@ -2545,6 +2545,7 @@ def _finalize_candidate_name(
             name,
             candidate.stereo_locants,
             atom_order=_fallback_stereo_atom_order(candidate.family, name),
+            include_unlocanted=not _has_retained_carbohydrate_substituent(name),
         )
         if locanted_name != name:
             name = locanted_name

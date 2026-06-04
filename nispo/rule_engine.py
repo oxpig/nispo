@@ -645,6 +645,8 @@ def _has_contextual_integrated_ring_parent_alternative(
 
 
 def _has_acyclic_ring_substituent_decomposition_signal(name: str) -> bool:
+    if _has_stable_acyclic_ring_substituent_exception(name):
+        return False
     if _has_unstable_benzimidazolyl_orientation_artifact(name):
         return True
     if not any(
@@ -694,6 +696,12 @@ def _has_acyclic_ring_substituent_decomposition_signal(name: str) -> bool:
             "sulfonamido",
         )
     )
+
+
+def _has_stable_acyclic_ring_substituent_exception(name: str) -> bool:
+    if any(term in name for term in ("glutarimide", "2,6-dioxo-3-piperidyl", "oxoisoindolin")):
+        return True
+    return bool(re.search(r"pyrido\[[^\]]+\]pyrrole", name))
 
 
 def _has_single_ring_parent_reintegration_signal(acyclic_name: str, ring_name: str) -> bool:

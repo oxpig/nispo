@@ -190,6 +190,7 @@ def join_prefix_parent(prefix_text: str, parent: str) -> str:
     parent = preferred_parent_stem(parent)
     if not prefix_text:
         return parent
+    parent = _prefixed_parent_hydride_name(parent)
     prefix_text = _drop_redundant_parent_leading_locant(prefix_text, parent)
     separator = "" if _can_elide_prefix_parent_hyphen(parent) else "-"
     return f"{prefix_text}{separator}{parent}"
@@ -236,6 +237,14 @@ def preferred_parent_stem(parent: str) -> str:
     for full, stem in _PREFERRED_PARENT_STEMS:
         stemmed = stemmed.replace(full, stem)
     return stemmed
+
+
+def _prefixed_parent_hydride_name(parent: str) -> str:
+    if parent == "methan":
+        return "methane"
+    if parent == "ethan":
+        return "ethane"
+    return parent
 
 
 def _drop_redundant_parent_leading_locant(prefix_text: str, parent: str) -> str:

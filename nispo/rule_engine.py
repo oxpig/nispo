@@ -830,6 +830,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     locanted_stereo_miss = _has_unlocanted_atom_stereo_prefix(name) and _has_contextual_locanted_stereo_alternative(
         item,
         prepared,
+        max_extra=80,
+        max_length=220,
     )
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
@@ -1047,8 +1049,6 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 125
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
-    if locanted_stereo_miss:
-        penalty += 34
     if retained_shortcut:
         penalty += 140
     if retained_ester_shortcut:
@@ -1061,6 +1061,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
         penalty += 12
+    if locanted_stereo_miss:
+        penalty = max(penalty, 220)
     return penalty
 
 

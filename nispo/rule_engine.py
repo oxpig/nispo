@@ -553,12 +553,6 @@ _ACYCLIC_SKELETON_PARENT_FAMILIES = {
     "preferred-acyclic-skeleton-with-ring-substituents",
 }
 
-_ACYCLIC_RING_PARENT_SELECTOR_FAMILIES = {
-    "acyclic-skeleton-with-ring-substituents",
-    "chain-dominant-acyclic-skeleton-with-ring-substituents",
-    "preferred-acyclic-skeleton-with-ring-substituents",
-}
-
 _ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES = {
     "component-spiro-parent",
     "fused-retained-parent",
@@ -599,16 +593,6 @@ _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES = {
     "whole-molecule-retained-parent",
 }
 
-_EXACT_HETEROFUSED_PARENT_TERMS = (
-    "imidazo[",
-    "pyrido[",
-    "pyrimido[",
-    "pyrazolo[",
-    "triazolo[",
-    "thieno[",
-    "pyrrolo[",
-)
-
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
     return _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
@@ -619,86 +603,16 @@ def _candidate_selection_broad_graph_parent_penalty(
     prepared: list[_PreparedCandidate],
 ) -> int:
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
-        penalty = 0
         if _has_contextual_terminal_ring_methan_parent_alternative(item, prepared):
-            penalty = max(penalty, 142)
+            return 142
         if _has_contextual_integrated_ring_parent_alternative(item, prepared):
-            penalty = max(penalty, 142)
-        if _has_contextual_acyclic_ring_parent_selector_alternative(item, prepared):
-            penalty = max(penalty, 170)
-        return penalty
-    if item.candidate.family == "generic-bicyclic-parent" and _has_contextual_exact_heterofused_parent_alternative(
-        item,
-        prepared,
-    ):
-        return 185
-    if item.candidate.family == "fused-retained-parent" and _has_contextual_topology_replacement_fused_alternative(
-        item,
-        prepared,
-    ):
-        return 150
+            return 142
+        return 0
     if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
         return 0
     if not _has_contextual_broad_graph_parent_alternative(item, prepared):
         return 0
     return 70
-
-
-def _has_contextual_acyclic_ring_parent_selector_alternative(
-    item: _PreparedCandidate,
-    prepared: list[_PreparedCandidate],
-) -> bool:
-    if item.candidate.family not in _ACYCLIC_RING_PARENT_SELECTOR_FAMILIES:
-        return False
-    if not any(term in item.name for term in ("carbonyl", "carbamoyl", "carbamyl", "yl)-", "ylcarbonyl")):
-        return False
-    alternative_families = {
-        "fused-retained-parent",
-        "generated-fused-parent",
-        "retained-topology-replacement-fused-parent",
-        "single-ring-parent",
-    }
-    return any(other is not item and other.candidate.family in alternative_families for other in prepared)
-
-
-def _has_contextual_exact_heterofused_parent_alternative(
-    item: _PreparedCandidate,
-    prepared: list[_PreparedCandidate],
-    *,
-    max_extra: int = 120,
-) -> bool:
-    if "bicyclo[" not in item.name and "tricyclo[" not in item.name:
-        return False
-    for other in prepared:
-        if other is item or other.name == item.name:
-            continue
-        if other.candidate.family != "generated-fused-parent":
-            continue
-        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > max_extra:
-            continue
-        if not any(term in other.name for term in _EXACT_HETEROFUSED_PARENT_TERMS):
-            continue
-        if other.stability_penalty >= item.stability_penalty + 90:
-            continue
-        return True
-    return False
-
-
-def _has_contextual_topology_replacement_fused_alternative(
-    item: _PreparedCandidate,
-    prepared: list[_PreparedCandidate],
-) -> bool:
-    for other in prepared:
-        if other is item or other.name == item.name:
-            continue
-        if other.candidate.family != "retained-topology-replacement-fused-parent":
-            continue
-        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 120:
-            continue
-        if other.stability_penalty >= item.stability_penalty + 80:
-            continue
-        return True
-    return False
 
 
 def _has_contextual_integrated_ring_parent_alternative(

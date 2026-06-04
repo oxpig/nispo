@@ -280,6 +280,7 @@ def _component_dispiro_candidates_for_blocks(
                             name,
                         ),
                         stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, ctx.Chem, locants),
+                        stereo_locants=_component_spiro_stereo_locants(locants),
                     )
                 )
     return candidates
@@ -437,6 +438,7 @@ def _component_spiro_candidates_for_split(
                         name,
                     ),
                     stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
+                    stereo_locants=_component_spiro_stereo_locants(locants),
                 )
             )
     return candidates
@@ -514,6 +516,7 @@ def _poly_component_spiro_candidates_for_split(
                         name,
                     ),
                     stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
+                    stereo_locants=_component_spiro_stereo_locants(locants),
                 )
             )
     return candidates
@@ -557,6 +560,14 @@ def _component_spiro_stereo_prefix(mol, Chem, locants: dict[int, str]) -> str:
         seen.add(text)
         pieces.append((_locant_key(locant), text))
     return ",".join(text for _sort_key, text in sorted(pieces))
+
+
+def _component_spiro_stereo_locants(locants: dict[int, str]) -> tuple[tuple[int, str], ...]:
+    return tuple(
+        (int(atom_idx), str(locant))
+        for atom_idx, locant in locants.items()
+        if re.match(r"^\d+'?$", str(locant))
+    )
 
 
 class _Component:

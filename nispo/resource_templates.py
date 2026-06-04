@@ -1979,8 +1979,36 @@ def build_generated_spiro_scaffold_templates(Chem) -> tuple[dict, ...]:
     )
 
 
+_PHENE_RETAINED_RING_RECORDS = (
+    ('pentaphene', 'C1=CC=CC2=CC3=CC=C4C=C5C=CC=CC5=CC4=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '7', '7a', '8', '8a', '9', '10', '11', '12', '12a', '13', '13a', '13b', '14', '14a')),
+    ('hexaphene', 'C1=CC=CC2=CC3=CC=C4C=C5C=C6C=CC=CC6=CC5=CC4=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '7', '7a', '8', '8a', '9', '9a', '10', '11', '12', '13', '13a', '14', '14a', '15', '15a', '15b', '16', '16a')),
+    ('heptaphene', 'C1=CC=CC2=CC3=CC4=CC=C5C=C6C=C7C=CC=CC7=CC6=CC5=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '8', '8a', '9', '9a', '10', '10a', '11', '12', '13', '14', '14a', '15', '15a', '16', '16a', '16b', '17', '17a', '18', '18a')),
+    ('octaphene', 'C1=CC=CC2=CC3=CC4=CC=C5C=C6C=C7C=C8C=CC=CC8=CC7=CC6=CC5=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '8', '8a', '9', '9a', '10', '10a', '11', '11a', '12', '13', '14', '15', '15a', '16', '16a', '17', '17a', '18', '18a', '18b', '19', '19a', '20', '20a')),
+    ('nonaphene', 'C1=CC=CC2=CC3=CC4=CC5=CC=C6C=C7C=C8C=C9C=CC=CC9=CC8=CC7=CC6=C5C=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '7a', '8', '9', '9a', '10', '10a', '11', '11a', '12', '12a', '13', '14', '15', '16', '16a', '17', '17a', '18', '18a', '19', '19a', '19b', '20', '20a', '21', '21a', '22', '22a')),
+    ('decaphene', 'C1=CC=CC2=CC3=CC4=CC5=CC=C6C=C7C=C8C=C9C=C%10C=CC=CC%10=CC9=CC8=CC7=CC6=C5C=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '7a', '8', '9', '9a', '10', '10a', '11', '11a', '12', '12a', '13', '13a', '14', '15', '16', '17', '17a', '18', '18a', '19', '19a', '20', '20a', '21', '21a', '21b', '22', '22a', '23', '23a', '24', '24a')),
+    ('undecaphene', 'C1=CC=CC2=CC3=CC4=CC5=CC6=CC=C7C=C8C=C9C=C%10C=C%11C=CC=CC%11=CC%10=CC9=CC8=CC7=C6C=C5C=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '7a', '8', '8a', '9', '10', '10a', '11', '11a', '12', '12a', '13', '13a', '14', '14a', '15', '16', '17', '18', '18a', '19', '19a', '20', '20a', '21', '21a', '22', '22a', '22b', '23', '23a', '24', '24a', '25', '25a', '26', '26a')),
+    ('dodecaphene', 'C1=CC=CC2=CC3=CC4=CC5=CC6=CC=C7C=C8C=C9C=C%10C=C%11C=C%12C=CC=CC%12=CC%11=CC%10=CC9=CC8=CC7=C6C=C5C=C4C=C3C=C12', ('1', '2', '3', '4', '4a', '5', '5a', '6', '6a', '7', '7a', '8', '8a', '9', '10', '10a', '11', '11a', '12', '12a', '13', '13a', '14', '14a', '15', '15a', '16', '17', '18', '19', '19a', '20', '20a', '21', '21a', '22', '22a', '23', '23a', '24', '24a', '24b', '25', '25a', '26', '26a', '27', '27a', '28', '28a')),
+)
+
+
+def _opsin_derived_phene_records() -> tuple[dict, ...]:
+    return tuple(
+        {
+            "name": name,
+            "smiles": smiles,
+            "locants": {str(idx): locant for idx, locant in enumerate(locants)},
+            "source_file": "opsin-derived-phene-templates",
+            "source_subtype": "opsin-cml-located-retained-ring",
+        }
+        for name, smiles, locants in _PHENE_RETAINED_RING_RECORDS
+    )
+
+
 def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[dict, ...]:
-    locanted_records = _read_json_records("opsin_retained_mono_fused_ring_templates.json")
+    locanted_records = (
+        _read_json_records("opsin_retained_mono_fused_ring_templates.json")
+        + _opsin_derived_phene_records()
+    )
     if locanted_records:
         smiles_by_name = {
             str(record.get("name", "")): str(record.get("smiles", "")) for record in locanted_records

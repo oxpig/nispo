@@ -604,7 +604,7 @@ def _candidate_selection_broad_graph_parent_penalty(
 ) -> int:
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
         if _has_contextual_integrated_ring_parent_alternative(item, prepared):
-            return 76
+            return 142
         return 0
     if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
         return 0
@@ -624,7 +624,7 @@ def _has_contextual_integrated_ring_parent_alternative(
             continue
         if other.candidate.family not in _ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES:
             continue
-        if len(other.name) > 190 or len(other.name) - len(item.name) > 65:
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 125:
             continue
         if other.stability_penalty >= item.stability_penalty + 80:
             continue

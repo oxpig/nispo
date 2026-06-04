@@ -543,6 +543,30 @@ _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY = {
     "preferred-acyclic-skeleton-with-ring-substituents": 19,
 }
 
+_ACYCLIC_SKELETON_PARENT_FAMILIES = {
+    "acyclic-skeleton-with-ring-substituents",
+    "chain-dominant-acyclic-skeleton-with-ring-substituents",
+    "functional-acyclic-skeleton-with-ring-substituents",
+    "imino-functional-acyclic-skeleton-with-ring-substituents",
+    "preferred-acyclic-skeleton-with-ring-substituents",
+}
+
+_ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES = {
+    "component-spiro-parent",
+    "fused-retained-parent",
+    "functional-generic-bicyclic-parent",
+    "generated-fused-parent",
+    "generated-hydro-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "generic-bicyclic-parent",
+    "generic-spiro-parent",
+    "hydro-fused-retained-parent",
+    "kekulized-generic-polycyclic-parent",
+    "retained-topology-replacement-fused-parent",
+    "skeletal-replacement-fused-parent",
+    "single-ring-parent",
+}
+
 _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES = (
     _CONTEXTUAL_GRAPH_PARENT_FAMILIES
     | _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES
@@ -576,11 +600,134 @@ def _candidate_selection_broad_graph_parent_penalty(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
 ) -> int:
+    if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        if _has_contextual_integrated_ring_parent_alternative(item, prepared):
+            return 76
+        return 0
     if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
         return 0
     if not _has_contextual_broad_graph_parent_alternative(item, prepared):
         return 0
     return 70
+
+
+def _has_contextual_integrated_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if not _has_acyclic_ring_substituent_decomposition_signal(item.name):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > 190 or len(other.name) - len(item.name) > 65:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        if other.candidate.family in {
+            "functional-generic-bicyclic-parent",
+            "generic-bicyclic-parent",
+            "generic-spiro-parent",
+            "kekulized-generic-polycyclic-parent",
+        } and not re.search(_BRIDGE_PARENT_PATTERN, other.name):
+            continue
+        if other.candidate.family == "single-ring-parent" and not _has_single_ring_parent_reintegration_signal(
+            item.name,
+            other.name,
+        ):
+            continue
+        if not _has_integrated_ring_parent_signal(other.name):
+            continue
+        return True
+    return False
+
+
+def _has_acyclic_ring_substituent_decomposition_signal(name: str) -> bool:
+    if _has_unstable_benzimidazolyl_orientation_artifact(name):
+        return True
+    if not any(
+        term in name
+        for term in (
+            "benzimidazol",
+            "benzotriazol",
+            "benzoxazol",
+            "benzothiazol",
+            "coumarin",
+            "coumaron",
+            "oxanaphthalin",
+            "azacoumarin",
+            "indazol",
+            "indolin",
+            "isoindolin",
+            "oxindol",
+            "pterin",
+            "pteridin",
+            "purin",
+            "quinazolin",
+            "quinoxalin",
+            "naphthyridin",
+            "pyrazolo[",
+            "imidazo[",
+            "pyrido[",
+            "pyrimido[",
+            "pyrrolo[",
+            "thieno[",
+        )
+    ):
+        return False
+    return any(
+        token in name
+        for token in (
+            "-yl",
+            "yl)",
+            "ylcarbonyl",
+            "ylmethyl",
+            "ylsulfonyl",
+            "ylsulfanyl",
+            "yloxy",
+            "carbamoyl",
+            "carbamyl",
+            "carboxamido",
+            "carbonylamino",
+            "sulfonamido",
+        )
+    )
+
+
+def _has_single_ring_parent_reintegration_signal(acyclic_name: str, ring_name: str) -> bool:
+    if not any(term in acyclic_name for term in ("carbamoyl", "carbamyl", "carboxamido", "carbonylamino")):
+        return False
+    return bool(re.search(r"(?:benzene|pyridin|pyrimidin|pyrazin|pyridazin|pyrazol|imidazol|triazol)", ring_name))
+
+
+def _has_integrated_ring_parent_signal(name: str) -> bool:
+    if re.search(_BRIDGE_PARENT_PATTERN, name) or re.search(r"\[[^\]]+\]", name):
+        return True
+    return any(
+        term in name
+        for term in (
+            "benzimidazol",
+            "benzotriazol",
+            "benzoxazol",
+            "benzothiazol",
+            "coumarin",
+            "coumaron",
+            "oxanaphthalin",
+            "azacoumarin",
+            "indazol",
+            "indolin",
+            "isoindolin",
+            "oxindol",
+            "pterin",
+            "pteridin",
+            "purin",
+            "quinazolin",
+            "quinoxalin",
+            "naphthyridin",
+        )
+    )
 
 
 def _has_contextual_broad_graph_parent_alternative(

@@ -1368,20 +1368,6 @@ def _retained_alkoxycarbonyl_prefix(
     ):
         return ""
     return {
-        "methyl": "carbmethoxy",
-        "ethyl": "carbethoxy",
-        "propyl": "carbopropoxy",
-        "isopropyl": "carbisopropoxy",
-        "butyl": "carbobutoxy",
-        "pentyl": "carbopentoxy",
-        "hexyl": "carbohexoxy",
-        "heptyl": "carboheptoxy",
-        "octyl": "carbooctoxy",
-        "nonyl": "carbononoxy",
-        "decyl": "carbodecoxy",
-        "undecyl": "carboundecoxy",
-        "dodecyl": "carbododecoxy",
-        "phenyl": "carbphenoxy",
         "(fluoren-9-yl)methyl": "fmoc",
         "(fluorene-9-yl)methyl": "fmoc",
         "9-fluorenylmethyl": "fmoc",

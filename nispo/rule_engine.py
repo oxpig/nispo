@@ -644,6 +644,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_decomposed_bis_bridge = _has_fragile_decomposed_bis_bridge_parent(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
+    acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
     retained_aryl_urea = _has_contextual_aryl_urea_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -685,6 +686,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_decomposed_bis_bridge
         or retained_shortcut
         or retained_ester_shortcut
+        or acyclic_carbalkoxy_ester
         or retained_aryl_urea
         or aza_alias_penalty
         or spiro_penalty
@@ -827,6 +829,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if retained_ester_shortcut:
         penalty += 160
+    if acyclic_carbalkoxy_ester:
+        penalty += 180
     if retained_aryl_urea:
         penalty += 90
     if aza_alias_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=90, max_length=180):
@@ -873,6 +877,37 @@ def _has_contextual_retained_acid_ester_alternative(
         if len(other.name) > 170 or len(other.name) - len(item.name) > 100:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }:
+        return False
+    if any(term in item.name for term in ("oate", " acid", "amide")):
+        return False
+    if not re.search(r"(?:carbo[a-z]+oxy|[a-z]+oxycarbonyl)", item.name):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "retained-acid-ester-parent":
+            continue
+        if not any(term in other.name for term in ("oate", "acrylate", "methacrylate")):
+            continue
+        if len(other.name) > 170 or len(other.name) - len(item.name) > 110:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
             continue
         return True
     return False

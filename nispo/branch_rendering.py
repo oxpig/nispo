@@ -567,8 +567,8 @@ def _retained_alkoxycarbonyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCan
         return None
     text, alkyl_atoms = alkyl
     names = {
-        "methyl": "carbmethoxy",
-        "ethyl": "carbethoxy",
+        "methyl": "methoxycarbonyl",
+        "ethyl": "ethoxycarbonyl",
         "benzyl": "cbz",
         "t-butyl": "boc",
     }

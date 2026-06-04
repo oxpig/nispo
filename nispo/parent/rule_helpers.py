@@ -1418,6 +1418,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
+        thione_name = _single_ring_thione_suffix_name(prefixes, adjusted_parent)
+        if thione_name:
+            thione_key = (locants, 0, thione_name)
+            if best_key is None or thione_key < best_key:
+                best_key = thione_key
+                best_name = thione_name
+                best_seq = seq
         imino_name = _single_ring_imino_suffix_name(prefixes, adjusted_parent)
         if imino_name:
             imino_key = (locants, 0, imino_name)
@@ -1925,6 +1932,19 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
     locants = ",".join(sorted(oxo_locs, key=int))
     suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
+    name = f"{parent}-{locants}-{suffix}"
+    return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _single_ring_thione_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    thioxo_locs = [loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()]
+    if not thioxo_locs:
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
+    prefix_text = _format_prefixes(remaining)
+    parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    locants = ",".join(sorted(thioxo_locs, key=int))
+    suffix = "thione" if len(thioxo_locs) == 1 else f"{MULT.get(len(thioxo_locs), '')}thione"
     name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 

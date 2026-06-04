@@ -1141,6 +1141,22 @@ class RetainedAmideParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class BetaDicarbonylParentRule:
+    family = "beta-dicarbonyl-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        seen = set()
+        for name in _beta_dicarbonyl_parent_names(ctx.mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class BoronicPinacolEsterParentRule:
     family = "boronic-pinacol-ester-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1408,6 +1424,87 @@ def _retained_amide_names(mol, Chem) -> list[str]:
                 continue
             names.append(_join_n_prefix_functional_parent(n_prefix, core))
     return names
+
+
+def _beta_dicarbonyl_parent_names(mol, Chem) -> list[str]:
+    names = []
+    seen_cores = set()
+    for alpha in mol.GetAtoms():
+        if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing():
+            continue
+        alpha_idx = alpha.GetIdx()
+        carbonyls = []
+        alpha_substituents = []
+        for nbr in alpha.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(alpha_idx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                continue
+            if _is_ketone_carbonyl_for_beta_dicarbonyl(mol, Chem, nidx, alpha_idx):
+                carbonyls.append(nidx)
+            elif nbr.GetAtomicNum() > 1:
+                alpha_substituents.append(nidx)
+        if len(carbonyls) != 2 or len(alpha_substituents) > 2:
+            continue
+        carbonyl_ligands = []
+        for carbonyl_idx in carbonyls:
+            ligand_idx = _beta_dicarbonyl_terminal_ligand(mol, Chem, carbonyl_idx, alpha_idx)
+            if ligand_idx is None:
+                break
+            ligand_name = _simple_or_branch_prefix(mol, ligand_idx, carbonyl_idx)
+            if not ligand_name:
+                break
+            carbonyl_ligands.append((ligand_name, carbonyl_idx))
+        else:
+            alpha_prefixes = []
+            for sub_idx in alpha_substituents:
+                prefix = _simple_or_branch_prefix(mol, sub_idx, alpha_idx)
+                if not prefix:
+                    break
+                alpha_prefixes.append(prefix)
+            else:
+                ordered = sorted(carbonyl_ligands, key=lambda item: (item[0], item[1]))
+                core_key = (alpha_idx, tuple(sorted(carbonyls)))
+                if core_key in seen_cores:
+                    continue
+                seen_cores.add(core_key)
+                prefixes = [("1", ordered[0][0]), ("3", ordered[1][0])]
+                prefixes.extend(("2", prefix) for prefix in alpha_prefixes)
+                prefix_text = _format_prefixes(prefixes)
+                parent = "propane-1,3-dione"
+                names.append(_join_prefix_parent(prefix_text, parent) if prefix_text else parent)
+    return names
+
+
+def _is_ketone_carbonyl_for_beta_dicarbonyl(mol, Chem, carbonyl_idx: int, alpha_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+        return False
+    double_oxygen = 0
+    carbon_ligands = []
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen += 1
+        elif nidx == alpha_idx and bond.GetBondType() == Chem.BondType.SINGLE:
+            continue
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_ligands.append(nidx)
+        else:
+            return False
+    return double_oxygen == 1 and len(carbon_ligands) == 1
+
+
+def _beta_dicarbonyl_terminal_ligand(mol, Chem, carbonyl_idx: int, alpha_idx: int) -> int | None:
+    for nbr in mol.GetAtomWithIdx(carbonyl_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == alpha_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "C" and bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            return nidx
+    return None
 
 
 def _join_n_prefix_functional_parent(n_prefix: str, core: str) -> str:
@@ -5913,6 +6010,7 @@ def parent_rules(Chem) -> tuple:
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
     retained_amide = RetainedAmideParentRule(Chem)
+    beta_dicarbonyl = BetaDicarbonylParentRule(Chem)
     boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
@@ -5982,6 +6080,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
         RuleSpec("retained-amide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_amide.candidates),
+        RuleSpec("beta-dicarbonyl-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), beta_dicarbonyl.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),

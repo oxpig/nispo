@@ -464,6 +464,19 @@ def _five_membered_aromatic_candidates(
                 candidates.append((names[n_locs[0]], seq))
         return candidates
 
+    if counts == Counter({"C": 3, "S": 2}):
+        candidates.extend(
+            _ring_pattern_candidates(
+                mol,
+                ordered,
+                "3H-1,2-dithiole",
+                ("S", "S", "C", "C", "C"),
+                checks=(lambda mol, seq, ring_set: _has_exocyclic_thioxo(mol, seq[2], ring_set),),
+            )
+        )
+        if candidates:
+            return candidates
+
     for hetero, family in _AROMATIC_5_DIAZOLE_HETERO_FAMILIES.items():
         if counts != Counter({"C": 2, "N": 2, hetero: 1}):
             continue
@@ -977,6 +990,20 @@ def _has_exocyclic_oxo(mol, idx: int, ring_set: set[int]) -> bool:
     for nbr in atom.GetNeighbors():
         nidx = nbr.GetIdx()
         if nidx in ring_set or nbr.GetSymbol() != "O":
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            return True
+    return False
+
+
+def _has_exocyclic_thioxo(mol, idx: int, ring_set: set[int]) -> bool:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C":
+        return False
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx in ring_set or nbr.GetSymbol() != "S":
             continue
         bond = mol.GetBondBetweenAtoms(idx, nidx)
         if bond is not None and bond.GetBondTypeAsDouble() == 2.0:

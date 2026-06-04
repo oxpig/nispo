@@ -238,8 +238,52 @@ def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list
                 parent_sequences.append((parent, seq))
     candidates = _decorated_polycyclic_records(mol, atoms, parent_sequences)
     if not candidates:
+        candidates = _secondary_bridge_tricyclic_candidate_records(mol, atoms, graph)
+    if not candidates:
         return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
     return candidates
+
+
+def _secondary_bridge_tricyclic_candidate_records(
+    mol, atoms: set[int], graph: dict[int, set[int]]
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates = []
+    branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
+    multiple_bond_count = _ring_multiple_bond_count(mol, atoms)
+    allow_relaxed_base_paths = multiple_bond_count <= 4
+    use_saturated_bridge_selection = multiple_bond_count == 0
+    for left, right in combinations(branch_atoms, 2):
+        for base_paths in _secondary_bridge_base_path_sets(
+            graph,
+            atoms,
+            left,
+            right,
+            allow_relaxed=allow_relaxed_base_paths,
+        ):
+            for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
+                completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, 3)
+                if completed is None:
+                    continue
+                seq, bracket = completed
+                if len(bracket) != 4:
+                    continue
+                parent = _tricyclic_parent(mol, seq, bracket)
+                if not parent:
+                    continue
+                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                if not name:
+                    continue
+                key = (
+                    _secondary_bridge_preference_key(
+                        bracket,
+                        saturated_alicyclic=use_saturated_bridge_selection,
+                    ),
+                    *_polycyclic_numbering_preference_key(mol, seq, atoms),
+                    name,
+                )
+                candidates.append((key, name, tuple(seq)))
+    candidates.sort(key=lambda item: item[0])
+    return [(name, seq) for _key, name, seq in candidates[:24]]
 
 
 def _secondary_zero_bridge_tricyclic_candidate_records(

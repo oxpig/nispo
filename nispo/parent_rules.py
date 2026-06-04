@@ -4683,6 +4683,10 @@ def _template_match_stereo_locants(template: dict, match: Sequence[int]) -> tupl
     )
 
 
+def _sequence_stereo_locants(seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(seq, start=1))
+
+
 class GeneratedFusedParentRule(FusedParentRule):
     """Fallback OPSIN-fusion scaffold family.
 
@@ -5890,6 +5894,7 @@ class _PolycyclicRecordParentRule:
                 sort_key=(record_order, len(name), name),
                 stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem, name=name),
                 parent_atoms=frozenset(seq),
+                stereo_locants=_sequence_stereo_locants(seq),
                 source_family=self.record_family,
                 estimated_length=len(name),
                 render_rank=record_order + 1,

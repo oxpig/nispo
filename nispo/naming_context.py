@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .acyclic_rules import name_acyclic
+from .acyclic_rules import AcyclicNameRecord, name_acyclic_record
 from .fused_template_families import candidate_generated_fused_templates
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
@@ -27,7 +27,7 @@ _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
 class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     compiled_template_candidates: dict[tuple[int, bool], tuple[object, ...]] = field(default_factory=dict)
-    acyclic_names: dict[bool, str] = field(default_factory=dict)
+    acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     topology_flags: dict[str, bool] = field(default_factory=dict)
@@ -101,7 +101,7 @@ class MoleculeContext:
                 self.telemetry.template_candidate_count[_template_collection_label(templates)] += len(cached)
         return cached
 
-    def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
+    def acyclic_name_record(self, *, allow_ring_atoms: bool = True) -> AcyclicNameRecord:
         """Return the best acyclic skeleton name, computed once per molecule.
 
         Several parent-family rules ask the same "can this molecule be named as
@@ -112,9 +112,12 @@ class MoleculeContext:
 
         cached = self.cache.acyclic_names.get(allow_ring_atoms)
         if cached is None:
-            cached = name_acyclic(self.mol, allow_ring_atoms=allow_ring_atoms)
+            cached = name_acyclic_record(self.mol, allow_ring_atoms=allow_ring_atoms)
             self.cache.acyclic_names[allow_ring_atoms] = cached
         return cached
+
+    def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
+        return self.acyclic_name_record(allow_ring_atoms=allow_ring_atoms).name
 
     @property
     def profile(self) -> StructuralProfile:

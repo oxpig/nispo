@@ -99,13 +99,15 @@ class AcyclicParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() != 0:
             return
-        name = ctx.acyclic_name()
+        name_record = ctx.acyclic_name_record()
+        name = name_record.name
         if name:
             yield NameCandidate(
                 name,
                 self.family,
                 self.priority,
                 parent_atoms=_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -2988,7 +2990,8 @@ class AcyclicSkeletonWithRingSubstituentsRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0:
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if (
             name
             and mol.GetRingInfo().NumRings() >= 2
@@ -3003,6 +3006,7 @@ class AcyclicSkeletonWithRingSubstituentsRule:
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3023,7 +3027,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -3033,6 +3038,7 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3048,7 +3054,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             return
         if _nonring_heavy_atom_count(mol) < 2:
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _chain_dominates_single_ring(mol, name):
@@ -3058,6 +3065,7 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
                 self.priority,
                 sort_key=((750, 999, (), 999, name), len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3075,7 +3083,8 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
         nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
         if len(nonring_atoms) < 4 or len(nonring_atoms) < len(ring_atoms) // 2:
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if (
             name
             and "spiro[" in name
@@ -3088,6 +3097,7 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3101,7 +3111,8 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
         profile = ctx.profile
         if profile.ring_count == 0 or not profile.has_charged_ring_atom:
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if (
             name
             and "ium" in name
@@ -3113,6 +3124,7 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3137,7 +3149,8 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -3147,6 +3160,7 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3169,7 +3183,8 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
@@ -3179,6 +3194,7 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3200,7 +3216,8 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
-        name = ctx.acyclic_name(allow_ring_atoms=False)
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if (
@@ -3215,6 +3232,7 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
 
@@ -3342,6 +3360,59 @@ def _heavy_atom_indices(mol) -> frozenset[int]:
 
 def _nonring_heavy_atom_indices(mol) -> frozenset[int]:
     return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+
+
+def _complete_acyclic_stereo_locants(
+    ctx,
+    name: str,
+    locants: tuple[tuple[int, str], ...],
+) -> tuple[tuple[int, str], ...]:
+    if not locants:
+        return ()
+    locanted_atoms = {atom_idx for atom_idx, _locant in locants}
+    assigned_atoms = {
+        atom_idx
+        for atom_idx, _descriptor in assigned_atom_stereochemistry(
+            ctx.mol,
+            ctx.Chem,
+        )
+    }
+    missing_atoms = assigned_atoms - locanted_atoms
+    if len(missing_atoms) > _internal_locanted_atom_stereo_count(name):
+        return ()
+
+    missing_bonds = [
+        bond_atoms
+        for bond_atoms in _assigned_bond_stereo_atom_sets(ctx)
+        if not bond_atoms <= locanted_atoms
+    ]
+    if len(missing_bonds) > _internal_locanted_bond_stereo_count(name):
+        return ()
+    return locants
+
+
+def _assigned_bond_stereo_atom_sets(ctx) -> tuple[frozenset[int], ...]:
+    records: list[frozenset[int]] = []
+    Chem = ctx.Chem
+    for bond in ctx.mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        if bond.GetStereo() in {
+            Chem.BondStereo.STEREOE,
+            Chem.BondStereo.STEREOTRANS,
+            Chem.BondStereo.STEREOZ,
+            Chem.BondStereo.STEREOCIS,
+        }:
+            records.append(frozenset((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())))
+    return tuple(records)
+
+
+def _internal_locanted_atom_stereo_count(name: str) -> int:
+    return len(re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name))
+
+
+def _internal_locanted_bond_stereo_count(name: str) -> int:
+    return len(re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name))
 
 
 def _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx) -> bool:

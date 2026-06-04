@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from .acyclic import name_acyclic
+from .acyclic import AcyclicNameRecord, name_acyclic, name_acyclic_record
 
-__all__ = ["name_acyclic"]
+__all__ = ["AcyclicNameRecord", "name_acyclic", "name_acyclic_record"]

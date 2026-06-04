@@ -603,6 +603,8 @@ def _candidate_selection_broad_graph_parent_penalty(
     prepared: list[_PreparedCandidate],
 ) -> int:
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        if _has_contextual_terminal_ring_methan_parent_alternative(item, prepared):
+            return 142
         if _has_contextual_integrated_ring_parent_alternative(item, prepared):
             return 142
         return 0
@@ -644,6 +646,39 @@ def _has_contextual_integrated_ring_parent_alternative(
             continue
         return True
     return False
+
+
+def _has_contextual_terminal_ring_methan_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if not _has_terminal_ring_methan_decomposition_signal(item.name):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in _ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 125:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        if not _has_integrated_ring_parent_signal(other.name):
+            continue
+        return True
+    return False
+
+
+def _has_terminal_ring_methan_decomposition_signal(name: str) -> bool:
+    if not name.endswith("-methan"):
+        return False
+    if not any(term in name for term in ("benz", "cyclo", "phenyl", "pyrid", "pyrim", "pyraz", "imidaz", "triaz")):
+        return False
+    if "pyrazol-1-yl)-methan" in name:
+        return False
+    if re.search(r"oxo-2-oxabicyclo\[4\.4\.0\].*yl\)-methan\b", name):
+        return False
+    return bool(re.search(r"(?:yl|ino|oxy)\)-methan\b|yl\)oxy\)-methan\b", name))
 
 
 def _has_acyclic_ring_substituent_decomposition_signal(name: str) -> bool:
@@ -802,6 +837,11 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_component_fused_alias = _has_fragile_component_fused_alias(name, item.candidate)
     fragile_short_fusion_orientation = _has_fragile_short_fusion_orientation_alias(name, item.candidate)
     fragile_purine_tautomer_alias = _has_fragile_purine_tautomer_alias(name, item.candidate)
+    fragile_terminal_azabicyclo_benzimidazole = _has_fragile_terminal_azabicyclo_benzimidazole_parent(
+        name,
+        item.candidate,
+    )
+    generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
@@ -847,6 +887,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_component_fused_alias
         or fragile_short_fusion_orientation
         or fragile_purine_tautomer_alias
+        or fragile_terminal_azabicyclo_benzimidazole
+        or generic_spiro_parent
         or retained_shortcut
         or retained_ester_shortcut
         or acyclic_carbalkoxy_ester
@@ -996,6 +1038,13 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=35, max_length=120
     ):
         penalty += 48
+    if fragile_terminal_azabicyclo_benzimidazole and _has_contextual_integrated_benzimidazole_carboxamide_alternative(
+        item,
+        prepared,
+    ):
+        penalty += 125
+    if generic_spiro_parent and _has_contextual_spiro_functional_chain_alternative(item, prepared):
+        penalty += 125
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
     if locanted_stereo_miss:
@@ -1542,6 +1591,29 @@ def _has_fragile_retained_spiro_alias(name: str, candidate: NameCandidate) -> bo
     )
 
 
+def _has_fragile_generic_spiro_parent(name: str, candidate: NameCandidate) -> bool:
+    return candidate.family == "generic-spiro-parent" and "spiro[" in name
+
+
+def _has_contextual_spiro_functional_chain_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "spiro-functional-chain-substituent":
+            continue
+        if "spiro[" not in other.name:
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 160:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _has_fragile_dibenzofuran_alias(name: str, candidate: NameCandidate) -> bool:
     return "dibenzofuran" in name and "oxafluoren" not in name
 
@@ -1806,6 +1878,56 @@ def _has_fragile_purine_tautomer_alias(name: str, candidate: NameCandidate) -> b
     }:
         return False
     return bool(re.search(r"\b(?:purin|adenin|guanin|xanthin|hypoxanthin)(?:-\d+-yl)?\b", name))
+
+
+def _has_fragile_terminal_azabicyclo_benzimidazole_parent(name: str, candidate: NameCandidate) -> bool:
+    if candidate.family in {
+        "fused-retained-parent",
+        "generic-bicyclic-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return bool(
+            re.search(
+                r"benzimidazol[^)]*carbonyl\)-(?:(?:\d-azabicyclo\[2\.2\.1\]heptane)|(?:\d-azanor(?:bornane|camphane)))$",
+                name,
+            )
+        )
+    if candidate.family == "skeletal-replacement-fused-parent":
+        return (
+            "diazaacenaphth" in name
+            and "benzimidazol" in name
+            and "azabicyclo[2.2.1]heptane-2-ylcarbonyl" in name
+        )
+    return False
+
+
+def _has_contextual_integrated_benzimidazole_carboxamide_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in {
+            "fused-retained-parent",
+            "generated-fused-parent",
+            "generated-hydro-fused-parent",
+            "generated-partial-hydro-fused-parent",
+            "single-ring-parent",
+        }:
+            continue
+        if len(other.name) > 230 or len(other.name) - len(item.name) > 45:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        if "azabicyclo[2.2.1]heptane-2-ylcarbonyl" not in other.name:
+            continue
+        if not re.search(r"(?:benzimidazol|imidazo\[[^\]]+\]benzene)", other.name):
+            continue
+        if other.name.endswith("azabicyclo[2.2.1]heptane"):
+            continue
+        return True
+    return False
 
 
 def _has_fragile_decomposed_bis_bridge_parent(name: str, candidate: NameCandidate) -> bool:
@@ -2082,6 +2204,8 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
         bonus += 22
     if candidate.family == "generated-hydro-fused-parent" and _has_complete_hydro_generated_fused_parent(name):
         bonus += 8
+    if candidate.family == "generated-hydro-fused-parent" and _has_stable_tetrahydro_pyridoimidazole_parent(name):
+        bonus += 56
     if _has_indicated_h_fused_functional_suffix_parent(name):
         bonus += 12
     if _has_fused_indicated_h_ketone_suffix(name):
@@ -2143,6 +2267,10 @@ def _locanted_atom_stereo_descriptor_count(text: str) -> int:
 
 def _has_stable_tetrahydro_imidazopyridine_parent(name: str) -> bool:
     return bool(re.search(r"4,5,6,7-tetrahydro-imidazo\[4,5-[cd]\]pyridine\b", name))
+
+
+def _has_stable_tetrahydro_pyridoimidazole_parent(name: str) -> bool:
+    return bool(re.search(r"4,5,6,7-tetrahydro-pyrido\[[^\]]+\]imidazol\b", name))
 
 
 def _has_complete_hydro_generated_fused_parent(name: str) -> bool:

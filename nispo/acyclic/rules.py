@@ -44,10 +44,20 @@ class _AcyclicGraphView:
     bond_orders: dict[tuple[int, int], float]
 
 
+@dataclass(frozen=True, slots=True)
+class AcyclicNameRecord:
+    name: str
+    stereo_locants: tuple[tuple[int, str], ...] = ()
+
+
 def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
+    return name_acyclic_record(mol, allow_ring_atoms=allow_ring_atoms).name
+
+
+def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord:
     terminal_charge_name = _name_terminal_linear_hydrocarbon_charge(mol)
     if terminal_charge_name:
-        return terminal_charge_name
+        return AcyclicNameRecord(terminal_charge_name)
 
     profile = _acyclic_functional_profile(mol)
     for signal, namer in (
@@ -60,13 +70,13 @@ def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
         if profile[signal]:
             name = namer(mol)
             if name:
-                return name
+                return AcyclicNameRecord(name)
 
     paths = _candidate_parent_paths(mol, allow_ring_atoms=allow_ring_atoms)
     if not paths:
-        return ""
+        return AcyclicNameRecord("")
 
-    return _best_acyclic_name_from_paths(mol, paths)
+    return _best_acyclic_record_from_paths(mol, paths)
 
 
 def _name_terminal_linear_hydrocarbon_charge(mol) -> str:
@@ -253,18 +263,18 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
     if not parent or not parent.endswith("e"):
         return ""
     locant = path.index(carbon_idx) + 1
-    parent = replacement_text + parent if replacement_text else parent
+    parent = _join_replacement_parent(replacement_text, parent) if replacement_text else parent
     name = f"{parent[:-1]}-{locant}-ylideneoxidanium"
     prefix_text = _format_prefixes(prefixes)
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
 
-def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
+def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> AcyclicNameRecord:
     orientations = _oriented_paths_by_quality(mol, paths)
     _record_acyclic_filter_stage(mol, "path_facts", len(paths))
     _record_acyclic_filter_stage(mol, "orientation_facts", len(orientations))
     prefer_complete_stereo = _prefer_complete_acyclic_stereo_path(mol)
-    first_names: list[str] | None = None
+    first_records: list[AcyclicNameRecord] | None = None
     index = 0
     while index < len(orientations):
         descriptor = orientations[index][0]
@@ -285,22 +295,29 @@ def _best_acyclic_name_from_paths(mol, paths: Sequence[Sequence[int]]) -> str:
             name = _name_from_parent_path(mol, oriented, as_substituent=False)
             if name:
                 rendered_names.append((oriented, name))
-        names = [name for _oriented, name in rendered_names]
-        if names:
+        records = [
+            AcyclicNameRecord(name, _path_stereo_locants(oriented))
+            for oriented, name in rendered_names
+        ]
+        if records:
             if not prefer_complete_stereo:
-                return min(names)
+                return min(records, key=lambda record: record.name)
             complete_stereo_names = [
-                name
+                AcyclicNameRecord(name, _path_stereo_locants(oriented))
                 for oriented, name in rendered_names
                 if _complete_path_stereo_prefix(mol, oriented)
             ]
             if complete_stereo_names:
-                return min(complete_stereo_names)
-            if first_names is None:
-                first_names = names
-    if first_names:
-        return min(first_names)
-    return ""
+                return min(complete_stereo_names, key=lambda record: record.name)
+            if first_records is None:
+                first_records = records
+    if first_records:
+        return min(first_records, key=lambda record: record.name)
+    return AcyclicNameRecord("")
+
+
+def _path_stereo_locants(path: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(path, start=1))
 
 
 def _prefer_complete_acyclic_stereo_path(mol) -> bool:
@@ -412,7 +429,7 @@ def _name_ketene_path(
     if not parent:
         return ""
     if replacement_text:
-        parent = replacement_text + parent
+        parent = _join_replacement_parent(replacement_text, parent)
     if not parent.endswith("e"):
         return ""
     locant = path.index(alpha_idx) + 1
@@ -650,7 +667,7 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         pieces = []
         if prefix_text:
             pieces.append(prefix_text)
-        pieces.append(replacement_text + parent)
+        pieces.append(_join_replacement_parent(replacement_text, parent))
         name = "-".join(pieces)
     else:
         name = _join_prefix_parent(prefix_text, parent) if prefix_text else _preferred_parent_stem(parent)
@@ -690,6 +707,14 @@ def _mono_hydroxy_suffix_parent(parent: str, locant: str) -> str:
     if locant == "1":
         return parent + "ol"
     return f"{locant}-{parent}ol"
+
+
+def _join_replacement_parent(replacement_text: str, parent: str) -> str:
+    if not replacement_text:
+        return parent
+    if parent and parent[0].isdigit():
+        return f"{replacement_text}-{parent}"
+    return replacement_text + parent
 
 
 def _terminal_carboxy_suffix_parent_name(

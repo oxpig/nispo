@@ -504,6 +504,19 @@ class PhosphorusAcidParentRule:
         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class PhosphiteEsterParentRule:
+    family = "phosphite-ester-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        for name in _phosphite_ester_names(ctx.mol, self._Chem):
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class OrganophosphorusOxideParentRule:
     family = "organophosphorus-oxide-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1203,6 +1216,25 @@ class SulfonamideRetainedParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class SulfonamideParentRule:
+    family = "sulfonamide-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        for sulfur_idx, nitrogen_idx in _n_substituted_sulfonamide_motifs(ctx.mol, self._Chem):
+            nitrogen_substituents = _external_substituent_names(ctx.mol, nitrogen_idx, sulfur_idx)
+            if nitrogen_substituents is None or len(nitrogen_substituents) > 2:
+                continue
+            nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
+            if not nitrogen_prefix:
+                continue
+            name = f"{nitrogen_prefix}-sulfonamide"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
 class UreaRetainedParentRule:
     family = "urea-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -1372,6 +1404,47 @@ def _glutarimide_substituent_locant(position: int) -> str:
     if position in {3, 5}:
         return "4"
     return ""
+
+
+def _phosphite_ester_names(mol, Chem) -> list[str]:
+    names = []
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+            continue
+        pidx = phosphorus.GetIdx()
+        terminal_anionic_oxygen = 0
+        owner_names = []
+        ok = True
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if nbr.GetSymbol() != "O" or bond.GetBondType() != Chem.BondType.SINGLE:
+                ok = False
+                break
+            heavy = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1]
+            if not heavy and nbr.GetFormalCharge() < 0:
+                terminal_anionic_oxygen += 1
+                continue
+            if len(heavy) != 1 or nbr.GetFormalCharge() != 0:
+                ok = False
+                break
+            owner = _single_external_substituent_name(mol, nidx, pidx)
+            if not owner or _unstable_retained_functional_parent_substituent(owner):
+                ok = False
+                break
+            owner_names.append(owner)
+        if ok and terminal_anionic_oxygen == 1 and len(owner_names) == 2:
+            names.append(_phosphite_ester_name(owner_names))
+    return names
+
+
+def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
+    first, second = sorted(owner_names)
+    if first == second:
+        if _simple_unparenthesized_n_substituent(first):
+            return f"di{first}phosphite"
+        return f"bis({_strip_outer_parentheses(first)}) phosphite"
+    return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
 
 
 def _exocyclic_double_oxygen_count(mol, Chem, atom_idx: int, ring_set: set[int]) -> int:
@@ -2351,6 +2424,32 @@ def _urea_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     return motifs
 
 
+def _n_substituted_sulfonamide_motifs(mol, Chem) -> list[tuple[int, int]]:
+    motifs = []
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
+            continue
+        sidx = sulfur.GetIdx()
+        double_o = []
+        single_n = []
+        ok = True
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sidx, nidx)
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_o.append(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_n.append(nidx)
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if ok and len(double_o) >= 1 and len(single_n) == 1:
+            nitrogen = mol.GetAtomWithIdx(single_n[0])
+            if any(nbr.GetIdx() != sidx and nbr.GetAtomicNum() > 1 for nbr in nitrogen.GetNeighbors()):
+                motifs.append((sidx, single_n[0]))
+    return motifs
+
+
 def _sulfonamide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
     for sulfur in mol.GetAtoms():
@@ -2509,7 +2608,7 @@ def _duplicate_n_substituent_piece(locants: str, name: str) -> str:
 
 
 def _simple_unparenthesized_n_substituent(name: str) -> bool:
-    return _simple_n_retained_parent_substituent(name) or bool(re.fullmatch(r"[A-Za-z0-9']+", name))
+    return name in _SIMPLE_N_RETAINED_PARENT_SUBSTITUENTS or bool(re.fullmatch(r"[A-Za-z0-9']+", name))
 
 
 def _needs_explicit_n_parent_separator(prefix: str) -> bool:
@@ -5998,6 +6097,7 @@ def parent_rules(Chem) -> tuple:
     neutral_amine = NeutralAmineParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
+    phosphite_ester = PhosphiteEsterParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
@@ -6014,6 +6114,7 @@ def parent_rules(Chem) -> tuple:
     boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
+    n_substituted_sulfonamide = SulfonamideParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
     glutarimide = GlutarimideRetainedParentRule(Chem)
     amino_acid = AminoAcidRetainedParentRule(Chem)
@@ -6063,6 +6164,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("neutral-amine-parent", parent_priority("senior-functional-exception"), (acyclic,), neutral_amine.candidates),
         RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
+        RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
@@ -6084,6 +6186,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
+        RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), n_substituted_sulfonamide.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
         RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),
         RuleSpec("amino-acid-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), amino_acid.candidates),

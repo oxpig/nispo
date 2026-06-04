@@ -2126,7 +2126,11 @@ def _finalize_candidate_name(
     }:
         name = _apply_uniform_isotope_label(mol, name)
         return name if len(name) <= max_length else ""
-    skip_fallback_stereo = candidate.family == "retained-acid-ester-parent" and _has_internal_locanted_stereo(name)
+    skip_fallback_stereo = candidate.family in {
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+        "carbamate-retained-parent",
+    } and _has_internal_locanted_stereo(name)
     if (
         not candidate.stereo_prefix
         and not _has_retained_carbohydrate_substituent(name)

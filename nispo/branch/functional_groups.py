@@ -618,13 +618,17 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
     for name in sorted(counts):
         count = counts[name]
         if count > 1:
+            locants = ",".join("N" for _ in range(count))
             if "-" in name or name.startswith("("):
-                parts.append(f"{MULT.get(count, '')}({name})")
+                parts.append(f"{locants}-{MULT.get(count, '')}({name})")
             else:
-                parts.append(MULT.get(count, "") + name)
+                parts.append(f"{locants}-{MULT.get(count, '')}{name}")
         else:
-            parts.append(name)
-    return "".join(parts) + "carbamyl"
+            if "-" in name or name.startswith("("):
+                parts.append(f"N-({name})")
+            else:
+                parts.append(f"N-{name}")
+    return "-".join(parts) + "carbamoyl"
 
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:

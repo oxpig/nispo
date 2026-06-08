@@ -204,10 +204,10 @@ def _select_best_prepared_candidate(
         )
         selection_bonus = item.selection_bonus + _candidate_selection_graph_parent_bonus(candidate)
         candidate_key = (
-            len(item.name) + stability_penalty - selection_bonus,
-            len(item.name),
             stability_penalty,
             candidate.priority,
+            len(item.name) - selection_bonus,
+            len(item.name),
             _comparable_sort_key(candidate.sort_key),
             item.name,
         )
@@ -497,7 +497,7 @@ def _kekulized_polycyclic_late_render_rank_penalty(name: str, candidate: NameCan
         return 0
     if "tetraaza" in name:
         return 0
-    return max(0, candidate.render_rank - 4) * 2
+    return max(0, candidate.render_rank - 1) * 4
 
 
 _CONTEXTUAL_GRAPH_PARENT_FAMILIES = {
@@ -603,16 +603,62 @@ def _candidate_selection_broad_graph_parent_penalty(
     prepared: list[_PreparedCandidate],
 ) -> int:
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        penalty = 0
+        if _has_contextual_single_ring_parent_candidate_alternative(item, prepared):
+            penalty = max(penalty, 55)
         if _has_contextual_terminal_ring_methan_parent_alternative(item, prepared):
-            return 142
+            penalty = max(penalty, 142)
         if _has_contextual_integrated_ring_parent_alternative(item, prepared):
-            return 142
-        return 0
+            penalty = max(penalty, 142)
+        return penalty
     if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
         return 0
+    if item.candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
+        if not _has_contextual_non_acyclic_broad_graph_parent_alternative(item, prepared):
+            return 0
     if not _has_contextual_broad_graph_parent_alternative(item, prepared):
         return 0
     return 70
+
+
+def _has_contextual_single_ring_parent_candidate_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+            continue
+        if not other.candidate.parent_atoms or other.candidate.render_rank is None:
+            continue
+        if len(other.name) > 170 or len(other.name) - len(item.name) > 45:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        if not candidate_has_complete_graph(other.candidate):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_non_acyclic_broad_graph_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+            continue
+        if other.candidate.family not in _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if len(other.name) > 240 or len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_integrated_ring_parent_alternative(

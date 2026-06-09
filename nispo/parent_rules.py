@@ -1074,6 +1074,26 @@ class DithiazoleRetainedParentRule:
             return
 
 
+class OxazinoneRetainedParentRule:
+    family = "oxazinone-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        name = _oxazinone_retained_parent_name(ctx.mol, self._Chem)
+        if not name:
+            return
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=set(range(ctx.mol.GetNumAtoms())),
+            sort_key=(len(name), name),
+        )
+
+
 class AzidobenzylideneCyclohexanoneRetainedParentRule:
     family = "azidobenzylidene-cyclohexanone-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2531,6 +2551,94 @@ def _methylene_bridge_carbon(mol, atom_idx: int, expected_neighbors: set[int]) -
         return False
     heavy = {nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1}
     return heavy == expected_neighbors
+
+
+def _oxazinone_retained_parent_name(mol, Chem) -> str:
+    candidates = []
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = frozenset(ring)
+        if len(ring_set) != 6:
+            continue
+        sequence = _oxazinone_locant_sequence(mol, Chem, ring_set)
+        if not sequence:
+            continue
+        name = _name_oxazinone_locant_sequence(mol, sequence)
+        if name:
+            candidates.append(name)
+    return sorted(candidates, key=lambda item: (len(item), item))[0] if len(candidates) == 1 else ""
+
+
+def _oxazinone_locant_sequence(mol, Chem, ring_set: frozenset[int]) -> tuple[int, ...]:
+    ring_oxygens = [idx for idx in ring_set if mol.GetAtomWithIdx(idx).GetSymbol() == "O"]
+    ring_nitrogens = [idx for idx in ring_set if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
+    if len(ring_oxygens) != 1 or len(ring_nitrogens) != 1:
+        return ()
+    if any(not mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring_set):
+        return ()
+    oxygen_idx = ring_oxygens[0]
+    carbonyl_neighbors = []
+    for nbr_idx in _ring_neighbors(mol, ring_set, oxygen_idx):
+        if _ring_atom_has_exocyclic_carbonyl_oxygen(mol, Chem, nbr_idx, ring_set):
+            carbonyl_neighbors.append(nbr_idx)
+    if len(carbonyl_neighbors) != 1:
+        return ()
+    next_idx = next(
+        (idx for idx in _ring_neighbors(mol, ring_set, oxygen_idx) if idx != carbonyl_neighbors[0]),
+        None,
+    )
+    if next_idx is None:
+        return ()
+    sequence = _ring_sequence(mol, ring_set, oxygen_idx, next_idx)
+    if len(sequence) != 6:
+        return ()
+    symbols = [mol.GetAtomWithIdx(idx).GetSymbol() for idx in sequence]
+    if symbols != ["O", "C", "N", "C", "C", "C"]:
+        return ()
+    if sequence[5] != carbonyl_neighbors[0]:
+        return ()
+    if any(mol.GetAtomWithIdx(idx).GetFormalCharge() != 0 for idx in ring_set):
+        return ()
+    return sequence
+
+
+def _ring_atom_has_exocyclic_carbonyl_oxygen(mol, Chem, atom_idx: int, ring_set: frozenset[int]) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() != "C":
+        return False
+    carbonyl_oxygens = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() not in ring_set
+        and nbr.GetSymbol() == "O"
+        and nbr.GetFormalCharge() == 0
+        and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+    ]
+    return len(carbonyl_oxygens) == 1
+
+
+def _name_oxazinone_locant_sequence(mol, sequence: Sequence[int]) -> str:
+    ring_set = frozenset(sequence)
+    covered = set(sequence)
+    prefixes = []
+    locants = {atom_idx: str(locant) for locant, atom_idx in enumerate(sequence, start=1)}
+    for atom_idx in sequence:
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nbr.GetAtomicNum() <= 1:
+                continue
+            if atom_idx == sequence[5] and nbr.GetSymbol() == "O":
+                covered.add(nidx)
+                continue
+            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
+            if not prefix:
+                return ""
+            prefixes.append((locants[atom_idx], prefix))
+            covered.update(_collect_component_atoms(mol, nidx, atom_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix_text = _format_prefixes(prefixes)
+    parent = "6H-1,3-oxazin-6-one"
+    return _join_prefix_parent(prefix_text, parent) if prefix_text else parent
 
 
 def _oxadiazinane_nitroimine_name(mol, Chem, ring_set: frozenset[int]) -> str:
@@ -7889,6 +7997,7 @@ def parent_rules(Chem) -> tuple:
     phosphorane = PhosphoraneParentRule(Chem)
     aminophosphane = AminophosphaneParentRule(Chem)
     dithiazole = DithiazoleRetainedParentRule(Chem)
+    oxazinone = OxazinoneRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
     bis_diethylaminobenzylidene_cyclopentanone = BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule(Chem)
     organic_peroxide = OrganicPeroxideRetainedParentRule(Chem)
@@ -7981,6 +8090,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),
         RuleSpec("dithiazole-retained-parent", parent_priority("senior-functional-exception"), (), dithiazole.candidates),
+        RuleSpec("oxazinone-retained-parent", parent_priority("senior-functional-exception"), (), oxazinone.candidates),
         RuleSpec(
             "azidobenzylidene-cyclohexanone-retained-parent",
             parent_priority("senior-functional-exception"),

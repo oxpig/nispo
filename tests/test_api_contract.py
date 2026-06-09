@@ -74,6 +74,58 @@ def test_positive_replacement_heterocycle_parent_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C1=C[NH2+]N=C1",
+        "C1C[NH2+]N1",
+        "C1=NCC[NH2+]1",
+        "C1C[NH+]=NN1",
+        "C1=C[NH2+]C=NC1",
+        "[NH2+]1CCSCC1",
+    ],
+)
+def test_positive_single_ring_cn_heterocycles_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "expected_fragment"),
+    [
+        ("O=c1c[n+](-c2ccccc2)[n-]o1", "3-phenylsydnone"),
+        ("C[n+]1[n-]oc(=O)c1", "3-methylsydnone"),
+    ],
+)
+def test_sydnone_retained_parent_roundtrips(input_smiles, expected_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert expected_fragment in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=c1[nH]cno1",
+        "O=c1[nH]cn[nH]1",
+        "O=c1[nH]nn[nH]1",
+        "S=c1[nH]cn[nH]1",
+    ],
+)
+def test_single_ring_lactam_and_thione_indicated_h_suffixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)
@@ -920,6 +972,61 @@ def test_generated_fused_parent_can_beat_locanted_bicyclic_stereo_fallback(input
 def test_charged_pnictogen_and_boryl_functional_families_roundtrip(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "expected_prefix_fragment"),
+    [
+        ("CCCCCCCC/C=C\\CCCCCCCC[NH-]", "(Z)-"),
+        ("C[C@@H](O)[C@H](N)C([NH-])=O", "(S,R)-"),
+    ],
+)
+def test_direct_fragment_names_preserve_stereochemistry(input_smiles, expected_prefix_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert expected_prefix_fragment in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCCC/C=C\\CCCCCCCC[N-]CCCCCCCC/C=C\\CCCCCCCC",
+        "C[C@@H]([N-][C@H](C)c1ccccc1)c1ccccc1",
+    ],
+)
+def test_repeated_onium_substituents_use_global_stereo_roundtrip(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert "bis(" in generated_name
+    assert "bis((" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "expected_fragment"),
+    [
+        ("c1c[nH][nH+]c1", "pyrazolium"),
+        ("c1c[nH+]c[nH]1", "imidazolium"),
+        ("C1COCC[N]1", "4lambda2-morpholin"),
+        ("O=C1CCCC[N]1", "1lambda2-piperidin-2-on"),
+        ("[NH2+]1CC[NH2+]CC1", "piperazin-1,4-diium"),
+        ("C[NH+]1CC[NH+](CC1)C", "1,4-dimethylpiperazin-1,4-diium"),
+        ("[NH2+]1C[NH2+]CC1", "imidazolidin-1,3-diium"),
+        ("[NH+]1=CC=[NH+]C=C1", "pyrazin-1,4-diium"),
+    ],
+)
+def test_ring_parent_charge_and_lambda2_forms_roundtrip(input_smiles, expected_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert expected_fragment in generated_name
 
     parsed_smiles = _opsin_parse_name(generated_name)
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -184,6 +185,13 @@ def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
             parts.append(f"{','.join(locs)}-{MULT.get(len(locs), '')}{name}")
     parts.extend(sorted(complex_parts))
     return "-".join(parts)
+
+
+def _multiplied_prefix_unit_name(name: str) -> str:
+    match = re.fullmatch(r"\((?:\d+[RSZE](?:,\d+[RSZE])*)\)-(.+)", name)
+    if match is None:
+        return name
+    return match.group(1)
 
 
 def join_prefix_parent(prefix_text: str, parent: str) -> str:

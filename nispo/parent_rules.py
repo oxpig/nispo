@@ -11,7 +11,7 @@ from functools import lru_cache
 from .branch_rules import branch_prefix
 from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
-from .candidate_facts import CandidateSafety, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND
+from .candidate_facts import CandidateSafety, ChargeEvidence, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
@@ -71,7 +71,7 @@ _MAX_RETAINED_RING_SCAFFOLD_CANDIDATES = 16
 _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE = 1
 _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 16
 _RETAINED_FUSED_RENDER_SET_SIZE = 12
-_SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 1
+_SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 3
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 1
 _GENERATED_FUSED_RENDER_SET_SIZE = 8
 _MAX_GENERATED_FUSED_PARENT_CANDIDATES = 32
@@ -530,6 +530,127 @@ def _small_sulfur_imide_owner_name(owner: str, parent: str) -> str:
     if _simple_unparenthesized_n_substituent(owner):
         return owner + parent
     return f"({_strip_outer_parentheses(owner)}){parent}"
+
+
+class SydnoneRetainedParentRule:
+    family = "sydnone-retained-parent"
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        return [
+            NameCandidate(
+                name,
+                self.family,
+                parent_priority("senior-functional-exception"),
+                sort_key=(len(name), name),
+                parent_atoms=frozenset(atoms),
+            )
+            for name, atoms in _sydnone_parent_names(ctx.mol)
+        ]
+
+
+def _sydnone_parent_names(mol) -> list[tuple[str, set[int]]]:
+    names: set[tuple[str, frozenset[int]]] = set()
+    for ring in mol.GetRingInfo().AtomRings():
+        if len(ring) != 5:
+            continue
+        record = _sydnone_ring_record(mol, ring)
+        if record is None:
+            continue
+        ring_set, carbonyl_oxygen, n_plus, substituted_carbon = record
+        prefixes = []
+        covered = set(ring_set)
+        covered.add(carbonyl_oxygen)
+        ok = True
+        for atom_idx, locant in ((n_plus, "3"), (substituted_carbon, "4")):
+            atom = mol.GetAtomWithIdx(atom_idx)
+            for nbr in atom.GetNeighbors():
+                nidx = nbr.GetIdx()
+                if nidx in ring_set or nidx in covered or nbr.GetAtomicNum() <= 1:
+                    continue
+                prefix = branch_prefix(mol, nidx, atom_idx)
+                if not prefix:
+                    ok = False
+                    break
+                branch_atoms = _external_branch_atoms(mol, nidx, atom_idx)
+                if covered & branch_atoms:
+                    ok = False
+                    break
+                covered.update(branch_atoms)
+                prefixes.append((locant, prefix))
+            if not ok:
+                break
+        if not ok or len(covered) != mol.GetNumAtoms():
+            continue
+        prefix_text = _format_prefixes(prefixes)
+        name = _join_prefix_parent(prefix_text, "sydnone")
+        names.add((name, frozenset(covered)))
+    return [(name, set(atoms)) for name, atoms in sorted(names, key=lambda item: (len(item[0]), item[0]))]
+
+
+def _sydnone_ring_record(mol, ring: Sequence[int]) -> tuple[set[int], int, int, int] | None:
+    ring_set = set(ring)
+    oxygens = [idx for idx in ring if mol.GetAtomWithIdx(idx).GetSymbol() == "O"]
+    n_minus = [
+        idx
+        for idx in ring
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetFormalCharge() < 0
+    ]
+    n_plus = [
+        idx
+        for idx in ring
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetFormalCharge() > 0
+    ]
+    carbons = [idx for idx in ring if mol.GetAtomWithIdx(idx).GetSymbol() == "C"]
+    if len(oxygens) != 1 or len(n_minus) != 1 or len(n_plus) != 1 or len(carbons) != 2:
+        return None
+    oxygen = oxygens[0]
+    negative_n = n_minus[0]
+    positive_n = n_plus[0]
+    if mol.GetBondBetweenAtoms(oxygen, negative_n) is None:
+        return None
+    if mol.GetBondBetweenAtoms(negative_n, positive_n) is None:
+        return None
+    carbonyl_records = []
+    for cidx in carbons:
+        double_oxygens = []
+        for nbr in mol.GetAtomWithIdx(cidx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nbr.GetSymbol() != "O":
+                continue
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                double_oxygens.append(nidx)
+        if len(double_oxygens) == 1:
+            carbonyl_records.append((cidx, double_oxygens[0]))
+    if len(carbonyl_records) != 1:
+        return None
+    carbonyl_c, carbonyl_o = carbonyl_records[0]
+    substituted = next(cidx for cidx in carbons if cidx != carbonyl_c)
+    if mol.GetBondBetweenAtoms(carbonyl_c, oxygen) is None:
+        return None
+    if mol.GetBondBetweenAtoms(substituted, positive_n) is None:
+        return None
+    return ring_set, carbonyl_o, positive_n, substituted
+
+
+def _external_branch_atoms(mol, start_idx: int, blocked_idx: int) -> set[int]:
+    seen = {blocked_idx}
+    stack = [start_idx]
+    atoms: set[int] = set()
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        atoms.add(idx)
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in seen:
+                stack.append(nidx)
+    return atoms
 
 
 class SulfaniumParentRule:
@@ -3198,8 +3319,15 @@ class AminoAcidRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
         for name in _amino_acid_parent_names(mol, self._Chem):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
 
 
 def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
@@ -8865,9 +8993,10 @@ class SingleRingParentRule:
                     parent_atoms=frozenset(ring),
                     locants=_locants_from_sequence(locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
+                    charge=_single_ring_charge_evidence(mol, ring),
                     estimated_length=len(name),
                     render_rank=render_rank,
-                    )
+                )
 
     def _candidate_ring_facts(self, ctx, parent_rings) -> tuple["_SingleRingParentFacts", ...]:
         facts = tuple(
@@ -8922,6 +9051,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     parent_atoms=frozenset(ring),
                     locants=_locants_from_sequence(locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
+                    charge=_single_ring_charge_evidence(mol, ring),
                     estimated_length=len(name),
                     render_rank=1,
                 )
@@ -8959,6 +9089,21 @@ def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:
         external_bonds,
         hetero_atoms,
         tuple(sorted(ring)),
+    )
+
+
+def _single_ring_charge_evidence(mol, ring: Sequence[int]) -> ChargeEvidence | None:
+    charged_atoms = tuple(
+        idx
+        for idx in sorted(ring)
+        if mol.GetAtomWithIdx(idx).GetFormalCharge()
+    )
+    if not charged_atoms:
+        return None
+    formal_charge = sum(mol.GetAtomWithIdx(idx).GetFormalCharge() for idx in charged_atoms)
+    return ChargeEvidence(
+        formal_charge=formal_charge,
+        charged_atoms=charged_atoms,
     )
 
 
@@ -10055,6 +10200,7 @@ def parent_rules(Chem) -> tuple:
     methylenebis_dithiocarbamate = MethylenebisDithiocarbamateRetainedParentRule(Chem)
     hexamethylenediamide = HexamethylenediamideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
+    sydnone = SydnoneRetainedParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     phosphanylium_oxide = PhosphanyliumOxideParentRule(Chem)
     phosphanylium_imino = PhosphanyliumIminoParentRule(Chem)
@@ -10150,6 +10296,7 @@ def parent_rules(Chem) -> tuple:
             (),
             small_inorganic.candidates,
         ),
+        RuleSpec("sydnone-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom,), sydnone.candidates),
         RuleSpec(
             "bis-sulfonium-sulfide-retained-parent",
             parent_priority("senior-functional-exception"),

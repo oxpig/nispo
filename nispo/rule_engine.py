@@ -88,20 +88,20 @@ class NamingEngine:
         if mol.GetNumAtoms() == 1:
             simple_name = simple_fragment_name(mol, self._Chem)
             if simple_name:
-                return simple_name
+                return _finalize_direct_name(mol, self._Chem, simple_name)
         fragment_atom_sets = self._Chem.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
         if len(fragment_atom_sets) > 1:
             fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
-            return self._fragment_rule.name(fragments)
+            return _finalize_direct_name(mol, self._Chem, self._fragment_rule.name(fragments))
         simple_name = simple_fragment_name(mol, self._Chem)
         if simple_name:
-            return simple_name
+            return _finalize_direct_name(mol, self._Chem, simple_name)
         standalone_polyatomic_name = standalone_polyatomic_fragment_name(mol, self._Chem)
         if standalone_polyatomic_name:
-            return standalone_polyatomic_name
+            return _finalize_direct_name(mol, self._Chem, standalone_polyatomic_name)
         polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
         if polyatomic_name:
-            return polyatomic_name
+            return _finalize_direct_name(mol, self._Chem, polyatomic_name)
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         best_name = _select_best_prepared_candidate(
@@ -138,6 +138,15 @@ class NamingEngine:
             else:
                 mol.ClearProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
         return fallback_name
+
+
+def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MAX_NAME_LENGTH) -> str:
+    if not name:
+        return ""
+    if _has_assigned_stereo(mol, Chem):
+        name = apply_stereochemical_prefix(mol, Chem, name)
+    name = _apply_uniform_isotope_label(mol, name)
+    return name if len(name) <= max_length else ""
 
 
 def _prepare_candidates(
@@ -711,6 +720,14 @@ def _has_contextual_non_acyclic_broad_graph_parent_alternative(
             continue
         if other.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
             continue
+        if item.candidate.family in {
+            "single-ring-parent",
+            "positive-single-ring-parent",
+        } and other.candidate.family in {
+            "single-ring-parent",
+            "positive-single-ring-parent",
+        }:
+            continue
         if other.candidate.family not in _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
             continue
         if len(other.name) > 240 or len(other.name) - len(item.name) > 140:
@@ -997,11 +1014,15 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_imidazothiophene = _has_fragile_imidazothiophene_bridge_alias(name, item.candidate)
     fragile_ergosta_side_chain = _has_fragile_ergosta_terminal_side_chain_parent(name, item.candidate)
     missing_relative_stereo = _has_missing_relative_stereo_ring_candidate(name, item.candidate)
-    locanted_stereo_miss = _has_unlocanted_atom_stereo_prefix(name) and _has_contextual_locanted_stereo_alternative(
-        item,
-        prepared,
-        max_extra=80,
-        max_length=220,
+    locanted_stereo_miss = (
+        not _is_complete_retained_senior_parent(item.candidate)
+        and _has_unlocanted_atom_stereo_prefix(name)
+        and _has_contextual_locanted_stereo_alternative(
+            item,
+            prepared,
+            max_extra=80,
+            max_length=220,
+        )
     )
     fragile_bridge_h_ketone = _has_fragile_bridge_indicated_h_ketone_suffix(name)
     fragile_short_fused_alias = _has_fragile_short_fused_alias(name, item.candidate)
@@ -1314,6 +1335,8 @@ def _has_contextual_systematic_alternative_for_retained_shortcut(
 ) -> bool:
     if item.candidate.family not in {"amino-acid-retained-parent", "whole-molecule-retained-parent"}:
         return False
+    if _is_complete_retained_senior_parent(item.candidate):
+        return False
     for other in prepared:
         if other is item or other.name == item.name:
             continue
@@ -1325,6 +1348,23 @@ def _has_contextual_systematic_alternative_for_retained_shortcut(
             continue
         return True
     return False
+
+
+_COMPLETE_RETAINED_SENIOR_PARENT_FAMILIES = frozenset(
+    {
+        "dithiophosphate-retained-parent",
+        "phosphorothioic-triamide-retained-parent",
+        "thiooxo-ester-retained-parent",
+    }
+)
+
+
+def _is_complete_retained_senior_parent(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family in _COMPLETE_RETAINED_SENIOR_PARENT_FAMILIES
+        and bool(candidate.parent_atoms)
+        and candidate_has_complete_graph(candidate)
+    )
 
 
 def _has_contextual_retained_acid_ester_alternative(
@@ -2463,6 +2503,8 @@ def _unstable_component_spiro_alias_penalty(name: str, candidate: NameCandidate)
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     bonus = _locanted_multicenter_stereo_bonus(name, candidate)
+    if candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
+        bonus += _charged_single_ring_parent_bonus(candidate)
     if candidate.family not in {
         "fused-retained-parent",
         "generated-fused-parent",
@@ -2495,6 +2537,15 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if _has_indicated_h_generated_fused_parent(name):
         bonus += 6
     return bonus
+
+
+def _charged_single_ring_parent_bonus(candidate: NameCandidate) -> int:
+    evidence = candidate.charge
+    if evidence is None or not evidence.charged_atoms:
+        return 0
+    if not candidate_has_complete_graph(candidate):
+        return 0
+    return min(16, 8 + 2 * len(evidence.charged_atoms))
 
 
 def _locanted_multicenter_stereo_bonus(name: str, candidate: NameCandidate) -> int:

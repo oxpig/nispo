@@ -84,6 +84,19 @@ _CHARGEABLE_SUBSTITUENT_STEMS = {
     "morpholine": "morpholin",
 }
 
+_AROMATIC_N_H_CATION_PARENTS = {
+    "imidazole",
+    "pyrazole",
+    "triazole",
+    "tetrazole",
+    "oxazole",
+    "isoxazole",
+    "thiazole",
+    "isothiazole",
+    "oxadiazole",
+    "thiadiazole",
+}
+
 
 _NEUTRAL_SUBSTITUENT_STEMS = {
     "furan": "furan",
@@ -316,6 +329,10 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
         if candidates:
             return candidates
 
+    candidates = _positive_cn_heterocycle_candidates(mol, ordered, symbols, all_single_bonds)
+    if candidates:
+        return candidates
+
     if (
         all_aliphatic
         and 3 <= n <= max(ROOTS)
@@ -358,6 +375,110 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
                     candidates.append((parent, seq))
             return candidates
 
+    return candidates
+
+
+def _positive_cn_heterocycle_candidates(
+    mol,
+    ordered: Sequence[int],
+    symbols: Sequence[str],
+    all_single_bonds: bool,
+) -> list[tuple[str, tuple[int, ...]]]:
+    if any(sym not in {"C", "N"} for sym in symbols):
+        return []
+    if any(mol.GetAtomWithIdx(idx).GetFormalCharge() < 0 for idx in ordered):
+        return []
+    charged_n = [
+        idx
+        for idx in ordered
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetFormalCharge() > 0
+    ]
+    if len(charged_n) != 1:
+        return []
+    charged_idx = charged_n[0]
+    counts = Counter(symbols)
+    double_count = sum(
+        1
+        for left, right in zip(ordered, ordered[1:] + ordered[:1])
+        if (bond := mol.GetBondBetweenAtoms(left, right)) is not None and bond.GetBondTypeAsDouble() == 2.0
+    )
+    if all_single_bonds:
+        if len(ordered) == 4 and counts == Counter({"C": 2, "N": 2}):
+            return _positive_cn_ring_pattern_candidates(
+                mol,
+                ordered,
+                charged_idx,
+                (
+                    ("1,2-diazetidine", ("N", "N", "C", "C")),
+                    ("1,3-diazetidine", ("N", "C", "N", "C")),
+                ),
+            )
+        return []
+    if len(ordered) == 5 and counts == Counter({"C": 3, "N": 2}):
+        return _positive_diazole_diazoline_candidates(mol, ordered, charged_idx, double_count)
+    if len(ordered) == 5 and counts == Counter({"C": 2, "N": 3}) and double_count == 1:
+        return _positive_triazoline_candidates(mol, ordered, charged_idx)
+    return []
+
+
+def _positive_diazole_diazoline_candidates(
+    mol,
+    ordered: Sequence[int],
+    charged_idx: int,
+    double_count: int,
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        if seq[0] != charged_idx:
+            continue
+        n_locs = [i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N"]
+        second = sorted(n_locs)[1]
+        if double_count >= 2:
+            parent = _AROMATIC_5_DIAZOLE_NAMES.get(second, "")
+            if parent:
+                indicated = charged_idx if mol.GetAtomWithIdx(charged_idx).GetTotalNumHs() > 0 else None
+                candidates.append((_indicated_hydrogen_prefix(mol, ordered, seq, indicated) + parent, seq))
+        elif double_count == 1:
+            parent = {2: "pyrazoline", 3: "imidazoline"}.get(second, "")
+            if parent:
+                candidates.append((parent, seq))
+    return candidates
+
+
+def _positive_triazoline_candidates(
+    mol,
+    ordered: Sequence[int],
+    charged_idx: int,
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    parent_by_locs = {
+        (1, 2, 3): "1,2,3-triazoline",
+        (1, 2, 4): "1,2,4-triazoline",
+    }
+    for seq in _numberings_with_atom_at(ordered, mol, "N"):
+        if seq[0] != charged_idx:
+            continue
+        n_locs = tuple(sorted(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == "N"))
+        parent = parent_by_locs.get(n_locs, "")
+        if parent:
+            candidates.append((parent, seq))
+    return candidates
+
+
+def _positive_cn_ring_pattern_candidates(
+    mol,
+    ordered: Sequence[int],
+    charged_idx: int,
+    patterns: Sequence[tuple[str, Sequence[str]]],
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    for seq in _ring_numberings(ordered):
+        if seq[0] != charged_idx:
+            continue
+        seq_symbols = [mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq]
+        for parent, pattern in patterns:
+            if seq_symbols == list(pattern):
+                candidates.append((parent, seq))
     return candidates
 
 
@@ -1099,6 +1220,12 @@ def _has_exocyclic_thioxo(mol, idx: int, ring_set: set[int]) -> bool:
 
 
 def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw_subs) -> str:
+    lambda_name = _lambda2_ring_parent_name(mol, parent_name, seq)
+    if lambda_name:
+        parent_name = lambda_name
+    multi_positive_name = _multi_positive_n_ring_parent_name(mol, parent_name, seq)
+    if multi_positive_name:
+        return multi_positive_name
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
         if atom.GetFormalCharge() < 0:
@@ -1114,6 +1241,9 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         if atom.GetSymbol() != "N":
             continue
+        aromatic_cation = _aromatic_n_h_cation_parent_name(parent_name, atom)
+        if aromatic_cation:
+            return aromatic_cation
         charge_base = _drop_indicated_hydrogen_prefix(parent_name)
         if charge_base == "pyridine" and loc == 1:
             return "pyridin-1-ium"
@@ -1126,10 +1256,21 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             "pyrrolidine",
             "piperidine",
             "azepane",
+            "1,2-diazetidine",
+            "1,3-diazetidine",
             "imidazolidine",
+            "imidazoline",
             "piperazine",
             "morpholine",
+            "pyrazoline",
+            "thiomorpholine",
         }:
+            stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
+            return f"{stem}-{loc}-ium"
+        if re.fullmatch(r"1,2,[34]-triazoline", charge_base):
+            stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
+            return f"{stem}-{loc}-ium"
+        if re.fullmatch(r"\d+(?:,\d+)*-dihydropyrimidine", charge_base):
             stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
             return f"{stem}-{loc}-ium"
         if charge_base.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
@@ -1162,6 +1303,96 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name
+
+
+def _multi_positive_n_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
+    if "lambda" in parent_name:
+        return ""
+    positive_locs = []
+    for loc, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        charge = atom.GetFormalCharge()
+        if charge < 0:
+            return ""
+        if charge <= 0:
+            continue
+        if atom.GetSymbol() != "N":
+            return ""
+        positive_locs.append(loc)
+    if len(positive_locs) < 2:
+        return ""
+    charge_base = _drop_indicated_hydrogen_prefix(parent_name)
+    if not _multi_positive_n_parent_supported(charge_base):
+        return ""
+    multiplier = MULT.get(len(positive_locs))
+    if not multiplier:
+        return ""
+    stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
+    return f"{stem}-{_join_locants(positive_locs)}-{multiplier}ium"
+
+
+def _multi_positive_n_parent_supported(charge_base: str) -> bool:
+    if charge_base in {
+        "pyrimidine",
+        "pyrazine",
+        "pyridazine",
+        "1,2-diazetidine",
+        "1,3-diazetidine",
+        "imidazolidine",
+        "imidazoline",
+        "piperazine",
+        "pyrazoline",
+        "dihydropyrimidine",
+    }:
+        return True
+    if re.fullmatch(r"1,2,[34]-triazoline", charge_base):
+        return True
+    if re.fullmatch(r"\d+(?:,\d+)*-dihydropyrimidine", charge_base):
+        return True
+    if charge_base.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
+        return True
+    if charge_base.endswith(
+        (
+            "imidazole",
+            "triazole",
+            "tetrazole",
+            "pyrazole",
+            "oxadiazole",
+            "thiadiazole",
+        )
+    ):
+        return True
+    return False
+
+
+def _aromatic_n_h_cation_parent_name(parent_name: str, atom) -> str:
+    if not atom.GetIsAromatic() or atom.GetTotalNumHs() <= 0:
+        return ""
+    base = _drop_indicated_hydrogen_prefix(parent_name)
+    if "lambda" in base:
+        return ""
+    if not any(base == parent or base.endswith(f"-{parent}") for parent in _AROMATIC_N_H_CATION_PARENTS):
+        return ""
+    stem = base[:-1] if base.endswith("e") else base
+    return f"{stem}ium"
+
+
+def _lambda2_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
+    if "lambda" in parent_name:
+        return ""
+    locants = []
+    for loc, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
+            continue
+        if atom.GetTotalNumHs() > 0:
+            continue
+        if atom.GetNumRadicalElectrons() or atom.GetExplicitValence() <= 2:
+            locants.append(str(loc))
+    if not locants:
+        return ""
+    prefix = ",".join(f"{loc}lambda2" for loc in locants)
+    return f"{prefix}-{parent_name}"
 
 
 def _is_replacement_heterocycle_parent(parent_name: str, charged_symbol: str) -> bool:

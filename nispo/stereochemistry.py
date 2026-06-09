@@ -6,6 +6,13 @@ from .molecule_cache import mol_cache_get, mol_cache_set
 
 
 _STEREO_ATOM_LOCANT_RE = re.compile(r"^\d+'?$")
+_STEREO_MULTIPLIERS = {
+    "bis": 2,
+    "tris": 3,
+    "tetrakis": 4,
+    "pentakis": 5,
+    "hexakis": 6,
+}
 
 
 def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_desc") -> str:
@@ -113,17 +120,40 @@ def _has_leading_stereochemical_prefix(name: str) -> bool:
 
 
 def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
-    return [
+    descriptors = [
         descriptor[-1]
         for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name)
     ]
+    descriptors.extend(_extra_multiplied_locanted_stereo_descriptors(name, "RS"))
+    return descriptors
 
 
 def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
-    return [
+    descriptors = [
         descriptor[-1]
         for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name)
     ]
+    descriptors.extend(_extra_multiplied_locanted_stereo_descriptors(name, "EZ"))
+    return descriptors
+
+
+def _extra_multiplied_locanted_stereo_descriptors(name: str, kinds: str) -> list[str]:
+    extras: list[str] = []
+    pattern = re.compile(
+        r"\b(?P<mult>bis|tris|tetrakis|pentakis|hexakis)\(\((?P<locants>\d+'?[RSZE](?:,\d+'?[RSZE])*)\)-"
+    )
+    for match in pattern.finditer(name):
+        count = _STEREO_MULTIPLIERS.get(match.group("mult"), 1)
+        if count <= 1:
+            continue
+        pieces = [
+            descriptor[-1]
+            for descriptor in re.findall(r"\d+'?[RSZE]", match.group("locants"))
+            if descriptor[-1] in kinds
+        ]
+        for _ in range(count - 1):
+            extras.extend(pieces)
+    return extras
 
 
 def _locanted_atom_stereo_texts_in_name(name: str) -> set[str]:

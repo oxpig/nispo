@@ -13,6 +13,7 @@ from ..formatting import format_prefixes as _format_prefixes
 from ..formatting import join_prefix_parent as _join_prefix_parent
 from ..formatting import preferred_parent_stem as _preferred_parent_stem
 from ..formatting import loc_unsat
+from ..formatting import _multiplied_prefix_unit_name
 from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
 )
@@ -1424,6 +1425,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 adjusted_parent in {"maleimide", "succinimide"} and pos[idx] in {2, 5} and prefix == "oxo"
             )
         ]
+        indicated_h_locs = _single_ring_indicated_hydrogen_locants(mol, seq, pos)
         locants = sorted(pos[idx] for idx, _ in raw_subs)
         if not prefixes:
             name = _join_prefix_parent("", adjusted_parent)
@@ -1454,7 +1456,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
         suffix_name = (
             ""
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
-            else _single_ring_oxo_suffix_name(prefixes, adjusted_parent)
+            else _single_ring_oxo_suffix_name(prefixes, adjusted_parent, indicated_h_locs)
         )
         sulfur_oxide_name = _single_ring_sulfur_oxide_suffix_name(mol, raw_subs, pos, prefixes, adjusted_parent)
         if sulfur_oxide_name:
@@ -1469,7 +1471,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
-        thione_name = _single_ring_thione_suffix_name(prefixes, adjusted_parent)
+        thione_name = _single_ring_thione_suffix_name(prefixes, adjusted_parent, indicated_h_locs)
         if thione_name:
             thione_key = (locants, 0, thione_name)
             if best_key is None or thione_key < best_key:
@@ -1507,6 +1509,15 @@ def _single_ring_substituent_locant(parent_name: str, loc: int) -> str:
     if parent_name in {"maleimide", "succinimide"} and loc == 1:
         return "N"
     return str(loc)
+
+
+def _single_ring_indicated_hydrogen_locants(mol, seq: Sequence[int], pos: dict[int, int]) -> tuple[str, ...]:
+    locants = []
+    for atom_idx in seq:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and atom_idx in pos:
+            locants.append(str(pos[atom_idx]))
+    return tuple(sorted(set(locants), key=_locant_sort_key))
 
 
 def _single_ring_parent_prefixes_supported(parent_name: str, prefixes: Sequence[tuple[str, str]]) -> bool:
@@ -1982,7 +1993,11 @@ def _relative_bicyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str) -
     return "cis"
 
 
-def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _single_ring_oxo_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
     oxo_locs = [loc for loc, prefix in prefixes if prefix == "oxo" and loc.isdigit()]
     if not oxo_locs:
         return ""
@@ -1991,6 +2006,14 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
     if parent_name == "1,2,3-triazoxole" and oxo_locs == ["5"]:
         name = "1,2,3-triazoxol-5(3H)-one"
         return _join_prefix_parent(prefix_text, name) if prefix_text else name
+    indicated_h_name = _single_ring_indicated_h_chalcogen_suffix_name(
+        parent_name,
+        oxo_locs,
+        indicated_h_locs,
+        "one",
+    )
+    if indicated_h_name:
+        return _join_prefix_parent(prefix_text, indicated_h_name) if prefix_text else indicated_h_name
     parent = _oxo_adjusted_unsaturated_carbocycle_parent(parent_name, oxo_locs)
     if not parent:
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
@@ -2045,17 +2068,57 @@ def _single_ring_sulfur_oxide_suffix_name(
     return _join_prefix_parent(prefix_text, name) if prefix_text else name
 
 
-def _single_ring_thione_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _single_ring_thione_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
     thioxo_locs = [loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()]
     if not thioxo_locs:
         return ""
     remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
     prefix_text = _format_prefixes(remaining)
+    indicated_h_name = _single_ring_indicated_h_chalcogen_suffix_name(
+        parent_name,
+        thioxo_locs,
+        indicated_h_locs,
+        "thione",
+    )
+    if indicated_h_name:
+        return _join_prefix_parent(prefix_text, indicated_h_name) if prefix_text else indicated_h_name
     parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
     locants = ",".join(sorted(thioxo_locs, key=int))
     suffix = "thione" if len(thioxo_locs) == 1 else f"{MULT.get(len(thioxo_locs), '')}thione"
     name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+_SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS = (
+    "oxadiazol",
+    "thiadiazol",
+    "triazol",
+    "tetrazol",
+)
+
+
+def _single_ring_indicated_h_chalcogen_suffix_name(
+    parent_name: str,
+    suffix_locs: Sequence[str],
+    indicated_h_locs: Sequence[str],
+    suffix: str,
+) -> str:
+    if len(suffix_locs) != 1 or not indicated_h_locs:
+        return ""
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    parent = parent[:-1] if parent.endswith("e") else parent
+    parent = _preferred_parent_stem(parent)
+    if not any(stem in parent for stem in _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS):
+        return ""
+    h_locs = [loc for loc in indicated_h_locs if loc != suffix_locs[0]]
+    if not h_locs:
+        return ""
+    h_loc = sorted(h_locs, key=_locant_sort_key)[-1]
+    return f"{parent}-{suffix_locs[0]}({h_loc}H)-{suffix}"
 
 
 def _single_ring_imino_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
@@ -2899,6 +2962,8 @@ def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
     terms = []
     for name in sorted(counts):
         count = counts[name]
+        if count > 1:
+            name = _multiplied_prefix_unit_name(name)
         is_complex = _needs_substituent_parentheses(name)
         if count > 1 and (is_complex or _needs_repeated_onium_substituent_parentheses(name)):
             multiplier = _COMPLEX_MULTIPLIERS.get(count, "")

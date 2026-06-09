@@ -919,6 +919,9 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     aminoacyl = _retained_aminoacyl_prefix(mol, idx, distal, parent_idx=parent_idx)
     if aminoacyl:
         return aminoacyl
+    nitrocarbonyl = _nitrocarbonyl_prefix(mol, distal, idx)
+    if nitrocarbonyl:
+        return nitrocarbonyl
     carbamoyl = _carbamoyl_substituent_name(mol, idx, parent_idx)
     if carbamoyl:
         return carbamoyl
@@ -1325,6 +1328,36 @@ def _oxido_carbamoyl_prefix(mol, nitrogen_idx: int, carbonyl_idx: int) -> str:
             other.append(nidx)
     if len(oxido) == 1 and not other:
         return "1-oxido-1-azamethylcarbonyl"
+    return ""
+
+
+def _nitrocarbonyl_prefix(mol, nitrogen_idx: int, carbonyl_idx: int) -> str:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0:
+        return ""
+    bond = mol.GetBondBetweenAtoms(nitrogen_idx, carbonyl_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    single_oxygens = []
+    double_oxygens = []
+    other = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx:
+            continue
+        n_bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if nbr.GetSymbol() == "O" and n_bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+        elif (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() < 0
+            and n_bond.GetBondType() == Chem.BondType.SINGLE
+        ):
+            single_oxygens.append(nidx)
+        else:
+            other.append(nidx)
+    if len(double_oxygens) == 1 and len(single_oxygens) == 1 and not other:
+        return "nitrocarbonyl"
     return ""
 
 

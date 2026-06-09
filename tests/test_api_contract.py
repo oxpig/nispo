@@ -784,6 +784,23 @@ def test_saturated_fused_lactam_suffixes_roundtrip_without_indicated_h(
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C1=C2CCCNCc3cccc(c3)CNC(=N2)N=[SH]1",
+        "O=C1NCCCCCCC2=NN=C(C2)c2cccc1n2",
+        "O=C1NCCCc2ccnc(n2)NCS2=CC1=CC=C2",
+    ],
+)
+def test_unsaturated_secondary_bridge_tricyclic_parents_roundtrip(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert "tricyclo[" in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

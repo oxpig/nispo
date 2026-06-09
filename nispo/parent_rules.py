@@ -2520,6 +2520,115 @@ def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
     return ""
 
 
+def _carbodiimide_parent_names(mol, Chem) -> list[str]:
+    motif_names = []
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            continue
+        carbon_idx = atom.GetIdx()
+        terminal_nitrogens = []
+        ok = True
+        for nbr in atom.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(carbon_idx, nbr.GetIdx())
+            if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                terminal_nitrogens.append(nbr.GetIdx())
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(terminal_nitrogens) != 2:
+            continue
+        substituents = []
+        for nitrogen_idx in terminal_nitrogens:
+            substituent = _carbodiimide_n_substituent(mol, Chem, nitrogen_idx, carbon_idx)
+            if substituent is None:
+                substituents = None
+                break
+            if substituent:
+                substituents.append(substituent)
+        if substituents is None:
+            continue
+        name = _carbodiimide_name(substituents)
+        if name:
+            motif_names.append(name)
+    if len(motif_names) != 1:
+        return []
+    return sorted(set(motif_names), key=lambda name: (len(name), name))
+
+
+def _carbodiimide_n_substituent(mol, Chem, nitrogen_idx: int, carbon_idx: int) -> str | None:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+        return None
+    substituent_atoms = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbon_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        substituent_atoms.append(nidx)
+    if len(substituent_atoms) > 1:
+        return None
+    if not substituent_atoms:
+        return ""
+    substituent = _retained_parent_substituent_alias(
+        _simple_or_branch_prefix(mol, substituent_atoms[0], nitrogen_idx)
+    )
+    if not substituent or not _allowed_carbodiimide_substituent(substituent):
+        return None
+    return substituent
+
+
+def _carbodiimide_name(substituents: Sequence[str]) -> str:
+    substituents = tuple(sorted(substituents))
+    if not substituents:
+        return "carbodiimide"
+    if len(substituents) == 1:
+        return f"{_n_substituent_piece('N', substituents[0])}carbodiimide"
+    if len(substituents) == 2:
+        if substituents[0] == substituents[1]:
+            prefix = _duplicate_n_substituent_piece("N,N'", substituents[0])
+            return f"{prefix}carbodiimide"
+        first = _n_substituent_piece("N", substituents[0])
+        second = _n_substituent_piece("N'", substituents[1])
+        return f"{first}-{second}carbodiimide"
+    return ""
+
+
+def _allowed_carbodiimide_substituent(name: str) -> bool:
+    if _simple_n_retained_parent_substituent(name):
+        return True
+    if len(name) > 56:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return any(
+        fragment in name
+        for fragment in (
+            "amino",
+            "cyclo",
+            "morpholin",
+            "piperid",
+            "piperaz",
+            "pyrrolid",
+            "azetidin",
+            "phenyl",
+            "benzyl",
+            "pyrid",
+            "hydroxy",
+            "methoxy",
+            "oxo",
+        )
+    )
+
+
 class CarbamateRetainedParentRule:
     family = "carbamate-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2544,6 +2653,22 @@ class CarbamateRetainedParentRule:
             ):
                 continue
             name = f"{oxygen_substituent} {nitrogen_prefix}carbamat"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+class CarbodiimideRetainedParentRule:
+    family = "carbodiimide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        seen = set()
+        for name in _carbodiimide_parent_names(ctx.mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -9338,6 +9463,7 @@ def parent_rules(Chem) -> tuple:
     n_halo_imine = NHaloImineParentRule(Chem)
     cyclic_nitroimine = CyclicNitroimineParentRule(Chem)
     oxime_sulfonate_nitrile = OximeSulfonateNitrileParentRule(Chem)
+    carbodiimide = CarbodiimideRetainedParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
@@ -9477,6 +9603,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
         RuleSpec("cyclic-nitroimine-parent", parent_priority("senior-functional-exception"), (), cyclic_nitroimine.candidates),
         RuleSpec("oxime-sulfonate-nitrile-parent", parent_priority("senior-functional-exception"), (), oxime_sulfonate_nitrile.candidates),
+        RuleSpec("carbodiimide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), carbodiimide.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),

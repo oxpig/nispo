@@ -535,6 +535,23 @@ def test_alpha_keto_carboxylate_parents_roundtrip_with_opsin(input_smiles):
 
 
 @pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN(C)CCCN=C=N",
+        "C(=NCCN1CCOCC1)=NC1CCCCC1",
+        "C1CCCCC1N=C=NC1CCCCC1",
+    ],
+)
+def test_carbodiimide_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert "carbodiimide" in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
     ("input_smiles", "retained_fragment"),
     [
         ("P(=S)([O-])([O-])[O-]", "thiophosphate"),

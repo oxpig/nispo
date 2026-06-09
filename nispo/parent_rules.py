@@ -932,6 +932,62 @@ class AzidobenzylideneCyclohexanoneRetainedParentRule:
                 return
 
 
+class OrganicPeroxideRetainedParentRule:
+    family = "organic-peroxide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for bond in mol.GetBonds():
+            if bond.GetBondType() != self._Chem.BondType.SINGLE:
+                continue
+            begin = bond.GetBeginAtom()
+            end = bond.GetEndAtom()
+            if begin.GetSymbol() != "O" or end.GetSymbol() != "O":
+                continue
+            if begin.GetFormalCharge() != 0 or end.GetFormalCharge() != 0:
+                continue
+            ligand_names = []
+            covered = {begin.GetIdx(), end.GetIdx()}
+            for oxygen_idx, other_oxygen_idx in (
+                (begin.GetIdx(), end.GetIdx()),
+                (end.GetIdx(), begin.GetIdx()),
+            ):
+                heavy = [
+                    nbr.GetIdx()
+                    for nbr in mol.GetAtomWithIdx(oxygen_idx).GetNeighbors()
+                    if nbr.GetIdx() != other_oxygen_idx and nbr.GetAtomicNum() > 1
+                ]
+                if len(heavy) != 1:
+                    break
+                ligand_idx = heavy[0]
+                if mol.GetAtomWithIdx(ligand_idx).GetSymbol() != "C":
+                    break
+                prefix = _simple_or_branch_prefix(mol, ligand_idx, oxygen_idx)
+                if not prefix:
+                    break
+                ligand_names.append(_strip_outer_parentheses(prefix))
+                covered.update(_collect_component_atoms(mol, ligand_idx, oxygen_idx))
+            else:
+                if covered != atom_set or len(ligand_names) != 2 or ligand_names[0] != ligand_names[1]:
+                    continue
+                ligand = ligand_names[0]
+                name = f"bis({_strip_outer_parentheses(ligand)}) peroxide"
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=set(range(atom_count)),
+                    sort_key=(len(name), name),
+                )
+                return
+
+
 class OrganomagnesiumHalideParentRule:
     family = "organomagnesium-halide-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6767,6 +6823,7 @@ def parent_rules(Chem) -> tuple:
     aminophosphane = AminophosphaneParentRule(Chem)
     dithiazole = DithiazoleRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
+    organic_peroxide = OrganicPeroxideRetainedParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     organoborane = OrganoboraneParentRule(Chem)
     benziodoxole = BenziodoxoleRetainedParentRule(Chem)
@@ -6850,6 +6907,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             azidobenzylidene_cyclohexanone.candidates,
+        ),
+        RuleSpec(
+            "organic-peroxide-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            organic_peroxide.candidates,
         ),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("organoborane-parent", parent_priority("senior-functional-exception"), (), organoborane.candidates),

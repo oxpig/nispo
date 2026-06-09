@@ -423,6 +423,22 @@ def test_biphenyl_diphosphonite_parents_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",
+        "O=[N+]([O-])N=C1NCCN1Cc1ccc(Cl)nc1",
+        "O=[N+]([O-])N=C1NCCN1Cc1cnc(Cl)s1",
+    ],
+)
+def test_cyclic_nitroimine_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

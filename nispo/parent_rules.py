@@ -1712,6 +1712,33 @@ class NHaloImineParentRule:
                 yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class CyclicNitroimineParentRule:
+    family = "cyclic-nitroimine-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        for ring in mol.GetRingInfo().AtomRings():
+            ring_set = frozenset(ring)
+            name = (
+                _oxadiazinane_nitroimine_name(mol, self._Chem, ring_set)
+                or _imidazolidine_nitroimine_name(mol, self._Chem, ring_set)
+            )
+            if not name:
+                continue
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+            return
+
+
 class GuanidineRetainedParentRule:
     family = "guanidine-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2203,6 +2230,209 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _oxadiazinane_nitroimine_name(mol, Chem, ring_set: frozenset[int]) -> str:
+    if len(ring_set) != 6:
+        return ""
+    if not _saturated_nonaromatic_ring(mol, Chem, ring_set):
+        return ""
+    symbols = Counter(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring_set)
+    if symbols != Counter({"C": 3, "N": 2, "O": 1}):
+        return ""
+    nitroimine = _single_ring_nitroimine(mol, Chem, ring_set)
+    if not nitroimine:
+        return ""
+    imine_c, imine_n, nitro_atoms = nitroimine
+    oxygen_idx = next(idx for idx in ring_set if mol.GetAtomWithIdx(idx).GetSymbol() == "O")
+    for neighbor in _ring_neighbors(mol, ring_set, oxygen_idx):
+        sequence = _ring_sequence(mol, ring_set, oxygen_idx, neighbor)
+        if not sequence or sequence[3] != imine_c:
+            continue
+        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in sequence] != ["O", "C", "N", "C", "N", "C"]:
+            continue
+        locants = {idx: str(pos) for pos, idx in enumerate(sequence, start=1)}
+        name = _cyclic_nitroimine_name_from_locants(
+            mol,
+            Chem,
+            ring_set,
+            locants,
+            imine_n,
+            nitro_atoms,
+            "N-nitro-1,3,5-oxadiazinan-4-imine",
+        )
+        if name:
+            return name
+    return ""
+
+
+def _imidazolidine_nitroimine_name(mol, Chem, ring_set: frozenset[int]) -> str:
+    if len(ring_set) != 5:
+        return ""
+    if not _saturated_nonaromatic_ring(mol, Chem, ring_set):
+        return ""
+    symbols = Counter(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring_set)
+    if symbols != Counter({"C": 3, "N": 2}):
+        return ""
+    nitroimine = _single_ring_nitroimine(mol, Chem, ring_set)
+    if not nitroimine:
+        return ""
+    imine_c, imine_n, nitro_atoms = nitroimine
+    first_nitrogens = [
+        nidx
+        for nidx in _ring_neighbors(mol, ring_set, imine_c)
+        if mol.GetAtomWithIdx(nidx).GetSymbol() == "N" and _ring_atom_external_substituents(mol, ring_set, nidx, imine_n)
+    ]
+    for first_n in sorted(first_nitrogens):
+        sequence = _ring_sequence(mol, ring_set, first_n, imine_c)
+        if not sequence or sequence[1] != imine_c:
+            continue
+        if [mol.GetAtomWithIdx(idx).GetSymbol() for idx in sequence] != ["N", "C", "N", "C", "C"]:
+            continue
+        locants = {idx: str(pos) for pos, idx in enumerate(sequence, start=1)}
+        name = _cyclic_nitroimine_name_from_locants(
+            mol,
+            Chem,
+            ring_set,
+            locants,
+            imine_n,
+            nitro_atoms,
+            "N-nitroimidazolidine-2-imine",
+        )
+        if name:
+            return name
+    return ""
+
+
+def _single_ring_nitroimine(mol, Chem, ring_set: frozenset[int]) -> tuple[int, int, set[int]] | None:
+    motifs = []
+    for cidx in ring_set:
+        atom = mol.GetAtomWithIdx(cidx)
+        if atom.GetSymbol() != "C":
+            continue
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nbr.GetSymbol() != "N":
+                continue
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+                continue
+            nitro_atoms = _terminal_nitro_atoms(mol, Chem, nidx, cidx)
+            if nitro_atoms:
+                motifs.append((cidx, nidx, nitro_atoms))
+    return motifs[0] if len(motifs) == 1 else None
+
+
+def _terminal_nitro_atoms(mol, Chem, imine_nidx: int, imine_cidx: int) -> set[int]:
+    nitro_neighbors = []
+    imine_n = mol.GetAtomWithIdx(imine_nidx)
+    for nbr in imine_n.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == imine_cidx:
+            continue
+        bond = mol.GetBondBetweenAtoms(imine_nidx, nidx)
+        if nbr.GetSymbol() == "N" and bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            nitro_neighbors.append(nidx)
+        else:
+            return set()
+    if len(nitro_neighbors) != 1:
+        return set()
+    nitro_idx = nitro_neighbors[0]
+    nitro = mol.GetAtomWithIdx(nitro_idx)
+    double_oxygens = []
+    single_anionic_oxygens = []
+    for nbr in nitro.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == imine_nidx:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitro_idx, nidx)
+        if nbr.GetSymbol() != "O" or bond is None:
+            return set()
+        if bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygens.append(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_anionic_oxygens.append(nidx)
+        else:
+            return set()
+    if len(double_oxygens) != 1 or len(single_anionic_oxygens) != 1:
+        return set()
+    return {imine_nidx, nitro_idx, *double_oxygens, *single_anionic_oxygens}
+
+
+def _cyclic_nitroimine_name_from_locants(
+    mol,
+    Chem,
+    ring_set: frozenset[int],
+    locants: dict[int, str],
+    imine_nidx: int,
+    nitro_atoms: set[int],
+    parent: str,
+) -> str:
+    prefixes = []
+    covered = set(ring_set) | set(nitro_atoms)
+    for atom_idx in ring_set:
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nidx == imine_nidx:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
+            if not prefix:
+                return ""
+            prefixes.append((locants[atom_idx], prefix))
+            covered.update(_collect_component_atoms(mol, nidx, atom_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix_text = _format_prefixes(prefixes)
+    return _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+
+
+def _saturated_nonaromatic_ring(mol, Chem, ring_set: frozenset[int]) -> bool:
+    for atom_idx in ring_set:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetIsAromatic():
+            return False
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring_set or atom_idx > nidx:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return False
+    return True
+
+
+def _ring_atom_external_substituents(mol, ring_set: frozenset[int], atom_idx: int, imine_nidx: int) -> list[int]:
+    return [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_set and nbr.GetIdx() != imine_nidx and nbr.GetAtomicNum() > 1
+    ]
+
+
+def _ring_neighbors(mol, ring_set: frozenset[int], atom_idx: int) -> list[int]:
+    return [nbr.GetIdx() for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors() if nbr.GetIdx() in ring_set]
+
+
+def _ring_sequence(mol, ring_set: frozenset[int], start_idx: int, next_idx: int) -> tuple[int, ...]:
+    if start_idx not in ring_set or next_idx not in ring_set:
+        return ()
+    sequence = [start_idx, next_idx]
+    previous = start_idx
+    current = next_idx
+    while len(sequence) < len(ring_set):
+        candidates = [idx for idx in _ring_neighbors(mol, ring_set, current) if idx != previous]
+        if len(candidates) != 1:
+            return ()
+        previous, current = current, candidates[0]
+        if current == start_idx:
+            return ()
+        sequence.append(current)
+    if start_idx not in _ring_neighbors(mol, ring_set, current):
+        return ()
+    return tuple(sequence)
 
 
 def _biphenyl_diphosphonite_phosphorus_group(mol, Chem, pidx: int) -> dict | None:
@@ -7103,6 +7333,7 @@ def parent_rules(Chem) -> tuple:
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
     n_halo_imine = NHaloImineParentRule(Chem)
+    cyclic_nitroimine = CyclicNitroimineParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
@@ -7211,6 +7442,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec("oxo-sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), oxo_sulfanium.candidates),
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
+        RuleSpec("cyclic-nitroimine-parent", parent_priority("senior-functional-exception"), (), cyclic_nitroimine.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),

@@ -502,6 +502,21 @@ def test_oxazinone_retained_parent_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCC[SH-]C(=S)N(CCCC)CN(CCCC)C(=S)[SH-]CCCC",
+        "CC(C)(C)c1cc(CCC(=O)[N-]CCCCCC[N-]C(=O)CCc2cc(C(C)(C)C)c(O)c(C(C)(C)C)c2)cc(C(C)(C)C)c1O",
+    ],
+)
+def test_retained_bis_functional_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COc1ccc(C(C#N)=NOS(=O)(=O)c2ccc(C)cc2)cc1",
         "Cc1ccc(S(=O)(=O)ON=C2SC=CC2=C(C#N)c2ccccc2C)cc1",
         "CCCS(=O)(=O)ON=C1SC=CC1=C(C#N)c1ccccc1C",

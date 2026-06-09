@@ -382,6 +382,46 @@ class BisSulfoniumSulfideRetainedParentRule:
             return
 
 
+class MethylenebisDithiocarbamateRetainedParentRule:
+    family = "methylenebis-dithiocarbamate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        name = _methylenebis_dithiocarbamate_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+
+
+class HexamethylenediamideRetainedParentRule:
+    family = "hexamethylenediamide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        name = _hexamethylenediamide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+
+
 class PhosphaniumParentRule:
     family = "phosphanium-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3092,6 +3132,277 @@ def _unsubstituted_phenyl_ligand_atoms(mol, ring_attachment_idx: int, parent_idx
         if set(external) != allowed:
             return set()
     return set(ring)
+
+
+def _methylenebis_dithiocarbamate_name(mol, Chem) -> str:
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        cidx = carbon.GetIdx()
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        heavy = [nbr.GetIdx() for nbr in carbon.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 2 or carbon.GetTotalNumHs() != 2:
+            continue
+        if any(mol.GetAtomWithIdx(nidx).GetSymbol() != "N" for nidx in heavy):
+            continue
+        if any(
+            mol.GetBondBetweenAtoms(cidx, nidx).GetBondType() != Chem.BondType.SINGLE
+            for nidx in heavy
+        ):
+            continue
+        units = []
+        covered = {cidx}
+        for nidx in heavy:
+            unit = _dithiocarbamate_unit_name_and_atoms(mol, Chem, nidx, cidx)
+            if unit is None:
+                break
+            unit_name, unit_atoms = unit
+            units.append(unit_name)
+            covered.update(unit_atoms)
+        else:
+            if covered != atom_set or len(units) != 2 or units[0] != units[1]:
+                continue
+            return f"methylenebis({units[0]})"
+    return ""
+
+
+def _dithiocarbamate_unit_name_and_atoms(mol, Chem, nitrogen_idx: int, methylene_idx: int) -> tuple[str, set[int]] | None:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != methylene_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 2:
+        return None
+    for carbamate_idx in heavy:
+        owner_candidates = [idx for idx in heavy if idx != carbamate_idx]
+        if len(owner_candidates) != 1:
+            continue
+        record = _dithiocarbamate_carbon_record(mol, Chem, carbamate_idx, nitrogen_idx)
+        if record is None:
+            continue
+        n_owner_idx = owner_candidates[0]
+        n_owner = _simple_or_branch_prefix(mol, n_owner_idx, nitrogen_idx)
+        s_owner = _simple_or_branch_prefix(mol, record["single_sulfur_owner"], record["single_sulfur"])
+        if not n_owner or n_owner != s_owner or not _simple_unparenthesized_n_substituent(n_owner):
+            continue
+        unit_name = f"di{n_owner}dithiocarbamate"
+        covered = {
+            nitrogen_idx,
+            carbamate_idx,
+            record["double_sulfur"],
+            record["single_sulfur"],
+        }
+        covered.update(_collect_component_atoms(mol, n_owner_idx, nitrogen_idx))
+        covered.update(_collect_component_atoms(mol, record["single_sulfur_owner"], record["single_sulfur"]))
+        return unit_name, covered
+    return None
+
+
+def _dithiocarbamate_carbon_record(mol, Chem, carbon_idx: int, nitrogen_idx: int) -> dict | None:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+        return None
+    double_sulfur = None
+    single_sulfur = None
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if nidx == nitrogen_idx and bond.GetBondType() == Chem.BondType.SINGLE:
+            continue
+        if nbr.GetSymbol() != "S":
+            return None
+        if bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            if double_sulfur is not None:
+                return None
+            external = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != carbon_idx and atom.GetAtomicNum() > 1
+            ]
+            if external:
+                return None
+            double_sulfur = nidx
+        elif bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            if single_sulfur is not None:
+                return None
+            owners = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != carbon_idx and atom.GetAtomicNum() > 1
+            ]
+            if len(owners) != 1:
+                return None
+            single_sulfur = nidx
+            single_sulfur_owner = owners[0]
+        else:
+            return None
+    if double_sulfur is None or single_sulfur is None:
+        return None
+    return {
+        "double_sulfur": double_sulfur,
+        "single_sulfur": single_sulfur,
+        "single_sulfur_owner": single_sulfur_owner,
+    }
+
+
+def _hexamethylenediamide_name(mol, Chem) -> str:
+    nitrogens = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
+    ]
+    if len(nitrogens) != 2:
+        return ""
+    first_n, second_n = nitrogens
+    path = tuple(Chem.rdmolops.GetShortestPath(mol, first_n, second_n))
+    if len(path) != 8 or path[0] != first_n or path[-1] != second_n:
+        return ""
+    linker = path[1:-1]
+    if not _is_unsubstituted_saturated_carbon_path(mol, Chem, linker, first_n, second_n):
+        return ""
+    units = []
+    covered = set(linker)
+    for nidx, linker_idx in ((first_n, path[1]), (second_n, path[-2])):
+        unit = _amidate_acyl_unit_name_and_atoms(mol, Chem, nidx, linker_idx)
+        if unit is None:
+            return ""
+        unit_name, unit_atoms = unit
+        units.append(unit_name)
+        covered.update(unit_atoms)
+    if covered != set(range(mol.GetNumAtoms())) or units[0] != units[1]:
+        return ""
+    return f"bis({units[0]})hexamethylenediamide"
+
+
+def _is_unsubstituted_saturated_carbon_path(
+    mol,
+    Chem,
+    path: Sequence[int],
+    start_terminal_idx: int,
+    end_terminal_idx: int,
+) -> bool:
+    path_set = set(path)
+    for pos, idx in enumerate(path):
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            return False
+        allowed = set()
+        if pos == 0:
+            allowed.add(start_terminal_idx)
+        else:
+            allowed.add(path[pos - 1])
+        if pos == len(path) - 1:
+            allowed.add(end_terminal_idx)
+        else:
+            allowed.add(path[pos + 1])
+        heavy = {nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1}
+        if heavy != allowed:
+            return False
+        if any(
+            mol.GetBondBetweenAtoms(idx, nidx).GetBondType() != Chem.BondType.SINGLE
+            for nidx in heavy
+        ):
+            return False
+    return start_terminal_idx not in path_set and end_terminal_idx not in path_set
+
+
+def _amidate_acyl_unit_name_and_atoms(mol, Chem, nitrogen_idx: int, linker_idx: int) -> tuple[str, set[int]] | None:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != linker_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    carbonyl_idx = heavy[0]
+    if mol.GetBondBetweenAtoms(nitrogen_idx, linker_idx).GetBondType() != Chem.BondType.SINGLE:
+        return None
+    if mol.GetBondBetweenAtoms(nitrogen_idx, carbonyl_idx).GetBondType() != Chem.BondType.SINGLE:
+        return None
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return None
+    double_oxygen = []
+    acyl_carbons = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nidx == nitrogen_idx and bond.GetBondType() == Chem.BondType.SINGLE:
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            acyl_carbons.append(nidx)
+        else:
+            return None
+    if len(double_oxygen) != 1 or len(acyl_carbons) != 1:
+        return None
+    acyl_idx = acyl_carbons[0]
+    names = []
+    for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
+        name = _generic_acyl_ligand_path_name(mol, Chem, carbonyl_idx, path)
+        if name:
+            names.append(name)
+    if not names:
+        return None
+    unit_atoms = {nitrogen_idx, carbonyl_idx, double_oxygen[0]}
+    unit_atoms.update(_collect_component_atoms(mol, acyl_idx, carbonyl_idx))
+    return min(names, key=lambda value: (len(value), value)), unit_atoms
+
+
+def _generic_acyl_ligand_path_name(mol, Chem, carbonyl_idx: int, path: Sequence[int]) -> str:
+    root = ROOTS.get(len(path) + 1)
+    if not root:
+        return ""
+    path_set = set(path)
+    prefixes: list[tuple[str, str]] = []
+    for pos, idx in enumerate(path, start=2):
+        allowed_neighbors = {carbonyl_idx if pos == 2 else path[pos - 3]}
+        if pos - 1 < len(path):
+            allowed_neighbors.add(path[pos - 1])
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in allowed_neighbors or nbr.GetAtomicNum() <= 1:
+                continue
+            if nidx in path_set:
+                return ""
+            prefix = _simple_or_branch_prefix(mol, nidx, idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(pos), prefix))
+    parent = _generic_acyl_ligand_parent_text(mol, Chem, root, path)
+    if not parent:
+        return ""
+    prefix_text = _format_prefixes(prefixes)
+    core = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    stereo = _generic_acyl_ester_stereo_prefix(mol, Chem, path)
+    if stereo is None:
+        return ""
+    return f"({stereo})-{core}" if stereo else core
+
+
+def _generic_acyl_ligand_parent_text(mol, Chem, root: str, path: Sequence[int]) -> str:
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    for locant, (a, b) in enumerate(zip(path, path[1:]), start=2):
+        bond = mol.GetBondBetweenAtoms(a, b)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    parent = _unsaturated_parent(root, ene_locs, yne_locs)
+    return parent[:-1] + "oyl" if parent.endswith("e") else parent + "oyl"
 
 
 def _ring_distance(mol, ring_set: frozenset[int], first_idx: int, second_idx: int) -> int | None:
@@ -7985,6 +8296,8 @@ class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):
 def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     bis_sulfonium_sulfide = BisSulfoniumSulfideRetainedParentRule(Chem)
+    methylenebis_dithiocarbamate = MethylenebisDithiocarbamateRetainedParentRule(Chem)
+    hexamethylenediamide = HexamethylenediamideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
@@ -8077,6 +8390,18 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             bis_sulfonium_sulfide.candidates,
+        ),
+        RuleSpec(
+            "methylenebis-dithiocarbamate-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            methylenebis_dithiocarbamate.candidates,
+        ),
+        RuleSpec(
+            "hexamethylenediamide-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            hexamethylenediamide.candidates,
         ),
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),

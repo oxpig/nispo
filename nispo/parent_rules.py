@@ -653,6 +653,93 @@ class PhosphiteEsterParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class BiphenylDiphosphoniteParentRule:
+    family = "biphenyl-diphosphonite-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        phosphorus_groups = []
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() != "P":
+                continue
+            group = _biphenyl_diphosphonite_phosphorus_group(mol, self._Chem, atom.GetIdx())
+            if not group:
+                return
+            phosphorus_groups.append(group)
+        if len(phosphorus_groups) != 2:
+            return
+
+        ring_records = []
+        for group in phosphorus_groups:
+            ring = _six_carbon_ring_for_atom(mol, group["ring_carbon"])
+            if not ring:
+                return
+            ring_records.append((group, ring))
+        if ring_records[0][1] == ring_records[1][1]:
+            return
+
+        bridge = _single_biphenyl_bridge(mol, self._Chem, ring_records[0][1], ring_records[1][1])
+        if not bridge:
+            return
+        bridge_atoms = {bridge[0]: bridge[1], bridge[1]: bridge[0]}
+
+        owner_records = [record for record in ring_records if record[0]["ester_oxygen"] is not None]
+        if len(owner_records) > 1:
+            return
+        if owner_records:
+            first_record = owner_records[0]
+            second_record = ring_records[1] if ring_records[0] is first_record else ring_records[0]
+            ordered_records = [first_record, second_record]
+        else:
+            ordered_records = sorted(
+                ring_records,
+                key=lambda record: _biphenyl_ring_locant(mol, record[1], record[0]["ring_carbon"], bridge_atoms),
+                reverse=True,
+            )
+
+        locants = [
+            _biphenyl_ring_locant(mol, ring, group["ring_carbon"], bridge_atoms)
+            for group, ring in ordered_records
+        ]
+        if not all(locants):
+            return
+
+        covered_atoms = set()
+        for group, ring in ring_records:
+            covered_atoms.update(ring)
+            covered_atoms.add(group["phosphorus"])
+            covered_atoms.update(group["terminal_oxygens"])
+            if group["ester_oxygen"] is not None:
+                covered_atoms.add(group["ester_oxygen"])
+                covered_atoms.update(_collect_component_atoms(mol, group["ester_owner"], group["ester_oxygen"]))
+
+        if covered_atoms != set(range(mol.GetNumAtoms())):
+            return
+
+        locant_text = f"{locants[0]},{locants[1]}'-"
+        parent_name = locant_text + "biphenyldiphosphonite"
+        if owner_records:
+            group = owner_records[0][0]
+            owner = _single_external_substituent_name(mol, group["ester_oxygen"], group["phosphorus"])
+            if not owner:
+                return
+            name = f"({_strip_outer_parentheses(owner)})-{parent_name}"
+        else:
+            name = parent_name
+
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=set(range(mol.GetNumAtoms())),
+            sort_key=(len(name), name),
+        )
+
+
 class OrganophosphorusOxideParentRule:
     family = "organophosphorus-oxide-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2116,6 +2203,102 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _biphenyl_diphosphonite_phosphorus_group(mol, Chem, pidx: int) -> dict | None:
+    phosphorus = mol.GetAtomWithIdx(pidx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return None
+    ring_carbons = []
+    terminal_oxygens = []
+    ester_oxygen = None
+    ester_owner = None
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        if nbr.GetSymbol() == "C" and nbr.IsInRing():
+            ring_carbons.append(nidx)
+            continue
+        if nbr.GetSymbol() != "O":
+            return None
+        heavy = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1]
+        if not heavy and nbr.GetFormalCharge() < 0:
+            terminal_oxygens.append(nidx)
+            continue
+        if len(heavy) == 1 and nbr.GetFormalCharge() == 0 and ester_oxygen is None:
+            ester_oxygen = nidx
+            ester_owner = heavy[0]
+            continue
+        return None
+    if len(ring_carbons) != 1:
+        return None
+    if len(terminal_oxygens) + (1 if ester_oxygen is not None else 0) != 2:
+        return None
+    return {
+        "phosphorus": pidx,
+        "ring_carbon": ring_carbons[0],
+        "terminal_oxygens": tuple(terminal_oxygens),
+        "ester_oxygen": ester_oxygen,
+        "ester_owner": ester_owner,
+    }
+
+
+def _six_carbon_ring_for_atom(mol, atom_idx: int) -> frozenset[int]:
+    rings = []
+    for ring in mol.GetRingInfo().AtomRings():
+        if atom_idx not in ring or len(ring) != 6:
+            continue
+        if all(mol.GetAtomWithIdx(idx).GetSymbol() == "C" for idx in ring):
+            rings.append(frozenset(ring))
+    return rings[0] if len(rings) == 1 else frozenset()
+
+
+def _single_biphenyl_bridge(mol, Chem, first_ring: frozenset[int], second_ring: frozenset[int]) -> tuple[int, int] | None:
+    bridges = []
+    for first_idx in first_ring:
+        for nbr in mol.GetAtomWithIdx(first_idx).GetNeighbors():
+            second_idx = nbr.GetIdx()
+            if second_idx not in second_ring:
+                continue
+            bond = mol.GetBondBetweenAtoms(first_idx, second_idx)
+            if bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+                bridges.append((first_idx, second_idx))
+    return bridges[0] if len(bridges) == 1 else None
+
+
+def _biphenyl_ring_locant(
+    mol,
+    ring: frozenset[int],
+    substituent_atom_idx: int,
+    bridge_atoms: dict[int, int],
+) -> int:
+    bridge_idx = next((idx for idx in ring if idx in bridge_atoms), None)
+    if bridge_idx is None:
+        return 0
+    distance = _ring_distance(mol, ring, bridge_idx, substituent_atom_idx)
+    if distance == 2:
+        return 3
+    if distance == 3:
+        return 4
+    return 0
+
+
+def _ring_distance(mol, ring: frozenset[int], start_idx: int, end_idx: int) -> int:
+    frontier = [(start_idx, 0)]
+    seen = {start_idx}
+    while frontier:
+        current, distance = frontier.pop(0)
+        if current == end_idx:
+            return distance
+        for nbr in mol.GetAtomWithIdx(current).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in ring or nidx in seen:
+                continue
+            seen.add(nidx)
+            frontier.append((nidx, distance + 1))
+    return 0
 
 
 def _exocyclic_double_oxygen_count(mol, Chem, atom_idx: int, ring_set: set[int]) -> int:
@@ -6901,6 +7084,7 @@ def parent_rules(Chem) -> tuple:
     neutral_amine = NeutralAmineParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
+    biphenyl_diphosphonite = BiphenylDiphosphoniteParentRule(Chem)
     phosphite_ester = PhosphiteEsterParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
@@ -6983,6 +7167,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("neutral-amine-parent", parent_priority("senior-functional-exception"), (acyclic,), neutral_amine.candidates),
         RuleSpec("group14-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_group14,), group14_hydride.candidates),
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
+        RuleSpec("biphenyl-diphosphonite-parent", parent_priority("senior-functional-exception"), (), biphenyl_diphosphonite.candidates),
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),

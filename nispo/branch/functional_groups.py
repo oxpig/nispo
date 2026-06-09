@@ -282,6 +282,16 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     if double_oxygen_count == 0 and hydroxy_count == 0 and oxido_count == 0:
         name = _substituted_hydride_prefix(mol, other_heavy, idx, "phosphanyl")
         return "phosphino" if name == "phosphanyl" else name
+    if (
+        double_oxygen_count == 2
+        and hydroxy_count == 0
+        and oxido_count == 0
+        and not other_heavy
+        and atom.GetTotalNumHs() == 0
+    ):
+        if _phosphoryl_parent_atom_has_direct_carbon_double_bond(mol, idx, parent_idx):
+            return ""
+        return "dioxophosphanyl"
     if double_oxygen_count != 1:
         return ""
     if not other_heavy:
@@ -446,6 +456,19 @@ def _ligand_text(ligands: Sequence[str]) -> str:
 
 def _phosphoryl_ligand_text(ligands: Sequence[str]) -> str:
     return _ligand_text(ligands)
+
+
+def _phosphoryl_parent_atom_has_direct_carbon_double_bond(mol, phosphorus_idx: int, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if parent.GetSymbol() != "C":
+        return False
+    for bond in parent.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        other = bond.GetOtherAtom(parent)
+        if other.GetIdx() != phosphorus_idx and other.GetSymbol() == "C":
+            return True
+    return False
 
 
 def _phosphoryl_ligand_unit(ligand: str) -> str:

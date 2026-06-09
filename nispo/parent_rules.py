@@ -287,6 +287,54 @@ class SulfaniumParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class BisSulfoniumSulfideRetainedParentRule:
+    family = "bis-sulfonium-sulfide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_set = set(range(mol.GetNumAtoms()))
+        for sulfur in mol.GetAtoms():
+            sidx = sulfur.GetIdx()
+            if (
+                sulfur.GetSymbol() != "S"
+                or sulfur.GetFormalCharge() != 0
+                or sulfur.IsInRing()
+                or sulfur.GetTotalNumHs() != 0
+            ):
+                continue
+            neighbors = [nbr.GetIdx() for nbr in sulfur.GetNeighbors() if nbr.GetAtomicNum() > 1]
+            if len(neighbors) != 2:
+                continue
+            if any(
+                mol.GetBondBetweenAtoms(sidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
+                for nidx in neighbors
+            ):
+                continue
+            covered = {sidx}
+            side_count = 0
+            for nidx in neighbors:
+                side_atoms = _diphenylsulfonio_phenyl_sulfide_side_atoms(mol, self._Chem, nidx, sidx)
+                if not side_atoms:
+                    break
+                covered.update(side_atoms)
+                side_count += 1
+            if side_count != 2 or covered != atom_set:
+                continue
+            name = "bis[4-(diphenylsulfonio)phenyl] sulfide"
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+            return
+
+
 class PhosphaniumParentRule:
     family = "phosphanium-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2629,6 +2677,103 @@ def _five_membered_thiophene_like_ring_for_atom(mol, atom_idx: int) -> frozenset
 
 def _has_assigned_bond_stereo(mol, Chem) -> bool:
     return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+
+
+def _diphenylsulfonio_phenyl_sulfide_side_atoms(mol, Chem, ring_attachment_idx: int, central_sulfur_idx: int) -> set[int]:
+    ring = _six_carbon_ring_for_atom(mol, ring_attachment_idx)
+    if not ring or not all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
+        return set()
+    sulfonium_records = []
+    for atom_idx in ring:
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring or nidx == central_sulfur_idx:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if (
+                nbr.GetSymbol() == "S"
+                and nbr.GetFormalCharge() > 0
+                and not nbr.IsInRing()
+                and bond is not None
+                and bond.GetBondType() == Chem.BondType.SINGLE
+            ):
+                sulfonium_records.append((atom_idx, nidx))
+    if len(sulfonium_records) != 1:
+        return set()
+    sulfonium_ring_idx, sulfonium_idx = sulfonium_records[0]
+    if _ring_distance(mol, ring, ring_attachment_idx, sulfonium_ring_idx) != 3:
+        return set()
+    for atom_idx in ring:
+        external = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+            if nbr.GetIdx() not in ring and nbr.GetAtomicNum() > 1
+        ]
+        allowed = set()
+        if atom_idx == ring_attachment_idx:
+            allowed.add(central_sulfur_idx)
+        if atom_idx == sulfonium_ring_idx:
+            allowed.add(sulfonium_idx)
+        if set(external) != allowed:
+            return set()
+
+    sulfonium = mol.GetAtomWithIdx(sulfonium_idx)
+    if sulfonium.GetTotalNumHs() != 0:
+        return set()
+    carbon_neighbors = []
+    for nbr in sulfonium.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfonium_idx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return set()
+        carbon_neighbors.append(nidx)
+    if len(carbon_neighbors) != 3 or sulfonium_ring_idx not in carbon_neighbors:
+        return set()
+
+    covered = set(ring) | {sulfonium_idx}
+    phenyl_ligands = 0
+    for nidx in carbon_neighbors:
+        if nidx == sulfonium_ring_idx:
+            continue
+        phenyl_atoms = _unsubstituted_phenyl_ligand_atoms(mol, nidx, sulfonium_idx)
+        if not phenyl_atoms:
+            return set()
+        covered.update(phenyl_atoms)
+        phenyl_ligands += 1
+    return covered if phenyl_ligands == 2 else set()
+
+
+def _unsubstituted_phenyl_ligand_atoms(mol, ring_attachment_idx: int, parent_idx: int) -> set[int]:
+    ring = _six_carbon_ring_for_atom(mol, ring_attachment_idx)
+    if not ring or not all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
+        return set()
+    for atom_idx in ring:
+        external = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+            if nbr.GetIdx() not in ring and nbr.GetAtomicNum() > 1
+        ]
+        allowed = {parent_idx} if atom_idx == ring_attachment_idx else set()
+        if set(external) != allowed:
+            return set()
+    return set(ring)
+
+
+def _ring_distance(mol, ring_set: frozenset[int], first_idx: int, second_idx: int) -> int | None:
+    if first_idx not in ring_set or second_idx not in ring_set:
+        return None
+    queue = [(first_idx, 0)]
+    seen = {first_idx}
+    while queue:
+        atom_idx, distance = queue.pop(0)
+        if atom_idx == second_idx:
+            return distance
+        for nbr_idx in _ring_neighbors(mol, ring_set, atom_idx):
+            if nbr_idx in seen:
+                continue
+            seen.add(nbr_idx)
+            queue.append((nbr_idx, distance + 1))
+    return None
 
 
 def _biphenyl_diphosphonite_phosphorus_group(mol, Chem, pidx: int) -> dict | None:
@@ -7504,6 +7649,7 @@ class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):
 
 def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
+    bis_sulfonium_sulfide = BisSulfoniumSulfideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
@@ -7588,6 +7734,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("charged-inorganic-retained-parent"),
             (),
             small_inorganic.candidates,
+        ),
+        RuleSpec(
+            "bis-sulfonium-sulfide-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            bis_sulfonium_sulfide.candidates,
         ),
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),

@@ -1739,6 +1739,32 @@ class CyclicNitroimineParentRule:
             return
 
 
+class OximeSulfonateNitrileParentRule:
+    family = "oxime-sulfonate-nitrile-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        for motif in _oxime_sulfonyloxyimino_motifs(mol, self._Chem):
+            name = (
+                _direct_aryl_oxime_sulfonate_acetonitrile_name(mol, motif)
+                or _thiophenylidene_oxime_sulfonate_acetonitrile_name(mol, self._Chem, motif)
+            )
+            if not name:
+                continue
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+            return
+
+
 class GuanidineRetainedParentRule:
     family = "guanidine-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2433,6 +2459,176 @@ def _ring_sequence(mol, ring_set: frozenset[int], start_idx: int, next_idx: int)
     if start_idx not in _ring_neighbors(mol, ring_set, current):
         return ()
     return tuple(sequence)
+
+
+def _oxime_sulfonyloxyimino_motifs(mol, Chem) -> list[dict]:
+    motifs = []
+    for carbon in mol.GetAtoms():
+        cidx = carbon.GetIdx()
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+            continue
+        for nitrogen in carbon.GetNeighbors():
+            nidx = nitrogen.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if nitrogen.GetSymbol() != "N" or bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+                continue
+            motif = _oxime_sulfonyloxyimino_motif_from_imine(mol, Chem, cidx, nidx)
+            if motif:
+                motifs.append(motif)
+    return motifs
+
+
+def _oxime_sulfonyloxyimino_motif_from_imine(mol, Chem, imine_cidx: int, imine_nidx: int) -> dict | None:
+    imine_n = mol.GetAtomWithIdx(imine_nidx)
+    oxygens = []
+    for nbr in imine_n.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == imine_cidx:
+            continue
+        bond = mol.GetBondBetweenAtoms(imine_nidx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            oxygens.append(nidx)
+        else:
+            return None
+    if len(oxygens) != 1:
+        return None
+    oxygen_idx = oxygens[0]
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    sulfur = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != imine_nidx and nbr.GetSymbol() == "S"
+    ]
+    if len(sulfur) != 1:
+        return None
+    sulfur_idx = sulfur[0]
+    sulfur_atom = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur_atom.GetFormalCharge() != 0:
+        return None
+    double_oxygens = []
+    ligand_atoms = []
+    for nbr in sulfur_atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+        elif bond is not None and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+            ligand_atoms.append(nidx)
+        else:
+            return None
+    if len(double_oxygens) != 2 or len(ligand_atoms) != 1:
+        return None
+    ligand_idx = ligand_atoms[0]
+    ligand_prefix = _simple_or_branch_prefix(mol, ligand_idx, sulfur_idx)
+    if not ligand_prefix:
+        return None
+    if ligand_prefix in {"4-methylphenyl", "p-tolyl"}:
+        prefix = "tosyloxyimino"
+    else:
+        prefix = f"{_strip_outer_parentheses(ligand_prefix)}sulfonyloxyimino"
+    covered = {imine_nidx, oxygen_idx, sulfur_idx, *double_oxygens}
+    covered.update(_collect_component_atoms(mol, ligand_idx, sulfur_idx))
+    return {
+        "imine_carbon": imine_cidx,
+        "imine_nitrogen": imine_nidx,
+        "sulfonyloxyimino_prefix": prefix,
+        "covered_atoms": covered,
+    }
+
+
+def _direct_aryl_oxime_sulfonate_acetonitrile_name(mol, motif: dict) -> str:
+    imine_cidx = motif["imine_carbon"]
+    substituents = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(imine_cidx).GetNeighbors()
+        if nbr.GetIdx() != motif["imine_nitrogen"] and nbr.GetAtomicNum() > 1
+    ]
+    nitriles = [idx for idx in substituents if _is_nitrile_carbon(mol, idx)]
+    aryls = [idx for idx in substituents if idx not in nitriles and mol.GetAtomWithIdx(idx).IsInRing()]
+    if len(nitriles) != 1 or len(aryls) != 1:
+        return ""
+    nitrile_idx = nitriles[0]
+    aryl_idx = aryls[0]
+    aryl = _simple_or_branch_prefix(mol, aryl_idx, imine_cidx)
+    if not aryl:
+        return ""
+    covered = set(motif["covered_atoms"]) | {imine_cidx}
+    covered.update(_collect_component_atoms(mol, nitrile_idx, imine_cidx))
+    covered.update(_collect_component_atoms(mol, aryl_idx, imine_cidx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    sulfonyloxyimino = f"({_strip_outer_parentheses(motif['sulfonyloxyimino_prefix'])})"
+    return (
+        f"2-{_parenthesized_if_complex(_strip_outer_parentheses(aryl))}-"
+        f"2-{sulfonyloxyimino}acetonitrile"
+    )
+
+
+def _thiophenylidene_oxime_sulfonate_acetonitrile_name(mol, Chem, motif: dict) -> str:
+    imine_cidx = motif["imine_carbon"]
+    ring = _five_membered_thiophene_like_ring_for_atom(mol, imine_cidx)
+    if not ring:
+        return ""
+    sulfur_idx = next(idx for idx in ring if mol.GetAtomWithIdx(idx).GetSymbol() == "S")
+    ylidene_records = []
+    for atom_idx in ring:
+        if atom_idx == imine_cidx or mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C":
+            continue
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring or nbr.GetSymbol() != "C":
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+                ylidene_records.append((atom_idx, nidx))
+    if len(ylidene_records) != 1:
+        return ""
+    ylidene_idx, alpha_idx = ylidene_records[0]
+    alpha_substituents = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(alpha_idx).GetNeighbors()
+        if nbr.GetIdx() != ylidene_idx and nbr.GetAtomicNum() > 1
+    ]
+    nitriles = [idx for idx in alpha_substituents if _is_nitrile_carbon(mol, idx)]
+    aryls = [idx for idx in alpha_substituents if idx not in nitriles and mol.GetAtomWithIdx(idx).IsInRing()]
+    if len(nitriles) != 1 or len(aryls) != 1:
+        return ""
+    aryl = _simple_or_branch_prefix(mol, aryls[0], alpha_idx)
+    if not aryl:
+        return ""
+    prefix = motif["sulfonyloxyimino_prefix"]
+    if sulfur_idx in _ring_neighbors(mol, ring, imine_cidx) and ylidene_idx in _ring_neighbors(mol, ring, imine_cidx):
+        ring_name = f"[2-({_strip_outer_parentheses(prefix)})-2,3-dihydrothiophen-3-ylidene]"
+    elif sulfur_idx in _ring_neighbors(mol, ring, imine_cidx) and sulfur_idx in _ring_neighbors(mol, ring, ylidene_idx):
+        if _has_assigned_bond_stereo(mol, Chem):
+            return ""
+        ring_name = f"[5-({_strip_outer_parentheses(prefix)})-5H-thiophen-2-ylidene]"
+    else:
+        return ""
+    covered = set(motif["covered_atoms"]) | set(ring) | {alpha_idx}
+    covered.update(_collect_component_atoms(mol, nitriles[0], alpha_idx))
+    covered.update(_collect_component_atoms(mol, aryls[0], alpha_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    return f"{ring_name}({_strip_outer_parentheses(aryl)})acetonitrile"
+
+
+def _five_membered_thiophene_like_ring_for_atom(mol, atom_idx: int) -> frozenset[int]:
+    rings = []
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = frozenset(ring)
+        if atom_idx not in ring_set or len(ring_set) != 5:
+            continue
+        symbols = Counter(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring_set)
+        if symbols == Counter({"C": 4, "S": 1}):
+            rings.append(ring_set)
+    return rings[0] if len(rings) == 1 else frozenset()
+
+
+def _has_assigned_bond_stereo(mol, Chem) -> bool:
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
 
 
 def _biphenyl_diphosphonite_phosphorus_group(mol, Chem, pidx: int) -> dict | None:
@@ -7334,6 +7530,7 @@ def parent_rules(Chem) -> tuple:
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
     n_halo_imine = NHaloImineParentRule(Chem)
     cyclic_nitroimine = CyclicNitroimineParentRule(Chem)
+    oxime_sulfonate_nitrile = OximeSulfonateNitrileParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
@@ -7443,6 +7640,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("oxo-sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), oxo_sulfanium.candidates),
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
         RuleSpec("cyclic-nitroimine-parent", parent_priority("senior-functional-exception"), (), cyclic_nitroimine.candidates),
+        RuleSpec("oxime-sulfonate-nitrile-parent", parent_priority("senior-functional-exception"), (), oxime_sulfonate_nitrile.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),

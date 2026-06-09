@@ -776,6 +776,80 @@ def _iodane_ligand_prefix(ligand: str, count: int) -> str:
     return f"{multiplier}({ligand})"
 
 
+class IodoniumParentRule:
+    family = "iodonium-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for iodine in mol.GetAtoms():
+            if (
+                iodine.GetSymbol() != "I"
+                or iodine.GetFormalCharge() != 1
+                or iodine.IsInRing()
+                or iodine.GetTotalNumHs() != 0
+            ):
+                continue
+            iodine_idx = iodine.GetIdx()
+            carbon_neighbors = []
+            for nbr in iodine.GetNeighbors():
+                if nbr.GetAtomicNum() <= 1:
+                    continue
+                bond = mol.GetBondBetweenAtoms(iodine_idx, nbr.GetIdx())
+                if (
+                    nbr.GetSymbol() != "C"
+                    or bond is None
+                    or bond.GetBondType() != self._Chem.BondType.SINGLE
+                ):
+                    break
+                carbon_neighbors.append(nbr.GetIdx())
+            else:
+                if len(carbon_neighbors) != 2:
+                    continue
+                ligand_names = []
+                covered = {iodine_idx}
+                for nidx in carbon_neighbors:
+                    name = _simple_or_branch_prefix(mol, nidx, iodine_idx)
+                    if not name:
+                        break
+                    ligand_names.append(name)
+                    covered.update(_collect_component_atoms(mol, nidx, iodine_idx))
+                else:
+                    if covered != atom_set:
+                        continue
+                    name = _iodonium_parent_name(ligand_names)
+                    if name:
+                        yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _iodonium_parent_name(ligand_names: Sequence[str]) -> str:
+    if len(ligand_names) != 2:
+        return ""
+    counts = Counter(ligand_names)
+    parts = []
+    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+        unit = _iodonium_ligand_unit(ligand, count)
+        if not unit:
+            return ""
+        parts.append(unit)
+    return "".join(parts) + "iodonium"
+
+
+def _iodonium_ligand_unit(ligand: str, count: int) -> str:
+    ligand = _strip_outer_parentheses(ligand)
+    if count == 1:
+        return _parenthesized_if_complex(ligand)
+    multiplier = MULT.get(count)
+    if not multiplier:
+        return ""
+    return f"bis({ligand})" if multiplier == "di" else f"{multiplier}({ligand})"
+
+
 class PnictogenHydrideParentRule:
     family = "pnictogen-hydride-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6245,6 +6319,7 @@ def parent_rules(Chem) -> tuple:
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     iodane = IodaneParentRule(Chem)
+    iodonium = IodoniumParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -6312,6 +6387,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
+        RuleSpec("iodonium-parent", parent_priority("senior-functional-exception"), (), iodonium.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",

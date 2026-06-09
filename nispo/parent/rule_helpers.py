@@ -1245,10 +1245,23 @@ def _fused_oxo_suffix_name(
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
         parent = _strip_leading_indicated_hydrogen(parent_name)
-        h_loc = sorted(set(indicated_h_locs), key=_locant_sort_key)[0]
-        name = f"{parent}-{oxo_locs[0]}({h_loc}H)-one"
+        if _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent):
+            name = f"{parent}-{oxo_locs[0]}-one"
+        else:
+            h_loc = sorted(set(indicated_h_locs), key=_locant_sort_key)[0]
+            name = f"{parent}-{oxo_locs[0]}({h_loc}H)-one"
         return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     return ""
+
+
+_FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS = (
+    "benzazepan",
+    "morphinan",
+)
+
+
+def _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent_name: str) -> bool:
+    return any(stem in parent_name for stem in _FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS)
 
 
 def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]) -> str:

@@ -586,6 +586,27 @@ def test_exocyclic_ring_alkene_substituents_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    ("input_smiles", "parent_fragment", "forbidden_fragment"),
+    [
+        ("O=C1CC[C@H]2[C@H]3Cc4ccccc4[C@@]2(CCN3)C1", "morphinan-6-one", "morphinan-6(17H)-one"),
+        ("O=C1CCCc2ccccc2N1", "benzazepan-2-one", "benzazepan-2(1H)-one"),
+    ],
+)
+def test_saturated_fused_lactam_suffixes_roundtrip_without_indicated_h(
+    input_smiles,
+    parent_fragment,
+    forbidden_fragment,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert parent_fragment in generated_name
+    assert forbidden_fragment not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -473,7 +473,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     candidates = []
     branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
     multiple_bond_count = _ring_multiple_bond_count(mol, atoms)
-    allow_relaxed_base_paths = multiple_bond_count <= 4
+    allow_relaxed_base_paths = multiple_bond_count <= 8
     use_saturated_bridge_selection = multiple_bond_count == 0 and mol.GetRingInfo().NumRings() >= 7
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(

@@ -801,6 +801,24 @@ def test_unsaturated_secondary_bridge_tricyclic_parents_roundtrip(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1cc2ccc3nnnc4[nH]c(c1)c2c34",
+        "c1cc2nccn3c4c(cnc(c1)c24)=NC3",
+        "C1=CCC23CCNC(=Cc4cc5cccnc5cc42)C3=C1",
+        "C1=c2ccc([nH]2)=C2COc3nccc4ncnc(c34)N12",
+    ],
+)
+def test_unsaturated_secondary_bridge_larger_polycycles_roundtrip(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert "tetracyclo[" in generated_name or "pentacyclo[" in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

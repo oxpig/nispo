@@ -709,6 +709,84 @@ class OrganomagnesiumHalideParentRule:
         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class TriorganoboraneParentRule:
+    family = "triorganoborane-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for boron in mol.GetAtoms():
+            if (
+                boron.GetSymbol() != "B"
+                or boron.GetFormalCharge() != 0
+                or boron.IsInRing()
+                or boron.GetTotalNumHs() != 0
+            ):
+                continue
+            boron_idx = boron.GetIdx()
+            carbon_neighbors = []
+            for nbr in boron.GetNeighbors():
+                if nbr.GetAtomicNum() <= 1:
+                    continue
+                bond = mol.GetBondBetweenAtoms(boron_idx, nbr.GetIdx())
+                if (
+                    nbr.GetSymbol() != "C"
+                    or bond is None
+                    or bond.GetBondType() != self._Chem.BondType.SINGLE
+                ):
+                    break
+                carbon_neighbors.append(nbr.GetIdx())
+            else:
+                if len(carbon_neighbors) != 3:
+                    continue
+                ligand_names = []
+                covered = {boron_idx}
+                for nidx in carbon_neighbors:
+                    name = _simple_or_branch_prefix(mol, nidx, boron_idx)
+                    if not name:
+                        break
+                    ligand_names.append(name)
+                    covered.update(_collect_component_atoms(mol, nidx, boron_idx))
+                else:
+                    if covered != atom_set:
+                        continue
+                    name = _triorganoborane_parent_name(ligand_names)
+                    if name:
+                        yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _triorganoborane_parent_name(ligand_names: Sequence[str]) -> str:
+    if len(ligand_names) != 3:
+        return ""
+    counts = Counter(ligand_names)
+    parts = []
+    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+        unit = _triorganoborane_ligand_unit(ligand, count)
+        if not unit:
+            return ""
+        parts.append(unit)
+    return "".join(parts) + "borane"
+
+
+def _triorganoborane_ligand_unit(ligand: str, count: int) -> str:
+    ligand = _strip_outer_parentheses(ligand)
+    if count == 1:
+        return _parenthesized_if_complex(ligand)
+    multiplier = MULT.get(count)
+    if not multiplier:
+        return ""
+    if multiplier == "di":
+        return f"bis({ligand})"
+    if multiplier == "tri":
+        return f"tris({ligand})"
+    return f"{multiplier}({ligand})"
+
+
 class IodaneParentRule:
     family = "iodane-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6318,6 +6396,7 @@ def parent_rules(Chem) -> tuple:
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
+    triorganoborane = TriorganoboraneParentRule(Chem)
     iodane = IodaneParentRule(Chem)
     iodonium = IodoniumParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
@@ -6386,6 +6465,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
+        RuleSpec("triorganoborane-parent", parent_priority("senior-functional-exception"), (), triorganoborane.candidates),
         RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
         RuleSpec("iodonium-parent", parent_priority("senior-functional-exception"), (), iodonium.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),

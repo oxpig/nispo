@@ -483,6 +483,24 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles, retained
 @pytest.mark.parametrize(
     ("input_smiles", "retained_fragment"),
     [
+        ("c1ccc2c(c1)nnn2O[P+](N1CCCC1)(N1CCCC1)N1CCCC1", "benzotriazol-1-yloxytris(pyrrolidino)phosphonium"),
+        ("CN(C)[P+](On1nnc2ccccc21)(N(C)C)N(C)C", "benzotriazol-1-yloxytris(dimethylamino)phosphonium"),
+        ("CC(C)(C)N=P(N1CCCC1)(N1CCCC1)N1CCCC1", "t-butylimino-tris(pyrrolidino)phosphine"),
+        ("CC(C)(C)N=P(N(C)C)(N(C)C)N(C)C", "t-butylimino-tris(dimethylamino)phosphine"),
+    ],
+)
+def test_amino_phosphonium_and_phosphanimine_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "phosphamethyl" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
         ("P(=S)([O-])([O-])[O-]", "thiophosphate"),
         ("OP(O)(O)=S", "thiophosphoric acid"),
         ("NP([O-])([O-])=S", "thiophosphoramidate"),

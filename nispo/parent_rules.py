@@ -640,6 +640,16 @@ class PhosphaniumParentRule:
             for nidx in neighbors
         ):
             return
+        special_name = _benzotriazolyloxy_amino_phosphonium_name(mol, self._Chem, pidx)
+        if special_name:
+            yield NameCandidate(
+                special_name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(special_name), special_name),
+            )
+            return
         names = []
         for nidx in neighbors:
             prefix = _simple_or_branch_prefix(mol, nidx, pidx)
@@ -649,6 +659,79 @@ class PhosphaniumParentRule:
         name = _phosphanium_name(names)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _benzotriazolyloxy_amino_phosphonium_name(mol, Chem, pidx: int) -> str:
+    amino_names = []
+    oxy_ligand = ""
+    covered = {pidx}
+    for nbr in mol.GetAtomWithIdx(pidx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if nbr.GetSymbol() == "N":
+            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+            if not prefix:
+                return ""
+            amino_names.append(prefix)
+            covered.update(_collect_component_atoms(mol, nidx, pidx))
+            continue
+        if nbr.GetSymbol() == "O":
+            if oxy_ligand:
+                return ""
+            oxy_ligand, oxy_atoms = _benzotriazol_1_yloxy_ligand(mol, Chem, nidx, pidx)
+            if not oxy_ligand:
+                return ""
+            covered.update(oxy_atoms)
+            continue
+        return ""
+    if len(amino_names) != 3 or not oxy_ligand or covered != set(range(mol.GetNumAtoms())):
+        return ""
+    amino_text = _phosphorus_repeated_ligand_text(amino_names)
+    return oxy_ligand + amino_text + "phosphonium" if amino_text else ""
+
+
+def _benzotriazol_1_yloxy_ligand(mol, Chem, oxygen_idx: int, phosphorus_idx: int) -> tuple[str, set[int]]:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
+        return "", set()
+    heavy = [
+        atom.GetIdx()
+        for atom in oxygen.GetNeighbors()
+        if atom.GetIdx() != phosphorus_idx and atom.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return "", set()
+    attach_idx = heavy[0]
+    attach = mol.GetAtomWithIdx(attach_idx)
+    if attach.GetSymbol() != "N" or not attach.GetIsAromatic() or not attach.IsInRing():
+        return "", set()
+    component = _collect_component_atoms(mol, attach_idx, oxygen_idx)
+    if len(component) != 9:
+        return "", set()
+    counts = Counter(mol.GetAtomWithIdx(idx).GetSymbol() for idx in component)
+    if counts != {"C": 6, "N": 3}:
+        return "", set()
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= component]
+    if sorted(len(ring) for ring in rings) != [5, 6]:
+        return "", set()
+    if len(rings[0] & rings[1]) != 2:
+        return "", set()
+    if any(not mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in component):
+        return "", set()
+    return "benzotriazol-1-yloxy", component | {oxygen_idx}
+
+
+def _phosphorus_repeated_ligand_text(names: Sequence[str]) -> str:
+    counts = Counter(names)
+    if len(counts) != 1:
+        return ""
+    name, count = next(iter(counts.items()))
+    if count == 1:
+        return name
+    multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
+    return f"{multiplier}({_strip_outer_parentheses(name)})" if multiplier else ""
 
 
 class AzaniumParentRule:
@@ -1292,12 +1375,29 @@ class AminophosphaneParentRule:
         phosphorus = phosphorus_atoms[0]
         pidx = phosphorus.GetIdx()
         nitrogen_neighbors = []
+        imino_neighbors = []
         for nbr in phosphorus.GetNeighbors():
             nidx = nbr.GetIdx()
             bond = mol.GetBondBetweenAtoms(pidx, nidx)
-            if nbr.GetSymbol() != "N" or bond.GetBondType() != self._Chem.BondType.SINGLE:
+            if nbr.GetSymbol() != "N":
                 return
-            nitrogen_neighbors.append(nidx)
+            if bond.GetBondType() == self._Chem.BondType.SINGLE:
+                nitrogen_neighbors.append(nidx)
+            elif bond.GetBondType() == self._Chem.BondType.DOUBLE:
+                imino_neighbors.append(nidx)
+            else:
+                return
+        if imino_neighbors:
+            name = _phosphanimine_name(mol, self._Chem, pidx, nitrogen_neighbors, imino_neighbors)
+            if name:
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=set(range(atom_count)),
+                    sort_key=(len(name), name),
+                )
+            return
         if len(nitrogen_neighbors) + phosphorus.GetTotalNumHs() != 3:
             return
         if not nitrogen_neighbors:
@@ -1321,6 +1421,48 @@ class AminophosphaneParentRule:
                 parent_atoms=set(range(atom_count)),
                 sort_key=(len(name), name),
             )
+
+
+def _phosphanimine_name(mol, Chem, pidx: int, nitrogen_neighbors: Sequence[int], imino_neighbors: Sequence[int]) -> str:
+    if len(imino_neighbors) != 1 or len(nitrogen_neighbors) != 3:
+        return ""
+    phosphorus = mol.GetAtomWithIdx(pidx)
+    if phosphorus.GetFormalCharge() != 0 or phosphorus.GetTotalNumHs() != 0:
+        return ""
+    covered = {pidx}
+    ligand_names = []
+    for nidx in nitrogen_neighbors:
+        nitrogen = mol.GetAtomWithIdx(nidx)
+        if nitrogen.GetFormalCharge() != 0:
+            return ""
+        prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+        if not prefix:
+            return ""
+        ligand_names.append(prefix)
+        covered.update(_collect_component_atoms(mol, nidx, pidx))
+    imino_idx = imino_neighbors[0]
+    imino = mol.GetAtomWithIdx(imino_idx)
+    if imino.GetFormalCharge() != 0:
+        return ""
+    imino_substituents = [
+        nbr.GetIdx()
+        for nbr in imino.GetNeighbors()
+        if nbr.GetIdx() != pidx and nbr.GetAtomicNum() > 1
+    ]
+    if len(imino_substituents) != 1:
+        return ""
+    imino_owner = _simple_or_branch_prefix(mol, imino_substituents[0], imino_idx)
+    if not imino_owner or _unstable_retained_functional_parent_substituent(imino_owner):
+        return ""
+    covered.add(imino_idx)
+    covered.update(_collect_component_atoms(mol, imino_substituents[0], imino_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    ligand_text = _phosphorus_repeated_ligand_text(ligand_names)
+    if not ligand_text:
+        return ""
+    owner_text = _strip_outer_parentheses(imino_owner)
+    return f"{owner_text}imino-{ligand_text}phosphine"
 
 
 class DithiazoleRetainedParentRule:

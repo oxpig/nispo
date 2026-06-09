@@ -829,6 +829,27 @@ class PhosphorothioicTriamideRetainedParentRule:
             )
 
 
+class DithiophosphateRetainedParentRule:
+    family = "dithiophosphate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _dithiophosphate_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class BiphenylDiphosphoniteParentRule:
     family = "biphenyl-diphosphonite-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2699,6 +2720,127 @@ def _phosphorothioic_triamide_record_name(record: dict) -> str:
         if ligand_text:
             return f"{ligand_text}phosphine sulfide"
     return ""
+
+
+def _dithiophosphate_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.IsInRing() or phosphorus.GetFormalCharge() != 0:
+            continue
+        record = _dithiophosphate_record(mol, Chem, phosphorus.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _dithiophosphate_record_name(record)
+        if name:
+            names.append(name)
+    return names
+
+
+def _dithiophosphate_record(mol, Chem, pidx: int) -> dict | None:
+    phosphorus = mol.GetAtomWithIdx(pidx)
+    double_sulfur = 0
+    terminal_oxido = 0
+    terminal_hydroxy = 0
+    terminal_sulfido = 0
+    owner_sulfur_names = []
+    covered_atoms = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if heavy:
+                return None
+            if nbr.GetFormalCharge() < 0:
+                terminal_oxido += 1
+            elif nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                terminal_hydroxy += 1
+            else:
+                return None
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if not heavy:
+                if nbr.GetFormalCharge() < 0:
+                    terminal_sulfido += 1
+                    covered_atoms.add(nidx)
+                    continue
+                return None
+            if len(heavy) != 1 or nbr.GetFormalCharge() != 0:
+                return None
+            owner = _single_external_substituent_name(mol, nidx, pidx)
+            if not owner or _unstable_retained_functional_parent_substituent(owner):
+                return None
+            owner_sulfur_names.append(owner)
+            covered_atoms.add(nidx)
+            covered_atoms.update(_collect_component_atoms(mol, heavy[0], nidx))
+            continue
+        return None
+    if double_sulfur != 1:
+        return None
+    return {
+        "phosphorus_hydrogens": phosphorus.GetTotalNumHs(),
+        "terminal_oxido": terminal_oxido,
+        "terminal_hydroxy": terminal_hydroxy,
+        "terminal_sulfido": terminal_sulfido,
+        "owner_sulfur_names": tuple(owner_sulfur_names),
+        "covered_atoms": covered_atoms,
+    }
+
+
+def _dithiophosphate_record_name(record: dict) -> str:
+    owner_names = record["owner_sulfur_names"]
+    terminal_oxido = record["terminal_oxido"]
+    terminal_hydroxy = record["terminal_hydroxy"]
+    terminal_sulfido = record["terminal_sulfido"]
+    phosphorus_hydrogens = record["phosphorus_hydrogens"]
+    oxygen_count = terminal_oxido + terminal_hydroxy
+    if not owner_names:
+        if terminal_hydroxy != 0:
+            return ""
+        if phosphorus_hydrogens == 1 and terminal_sulfido == 2 and terminal_oxido == 0:
+            return "trithiophosphonate"
+        if phosphorus_hydrogens == 0 and terminal_sulfido == 2 and terminal_oxido == 1:
+            return "trithiophosphate"
+        if phosphorus_hydrogens == 0 and terminal_sulfido == 3 and terminal_oxido == 0:
+            return "tetrathiophosphate"
+        return ""
+    if len(owner_names) != 1 or phosphorus_hydrogens != 0:
+        return ""
+    if terminal_sulfido == 0 and oxygen_count == 2:
+        return _dithiophosphate_owner_name(owner_names[0], terminal_hydroxy, "dithiophosphate")
+    if terminal_sulfido == 1 and oxygen_count == 1:
+        return _dithiophosphate_owner_name(owner_names[0], terminal_hydroxy, "trithiophosphate")
+    if terminal_sulfido == 2 and oxygen_count == 0:
+        return _dithiophosphate_owner_name(owner_names[0], 0, "tetrathiophosphate")
+    return ""
+
+
+def _dithiophosphate_owner_name(owner: str, hydrogen_count: int, parent: str) -> str:
+    if hydrogen_count not in {0, 1, 2}:
+        return ""
+    if _simple_unparenthesized_n_substituent(owner):
+        owner_text = f"S-{owner}"
+    else:
+        owner_text = f"S-({_strip_outer_parentheses(owner)})"
+    hydrogen_text = {0: "", 1: "hydrogen", 2: "dihydrogen"}[hydrogen_count]
+    return " ".join(part for part in (owner_text, hydrogen_text, parent) if part)
 
 
 def _diacylperoxy_dimethylhexane_name(mol, Chem) -> str:
@@ -8591,6 +8733,7 @@ def parent_rules(Chem) -> tuple:
     phosphite_ester = PhosphiteEsterParentRule(Chem)
     thiooxo_ester = ThiooxoEsterRetainedParentRule(Chem)
     phosphorothioic_triamide = PhosphorothioicTriamideRetainedParentRule(Chem)
+    dithiophosphate = DithiophosphateRetainedParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     aminophosphane = AminophosphaneParentRule(Chem)
@@ -8698,6 +8841,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
         RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),
+        RuleSpec("dithiophosphate-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), dithiophosphate.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),

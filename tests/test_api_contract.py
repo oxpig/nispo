@@ -502,6 +502,25 @@ def test_phosphorothioic_triamide_retained_parents_roundtrip_with_opsin(input_sm
 
 
 @pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
+        ("[O-]P(=S)([S-])[S-]", "trithiophosphate"),
+        ("S=[PH]([S-])[S-]", "trithiophosphonate"),
+        ("CCCCCCCCSP([O-])([O-])=S", "dithiophosphate"),
+        ("CC(C)SP(O)(O)=S", "dihydrogen dithiophosphate"),
+        ("CCCCCCCCCCCCCSP(=S)([S-])[S-]", "tetrathiophosphate"),
+    ],
+)
+def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "thiaethen" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
     "input_smiles",
     [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",

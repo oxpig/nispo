@@ -3,6 +3,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 .DS_Store
+graphify-out/
 
 # C extensions
 *.so

@@ -798,6 +798,59 @@ _PHOSPHORANE_COMPLEX_MULTIPLIERS = {
 }
 
 
+class AminophosphaneParentRule:
+    family = "aminophosphane-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        pidx = phosphorus.GetIdx()
+        nitrogen_neighbors = []
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if nbr.GetSymbol() != "N" or bond.GetBondType() != self._Chem.BondType.SINGLE:
+                return
+            nitrogen_neighbors.append(nidx)
+        if len(nitrogen_neighbors) + phosphorus.GetTotalNumHs() != 3:
+            return
+        if not nitrogen_neighbors:
+            return
+        names = []
+        covered = {pidx}
+        for nidx in nitrogen_neighbors:
+            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+            if not prefix:
+                return
+            names.append(prefix)
+            covered.update(_collect_component_atoms(mol, nidx, pidx))
+        if covered != atom_set:
+            return
+        name = _pnictogen_hydride_name(names, "phosphane")
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class OrganomagnesiumHalideParentRule:
     family = "organomagnesium-halide-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6630,6 +6683,7 @@ def parent_rules(Chem) -> tuple:
     phosphite_ester = PhosphiteEsterParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
+    aminophosphane = AminophosphaneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     organoborane = OrganoboraneParentRule(Chem)
     benziodoxole = BenziodoxoleRetainedParentRule(Chem)
@@ -6706,6 +6760,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
+        RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("organoborane-parent", parent_priority("senior-functional-exception"), (), organoborane.candidates),
         RuleSpec("benziodoxole-retained-parent", parent_priority("senior-functional-exception"), (), benziodoxole.candidates),

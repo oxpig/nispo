@@ -8072,6 +8072,10 @@ class GeneratedFusedParentRule(FusedParentRule):
                 sort_key=sort_key,
                 parent_atoms=frozenset(match),
                 stereo_locants=_template_match_stereo_locants(template, match),
+                template_id=id(template),
+                template_name=template_name,
+                source_family=str(template.get("source_family", "")),
+                source_file=str(template.get("source_file", "")),
                 estimated_length=len(name),
                 render_rank=render_rank,
             )

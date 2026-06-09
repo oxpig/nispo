@@ -819,6 +819,22 @@ def test_unsaturated_secondary_bridge_larger_polycycles_roundtrip(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN1C[C@H]2C[C@@H]1CN2c1cccc2[nH]cnc12",
+        "Cc1nc2c(N3C[C@H]4C[C@@H]3CN4C(=O)OC(C)(C)C)c(N)ccc2n1C",
+    ],
+)
+def test_generated_fused_parent_can_beat_locanted_bicyclic_stereo_fallback(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+    assert "imidazo[4,5-a]benzene" in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

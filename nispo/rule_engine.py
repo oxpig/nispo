@@ -1203,9 +1203,71 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
         penalty += 12
-    if locanted_stereo_miss:
+    if locanted_stereo_miss and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared):
         penalty = max(penalty, 220)
     return penalty
+
+
+_LOCANTED_STEREO_GRAPH_RING_PARENT_FAMILIES = {
+    "functional-generic-bicyclic-parent",
+    "fused-retained-parent",
+    "generic-bicyclic-parent",
+    "hydro-fused-retained-parent",
+    "preferred-generic-bicyclic-parent",
+    "retained-topology-replacement-fused-parent",
+    "skeletal-replacement-fused-parent",
+}
+
+
+def _allow_generated_fused_unlocanted_stereo_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 4:
+        return False
+    if not _has_contextual_locanted_stereo_family_alternative(
+        item,
+        prepared,
+        _LOCANTED_STEREO_GRAPH_RING_PARENT_FAMILIES,
+        max_extra=80,
+        max_length=220,
+    ):
+        return False
+    return not _has_contextual_locanted_stereo_family_alternative(
+        item,
+        prepared,
+        _ACYCLIC_SKELETON_PARENT_FAMILIES,
+        max_extra=100,
+        max_length=260,
+    )
+
+
+def _has_contextual_locanted_stereo_family_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    families: set[str],
+    *,
+    max_extra: int,
+    max_length: int,
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in families:
+            continue
+        if _locanted_atom_stereo_descriptor_count(other.name) == 0:
+            continue
+        if len(other.name) > max_length or len(other.name) - len(item.name) > max_extra:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_systematic_alternative_for_retained_shortcut(

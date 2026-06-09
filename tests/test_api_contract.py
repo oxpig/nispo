@@ -283,6 +283,8 @@ def test_locanted_diazaindane_lactams_defer_to_roundtripping_parent(input_smiles
         "O=c1nc(-c2ccccc2)ss1",
         "Nc1nc(=S)ss1",
         "CN(C)C=Nc1nc(=S)ss1",
+        "[N-]=[N+]=Nc1ccc(C=C2CCCC(=Cc3ccc(N=[N+]=[N-])cc3)C2=O)cc1",
+        "CC1CC(=Cc2ccc(N=[N+]=[N-])cc2)C(=O)C(=Cc2ccc(N=[N+]=[N-])cc2)C1",
         "C" * 50,
         ("C" * 22) + "O" + ("C" * 22),
     ],

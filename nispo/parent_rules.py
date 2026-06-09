@@ -112,6 +112,140 @@ class AcyclicParentRule:
             )
 
 
+class SmallInorganicRetainedParentRule:
+    family = "small-inorganic-retained-parent"
+    priority = parent_priority("charged-inorganic-retained-parent")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        name = _nitryl_halide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+            return
+        name = _sulfonyl_azanide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
+def _nitryl_halide_name(mol, Chem) -> str:
+    if mol.GetNumAtoms() != 4:
+        return ""
+    nitrogen_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N" and atom.GetFormalCharge() == 1 and not atom.IsInRing()
+    ]
+    if len(nitrogen_atoms) != 1:
+        return ""
+    nitrogen = nitrogen_atoms[0]
+    nidx = nitrogen.GetIdx()
+    double_oxo = 0
+    oxido = 0
+    halide = ""
+    for nbr in nitrogen.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(nidx, nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxo += 1
+        elif nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == -1 and bond.GetBondType() == Chem.BondType.SINGLE:
+            oxido += 1
+        elif nbr.GetSymbol() in MAGNESIUM_HALIDE_NAMES and bond.GetBondType() == Chem.BondType.SINGLE:
+            halide = MAGNESIUM_HALIDE_NAMES[nbr.GetSymbol()]
+        else:
+            return ""
+    if double_oxo != 1 or oxido != 1 or not halide:
+        return ""
+    return f"nitryl {halide}"
+
+
+def _sulfonyl_azanide_name(mol, Chem) -> str:
+    nitrogen_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
+    ]
+    if len(nitrogen_atoms) != 1:
+        return ""
+    nitrogen = nitrogen_atoms[0]
+    nidx = nitrogen.GetIdx()
+    sulfur_neighbors = []
+    for nbr in nitrogen.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(nidx, nbr.GetIdx())
+        if nbr.GetSymbol() != "S" or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        sulfur_neighbors.append(nbr.GetIdx())
+    if len(sulfur_neighbors) not in {1, 2}:
+        return ""
+    if len(sulfur_neighbors) + nitrogen.GetTotalNumHs() != 2:
+        return ""
+    units = []
+    covered = {nidx}
+    for sulfur_idx in sulfur_neighbors:
+        unit, unit_atoms = _sulfonyl_azanide_unit(mol, Chem, sulfur_idx, nidx)
+        if not unit:
+            return ""
+        units.append(unit)
+        covered.update(unit_atoms)
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    if len(units) == 1:
+        return units[0] + "azanide"
+    counts = Counter(units)
+    if len(counts) == 1:
+        unit = next(iter(counts))
+        return f"bis({unit})azanide"
+    return "".join(f"[{unit}]" for unit in sorted(units)) + "azanide"
+
+
+def _sulfonyl_azanide_unit(mol, Chem, sulfur_idx: int, nitrogen_idx: int) -> tuple[str, set[int]]:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
+        return "", set()
+    double_oxygens = []
+    substituent_idx = None
+    covered = {sulfur_idx, nitrogen_idx}
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+            covered.add(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and substituent_idx is None:
+            substituent_idx = nidx
+        else:
+            return "", set()
+    if len(double_oxygens) != 2 or substituent_idx is None:
+        return "", set()
+    substituent = mol.GetAtomWithIdx(substituent_idx)
+    if substituent.GetSymbol() in HALO:
+        covered.add(substituent_idx)
+        return HALO[substituent.GetSymbol()] + "sulfonyl", covered
+    if substituent.GetSymbol() != "C":
+        return "", set()
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
+    if not prefix:
+        return "", set()
+    covered.update(_collect_component_atoms(mol, substituent_idx, sulfur_idx))
+    return _strip_outer_parentheses(prefix) + "sulfonyl", covered
+
+
 class SulfaniumParentRule:
     family = "sulfanium-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6388,6 +6522,7 @@ class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):
 
 def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
+    small_inorganic = SmallInorganicRetainedParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
     neutral_amine = NeutralAmineParentRule(Chem)
@@ -6456,6 +6591,12 @@ def parent_rules(Chem) -> tuple:
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
 
     return (
+        RuleSpec(
+            "small-inorganic-retained-parent",
+            parent_priority("charged-inorganic-retained-parent"),
+            (),
+            small_inorganic.candidates,
+        ),
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),

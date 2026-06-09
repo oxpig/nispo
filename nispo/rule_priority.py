@@ -32,6 +32,16 @@ class RulePriority:
 
 
 PARENT_RULE_PRIORITIES = {
+    "charged-inorganic-retained-parent": RulePriority(
+        8,
+        seniority_score=0,
+        parent_class_score=0,
+        specificity_score=0,
+        seniority="charged inorganic retained parent",
+        parent_class="acyclic retained inorganic parent",
+        specificity="very high",
+        rationale="Exact charged inorganic retained parents should outrank generic neutral functional retained names.",
+    ),
     "senior-functional-exception": RulePriority(
         9,
         seniority_score=0,

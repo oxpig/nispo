@@ -808,6 +808,27 @@ class ThiooxoEsterRetainedParentRule:
             )
 
 
+class PhosphorothioicTriamideRetainedParentRule:
+    family = "phosphorothioic-triamide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _phosphorothioic_triamide_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class BiphenylDiphosphoniteParentRule:
     family = "biphenyl-diphosphonite-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2601,6 +2622,83 @@ def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
     if any(not piece for piece in pieces):
         return ""
     return " ".join(pieces)
+
+
+def _phosphorothioic_triamide_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.IsInRing() or phosphorus.GetFormalCharge() != 0:
+            continue
+        record = _phosphorothioic_triamide_record(mol, Chem, phosphorus.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _phosphorothioic_triamide_record_name(record)
+        if name:
+            names.append(name)
+    return names
+
+
+def _phosphorothioic_triamide_record(mol, Chem, pidx: int) -> dict | None:
+    double_sulfur = 0
+    nitrogen_records = []
+    covered_atoms = {pidx}
+    for nbr in mol.GetAtomWithIdx(pidx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() != "N" or bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+        ]
+        substituents = _external_substituent_names(mol, nidx, pidx)
+        ligand_prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+        covered_atoms.add(nidx)
+        for heavy_idx in heavy:
+            covered_atoms.update(_collect_component_atoms(mol, heavy_idx, nidx))
+        nitrogen_records.append(
+            {
+                "formal_charge": nbr.GetFormalCharge(),
+                "is_ring": nbr.IsInRing(),
+                "substituents": tuple(substituents or ()),
+                "substituents_available": substituents is not None,
+                "ligand_prefix": ligand_prefix,
+            }
+        )
+    if double_sulfur != 1 or len(nitrogen_records) != 3:
+        return None
+    return {"nitrogens": tuple(nitrogen_records), "covered_atoms": covered_atoms}
+
+
+def _phosphorothioic_triamide_record_name(record: dict) -> str:
+    nitrogens = record["nitrogens"]
+    charges = [nitrogen["formal_charge"] for nitrogen in nitrogens]
+    substituents_available = all(nitrogen["substituents_available"] for nitrogen in nitrogens)
+    if substituents_available and all(charge < 0 for charge in charges) and all(not nitrogen["substituents"] for nitrogen in nitrogens):
+        return "thiophosphoryltriamide"
+    if any(charge != 0 for charge in charges):
+        return ""
+    substituted = [nitrogen for nitrogen in nitrogens if nitrogen["substituents"]]
+    if substituents_available and not substituted:
+        return "thiophosphoric triamide"
+    if substituents_available and len(substituted) == 1 and all(len(nitrogen["substituents"]) <= 2 for nitrogen in nitrogens):
+        prefix = _n_substituent_prefix(substituted[0]["substituents"])
+        if prefix is not None:
+            return prefix + "thiophosphoric triamide"
+    ligand_prefixes = [nitrogen["ligand_prefix"] for nitrogen in nitrogens]
+    if all(nitrogen["is_ring"] for nitrogen in nitrogens) and all(ligand_prefixes):
+        ligand_text = _thiooxo_ester_owner_text(ligand_prefixes)
+        if ligand_text:
+            return f"{ligand_text}phosphine sulfide"
+    return ""
 
 
 def _diacylperoxy_dimethylhexane_name(mol, Chem) -> str:
@@ -8492,6 +8590,7 @@ def parent_rules(Chem) -> tuple:
     biphenyl_diphosphonite = BiphenylDiphosphoniteParentRule(Chem)
     phosphite_ester = PhosphiteEsterParentRule(Chem)
     thiooxo_ester = ThiooxoEsterRetainedParentRule(Chem)
+    phosphorothioic_triamide = PhosphorothioicTriamideRetainedParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     aminophosphane = AminophosphaneParentRule(Chem)
@@ -8598,6 +8697,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("biphenyl-diphosphonite-parent", parent_priority("senior-functional-exception"), (), biphenyl_diphosphonite.candidates),
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
+        RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),

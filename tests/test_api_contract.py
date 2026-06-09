@@ -483,6 +483,25 @@ def test_thiooxo_ester_retained_parents_roundtrip_with_opsin(input_smiles, retai
 
 
 @pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
+        ("NP(N)(N)=S", "thiophosphoric triamide"),
+        ("[NH-]P([NH-])([NH-])=S", "thiophosphoryltriamide"),
+        ("CCCCNP(N)(N)=S", "thiophosphoric triamide"),
+        ("CCN(CC)P(N)(N)=S", "thiophosphoric triamide"),
+        ("S=P(N1CC1)(N1CC1)N1CC1", "phosphine sulfide"),
+    ],
+)
+def test_phosphorothioic_triamide_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "thiaethen" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
     "input_smiles",
     [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",

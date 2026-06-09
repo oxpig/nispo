@@ -1666,10 +1666,23 @@ def _benzene_retained_parent_alias_name(name: str) -> str:
         ("4-methoxyphenol", "mequinol"),
     )
     for verbose, alias in replacements:
+        if alias in _PREFIX_SENSITIVE_BENZENE_RETAINED_ALIASES and name != verbose:
+            continue
         if "formyl" in name and alias in {"guaiacol", "mequinol", "o-cresol", "m-cresol", "p-cresol"}:
             continue
         name = name.replace(verbose, alias)
     return name
+
+
+_PREFIX_SENSITIVE_BENZENE_RETAINED_ALIASES = frozenset(
+    {
+        "guaiacol",
+        "mequinol",
+        "o-cresol",
+        "m-cresol",
+        "p-cresol",
+    }
+)
 
 
 def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:

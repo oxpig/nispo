@@ -362,6 +362,22 @@ def test_retained_parent_aliases_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "NCc1ccc(O)c(OC)c1",
+        "COc1ccc(O)c(O)c1",
+    ],
+)
+def test_prefixed_methoxyphenol_aliases_stay_explicit_for_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert "guaiacol" not in generated_name
+    assert "mequinol" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc2cc3cc4cc5cc6cc7cc8ccccc8cc7cc6cc5cc4cc3cc2c1",
         "c1ccc2cc3cc4cc5cc6cc7cc8cc9ccccc9cc8cc7cc6cc5cc4cc3cc2c1",
         "c1ccc2cc3cc4cc5cc6cc7cc8cc9cc%10ccccc%10cc9cc8cc7cc6cc5cc4cc3cc2c1",

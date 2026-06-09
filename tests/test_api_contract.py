@@ -431,6 +431,23 @@ def test_fragile_fused_alias_fallbacks_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCn1c(=O)oc(=O)c2ccccc21",
+        "O=c1[nH]c2c(Cl)cccc2c(=O)o1",
+        "O=c1[nH]c2c(Cl)cc(Cl)cc2c(=O)o1",
+        "N#CCCc1cc2c(=O)oc(=O)[nH]c2c(F)c1Br",
+    ],
+)
+def test_cyclic_anhydride_topology_replacements_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCn1c(=NN=c2sc3cc(S(=O)(=O)O)ccc3n2CC)sc2cc(S(=O)(=O)O)ccc21",
         "CCn1c(=NN=c2sc3cc(S(=O)(=O)[O-])ccc3n2CC)sc2cc(S(=O)(=O)[O-])ccc21",
         "CCn1c(=NN=c2sc3ccccc3n2CC)sc2ccccc21",

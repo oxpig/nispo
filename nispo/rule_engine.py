@@ -649,6 +649,8 @@ _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES = {
 
 _RETAINED_LACTONE_TEMPLATE_NAMES = frozenset({"coumarin", "coumarine"})
 _RETAINED_LACTONE_TOPOLOGY_BONUS = 160
+_RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES = frozenset({"isatoic anhydride"})
+_RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS = 80
 
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
@@ -899,6 +901,30 @@ def _has_contextual_retained_lactone_topology_candidate(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
 ) -> bool:
+    return _has_contextual_retained_topology_candidate_for_templates(
+        item,
+        prepared,
+        template_names=_RETAINED_LACTONE_TEMPLATE_NAMES,
+    )
+
+
+def _has_contextual_retained_cyclic_anhydride_topology_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    return _has_contextual_retained_topology_candidate_for_templates(
+        item,
+        prepared,
+        template_names=_RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES,
+    )
+
+
+def _has_contextual_retained_topology_candidate_for_templates(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    template_names: frozenset[str],
+) -> bool:
     candidate = item.candidate
     if candidate.family != "retained-topology-replacement-fused-parent":
         return False
@@ -915,7 +941,7 @@ def _has_contextual_retained_lactone_topology_candidate(
         other_candidate = other.candidate
         if other_candidate.family not in {"fused-retained-parent", "hydro-fused-retained-parent"}:
             continue
-        if other_candidate.template_name not in _RETAINED_LACTONE_TEMPLATE_NAMES:
+        if other_candidate.template_name not in template_names:
             continue
         if not candidate_has_complete_graph(other_candidate):
             continue
@@ -935,6 +961,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
 
     name = item.name
     retained_lactone_topology = _has_contextual_retained_lactone_topology_candidate(item, prepared)
+    retained_cyclic_anhydride_topology = _has_contextual_retained_cyclic_anhydride_topology_candidate(
+        item,
+        prepared,
+    )
     unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
@@ -991,6 +1021,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
         retained_lactone_topology
+        or retained_cyclic_anhydride_topology
         or unstable_benzimidazolyl
         or unstable_replacement
         or generic_polycycle
@@ -1043,6 +1074,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     penalty = 0
     if retained_lactone_topology:
         penalty -= _RETAINED_LACTONE_TOPOLOGY_BONUS
+    if retained_cyclic_anhydride_topology:
+        penalty -= _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
     if has_graph_parent and unstable_benzimidazolyl:
         penalty += 85

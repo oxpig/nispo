@@ -378,6 +378,28 @@ def test_prefixed_methoxyphenol_aliases_stay_explicit_for_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1ccc2c(c1)C[C@H]1NCC[C@@]23CCCC[C@@H]13",
+        "c1ccc2c(c1)C[C@H]1[N-]CC[C@@]23CCCC[C@@H]13",
+        "c1ccc2c(c1)C[C@H]1[NH2+]CC[C@@]23CCCC[C@@H]13",
+        "Oc1ccc2c(c1)[C@@]13CCCC[C@H]1[C@@H](C2)NCC3",
+        "O=CN1CC[C@]23CCCC[C@H]2[C@H]1Cc1ccccc13",
+        "CN1CC[C@]23CCCC[C@H]2[C@H]1Cc1ccccc13",
+        "COc1ccc2c(c1)[C@@]13CCCC[C@H]1[C@@H](C2)N(C)CC3",
+    ],
+)
+def test_morphin_retained_parent_terminalizes_to_morphinan(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert "morphinan" in generated_name
+    assert "morphin-" not in generated_name
+    assert not generated_name.endswith("morphin")
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc2cc3cc4cc5cc6cc7cc8ccccc8cc7cc6cc5cc4cc3cc2c1",
         "c1ccc2cc3cc4cc5cc6cc7cc8cc9ccccc9cc8cc7cc6cc5cc4cc3cc2c1",
         "c1ccc2cc3cc4cc5cc6cc7cc8cc9cc%10ccccc%10cc9cc8cc7cc6cc5cc4cc3cc2c1",

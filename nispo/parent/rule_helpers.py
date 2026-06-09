@@ -67,6 +67,7 @@ _TERMINAL_RETAINED_PARENT_BY_STEM = {
     "ergost": "ergostane",
     "estr": "estrane",
     "furost": "furostane",
+    "morphin": "morphinan",
     "poriferast": "poriferastane",
     "prost": "prostane",
     "pterocarp": "pterocarpan",
@@ -82,6 +83,9 @@ _TERMINAL_RETAINED_PARENT_BY_STEM = {
 
 
 def _terminal_retained_parent_name(name: str) -> str:
+    charged_name = _terminal_retained_charged_parent_name(name)
+    if charged_name != name:
+        return charged_name
     if name == "pyroglutam":
         return "pyroglutamic acid"
     if name.endswith(" acid"):
@@ -91,6 +95,17 @@ def _terminal_retained_parent_name(name: str) -> str:
     if name.endswith(("ic", "ylic")) and name not in _RETAINED_ACID_PARENT_STEM_EXCEPTIONS:
         return f"{name} acid"
     return _TERMINAL_RETAINED_PARENT_BY_STEM.get(name, name)
+
+
+def _terminal_retained_charged_parent_name(name: str) -> str:
+    match = re.fullmatch(r"(.+)-(\d+[a-z]?)-(ium|ide?|id)", name)
+    if match is None:
+        return name
+    stem, locant, suffix = match.groups()
+    parent = _TERMINAL_RETAINED_PARENT_BY_STEM.get(stem)
+    if not parent:
+        return name
+    return f"{parent}-{locant}-{suffix}"
 
 
 _RETAINED_ACID_PARENT_STEM_EXCEPTIONS = {

@@ -558,6 +558,15 @@ class OrganophosphorusOxideParentRule:
                 hydroxy_count += 1
             else:
                 return
+        if double_oxygen_count == 2 and hydroxy_count == 0 and len(carbon_neighbors) == 1:
+            prefix = _simple_or_branch_prefix(mol, carbon_neighbors[0], pidx)
+            if not prefix:
+                return
+            if _needs_substituent_parentheses(prefix):
+                prefix = f"({prefix})"
+            name = prefix + "phosphanedione"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            return
         if double_oxygen_count != 1 or not carbon_neighbors:
             return
         names = []

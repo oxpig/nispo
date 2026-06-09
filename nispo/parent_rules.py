@@ -788,6 +788,26 @@ class PhosphiteEsterParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class ThiooxoEsterRetainedParentRule:
+    family = "thiooxo-ester-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _thiooxo_ester_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class BiphenylDiphosphoniteParentRule:
     family = "biphenyl-diphosphonite-parent"
     priority = parent_priority("senior-functional-exception")
@@ -2449,6 +2469,138 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _thiooxo_ester_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for center in mol.GetAtoms():
+        if center.IsInRing() or center.GetFormalCharge() != 0 or center.GetSymbol() not in {"P", "S"}:
+            continue
+        record = _thiooxo_ester_center_record(mol, Chem, center.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _thiooxo_ester_record_name(record)
+        if name:
+            names.append(name)
+    return names
+
+
+def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
+    center = mol.GetAtomWithIdx(center_idx)
+    double_sulfur = 0
+    double_oxygen = 0
+    terminal_oxido = 0
+    terminal_hydroxy = 0
+    owner_names = []
+    covered_atoms = {center_idx}
+    for nbr in center.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(center_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() != "O" or bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != center_idx and atom.GetAtomicNum() > 1
+        ]
+        if not heavy:
+            if nbr.GetFormalCharge() < 0:
+                terminal_oxido += 1
+            elif nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                terminal_hydroxy += 1
+            else:
+                return None
+            covered_atoms.add(nidx)
+            continue
+        if len(heavy) != 1 or nbr.GetFormalCharge() != 0:
+            return None
+        owner = _single_external_substituent_name(mol, nidx, center_idx)
+        if not owner or _unstable_retained_functional_parent_substituent(owner):
+            return None
+        owner_names.append(owner)
+        covered_atoms.add(nidx)
+        covered_atoms.update(_collect_component_atoms(mol, heavy[0], nidx))
+    return {
+        "center_symbol": center.GetSymbol(),
+        "center_hydrogens": center.GetTotalNumHs(),
+        "double_sulfur": double_sulfur,
+        "double_oxygen": double_oxygen,
+        "terminal_oxido": terminal_oxido,
+        "terminal_hydroxy": terminal_hydroxy,
+        "owner_names": tuple(owner_names),
+        "covered_atoms": covered_atoms,
+    }
+
+
+def _thiooxo_ester_record_name(record: dict) -> str:
+    owner_names = record["owner_names"]
+    if not owner_names or record["double_sulfur"] != 1:
+        return ""
+    center_symbol = record["center_symbol"]
+    double_oxygen = record["double_oxygen"]
+    terminal_oxido = record["terminal_oxido"]
+    terminal_hydroxy = record["terminal_hydroxy"]
+    center_hydrogens = record["center_hydrogens"]
+    single_oxygen_count = len(owner_names) + terminal_oxido + terminal_hydroxy
+    if center_symbol == "P":
+        if double_oxygen != 0:
+            return ""
+        if center_hydrogens == 0 and single_oxygen_count == 3:
+            return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiophosphate")
+        if center_hydrogens == 1 and single_oxygen_count == 2:
+            return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiophosphonate")
+        return ""
+    if center_symbol != "S":
+        return ""
+    if double_oxygen == 0 and center_hydrogens == 1 and terminal_oxido == 0 and terminal_hydroxy == 0 and len(owner_names) == 1:
+        return _thiooxo_ester_name(owner_names, 0, "thiosulfinate")
+    if double_oxygen != 1:
+        return ""
+    if center_hydrogens == 1 and terminal_oxido == 0 and terminal_hydroxy == 0 and len(owner_names) == 1:
+        return _thiooxo_ester_name(owner_names, 0, "thiosulfonate")
+    if center_hydrogens == 0 and single_oxygen_count == 2:
+        return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiosulfate")
+    return ""
+
+
+def _thiooxo_ester_name(owner_names: Sequence[str], hydrogen_count: int, parent: str) -> str:
+    if hydrogen_count not in {0, 1, 2}:
+        return ""
+    owner_text = _thiooxo_ester_owner_text(owner_names)
+    if not owner_text:
+        return ""
+    hydrogen_text = {0: "", 1: "hydrogen", 2: "dihydrogen"}[hydrogen_count]
+    return " ".join(part for part in (owner_text, hydrogen_text, parent) if part)
+
+
+def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
+    pieces = []
+    counts = Counter(owner_names)
+    for owner in sorted(counts):
+        count = counts[owner]
+        if count == 1:
+            pieces.append(_parenthesized_if_complex(owner))
+            continue
+        if _simple_unparenthesized_n_substituent(owner):
+            multiplier = MULT.get(count, "")
+            pieces.append(multiplier + owner if multiplier else "")
+            continue
+        multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
+        pieces.append(f"{multiplier}({_strip_outer_parentheses(owner)})" if multiplier else "")
+    if any(not piece for piece in pieces):
+        return ""
+    return " ".join(pieces)
 
 
 def _diacylperoxy_dimethylhexane_name(mol, Chem) -> str:
@@ -8339,6 +8491,7 @@ def parent_rules(Chem) -> tuple:
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
     biphenyl_diphosphonite = BiphenylDiphosphoniteParentRule(Chem)
     phosphite_ester = PhosphiteEsterParentRule(Chem)
+    thiooxo_ester = ThiooxoEsterRetainedParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     aminophosphane = AminophosphaneParentRule(Chem)
@@ -8444,6 +8597,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
         RuleSpec("biphenyl-diphosphonite-parent", parent_priority("senior-functional-exception"), (), biphenyl_diphosphonite.candidates),
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
+        RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),

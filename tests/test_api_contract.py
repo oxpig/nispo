@@ -462,6 +462,27 @@ def test_biphenyl_diphosphonite_parents_roundtrip_with_opsin(input_smiles):
 
 
 @pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
+        ("COP([O-])([O-])=S", "thiophosphate"),
+        ("COP(=S)(OC)OC", "thiophosphate"),
+        ("CCO[PH]([O-])=S", "thiophosphonate"),
+        ("CCCOS(=O)([O-])=S", "thiosulfate"),
+        ("CO[SH]=S", "thiosulfinate"),
+        ("CO[SH](=O)=S", "thiosulfonate"),
+        ("Cc1cccc(OP(=S)(Oc2cccc(C)c2C)Oc2cccc(C)c2C)c1C", "thiophosphate"),
+    ],
+)
+def test_thiooxo_ester_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "thiaethen" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
     "input_smiles",
     [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",

@@ -151,6 +151,16 @@ class SmallInorganicRetainedParentRule:
                 parent_atoms=set(range(atom_count)),
                 sort_key=(len(name), name),
             )
+            return
+        name = _small_sulfur_imide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
 
 
 def _nitryl_halide_name(mol, Chem) -> str:
@@ -291,6 +301,156 @@ def _sulfonyl_azanide_unit(mol, Chem, sulfur_idx: int, nitrogen_idx: int) -> tup
         return "", set()
     covered.update(_collect_component_atoms(mol, substituent_idx, sulfur_idx))
     return _strip_outer_parentheses(prefix) + "sulfonyl", covered
+
+
+def _small_sulfur_imide_name(mol, Chem) -> str:
+    sulfur_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    ]
+    if len(sulfur_atoms) != 1:
+        return ""
+    sulfur = sulfur_atoms[0]
+    sidx = sulfur.GetIdx()
+    imino_nitrogen = None
+    double_oxygen = 0
+    terminal_oxido = 0
+    sulfur_halos = []
+    covered = {sidx}
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and imino_nitrogen is None:
+            imino_nitrogen = nbr
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            terminal_oxido += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() in HALO and bond.GetBondType() == Chem.BondType.SINGLE:
+            sulfur_halos.append(nbr.GetSymbol())
+            covered.add(nidx)
+        else:
+            return ""
+    if imino_nitrogen is None:
+        return ""
+    imino_halos, imino_cyano_atoms = _small_sulfur_imide_n_substituents(mol, Chem, imino_nitrogen.GetIdx(), sidx)
+    if imino_halos is None:
+        return ""
+    covered.update(imino_halos)
+    covered.update(imino_cyano_atoms)
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    return _small_sulfur_imide_record_name(
+        sulfur_hydrogens=sulfur.GetTotalNumHs(),
+        imino_charge=imino_nitrogen.GetFormalCharge(),
+        imino_hydrogens=imino_nitrogen.GetTotalNumHs(),
+        double_oxygen=double_oxygen,
+        terminal_oxido=terminal_oxido,
+        sulfur_halos=tuple(sorted(sulfur_halos)),
+        imino_halo_count=len(imino_halos),
+        imino_cyano=bool(imino_cyano_atoms),
+    )
+
+
+def _small_sulfur_imide_n_substituents(mol, Chem, nitrogen_idx: int, sulfur_idx: int) -> tuple[set[int] | None, set[int]]:
+    halos = set()
+    cyano_atoms = set()
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == sulfur_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if nbr.GetSymbol() in HALO and bond.GetBondType() == Chem.BondType.SINGLE:
+            halos.add(nidx)
+            continue
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            terminal_nitrile = [
+                nnbr.GetIdx()
+                for nnbr in nbr.GetNeighbors()
+                if nnbr.GetIdx() != nitrogen_idx
+                and nnbr.GetSymbol() == "N"
+                and mol.GetBondBetweenAtoms(nidx, nnbr.GetIdx()).GetBondType() == Chem.BondType.TRIPLE
+            ]
+            if len(terminal_nitrile) == 1:
+                cyano_atoms.update({nidx, terminal_nitrile[0]})
+                continue
+        return None, set()
+    return halos, cyano_atoms
+
+
+def _small_sulfur_imide_record_name(
+    *,
+    sulfur_hydrogens: int,
+    imino_charge: int,
+    imino_hydrogens: int,
+    double_oxygen: int,
+    terminal_oxido: int,
+    sulfur_halos: tuple[str, ...],
+    imino_halo_count: int,
+    imino_cyano: bool,
+) -> str:
+    if imino_cyano:
+        if double_oxygen == 2 and terminal_oxido == 0 and not sulfur_halos and imino_halo_count == 0:
+            return "N-sulfonylcyanamide"
+        return ""
+    if imino_halo_count:
+        if imino_halo_count == 1 and double_oxygen == 0 and terminal_oxido == 0 and sulfur_halos == ("F", "F"):
+            return "trifluorosulfimide"
+        return ""
+    if imino_charge > 0 and imino_hydrogens == 2 and terminal_oxido == 0 and not sulfur_halos:
+        if double_oxygen == 1:
+            return "sulfinylammonium"
+        if double_oxygen == 2:
+            return "sulfonylammonium"
+        return ""
+    if terminal_oxido == 2 and double_oxygen == 1 and not sulfur_halos and sulfur_hydrogens == 0:
+        return "sulfurimidate"
+    if terminal_oxido != 0:
+        return ""
+    if not sulfur_halos:
+        if double_oxygen == 2 and sulfur_hydrogens == 0:
+            return "iminosulfone"
+        if double_oxygen == 1 and sulfur_hydrogens == 0:
+            return "iminosulfanone"
+        if double_oxygen == 1 and sulfur_hydrogens == 2:
+            return "imino-lambda6-sulfanone"
+        return ""
+    if double_oxygen == 0:
+        if len(sulfur_halos) == 1:
+            if sulfur_hydrogens == 1:
+                return HALO[sulfur_halos[0]] + "sulfimide"
+            if sulfur_hydrogens == 0 and sulfur_halos[0] == "F":
+                return "iminosulfur fluoride"
+        if len(sulfur_halos) == 2 and sulfur_hydrogens == 0:
+            return _small_sulfur_imide_dihalo_name(sulfur_halos, "sulfimide")
+        return ""
+    if double_oxygen == 1:
+        if len(sulfur_halos) == 1 and sulfur_hydrogens == 1:
+            return HALO[sulfur_halos[0]] + "sulfoximine"
+        if len(sulfur_halos) == 2 and sulfur_hydrogens == 0:
+            if sulfur_halos == ("F", "F"):
+                return "sulfonimidoyl fluoride"
+            return _small_sulfur_imide_dihalo_name(sulfur_halos, "sulfoximine")
+    return ""
+
+
+def _small_sulfur_imide_dihalo_name(halos: tuple[str, ...], parent: str) -> str:
+    counts = Counter(halos)
+    if len(counts) == 1:
+        symbol = next(iter(counts))
+        return "di" + HALO[symbol] + parent
+    parts = []
+    for symbol in sorted(counts, key=lambda item: HALO[item]):
+        halo = HALO[symbol]
+        parts.append(halo if not parts else f"({halo})")
+    return "".join(parts) + parent
 
 
 class SulfaniumParentRule:

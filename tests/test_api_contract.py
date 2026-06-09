@@ -521,6 +521,28 @@ def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles, ret
 
 
 @pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
+        ("N=S(=O)=O", "iminosulfone"),
+        ("N=S=O", "iminosulfanone"),
+        ("N=[SH2]=O", "imino-lambda6-sulfanone"),
+        ("N=S(F)F", "difluorosulfimide"),
+        ("N=S(=O)(F)F", "sulfonimidoyl fluoride"),
+        ("N=S(=O)(F)Cl", "chloro(fluoro)sulfoximine"),
+        ("N=S(=O)([O-])[O-]", "sulfurimidate"),
+        ("N#CN=S(=O)=O", "N-sulfonylcyanamide"),
+    ],
+)
+def test_small_sulfur_imide_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "thiaethen" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
     "input_smiles",
     [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",

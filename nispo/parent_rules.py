@@ -709,8 +709,8 @@ class OrganomagnesiumHalideParentRule:
         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
-class TriorganoboraneParentRule:
-    family = "triorganoborane-parent"
+class OrganoboraneParentRule:
+    family = "organoborane-parent"
     priority = parent_priority("senior-functional-exception")
 
     def __init__(self, Chem):
@@ -725,7 +725,6 @@ class TriorganoboraneParentRule:
                 boron.GetSymbol() != "B"
                 or boron.GetFormalCharge() != 0
                 or boron.IsInRing()
-                or boron.GetTotalNumHs() != 0
             ):
                 continue
             boron_idx = boron.GetIdx()
@@ -742,7 +741,9 @@ class TriorganoboraneParentRule:
                     break
                 carbon_neighbors.append(nbr.GetIdx())
             else:
-                if len(carbon_neighbors) != 3:
+                if not 1 <= len(carbon_neighbors) <= 3:
+                    continue
+                if len(carbon_neighbors) + boron.GetTotalNumHs() != 3:
                     continue
                 ligand_names = []
                 covered = {boron_idx}
@@ -755,25 +756,25 @@ class TriorganoboraneParentRule:
                 else:
                     if covered != atom_set:
                         continue
-                    name = _triorganoborane_parent_name(ligand_names)
+                    name = _organoborane_parent_name(ligand_names)
                     if name:
                         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
-def _triorganoborane_parent_name(ligand_names: Sequence[str]) -> str:
-    if len(ligand_names) != 3:
+def _organoborane_parent_name(ligand_names: Sequence[str]) -> str:
+    if not 1 <= len(ligand_names) <= 3:
         return ""
     counts = Counter(ligand_names)
     parts = []
     for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
-        unit = _triorganoborane_ligand_unit(ligand, count)
+        unit = _organoborane_ligand_unit(ligand, count)
         if not unit:
             return ""
         parts.append(unit)
     return "".join(parts) + "borane"
 
 
-def _triorganoborane_ligand_unit(ligand: str, count: int) -> str:
+def _organoborane_ligand_unit(ligand: str, count: int) -> str:
     ligand = _strip_outer_parentheses(ligand)
     if count == 1:
         return _parenthesized_if_complex(ligand)
@@ -6396,7 +6397,7 @@ def parent_rules(Chem) -> tuple:
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
-    triorganoborane = TriorganoboraneParentRule(Chem)
+    organoborane = OrganoboraneParentRule(Chem)
     iodane = IodaneParentRule(Chem)
     iodonium = IodoniumParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
@@ -6465,7 +6466,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
-        RuleSpec("triorganoborane-parent", parent_priority("senior-functional-exception"), (), triorganoborane.candidates),
+        RuleSpec("organoborane-parent", parent_priority("senior-functional-exception"), (), organoborane.candidates),
         RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
         RuleSpec("iodonium-parent", parent_priority("senior-functional-exception"), (), iodonium.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),

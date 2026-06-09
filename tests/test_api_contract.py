@@ -740,6 +740,38 @@ def test_sulfonylamide_retained_parent_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCN[SH](=N)=O",
+        "CS(N)(=O)=NC(=O)Nc1c2c(cc3c1CCC3)CCC2",
+        "Cc1nn(C)cc1S(N)(=O)=NC(=O)Nc1c(C(C)C)cc(F)cc1C(C)C",
+    ],
+)
+def test_sulfonimidamide_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "NC(=O)C1CC[SH2]CC1",
+        "O=C(Nc1ccc(Br)cc1)c1cnc[se]1",
+        "CN(C)C(=O)c1cccnc1",
+    ],
+)
+def test_ring_carboxamide_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_oxazinone_retained_parent_roundtrips_with_opsin():
     input_smiles = "CN(C)c1nc(C(F)(F)F)cc(=O)o1"
     generated_name = smiles_to_iupac(input_smiles)

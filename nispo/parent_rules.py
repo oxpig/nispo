@@ -39,6 +39,7 @@ from .rule_dispatch import (
     acyclic,
     acyclic_preference_signal,
     charged_ring_atom,
+    component_spiro_topology,
     conjugated_carbonyl_diene_signal,
     exact_ring_system,
     functional_skeleton_signal,
@@ -273,14 +274,18 @@ def _sulfonyl_azanide_name(mol, Chem) -> str:
     nitrogen = nitrogen_atoms[0]
     nidx = nitrogen.GetIdx()
     sulfur_neighbors = []
+    substituent_neighbors = []
     for nbr in nitrogen.GetNeighbors():
         bond = mol.GetBondBetweenAtoms(nidx, nbr.GetIdx())
-        if nbr.GetSymbol() != "S" or bond.GetBondType() != Chem.BondType.SINGLE:
+        if bond.GetBondType() != Chem.BondType.SINGLE:
             return ""
-        sulfur_neighbors.append(nbr.GetIdx())
-    if len(sulfur_neighbors) not in {1, 2}:
-        return ""
-    if len(sulfur_neighbors) + nitrogen.GetTotalNumHs() != 2:
+        if nbr.GetSymbol() == "S":
+            sulfur_neighbors.append(nbr.GetIdx())
+        elif nbr.GetAtomicNum() > 1:
+            substituent_neighbors.append(nbr.GetIdx())
+        else:
+            return ""
+    if len(sulfur_neighbors) not in {1, 2} or len(substituent_neighbors) > 1:
         return ""
     units = []
     covered = {nidx}
@@ -290,8 +295,21 @@ def _sulfonyl_azanide_name(mol, Chem) -> str:
             return ""
         units.append(unit)
         covered.update(unit_atoms)
+    substituent_name = ""
+    if substituent_neighbors:
+        if len(sulfur_neighbors) != 1 or nitrogen.GetTotalNumHs() != 0:
+            return ""
+        substituent_idx = substituent_neighbors[0]
+        substituent_name = _simple_or_branch_prefix(mol, substituent_idx, nidx)
+        if not substituent_name:
+            return ""
+        covered.update(_collect_component_atoms(mol, substituent_idx, nidx))
+    elif len(sulfur_neighbors) + nitrogen.GetTotalNumHs() != 2:
+        return ""
     if covered != set(range(mol.GetNumAtoms())):
         return ""
+    if substituent_name:
+        return units[0] + f"({_strip_outer_parentheses(substituent_name)})azanide"
     if len(units) == 1:
         return units[0] + "azanide"
     counts = Counter(units)
@@ -326,12 +344,13 @@ def _sulfonyl_azanide_unit(mol, Chem, sulfur_idx: int, nitrogen_idx: int) -> tup
     if substituent.GetSymbol() in HALO:
         covered.add(substituent_idx)
         return HALO[substituent.GetSymbol()] + "sulfonyl", covered
-    if substituent.GetSymbol() != "C":
+    substituent_atoms = _collect_component_atoms(mol, substituent_idx, sulfur_idx)
+    if substituent.GetSymbol() == "N" and len(substituent_atoms) > 8:
         return "", set()
     prefix = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
     if not prefix:
         return "", set()
-    covered.update(_collect_component_atoms(mol, substituent_idx, sulfur_idx))
+    covered.update(substituent_atoms)
     return _strip_outer_parentheses(prefix) + "sulfonyl", covered
 
 
@@ -3090,6 +3109,44 @@ class SulfonamideParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class SulfonimidamideParentRule:
+    family = "sulfonimidamide-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for motif in _sulfonimidamide_motifs(mol, self._Chem):
+            base = _sulfonimidamide_base_name(mol, motif["sulfur"], motif["s_substituent"])
+            if not base:
+                continue
+            amide_substituents = _external_substituent_names(mol, motif["amide_nitrogen"], motif["sulfur"])
+            imino_substituents = _external_substituent_names(mol, motif["imino_nitrogen"], motif["sulfur"])
+            if amide_substituents is None or imino_substituents is None:
+                continue
+            prefix = _sulfonimidamide_n_substituent_prefix(amide_substituents, imino_substituents)
+            if prefix is None:
+                continue
+            if prefix:
+                name = f"{prefix}-{base}" if _needs_explicit_n_parent_separator(prefix) else prefix + base
+            else:
+                name = base
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                estimated_length=len(name),
+            )
+
+
 class UreaRetainedParentRule:
     family = "urea-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -4793,7 +4850,129 @@ def _retained_amide_names(mol, Chem) -> list[str]:
             if not core:
                 continue
             names.append(_join_n_prefix_functional_parent(n_prefix, core))
+        names.extend(_ring_carboxamide_parent_names(mol, Chem, carbonyl_idx, nitrogen_idx, acyl_idx, n_prefix))
     return names
+
+
+def _ring_carboxamide_parent_names(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    acyl_idx: int,
+    n_prefix: str,
+) -> list[str]:
+    if not mol.GetAtomWithIdx(acyl_idx).IsInRing():
+        return []
+    names = []
+    for ring in mol.GetRingInfo().AtomRings():
+        if acyl_idx not in ring or _ring_is_fused_to_another_ring(mol, ring):
+            continue
+        ordered = ordered_ring(mol, ring)
+        if not ordered:
+            continue
+        candidates = _merge_ring_parent_candidates(
+            _ring_parent_candidates(mol, ordered),
+            _resource_ring_parent_candidates(mol, ordered, Chem),
+        )
+        for parent_name, seq in candidates:
+            name = _ring_carboxamide_parent_name(
+                mol,
+                parent_name,
+                seq,
+                carbonyl_idx,
+                nitrogen_idx,
+                acyl_idx,
+                n_prefix,
+            )
+            if name:
+                names.append(name)
+    return names
+
+
+def _ring_is_fused_to_another_ring(mol, ring: Sequence[int]) -> bool:
+    ring_set = set(ring)
+    for other in mol.GetRingInfo().AtomRings():
+        other_set = set(other)
+        if other_set != ring_set and ring_set & other_set:
+            return True
+    return False
+
+
+def _ring_carboxamide_parent_name(
+    mol,
+    parent_name: str,
+    seq: Sequence[int],
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    acyl_idx: int,
+    n_prefix: str,
+) -> str:
+    ring_set = set(seq)
+    raw_subs = []
+    for ring_idx in seq:
+        atom = mol.GetAtomWithIdx(ring_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nidx == carbonyl_idx:
+                continue
+            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
+            if not prefix:
+                return ""
+            raw_subs.append((ring_idx, prefix))
+    adjusted_parent = _adjust_ring_parent_for_charge(mol, parent_name, seq, raw_subs)
+    if not adjusted_parent:
+        return ""
+    adjusted_parent = _append_ring_parent_isotope_suffixes(mol, adjusted_parent, seq)
+    adjusted_parent = _ring_lambda_parent_name(mol, adjusted_parent, seq)
+    adjusted_parent = _opsin_parseable_retained_parent_name(adjusted_parent)
+    pos = {idx: locant for locant, idx in enumerate(seq, start=1)}
+    suffix_locant = str(pos.get(acyl_idx, ""))
+    if not suffix_locant:
+        return ""
+    prefixes = [
+        (_single_ring_substituent_locant(adjusted_parent, pos[idx]), prefix)
+        for idx, prefix in raw_subs
+    ]
+    prefix_text = _format_prefixes(prefixes)
+    if prefixes and not prefix_text:
+        return ""
+    core = _ring_carboxamide_core(adjusted_parent, suffix_locant)
+    if not core:
+        return ""
+    core = _join_n_prefix_functional_parent(n_prefix, core)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+
+
+def _ring_carboxamide_core(parent_name: str, suffix_locant: str) -> str:
+    if parent_name == "benzene" and suffix_locant == "1":
+        return "benzamide"
+    return f"{parent_name}-{suffix_locant}-carboxamide"
+
+
+def _ring_lambda_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
+    if "lambda" in parent_name:
+        return parent_name
+    lambda_parts = []
+    ring_set = set(seq)
+    for locant, atom_idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0:
+            continue
+        valence = int(atom.GetTotalValence())
+        if valence <= 2 or valence not in {4, 6}:
+            continue
+        if any(
+            nbr.GetIdx() not in ring_set
+            and nbr.GetSymbol() == "O"
+            and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondTypeAsDouble() == 2.0
+            for nbr in atom.GetNeighbors()
+        ):
+            continue
+        lambda_parts.append(f"{locant}lambda{valence}")
+    if not lambda_parts:
+        return parent_name
+    return ",".join(lambda_parts) + f"-{parent_name}"
 
 
 def _beta_dicarbonyl_parent_names(mol, Chem) -> list[str]:
@@ -5931,6 +6110,49 @@ def _sulfonamide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     return motifs
 
 
+def _sulfonimidamide_motifs(mol, Chem) -> list[dict]:
+    motifs = []
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
+            continue
+        sidx = sulfur.GetIdx()
+        double_o = []
+        double_n = []
+        single_n = []
+        single_substituent = []
+        ok = True
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sidx, nidx)
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_o.append(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_n.append(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_n.append(nidx)
+            elif bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+                single_substituent.append(nidx)
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(double_o) != 1 or len(double_n) != 1 or len(single_n) != 1:
+            continue
+        if len(single_substituent) > 1:
+            continue
+        motifs.append(
+            {
+                "sulfur": sidx,
+                "s_substituent": single_substituent[0] if single_substituent else None,
+                "amide_nitrogen": single_n[0],
+                "imino_nitrogen": double_n[0],
+            }
+        )
+    return motifs
+
+
 def _single_external_substituent_name(mol, atom_idx: int, blocked_idx: int) -> str:
     substituents = _external_substituent_names(mol, atom_idx, blocked_idx)
     if substituents is None or len(substituents) != 1:
@@ -5996,6 +6218,30 @@ def _urea_n_substituent_prefix(left: Sequence[str], right: Sequence[str]) -> str
     return None
 
 
+def _sulfonimidamide_n_substituent_prefix(left: Sequence[str], right: Sequence[str]) -> str | None:
+    left = tuple(_retained_parent_substituent_alias(name) for name in left)
+    right = tuple(_retained_parent_substituent_alias(name) for name in right)
+    if len(left) > 2 or len(right) > 1:
+        return None
+    if not left and not right:
+        return ""
+    if not all(_allowed_sulfonimidamide_substituent(name) for name in (*left, *right)):
+        return None
+    if len(left) == 2 and not right:
+        return _same_atom_urea_prefix("N", left)
+    if len(left) == 1 and not right:
+        return _n_substituent_piece("N", left[0])
+    if len(right) == 1 and not left:
+        return _n_substituent_piece("N'", right[0])
+    if len(left) == 1 and len(right) == 1:
+        if left[0] == right[0]:
+            return _duplicate_n_substituent_piece("N,N'", left[0])
+        first_piece = _n_substituent_piece("N", left[0])
+        second_piece = _n_substituent_piece("N'", right[0])
+        return f"{first_piece}-{second_piece}"
+    return None
+
+
 def _same_atom_urea_prefix(locant: str, substituents: Sequence[str]) -> str | None:
     counts = Counter(substituents)
     if len(counts) == 1:
@@ -6047,6 +6293,31 @@ def _allowed_n_retained_parent_substituent(name: str) -> bool:
             "oxetan",
         )
     )
+
+
+def _allowed_sulfonimidamide_substituent(name: str) -> bool:
+    if _allowed_n_retained_parent_substituent(name):
+        return True
+    if name in {
+        "pentyl",
+        "amyl",
+        "hexyl",
+        "heptyl",
+        "octyl",
+        "nonyl",
+        "decyl",
+        "dodecyl",
+    }:
+        return True
+    if "carbamoyl" not in name:
+        return False
+    if len(name) > 180:
+        return False
+    if " " in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "urea")):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,().'\-\[\]\^]+", name))
 
 
 def _n_substituent_piece(locant: str, name: str) -> str:
@@ -6130,6 +6401,65 @@ def _sulfonamide_base_name(mol, sulfur_idx: int, substituent_idx: int) -> str:
     if substituent.endswith("phenyl"):
         return substituent[: -len("phenyl")] + "benzenesulfonamid"
     return ""
+
+
+def _sulfonimidamide_base_name(mol, sulfur_idx: int, substituent_idx: int | None) -> str:
+    if substituent_idx is None:
+        return "sulfonimidamide"
+    substituent = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
+    if not substituent:
+        return ""
+    simple_alkyl = {
+        "methyl": "methanesulfonimidamide",
+        "ethyl": "ethanesulfonimidamide",
+        "propyl": "propane-1-sulfonimidamide",
+        "butyl": "butane-1-sulfonimidamide",
+        "pentyl": "pentane-1-sulfonimidamide",
+        "amyl": "pentane-1-sulfonimidamide",
+        "hexyl": "hexane-1-sulfonimidamide",
+        "heptyl": "heptane-1-sulfonimidamide",
+        "octyl": "octane-1-sulfonimidamide",
+        "nonyl": "nonane-1-sulfonimidamide",
+        "decyl": "decane-1-sulfonimidamide",
+        "isopropyl": "propane-2-sulfonimidamide",
+        "t-butyl": "2-methylpropane-2-sulfonimidamide",
+        "tert-butyl": "2-methylpropane-2-sulfonimidamide",
+    }.get(substituent)
+    if simple_alkyl:
+        return simple_alkyl
+    if substituent == "phenyl":
+        return "benzenesulfonimidamide"
+    if substituent in {"o-tolyl", "m-tolyl", "p-tolyl"}:
+        return substituent[0] + "-toluenesulfonimidamide"
+    if substituent.endswith("phenyl"):
+        return substituent[: -len("phenyl")] + "benzenesulfonimidamide"
+    heteroaryl = _heteroaryl_sulfonimidamide_base_name(substituent)
+    if heteroaryl:
+        return heteroaryl
+    return ""
+
+
+def _heteroaryl_sulfonimidamide_base_name(substituent: str) -> str:
+    simple = re.fullmatch(r"(?:(?P<prefix>.+)-)?(?P<loc>\d+)-(?:thienyl|thiophenyl)", substituent)
+    if simple:
+        prefix = (simple.group("prefix") or "").replace("dichloro", "dichloro")
+        stem = (prefix + "thiophene") if prefix else "thiophene"
+        return f"{stem}-{simple.group('loc')}-sulfonimidamide"
+    furyl = re.fullmatch(r"(?:(?P<prefix>.+)-)?(?P<loc>\d+)-furyl", substituent)
+    if furyl:
+        prefix = furyl.group("prefix") or ""
+        stem = (prefix + "furan") if prefix else "furan"
+        return f"{stem}-{furyl.group('loc')}-sulfonimidamide"
+    match = re.fullmatch(
+        r"(?P<stem>.+(?:pyridin|pyrimidin|pyridazin|pyrazin|pyrazol|imidazol|triazol|thiazol|oxazol))-(?P<loc>\d+)-yl",
+        substituent,
+    )
+    if not match:
+        return ""
+    stem = match.group("stem")
+    if stem.endswith(("pyridin", "pyrimidin", "pyridazin", "pyrazin", "pyrazol", "imidazol", "triazol", "thiazol", "oxazol")):
+        stem += "e"
+    return f"{stem}-{match.group('loc')}-sulfonimidamide"
 
 
 class BiphenylParentRule:
@@ -8970,8 +9300,8 @@ class NaturalProductTopologyParentRule(FusedParentRule):
             named = _name_natural_product_topology_match(mol, self._Chem, template, match)
             if not named:
                 continue
-            name, stereo_prefix = named
-            key = (name, stereo_prefix)
+            name, _stereo_prefix = named
+            key = (name, tuple(match))
             if key in seen:
                 continue
             seen.add(key)
@@ -8980,7 +9310,13 @@ class NaturalProductTopologyParentRule(FusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=self._candidate_sort_key(template, match, name),
-                stereo_prefix=stereo_prefix,
+                parent_atoms=frozenset(match),
+                stereo_locants=_template_match_stereo_locants(template, match),
+                template_id=id(template),
+                template_name=template_record_name(template),
+                source_family=str(template.get("source_family", "")),
+                source_file=str(template.get("source_file", "")),
+                estimated_length=len(name),
             )
 
 
@@ -9764,6 +10100,7 @@ def parent_rules(Chem) -> tuple:
     carbamate = CarbamateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
     n_substituted_sulfonamide = SulfonamideParentRule(Chem)
+    sulfonimidamide = SulfonimidamideParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
     glutarimide = GlutarimideRetainedParentRule(Chem)
     amino_acid = AminoAcidRetainedParentRule(Chem)
@@ -9922,6 +10259,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
         RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), n_substituted_sulfonamide.candidates),
+        RuleSpec("sulfonimidamide-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonimidamide.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
         RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),
         RuleSpec("amino-acid-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), amino_acid.candidates),
@@ -10024,7 +10362,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "component-spiro-parent",
             parent_priority("component-spiro-parent"),
-            (min_ring_system_ring_count(3),),
+            (min_ring_system_ring_count(3), component_spiro_topology),
             component_spiro.candidates,
         ),
         RuleSpec(
@@ -10131,7 +10469,10 @@ from .parent.rule_helpers import (
     _drop_indicated_hydrogen_prefix,
     _drop_indicated_hydrogen_segments,
     _adjust_fused_parent_for_indicated_hydrogen,
+    _append_ring_parent_isotope_suffixes,
+    _merge_ring_parent_candidates,
     _named_ring_instance_names,
+    _single_ring_substituent_locant,
     _single_ring_stereo_prefix,
     _polycyclic_stereo_prefix,
     _single_ring_oxo_suffix_name,

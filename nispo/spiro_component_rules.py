@@ -244,17 +244,35 @@ def _component_dispiro_candidates_for_blocks(
                 locants.update(left.locants)
                 locants.update({idx: _prime_locant(locant) for idx, locant in center.locants.items()})
                 locants.update({idx: _double_prime_locant(locant) for idx, locant in right.locants.items()})
-                substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
+                covered_external_atoms = (
+                    set(left.covered_external_atoms)
+                    | set(center.covered_external_atoms)
+                    | set(right.covered_external_atoms)
+                )
+                substituent_prefixes = _external_substituent_prefixes(
+                    ctx.mol,
+                    ring_system_atoms,
+                    locants,
+                    covered_external_atoms=covered_external_atoms,
+                )
                 if substituent_prefixes is None:
                     continue
+                component_prefixes = []
                 replacement_prefixes = []
-                replacement_prefixes.extend(left.replacement_prefixes)
-                replacement_prefixes.extend(
-                    (_prime_locant(locant), prefix) for locant, prefix in center.replacement_prefixes
+                _extend_component_prefix_groups(component_prefixes, replacement_prefixes, left.replacement_prefixes)
+                _extend_component_prefix_groups(
+                    component_prefixes,
+                    replacement_prefixes,
+                    center.replacement_prefixes,
+                    locant_transform=_prime_locant,
                 )
-                replacement_prefixes.extend(
-                    (_double_prime_locant(locant), prefix) for locant, prefix in right.replacement_prefixes
+                _extend_component_prefix_groups(
+                    component_prefixes,
+                    replacement_prefixes,
+                    right.replacement_prefixes,
+                    locant_transform=_double_prime_locant,
                 )
+                substituent_prefixes.extend(component_prefixes)
                 prefix_text = _component_spiro_prefix_text(substituent_prefixes, replacement_prefixes)
                 dispiro_name = (
                     "dispiro["
@@ -296,7 +314,10 @@ def _mapped_component_names(
     if component_cache is not None and cache_key in component_cache:
         return component_cache[cache_key]
     Chem = ctx.Chem
-    submol_data = _submol_for_atoms(ctx.mol, Chem, atoms)
+    component_atoms = set(atoms)
+    expanded_atoms = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, component_atoms)
+    covered_external_atoms = frozenset(expanded_atoms - component_atoms)
+    submol_data = _submol_for_atoms(ctx.mol, Chem, expanded_atoms)
     if submol_data is None:
         return []
     submol, sub_to_parent, parent_to_sub = submol_data
@@ -332,6 +353,7 @@ def _mapped_component_names(
                 locants=locants,
                 replacement_prefixes=component.replacement_prefixes,
                 component_rank=component.component_rank,
+                covered_external_atoms=covered_external_atoms,
             )
         )
     components.sort(
@@ -378,8 +400,10 @@ def _component_spiro_candidates_for_split(
     component_cache: dict[tuple, list[_Component]] | None = None,
 ) -> list[NameCandidate]:
     Chem = ctx.Chem
-    simple = _submol_for_atoms(ctx.mol, Chem, simple_atoms)
-    poly = _submol_for_atoms(ctx.mol, Chem, poly_atoms)
+    simple_expanded = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, simple_atoms)
+    poly_expanded = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, poly_atoms)
+    simple = _submol_for_atoms(ctx.mol, Chem, simple_expanded)
+    poly = _submol_for_atoms(ctx.mol, Chem, poly_expanded)
     if simple is None or poly is None:
         return []
     simple_mol, simple_to_parent, simple_to_sub = simple
@@ -387,8 +411,8 @@ def _component_spiro_candidates_for_split(
     simple_spiro = simple_to_sub[spiro_idx]
     poly_spiro = poly_to_sub[spiro_idx]
 
-    simple_key = ("simple", tuple(sorted(simple_atoms)), spiro_idx)
-    poly_key = ("poly", tuple(sorted(poly_atoms)), spiro_idx)
+    simple_key = ("simple", tuple(sorted(simple_expanded)), spiro_idx)
+    poly_key = ("poly", tuple(sorted(poly_expanded)), spiro_idx)
     if component_cache is not None and simple_key in component_cache:
         simple_components = component_cache[simple_key]
     else:
@@ -407,14 +431,26 @@ def _component_spiro_candidates_for_split(
     candidates: list[NameCandidate] = []
     for simple_component in simple_components[:4]:
         for poly_component in poly_components[:12]:
-            parent_prefixes = list(simple_component.replacement_prefixes) + [
-                (_prime_locant(locant), prefix)
-                for locant, prefix in poly_component.replacement_prefixes
-            ]
+            component_prefixes = []
+            parent_prefixes = []
+            _extend_component_prefix_groups(component_prefixes, parent_prefixes, simple_component.replacement_prefixes)
+            _extend_component_prefix_groups(
+                component_prefixes,
+                parent_prefixes,
+                poly_component.replacement_prefixes,
+                locant_transform=_prime_locant,
+            )
             locants = _combined_locants(simple_component, simple_to_parent, poly_component, poly_to_parent)
-            substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
+            covered_external_atoms = (simple_expanded | poly_expanded) - ring_system_atoms
+            substituent_prefixes = _external_substituent_prefixes(
+                ctx.mol,
+                ring_system_atoms,
+                locants,
+                covered_external_atoms=covered_external_atoms,
+            )
             if substituent_prefixes is None:
                 continue
+            substituent_prefixes.extend(component_prefixes)
             prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
             spiro_name = (
                 "spiro["
@@ -456,8 +492,10 @@ def _poly_component_spiro_candidates_for_split(
     """Compose spiro names where both sides are named ring components."""
 
     Chem = ctx.Chem
-    left = _submol_for_atoms(ctx.mol, Chem, left_atoms)
-    right = _submol_for_atoms(ctx.mol, Chem, right_atoms)
+    left_expanded = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, left_atoms)
+    right_expanded = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, right_atoms)
+    left = _submol_for_atoms(ctx.mol, Chem, left_expanded)
+    right = _submol_for_atoms(ctx.mol, Chem, right_expanded)
     if left is None or right is None:
         return []
     left_mol, left_to_parent, left_to_sub = left
@@ -465,8 +503,8 @@ def _poly_component_spiro_candidates_for_split(
     left_spiro = left_to_sub[spiro_idx]
     right_spiro = right_to_sub[spiro_idx]
 
-    left_key = ("poly", tuple(sorted(left_atoms)), spiro_idx)
-    right_key = ("poly", tuple(sorted(right_atoms)), spiro_idx)
+    left_key = ("poly", tuple(sorted(left_expanded)), spiro_idx)
+    right_key = ("poly", tuple(sorted(right_expanded)), spiro_idx)
     if component_cache is not None and left_key in component_cache:
         left_components = component_cache[left_key]
     else:
@@ -485,14 +523,26 @@ def _poly_component_spiro_candidates_for_split(
     candidates: list[NameCandidate] = []
     for left_component in left_components[:12]:
         for right_component in right_components[:12]:
-            parent_prefixes = list(left_component.replacement_prefixes) + [
-                (_prime_locant(locant), prefix)
-                for locant, prefix in right_component.replacement_prefixes
-            ]
+            component_prefixes = []
+            parent_prefixes = []
+            _extend_component_prefix_groups(component_prefixes, parent_prefixes, left_component.replacement_prefixes)
+            _extend_component_prefix_groups(
+                component_prefixes,
+                parent_prefixes,
+                right_component.replacement_prefixes,
+                locant_transform=_prime_locant,
+            )
             locants = _combined_locants(left_component, left_to_parent, right_component, right_to_parent)
-            substituent_prefixes = _external_substituent_prefixes(ctx.mol, ring_system_atoms, locants)
+            covered_external_atoms = (left_expanded | right_expanded) - ring_system_atoms
+            substituent_prefixes = _external_substituent_prefixes(
+                ctx.mol,
+                ring_system_atoms,
+                locants,
+                covered_external_atoms=covered_external_atoms,
+            )
             if substituent_prefixes is None:
                 continue
+            substituent_prefixes.extend(component_prefixes)
             prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
             spiro_name = (
                 "spiro["
@@ -520,6 +570,25 @@ def _poly_component_spiro_candidates_for_split(
                 )
             )
     return candidates
+
+
+def _extend_component_prefix_groups(
+    component_prefixes: list[tuple[str, str]],
+    replacement_prefixes: list[tuple[str, str]],
+    prefixes: Sequence[tuple[str, str]],
+    *,
+    locant_transform=lambda locant: locant,
+) -> None:
+    for locant, prefix in prefixes:
+        item = (locant_transform(locant), prefix)
+        if _is_component_suffix_like_prefix(prefix):
+            component_prefixes.append(item)
+        else:
+            replacement_prefixes.append(item)
+
+
+def _is_component_suffix_like_prefix(prefix: str) -> bool:
+    return prefix in {"oxo", "thioxo", "imino"}
 
 
 def _component_spiro_prefix_text(
@@ -578,12 +647,14 @@ class _Component:
         locants: dict[int, str],
         replacement_prefixes: tuple[tuple[str, str], ...] = (),
         component_rank: int = 0,
+        covered_external_atoms: frozenset[int] = frozenset(),
     ) -> None:
         self.parent_name = parent_name
         self.spiro_locant = spiro_locant
         self.locants = locants
         self.replacement_prefixes = replacement_prefixes
         self.component_rank = component_rank
+        self.covered_external_atoms = covered_external_atoms
 
 
 def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
@@ -783,10 +854,11 @@ def _fused_component_parent_rank(name: str) -> tuple:
 def _strip_leading_replacement_prefixes(name: str) -> tuple[str, list[tuple[str, str]]]:
     prefixes: list[tuple[str, str]] = []
     rest = name.lstrip("-")
+    prefix_terms = "|".join((*_REPLACEMENT_TERMS, "oxo", "thioxo", "imino"))
     while True:
         rest = rest.lstrip("-")
         match = re.match(
-            rf"^(\d+(?:,\d+)*-)(?:di|tri|tetra|penta|hexa)?({'|'.join(_REPLACEMENT_TERMS)})(.+)$",
+            rf"^(\d+(?:,\d+)*-)(?:di|tri|tetra|penta|hexa)?({prefix_terms})(.+)$",
             rest,
         )
         if match is None:
@@ -805,6 +877,8 @@ def _external_substituent_prefixes(
     mol,
     core_atoms: set[int],
     locants: dict[int, str],
+    *,
+    covered_external_atoms: set[int] | frozenset[int] = frozenset(),
 ) -> list[tuple[str, str]] | None:
     prefixes = []
     for atom_idx in sorted(core_atoms):
@@ -812,6 +886,8 @@ def _external_substituent_prefixes(
         for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx in core_atoms:
+                continue
+            if nidx in covered_external_atoms:
                 continue
             if not locant:
                 return None
@@ -858,6 +934,24 @@ def _submol_for_atoms(mol, Chem, atoms: set[int]):
         return None
     sub_to_parent = {sub_idx: parent_idx for parent_idx, sub_idx in parent_to_sub.items()}
     return submol, sub_to_parent, parent_to_sub
+
+
+def _component_atoms_with_exocyclic_multiple_bond_atoms(mol, Chem, atoms: set[int]) -> set[int]:
+    expanded = set(atoms)
+    for atom_idx in tuple(atoms):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nbr_idx = nbr.GetIdx()
+            if nbr_idx in expanded:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr_idx)
+            if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+                continue
+            if nbr.GetSymbol() in {"O", "S", "N"}:
+                if sum(1 for next_nbr in nbr.GetNeighbors() if next_nbr.GetAtomicNum() > 1) != 1:
+                    continue
+                expanded.add(nbr_idx)
+    return expanded
 
 
 def _components_without_atom(graph: dict[int, set[int]], atom_idx: int) -> list[set[int]]:

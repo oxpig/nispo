@@ -107,6 +107,10 @@ def spiro_topology(ctx) -> bool:
     return ctx.has_spiro_topology
 
 
+def component_spiro_topology(ctx) -> bool:
+    return ctx.has_component_spiro_topology
+
+
 def no_exocyclic_charged_fused_parent(ctx) -> bool:
     return not _has_charged_fused_thioxo_imino_system(ctx)
 

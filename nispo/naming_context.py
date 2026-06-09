@@ -158,9 +158,25 @@ class MoleculeContext:
         cached = self.cache.topology_flags.get("spiro")
         if cached is not None:
             return cached
+        cached = self._has_spiro_ring_pair(max_cycle_rank=3)
+        self.cache.topology_flags["spiro"] = cached
+        return cached
+
+    @property
+    def has_component_spiro_topology(self) -> bool:
+        cached = self.cache.topology_flags.get("component_spiro")
+        if cached is not None:
+            return cached
+        cached = self._has_spiro_ring_pair()
+        self.cache.topology_flags["component_spiro"] = cached
+        return cached
+
+    def _has_spiro_ring_pair(self, *, max_cycle_rank: int | None = None) -> bool:
         rings = tuple(frozenset(ring) for ring in self.mol.GetRingInfo().AtomRings())
         for topology in self.ring_topologies:
-            if topology.cycle_rank not in {2, 3}:
+            if topology.cycle_rank < 2:
+                continue
+            if max_cycle_rank is not None and topology.cycle_rank > max_cycle_rank:
                 continue
             system_rings = [ring for ring in rings if ring <= topology.atoms]
             if any(
@@ -168,9 +184,7 @@ class MoleculeContext:
                 for idx, left in enumerate(system_rings)
                 for right in system_rings[idx + 1 :]
             ):
-                self.cache.topology_flags["spiro"] = True
                 return True
-        self.cache.topology_flags["spiro"] = False
         return False
 
     def substruct_matches(self, query, *, use_chirality: bool = False) -> tuple[tuple[int, ...], ...]:

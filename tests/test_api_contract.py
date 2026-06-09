@@ -448,6 +448,24 @@ def test_cyclic_anhydride_topology_replacements_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "FC(F)(F)[SiH](C(F)(F)F)C(F)(F)F",
+        "CCCOC[Si](CCC)(CCC)COCCC",
+        "CC(C)[Si](CCl)(CCl)C(C)C",
+        "CCCCC(=C[SiH3])CCCC",
+        "C=CC[SiH](F)Cl",
+    ],
+)
+def test_group14_hetero_ligand_candidates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCn1c(=NN=c2sc3cc(S(=O)(=O)O)ccc3n2CC)sc2cc(S(=O)(=O)O)ccc21",
         "CCn1c(=NN=c2sc3cc(S(=O)(=O)[O-])ccc3n2CC)sc2cc(S(=O)(=O)[O-])ccc21",
         "CCn1c(=NN=c2sc3ccccc3n2CC)sc2ccccc21",

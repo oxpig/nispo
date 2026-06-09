@@ -9,6 +9,7 @@ from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
     HydrogenEvidence,
+    OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     PrefixCandidate,
     StereoEvidence,
     SuffixCandidate,
@@ -1012,6 +1013,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         name,
         item.candidate,
     )
+    fragile_group14_hetero_ligand = _has_fragile_group14_hetero_carbon_ligand(item.candidate)
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
@@ -1061,6 +1063,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_short_fusion_orientation
         or fragile_purine_tautomer_alias
         or fragile_terminal_azabicyclo_benzimidazole
+        or fragile_group14_hetero_ligand
         or generic_spiro_parent
         or retained_shortcut
         or retained_ester_shortcut
@@ -1220,6 +1223,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     ):
         penalty += 125
+    if fragile_group14_hetero_ligand and _has_contextual_group14_systematic_alternative(item, prepared):
+        penalty += 140
     if generic_spiro_parent and _has_contextual_spiro_functional_chain_alternative(item, prepared):
         penalty += 125
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
@@ -1685,6 +1690,34 @@ def _has_contextual_systematic_parent_alternative(
     return False
 
 
+def _has_contextual_group14_systematic_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family != "group14-hydride-parent":
+        return False
+    systematic_families = {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "kekulized-generic-polycyclic-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+        "spiro-functional-chain-substituent",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family not in systematic_families:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 180:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_oxafluoren_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -2138,6 +2171,12 @@ def _has_fragile_terminal_azabicyclo_benzimidazole_parent(name: str, candidate: 
             and "azabicyclo[2.2.1]heptane-2-ylcarbonyl" in name
         )
     return False
+
+
+def _has_fragile_group14_hetero_carbon_ligand(candidate: NameCandidate) -> bool:
+    if candidate.family != "group14-hydride-parent":
+        return False
+    return OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND in candidate_safety_reasons(candidate)
 
 
 def _has_contextual_integrated_benzimidazole_carboxamide_alternative(

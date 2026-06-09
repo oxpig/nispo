@@ -7,6 +7,7 @@ from dataclasses import dataclass
 GRAPH_INCOMPLETE = "graph_incomplete"
 OPSIN_FRAGILE_BENZIMIDAZOLE_ORIENTATION = "opsin_fragile_benzimidazole_orientation"
 OPSIN_FRAGILE_BENZOANTHRACENE = "opsin_fragile_benzoanthracene"
+OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND = "opsin_fragile_group14_hetero_carbon_ligand"
 UNSUPPORTED_CHARGE_STATE = "unsupported_charge_state"
 UNSUPPORTED_H_STATE = "unsupported_h_state"
 UNSUPPORTED_STEREO = "unsupported_stereo"

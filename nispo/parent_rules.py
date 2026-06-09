@@ -11,6 +11,7 @@ from functools import lru_cache
 from .branch_rules import branch_prefix
 from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
+from .candidate_facts import CandidateSafety, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
@@ -956,7 +957,12 @@ class Group14HydrideParentRule:
         else:
             name = _group14_hydride_name(carbon_names, parent)
         if name:
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            safety = None
+            if _group14_carbon_ligands_contain_heteroatoms(mol, cidx, carbon_neighbor_indices):
+                safety = CandidateSafety(
+                    opsin_fragility_reasons=(OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,)
+                )
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name), safety=safety)
 
 
 def _should_defer_group14_hydride_to_polycycle(ctx, carbon_names: Sequence[str]) -> bool:
@@ -979,6 +985,43 @@ def _should_defer_group14_hydride_to_polycycle(ctx, carbon_names: Sequence[str])
             "phosphabicyclo[",
         )
     )
+
+
+def _group14_carbon_ligands_contain_heteroatoms(mol, center_idx: int, carbon_neighbor_indices: Sequence[int]) -> bool:
+    for start_idx in carbon_neighbor_indices:
+        stack = [start_idx]
+        seen = {center_idx}
+        ligand_atoms: set[int] = set()
+        contains_heteroatom = False
+        contains_carbon_bound_halogen = False
+        contains_nitrile = False
+        all_ligand_bonds_single = True
+        while stack:
+            atom_idx = stack.pop()
+            if atom_idx in seen:
+                continue
+            seen.add(atom_idx)
+            ligand_atoms.add(atom_idx)
+            atom = mol.GetAtomWithIdx(atom_idx)
+            if atom.GetSymbol() != "C":
+                contains_heteroatom = True
+                if atom.GetSymbol() in HALO:
+                    contains_carbon_bound_halogen = True
+            for neighbor in atom.GetNeighbors():
+                neighbor_idx = neighbor.GetIdx()
+                bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+                if neighbor_idx != center_idx and bond is not None and bond.GetBondTypeAsDouble() > 1.0:
+                    all_ligand_bonds_single = False
+                if atom.GetSymbol() == "C" and neighbor.GetSymbol() == "N" and bond is not None:
+                    if bond.GetBondTypeAsDouble() == 3.0:
+                        contains_nitrile = True
+                if neighbor_idx not in seen:
+                    stack.append(neighbor_idx)
+        if contains_carbon_bound_halogen or contains_nitrile:
+            return True
+        if contains_heteroatom and all_ligand_bonds_single and ligand_atoms:
+            return True
+    return False
 
 
 def _has_organophosphorus_oxide_center(mol, Chem) -> bool:

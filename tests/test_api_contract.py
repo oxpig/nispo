@@ -464,6 +464,28 @@ def test_biphenyl_diphosphonite_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     ("input_smiles", "retained_fragment"),
     [
+        ("COP([O-])[O-]", "methyl phosphite"),
+        ("COP(O)[O-]", "methyl hydrogen phosphite"),
+        ("COP(O)O", "methyl dihydrogen phosphite"),
+        ("c1ccccc1OP([O-])[O-]", "phenyl phosphite"),
+        ("CC(C)(C)c1ccc(OP([O-])[O-])c(C(C)(C)C)c1", "phosphite"),
+    ],
+)
+def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert retained_fragment in generated_name
+    assert "phosphamethyl" not in generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
+        ("P(=S)([O-])([O-])[O-]", "thiophosphate"),
+        ("OP(O)(O)=S", "thiophosphoric acid"),
+        ("NP([O-])([O-])=S", "thiophosphoramidate"),
         ("COP([O-])([O-])=S", "thiophosphate"),
         ("COP(=S)(OC)OC", "thiophosphate"),
         ("CCO[PH]([O-])=S", "thiophosphonate"),
@@ -531,6 +553,9 @@ def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles, ret
         ("N=S(=O)(F)Cl", "chloro(fluoro)sulfoximine"),
         ("N=S(=O)([O-])[O-]", "sulfurimidate"),
         ("N#CN=S(=O)=O", "N-sulfonylcyanamide"),
+        ("C[SH](=N)=O", "methylsulfoximine"),
+        ("CC[SH](=N)=O", "ethylsulfoximine"),
+        ("N=[SH](=O)c1ccccc1", "phenylsulfoximine"),
     ],
 )
 def test_small_sulfur_imide_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):

@@ -317,6 +317,7 @@ def _small_sulfur_imide_name(mol, Chem) -> str:
     double_oxygen = 0
     terminal_oxido = 0
     sulfur_halos = []
+    owner_names = []
     covered = {sidx}
     for nbr in sulfur.GetNeighbors():
         nidx = nbr.GetIdx()
@@ -335,6 +336,12 @@ def _small_sulfur_imide_name(mol, Chem) -> str:
         elif nbr.GetSymbol() in HALO and bond.GetBondType() == Chem.BondType.SINGLE:
             sulfur_halos.append(nbr.GetSymbol())
             covered.add(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            owner = _simple_or_branch_prefix(mol, nidx, sidx)
+            if not owner or _unstable_retained_functional_parent_substituent(owner):
+                return ""
+            owner_names.append(owner)
+            covered.update(_collect_component_atoms(mol, nidx, sidx))
         else:
             return ""
     if imino_nitrogen is None:
@@ -353,6 +360,7 @@ def _small_sulfur_imide_name(mol, Chem) -> str:
         double_oxygen=double_oxygen,
         terminal_oxido=terminal_oxido,
         sulfur_halos=tuple(sorted(sulfur_halos)),
+        owner_names=tuple(owner_names),
         imino_halo_count=len(imino_halos),
         imino_cyano=bool(imino_cyano_atoms),
     )
@@ -393,9 +401,23 @@ def _small_sulfur_imide_record_name(
     double_oxygen: int,
     terminal_oxido: int,
     sulfur_halos: tuple[str, ...],
+    owner_names: tuple[str, ...],
     imino_halo_count: int,
     imino_cyano: bool,
 ) -> str:
+    if owner_names:
+        if (
+            len(owner_names) == 1
+            and sulfur_hydrogens == 1
+            and imino_charge == 0
+            and double_oxygen == 1
+            and terminal_oxido == 0
+            and not sulfur_halos
+            and imino_halo_count == 0
+            and not imino_cyano
+        ):
+            return _small_sulfur_imide_owner_name(owner_names[0], "sulfoximine")
+        return ""
     if imino_cyano:
         if double_oxygen == 2 and terminal_oxido == 0 and not sulfur_halos and imino_halo_count == 0:
             return "N-sulfonylcyanamide"
@@ -451,6 +473,12 @@ def _small_sulfur_imide_dihalo_name(halos: tuple[str, ...], parent: str) -> str:
         halo = HALO[symbol]
         parts.append(halo if not parts else f"({halo})")
     return "".join(parts) + parent
+
+
+def _small_sulfur_imide_owner_name(owner: str, parent: str) -> str:
+    if _simple_unparenthesized_n_substituent(owner):
+        return owner + parent
+    return f"({_strip_outer_parentheses(owner)}){parent}"
 
 
 class SulfaniumParentRule:
@@ -2639,6 +2667,7 @@ def _phosphite_ester_names(mol, Chem) -> list[str]:
             continue
         pidx = phosphorus.GetIdx()
         terminal_anionic_oxygen = 0
+        terminal_hydroxy_oxygen = 0
         owner_names = []
         ok = True
         for nbr in phosphorus.GetNeighbors():
@@ -2651,6 +2680,9 @@ def _phosphite_ester_names(mol, Chem) -> list[str]:
             if not heavy and nbr.GetFormalCharge() < 0:
                 terminal_anionic_oxygen += 1
                 continue
+            if not heavy and nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                terminal_hydroxy_oxygen += 1
+                continue
             if len(heavy) != 1 or nbr.GetFormalCharge() != 0:
                 ok = False
                 break
@@ -2661,6 +2693,13 @@ def _phosphite_ester_names(mol, Chem) -> list[str]:
             owner_names.append(owner)
         if ok and terminal_anionic_oxygen == 1 and len(owner_names) == 2:
             names.append(_phosphite_ester_name(owner_names))
+        if (
+            ok
+            and len(owner_names) == 1
+            and terminal_anionic_oxygen + terminal_hydroxy_oxygen == 2
+            and terminal_anionic_oxygen in {0, 1, 2}
+        ):
+            names.append(_phosphite_monoester_name(owner_names[0], terminal_hydroxy_oxygen))
     return names
 
 
@@ -2671,6 +2710,13 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _phosphite_monoester_name(owner: str, hydroxy_count: int) -> str:
+    if hydroxy_count not in {0, 1, 2}:
+        return ""
+    hydrogen_text = {0: "", 1: "hydrogen", 2: "dihydrogen"}[hydroxy_count]
+    return " ".join(part for part in (_parenthesized_if_complex(owner), hydrogen_text, "phosphite") if part)
 
 
 def _thiooxo_ester_names(mol, Chem) -> list[str]:
@@ -2694,6 +2740,7 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
     double_oxygen = 0
     terminal_oxido = 0
     terminal_hydroxy = 0
+    terminal_amino = 0
     owner_names = []
     covered_atoms = {center_idx}
     for nbr in center.GetNeighbors():
@@ -2707,6 +2754,17 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
             continue
         if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
             double_oxygen += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != center_idx and atom.GetAtomicNum() > 1
+            ]
+            if heavy or nbr.GetFormalCharge() != 0:
+                return None
+            terminal_amino += 1
             covered_atoms.add(nidx)
             continue
         if nbr.GetSymbol() != "O" or bond.GetBondType() != Chem.BondType.SINGLE:
@@ -2740,6 +2798,7 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
         "double_oxygen": double_oxygen,
         "terminal_oxido": terminal_oxido,
         "terminal_hydroxy": terminal_hydroxy,
+        "terminal_amino": terminal_amino,
         "owner_names": tuple(owner_names),
         "covered_atoms": covered_atoms,
     }
@@ -2747,16 +2806,28 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
 
 def _thiooxo_ester_record_name(record: dict) -> str:
     owner_names = record["owner_names"]
-    if not owner_names or record["double_sulfur"] != 1:
+    if record["double_sulfur"] != 1:
         return ""
     center_symbol = record["center_symbol"]
     double_oxygen = record["double_oxygen"]
     terminal_oxido = record["terminal_oxido"]
     terminal_hydroxy = record["terminal_hydroxy"]
+    terminal_amino = record["terminal_amino"]
     center_hydrogens = record["center_hydrogens"]
     single_oxygen_count = len(owner_names) + terminal_oxido + terminal_hydroxy
     if center_symbol == "P":
         if double_oxygen != 0:
+            return ""
+        if not owner_names and center_hydrogens == 0:
+            if terminal_amino == 0:
+                if terminal_oxido == 3 and terminal_hydroxy == 0:
+                    return "thiophosphate"
+                if terminal_oxido == 0 and terminal_hydroxy == 3:
+                    return "thiophosphoric acid"
+            if terminal_amino == 1 and terminal_oxido == 2 and terminal_hydroxy == 0:
+                return "thiophosphoramidate"
+            return ""
+        if terminal_amino != 0:
             return ""
         if center_hydrogens == 0 and single_oxygen_count == 3:
             return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiophosphate")
@@ -2764,6 +2835,8 @@ def _thiooxo_ester_record_name(record: dict) -> str:
             return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiophosphonate")
         return ""
     if center_symbol != "S":
+        return ""
+    if terminal_amino != 0:
         return ""
     if double_oxygen == 0 and center_hydrogens == 1 and terminal_oxido == 0 and terminal_hydroxy == 0 and len(owner_names) == 1:
         return _thiooxo_ester_name(owner_names, 0, "thiosulfinate")

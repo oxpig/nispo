@@ -48,6 +48,7 @@ from .ring_substituents import (
     _difluoro_substituted_methyl_prefix,
     _iminomethyl_prefix,
     _ring_alkyl_prefix,
+    _ring_alkenyl_prefix,
     _ring_substituent_prefix,
     _ring_ethynyl_prefix,
     _sulfonamidomethyl_prefix,
@@ -180,6 +181,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
         if _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.DOUBLE):
+            name = _ring_alkenyl_prefix(mol, idx, parent_idx)
+            if name:
+                return _with_root_carbon_isotope(mol, idx, name)
             name = _dicyanoethenyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
@@ -397,6 +401,13 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if carboxymethyl:
         return carboxymethyl
     if attached.IsInRing():
+        attached_bond = mol.GetBondBetweenAtoms(idx, attached_idx)
+        if attached_bond is None:
+            return ""
+        if attached_bond.GetBondType() == Chem.BondType.DOUBLE:
+            return _ring_alkenyl_prefix(mol, idx, parent_idx)
+        if attached_bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
         ring = _ring_substituent_prefix(mol, attached_idx, idx)
         if not ring:
             return ""
@@ -1284,6 +1295,17 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
         hetero = _hetero_methylidene_prefix(mol, heavy[0], idx)
         if hetero:
             return hetero + "methylidene"
+        if heavy_atom.IsInRing():
+            ring = _ring_substituent_prefix(mol, heavy[0], idx)
+            if not ring:
+                return ""
+            if ring == "phenyl":
+                return "benzylidene"
+            if ring.endswith("phenyl"):
+                return ring[: -len("phenyl")] + "benzylidene"
+            if "-" in ring or ring[:1].isdigit() or ring.startswith("("):
+                return f"({ring})methylidene"
+            return ring + "methylidene"
         chain = _linear_carbon_chain(mol, heavy[0], idx, max_len=9)
         if not chain:
             return ""

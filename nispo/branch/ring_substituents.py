@@ -78,6 +78,8 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     ) or _fragment_named_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     )
+    if prefix:
+        prefix = _ring_substituent_unsaturated_suffix(mol, attachment_idx, parent_idx, prefix)
     cache[cache_key] = prefix
     return prefix
 
@@ -375,6 +377,46 @@ def _ring_ethynyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if not ring:
         return ""
     return ring + "ethynyl"
+
+
+def _ring_alkenyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    double_c = []
+    other = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            nbr.GetSymbol() == "C"
+            and nbr.GetFormalCharge() == 0
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            double_c.append(nidx)
+        else:
+            other.append(nidx)
+    if len(double_c) != 1 or other:
+        return ""
+    distal = double_c[0]
+    if not mol.GetAtomWithIdx(distal).IsInRing():
+        return ""
+    ring = _ring_substituent_prefix(mol, distal, idx)
+    if not ring:
+        return ""
+    if not ring.endswith("ylidene"):
+        if not ring.endswith("yl"):
+            return ""
+        ring += "idene"
+    if "-" in ring or ring[:1].isdigit() or ring.startswith("("):
+        return f"({ring})methyl"
+    return ring + "methyl"
 
 
 def _dicyanoethenyl_prefix(mol, idx: int, parent_idx: int) -> str:

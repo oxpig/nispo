@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .candidate_facts import PrefixCandidate
 from .branch.functional_groups import _formyl_prefix_allowed
+from .constants import HALO, MULT
 from .molecule_cache import mol_cache_dict, mol_cache_get
 from .simple_prefixes import simple_external_prefix_candidates
 
@@ -84,9 +85,15 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
     if symbol == "H":
         return _isotopic_hydrogen_prefix(atom, idx, parent_idx)
     if symbol == "B":
-        return _pinacol_boronate_prefix(mol, idx, parent_idx) or _borono_prefix(mol, idx, parent_idx)
+        return (
+            _pinacol_boronate_prefix(mol, idx, parent_idx)
+            or _borono_prefix(mol, idx, parent_idx)
+            or _dihaloboryl_prefix(mol, idx, parent_idx)
+        )
     if symbol == "O":
         return _tbdms_silanoxy_prefix(mol, idx, parent_idx)
+    if symbol == "P":
+        return _bis_oxidanidyl_phosphanyl_prefix(mol, idx, parent_idx)
     if atom.IsInRing():
         return _simple_ring_prefix(mol, idx, parent_idx)
     if symbol == "C":
@@ -702,6 +709,39 @@ def _borono_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     return _prefix_candidate("borono", {idx, *oxygens}, idx, parent_idx, "borono")
 
 
+def _dihaloboryl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0 or atom.GetIsotope() or atom.IsInRing():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    halogens = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            nbr.GetSymbol() in HALO
+            and nbr.GetFormalCharge() == 0
+            and not nbr.GetIsotope()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 1.0
+            and not any(other.GetIdx() != idx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+        ):
+            halogens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(halogens) != 2:
+        return None
+    symbols = [mol.GetAtomWithIdx(nidx).GetSymbol() for nidx in halogens]
+    if len(set(symbols)) != 1:
+        return None
+    text = MULT[2] + HALO[symbols[0]] + "boryl"
+    return _prefix_candidate(text, {idx, *halogens}, idx, parent_idx, "dihaloboryl")
+
+
 def _pinacol_boronate_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0 or atom.GetIsotope():
@@ -756,6 +796,41 @@ def _pinacol_boronate_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate 
         idx,
         parent_idx,
         "pinacol-boronate",
+    )
+
+
+def _bis_oxidanidyl_phosphanyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "P" or atom.GetFormalCharge() != 0 or atom.GetIsotope() or atom.IsInRing():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    oxidanidyl = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() < 0
+            and not nbr.GetIsotope()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 1.0
+            and not any(other.GetIdx() != idx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+        ):
+            oxidanidyl.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(oxidanidyl) != 2:
+        return None
+    return _prefix_candidate(
+        "bis(oxidanidyl)phosphanyl",
+        {idx, *oxidanidyl},
+        idx,
+        parent_idx,
+        "bis-oxidanidyl-phosphanyl",
     )
 
 

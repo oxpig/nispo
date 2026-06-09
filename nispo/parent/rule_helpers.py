@@ -1456,6 +1456,13 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
             else _single_ring_oxo_suffix_name(prefixes, adjusted_parent)
         )
+        sulfur_oxide_name = _single_ring_sulfur_oxide_suffix_name(mol, raw_subs, pos, prefixes, adjusted_parent)
+        if sulfur_oxide_name:
+            sulfur_oxide_key = (locants, -1, sulfur_oxide_name)
+            if best_key is None or sulfur_oxide_key < best_key:
+                best_key = sulfur_oxide_key
+                best_name = sulfur_oxide_name
+                best_seq = seq
         if suffix_name:
             suffix_key = (locants, 0, suffix_name)
             if best_key is None or suffix_key < best_key:
@@ -1991,6 +1998,51 @@ def _single_ring_oxo_suffix_name(prefixes: Sequence[tuple[str, str]], parent_nam
     suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
     name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _single_ring_sulfur_oxide_suffix_name(
+    mol,
+    raw_subs: Sequence[tuple[int, str]],
+    pos: dict[int, int],
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+) -> str:
+    sulfur_oxo_locs = []
+    sulfur_oxo_hydrogens = {}
+    for ring_idx, prefix in raw_subs:
+        if prefix != "oxo" or ring_idx not in pos:
+            continue
+        atom = mol.GetAtomWithIdx(ring_idx)
+        if atom.GetSymbol() == "S":
+            loc = str(pos[ring_idx])
+            sulfur_oxo_locs.append(loc)
+            sulfur_oxo_hydrogens[loc] = atom.GetTotalNumHs()
+    if not sulfur_oxo_locs:
+        return ""
+    loc_counts = Counter(sulfur_oxo_locs)
+    if any(count > 2 for count in loc_counts.values()):
+        return ""
+    sulfur_oxo_counter = Counter((loc, "oxo") for loc in sulfur_oxo_locs)
+    remaining = []
+    for item in prefixes:
+        if item[1] == "oxo" and sulfur_oxo_counter[item] > 0:
+            sulfur_oxo_counter[item] -= 1
+            continue
+        remaining.append(item)
+    prefix_text = _format_prefixes(remaining)
+    oxide_parts = []
+    for loc in sorted(loc_counts, key=int):
+        count = loc_counts[loc]
+        locants = ",".join([loc] * count)
+        suffix = "oxide" if count == 1 else "dioxide"
+        oxide_parts.append(f"{locants}-{suffix}")
+    parent = parent_name
+    if len(loc_counts) == 1:
+        loc, count = next(iter(loc_counts.items()))
+        if count == 1 and sulfur_oxo_hydrogens.get(loc):
+            parent = f"{loc}lambda6-" + parent
+    name = parent + " " + " ".join(oxide_parts)
+    return _join_prefix_parent(prefix_text, name) if prefix_text else name
 
 
 def _single_ring_thione_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:

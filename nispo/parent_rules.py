@@ -693,6 +693,246 @@ class PhosphaniumParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class PhosphanyliumOxideParentRule:
+    family = "phosphanylium-oxide-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_positive_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        if phosphorus.GetTotalNumHs() != 0:
+            return
+        pidx = phosphorus.GetIdx()
+        oxide_idx = None
+        oxido_idx = None
+        ligand_idx = None
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond is None:
+                return
+            if (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and bond.GetBondType() == self._Chem.BondType.DOUBLE
+            ):
+                if oxide_idx is not None:
+                    return
+                oxide_idx = nidx
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and bond.GetBondType() == self._Chem.BondType.SINGLE
+                and not any(other.GetIdx() != pidx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+            ):
+                if oxido_idx is not None:
+                    return
+                oxido_idx = nidx
+            elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+                if ligand_idx is not None:
+                    return
+                ligand_idx = nidx
+            elif nbr.GetAtomicNum() > 1:
+                return
+        if oxide_idx is None or oxido_idx is None or ligand_idx is None:
+            return
+        ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
+        if not ligand:
+            return
+        covered = {pidx, oxide_idx, oxido_idx}
+        covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
+        if covered != atom_set:
+            return
+        ligand = _strip_outer_parentheses(ligand)
+        name = f"oxido({ligand})phosphanylium oxide"
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=atom_set,
+            sort_key=(len(name), name),
+        )
+
+
+class PhosphanyliumIminoParentRule:
+    family = "phosphanylium-imino-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_positive_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        if phosphorus.GetTotalNumHs() != 0:
+            return
+        pidx = phosphorus.GetIdx()
+        oxido_idx = None
+        imino_idx = None
+        ligand_idx = None
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond is None:
+                return
+            if (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and bond.GetBondType() == self._Chem.BondType.SINGLE
+                and not any(other.GetIdx() != pidx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+            ):
+                if oxido_idx is not None:
+                    return
+                oxido_idx = nidx
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == self._Chem.BondType.DOUBLE:
+                if imino_idx is not None:
+                    return
+                imino_idx = nidx
+            elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+                if ligand_idx is not None:
+                    return
+                ligand_idx = nidx
+            elif nbr.GetAtomicNum() > 1:
+                return
+        if oxido_idx is None or imino_idx is None or ligand_idx is None:
+            return
+        ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
+        if not ligand:
+            return
+        imino_substituents = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(imino_idx).GetNeighbors()
+            if nbr.GetIdx() != pidx and nbr.GetAtomicNum() > 1
+        ]
+        if len(imino_substituents) != 1:
+            return
+        imino_owner_idx = imino_substituents[0]
+        imino_owner = _simple_or_branch_prefix(mol, imino_owner_idx, imino_idx)
+        if not imino_owner:
+            return
+        covered = {pidx, oxido_idx, imino_idx}
+        covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
+        covered.update(_collect_component_atoms(mol, imino_owner_idx, imino_idx))
+        if covered != atom_set:
+            return
+        ligand = _strip_outer_parentheses(ligand)
+        imino_owner = _strip_outer_parentheses(imino_owner)
+        imino_text = imino_owner + "imino" if _simple_ligand_name(imino_owner) else f"({imino_owner})imino"
+        name = f"oxido({ligand})({imino_text})phosphanylium"
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=atom_set,
+            sort_key=(len(name), name),
+        )
+
+
+class PhosphanyliumYlideneParentRule:
+    family = "phosphanylium-ylidene-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_positive_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        phosphorus_atoms = [
+            atom
+            for atom in mol.GetAtoms()
+            if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
+        ]
+        if len(phosphorus_atoms) != 1:
+            return
+        phosphorus = phosphorus_atoms[0]
+        if phosphorus.GetTotalNumHs() != 0:
+            return
+        pidx = phosphorus.GetIdx()
+        oxido_idx = None
+        ylidene_idx = None
+        ligand_idx = None
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond is None:
+                return
+            if (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and bond.GetBondType() == self._Chem.BondType.SINGLE
+                and not any(other.GetIdx() != pidx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+            ):
+                if oxido_idx is not None:
+                    return
+                oxido_idx = nidx
+            elif (
+                nbr.GetSymbol() == "C"
+                and nbr.GetFormalCharge() == 0
+                and not nbr.IsInRing()
+                and bond.GetBondType() == self._Chem.BondType.DOUBLE
+            ):
+                if ylidene_idx is not None:
+                    return
+                ylidene_idx = nidx
+            elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+                if ligand_idx is not None:
+                    return
+                ligand_idx = nidx
+            elif nbr.GetAtomicNum() > 1:
+                return
+        if oxido_idx is None or ylidene_idx is None or ligand_idx is None:
+            return
+        ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
+        ylidene = _simple_or_branch_prefix(mol, ylidene_idx, pidx)
+        if not ligand or not ylidene or "methylidene" not in ylidene:
+            return
+        covered = {pidx, oxido_idx}
+        covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
+        covered.update(_collect_component_atoms(mol, ylidene_idx, pidx))
+        if covered != atom_set:
+            return
+        ligand = _strip_outer_parentheses(ligand)
+        ylidene = _strip_outer_parentheses(ylidene)
+        name = f"oxido({ligand})({ylidene})phosphanylium"
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=atom_set,
+            sort_key=(len(name), name),
+        )
+
+
+def _simple_ligand_name(name: str) -> bool:
+    return bool(name) and "-" not in name and "(" not in name and ")" not in name and "," not in name
+
+
 def _benzotriazolyloxy_amino_phosphonium_name(mol, Chem, pidx: int) -> str:
     amino_names = []
     oxy_ligand = ""
@@ -9480,6 +9720,9 @@ def parent_rules(Chem) -> tuple:
     hexamethylenediamide = HexamethylenediamideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
     phosphanium = PhosphaniumParentRule(Chem)
+    phosphanylium_oxide = PhosphanyliumOxideParentRule(Chem)
+    phosphanylium_imino = PhosphanyliumIminoParentRule(Chem)
+    phosphanylium_ylidene = PhosphanyliumYlideneParentRule(Chem)
     azanium = AzaniumParentRule(Chem)
     neutral_amine = NeutralAmineParentRule(Chem)
     group14_hydride = Group14HydrideParentRule(Chem)
@@ -9589,6 +9832,24 @@ def parent_rules(Chem) -> tuple:
             hexamethylenediamide.candidates,
         ),
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
+        RuleSpec(
+            "phosphanylium-oxide-parent",
+            parent_priority("senior-functional-exception"),
+            (nonring_positive_phosphorus,),
+            phosphanylium_oxide.candidates,
+        ),
+        RuleSpec(
+            "phosphanylium-imino-parent",
+            parent_priority("senior-functional-exception"),
+            (nonring_positive_phosphorus,),
+            phosphanylium_imino.candidates,
+        ),
+        RuleSpec(
+            "phosphanylium-ylidene-parent",
+            parent_priority("senior-functional-exception"),
+            (nonring_positive_phosphorus,),
+            phosphanylium_ylidene.candidates,
+        ),
         RuleSpec("phosphanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_phosphorus,), phosphanium.candidates),
         RuleSpec("azanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), azanium.candidates),
         RuleSpec("neutral-amine-parent", parent_priority("senior-functional-exception"), (acyclic,), neutral_amine.candidates),

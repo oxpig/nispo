@@ -59,6 +59,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     if terminal_charge_name:
         return AcyclicNameRecord(terminal_charge_name)
 
+    terminal_nitrone_name = _name_terminal_nitrone(mol)
+    if terminal_nitrone_name:
+        return AcyclicNameRecord(terminal_nitrone_name)
+
     profile = _acyclic_functional_profile(mol)
     for signal, namer in (
         ("oxidanium", _name_oxidanium),
@@ -116,6 +120,123 @@ def _name_terminal_linear_hydrocarbon_charge(mol) -> str:
     if not parent:
         return ""
     return f"{parent}{'ide' if charge < 0 else 'ylium'}"
+
+
+def _name_terminal_nitrone(mol) -> str:
+    motif = _terminal_nitrone_motif(mol)
+    if motif is None:
+        return ""
+    carbon_idx, nitrogen_idx = motif
+    paths = _terminal_nitrone_parent_paths(mol, carbon_idx)
+    for path in paths:
+        name = _name_terminal_nitrone_path(mol, path, carbon_idx, nitrogen_idx)
+        if name:
+            return name
+    return ""
+
+
+def _terminal_nitrone_motif(mol) -> tuple[int, int] | None:
+    if mol.GetRingInfo().NumRings():
+        return None
+    motifs = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        imine_carbons = []
+        oxido_oxygens = []
+        ok = True
+        for nbr in nitrogen.GetNeighbors():
+            nidx2 = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(nidx, nidx2)
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                imine_carbons.append(nidx2)
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and not nbr.IsInRing()
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and len([other for other in nbr.GetNeighbors() if other.GetAtomicNum() > 1]) == 1
+            ):
+                oxido_oxygens.append(nidx2)
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if ok and len(imine_carbons) == 1 and len(oxido_oxygens) == 1:
+            motifs.append((imine_carbons[0], nidx))
+    if len(motifs) != 1:
+        return None
+    carbon_idx, nitrogen_idx = motifs[0]
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.IsInRing() or carbon.GetFormalCharge() != 0:
+        return None
+    carbon_heavy = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(carbon_heavy) > 1:
+        return None
+    return carbon_idx, nitrogen_idx
+
+
+def _terminal_nitrone_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
+    view = _acyclic_graph_view(mol)
+    allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and not atom.IsInRing()
+        and atom.GetFormalCharge() == 0
+        and not atom.GetIsotope()
+    }
+    if carbon_idx not in allowed:
+        return []
+    endpoints = [
+        idx
+        for idx in allowed
+        if idx == carbon_idx or sum(1 for nidx in view.neighbors[idx] if nidx in allowed) <= 1
+    ]
+    paths = []
+    best_len = 0
+    for endpoint in endpoints:
+        path = _shortest_path_in_allowed_graph(view, carbon_idx, endpoint, allowed)
+        if not path:
+            continue
+        path_len = len(path)
+        if path_len > best_len:
+            best_len = path_len
+            paths.clear()
+        if path_len == best_len:
+            paths.append(tuple(path))
+    return sorted(set(paths), key=lambda path: (-len(path), path))
+
+
+def _name_terminal_nitrone_path(
+    mol,
+    path: Sequence[int],
+    carbon_idx: int,
+    nitrogen_idx: int,
+) -> str:
+    if not path or path[0] != carbon_idx:
+        return ""
+    root = ROOTS.get(len(path))
+    if not root:
+        return ""
+    prefixes = _path_substituent_prefixes(
+        mol,
+        path,
+        skip_bonds={_bond_key(carbon_idx, nitrogen_idx)},
+        skip_plain_hydrogen=True,
+    )
+    if prefixes is None:
+        return ""
+    name = root + "ylideneazaniumolate"
+    prefix_text = _format_prefixes(prefixes)
+    return _join_prefix_parent(prefix_text, name) if prefix_text else name
 
 
 def _acyclic_functional_profile(mol) -> dict[str, bool]:

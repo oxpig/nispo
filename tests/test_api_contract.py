@@ -870,6 +870,29 @@ def test_generated_fused_parent_can_beat_locanted_bicyclic_stereo_fallback(input
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCCCCCCCCC=[NH+][O-]",
+        "c1ccccc1B(Cl)Cl",
+        "c1ccccc1P([O-])[O-]",
+        "O=[P+]([O-])c1ccccc1",
+        "CCO[P+]([O-])=NC",
+        "CCO[P+]([O-])=N[C@@H](C)C(=O)[O-]",
+        "CCCC[P+]([O-])=C(O)C[N+](C)(C)C",
+        "O=[SH2]1CCC1",
+        "O=[SH2]1CCNCC1",
+        "O=S1(=O)CCNCC1",
+    ],
+)
+def test_charged_pnictogen_and_boryl_functional_families_roundtrip(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

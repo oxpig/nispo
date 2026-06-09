@@ -152,6 +152,16 @@ class SmallInorganicRetainedParentRule:
                 sort_key=(len(name), name),
             )
             return
+        name = _small_element_oxide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+            return
         name = _small_sulfur_imide_name(mol, self._Chem)
         if name:
             yield NameCandidate(
@@ -161,6 +171,27 @@ class SmallInorganicRetainedParentRule:
                 parent_atoms=set(range(atom_count)),
                 sort_key=(len(name), name),
             )
+
+
+def _small_element_oxide_name(mol, Chem) -> str:
+    if mol.GetNumAtoms() != 2:
+        return ""
+    atoms = list(mol.GetAtoms())
+    oxygen_atoms = [atom for atom in atoms if atom.GetSymbol() == "O" and atom.GetFormalCharge() == 0]
+    if len(oxygen_atoms) != 1:
+        return ""
+    oxygen = oxygen_atoms[0]
+    other = atoms[0] if atoms[1].GetIdx() == oxygen.GetIdx() else atoms[1]
+    bond = mol.GetBondBetweenAtoms(oxygen.GetIdx(), other.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE or other.GetFormalCharge() != 0:
+        return ""
+    if other.GetSymbol() == "N" and other.GetTotalNumHs() == 0:
+        return "oxonitrogen"
+    if other.GetSymbol() == "P" and other.GetTotalNumHs() == 3:
+        return "phosphane oxide"
+    if other.GetSymbol() == "Si" and other.GetTotalNumHs() == 0:
+        return "oxosilicon"
+    return ""
 
 
 def _nitryl_halide_name(mol, Chem) -> str:

@@ -501,6 +501,22 @@ def test_amino_phosphonium_and_phosphanimine_parents_roundtrip_with_opsin(input_
 @pytest.mark.parametrize(
     ("input_smiles", "retained_fragment"),
     [
+        ("[N]=O", "oxonitrogen"),
+        ("O=[PH3]", "phosphane oxide"),
+        ("O=[Si]", "oxosilicon"),
+    ],
+)
+def test_small_element_oxide_retained_parents_roundtrip_with_opsin(input_smiles, retained_fragment):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name == retained_fragment
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    ("input_smiles", "retained_fragment"),
+    [
         ("P(=S)([O-])([O-])[O-]", "thiophosphate"),
         ("OP(O)(O)=S", "thiophosphoric acid"),
         ("NP([O-])([O-])=S", "thiophosphoramidate"),

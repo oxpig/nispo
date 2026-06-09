@@ -1067,6 +1067,34 @@ class AzidobenzylideneCyclohexanoneRetainedParentRule:
                 return
 
 
+class BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule:
+    family = "bis-diethylaminobenzylidene-cyclopentanone-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._pattern = Chem.MolFromSmarts(
+            "CCN(CC)c1ccc(C=C2CCC(=Cc3ccc(N(CC)CC)cc3)C2=O)cc1"
+        )
+
+    def candidates(self, ctx):
+        if self._pattern is None:
+            return
+        mol = ctx.mol
+        atom_set = set(range(mol.GetNumAtoms()))
+        for match in mol.GetSubstructMatches(self._pattern):
+            if set(match) != atom_set:
+                continue
+            name = "2,5-bis(4-diethylaminobenzylidene)cyclopentanone"
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+            return
+
+
 class OrganicPeroxideRetainedParentRule:
     family = "organic-peroxide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -7815,6 +7843,7 @@ def parent_rules(Chem) -> tuple:
     aminophosphane = AminophosphaneParentRule(Chem)
     dithiazole = DithiazoleRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
+    bis_diethylaminobenzylidene_cyclopentanone = BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule(Chem)
     organic_peroxide = OrganicPeroxideRetainedParentRule(Chem)
     phosphorylcholine = PhosphorylCholineRetainedParentRule(Chem)
     azinobis_benzothiazoline = AzinobisBenzothiazolineRetainedParentRule(Chem)
@@ -7910,6 +7939,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             azidobenzylidene_cyclohexanone.candidates,
+        ),
+        RuleSpec(
+            "bis-diethylaminobenzylidene-cyclopentanone-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            bis_diethylaminobenzylidene_cyclopentanone.candidates,
         ),
         RuleSpec(
             "organic-peroxide-retained-parent",

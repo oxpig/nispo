@@ -1078,6 +1078,16 @@ class OrganicPeroxideRetainedParentRule:
         mol = ctx.mol
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
+        diacylperoxy_name = _diacylperoxy_dimethylhexane_name(mol, self._Chem)
+        if diacylperoxy_name:
+            yield NameCandidate(
+                diacylperoxy_name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(diacylperoxy_name), diacylperoxy_name),
+            )
+            return
         for bond in mol.GetBonds():
             if bond.GetBondType() != self._Chem.BondType.SINGLE:
                 continue
@@ -2304,6 +2314,148 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _diacylperoxy_dimethylhexane_name(mol, Chem) -> str:
+    records = []
+    seen_bonds = set()
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        if begin.GetSymbol() != "O" or end.GetSymbol() != "O":
+            continue
+        if begin.GetFormalCharge() != 0 or end.GetFormalCharge() != 0:
+            continue
+        bond_key = frozenset({begin.GetIdx(), end.GetIdx()})
+        if bond_key in seen_bonds:
+            continue
+        seen_bonds.add(bond_key)
+        record = _acylperoxy_tertiary_carbon_record(mol, Chem, begin.GetIdx(), end.GetIdx())
+        if record:
+            records.append(record)
+    if len(records) != 2:
+        return ""
+    first, second = records
+    if first["acyl_prefix"] != second["acyl_prefix"]:
+        return ""
+    base_atoms = _dimethylhexane_2_5_base_atoms(mol, Chem, first, second)
+    if not base_atoms:
+        return ""
+    covered = set(base_atoms)
+    for record in records:
+        covered.update(record["covered_atoms"])
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    acyl = _strip_outer_parentheses(first["acyl_prefix"])
+    return f"2,5-bis({acyl}peroxy)-2,5-dimethylhexane"
+
+
+def _acylperoxy_tertiary_carbon_record(mol, Chem, first_oxygen_idx: int, second_oxygen_idx: int) -> dict | None:
+    for acyl_oxygen_idx, alkyl_oxygen_idx in (
+        (first_oxygen_idx, second_oxygen_idx),
+        (second_oxygen_idx, first_oxygen_idx),
+    ):
+        acyl_heavy = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(acyl_oxygen_idx).GetNeighbors()
+            if nbr.GetIdx() != alkyl_oxygen_idx and nbr.GetAtomicNum() > 1
+        ]
+        alkyl_heavy = [
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(alkyl_oxygen_idx).GetNeighbors()
+            if nbr.GetIdx() != acyl_oxygen_idx and nbr.GetAtomicNum() > 1
+        ]
+        if len(acyl_heavy) != 1 or len(alkyl_heavy) != 1:
+            continue
+        carbonyl_idx = acyl_heavy[0]
+        owner_idx = alkyl_heavy[0]
+        carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+        owner = mol.GetAtomWithIdx(owner_idx)
+        if carbonyl.GetSymbol() != "C" or owner.GetSymbol() != "C":
+            continue
+        if not _is_carbonyl_neighbor(mol, carbonyl_idx, acyl_oxygen_idx):
+            continue
+        if owner.IsInRing() or owner.GetFormalCharge() != 0:
+            continue
+        acyl_prefix = _simple_or_branch_prefix(mol, carbonyl_idx, acyl_oxygen_idx)
+        if not acyl_prefix:
+            continue
+        covered = {first_oxygen_idx, second_oxygen_idx}
+        covered.update(_collect_component_atoms(mol, carbonyl_idx, acyl_oxygen_idx))
+        return {
+            "acyl_prefix": acyl_prefix,
+            "owner": owner_idx,
+            "owner_oxygen": alkyl_oxygen_idx,
+            "covered_atoms": covered,
+        }
+    return None
+
+
+def _dimethylhexane_2_5_base_atoms(mol, Chem, first: dict, second: dict) -> set[int]:
+    first_owner = first["owner"]
+    second_owner = second["owner"]
+    if first_owner == second_owner:
+        return set()
+    first_record = _dimethylhexane_owner_record(mol, Chem, first_owner, first["owner_oxygen"])
+    second_record = _dimethylhexane_owner_record(mol, Chem, second_owner, second["owner_oxygen"])
+    if not first_record or not second_record:
+        return set()
+    first_chain = first_record["chain"]
+    second_chain = second_record["chain"]
+    bond = mol.GetBondBetweenAtoms(first_chain, second_chain)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return set()
+    if not _methylene_bridge_carbon(mol, first_chain, {first_owner, second_chain}):
+        return set()
+    if not _methylene_bridge_carbon(mol, second_chain, {second_owner, first_chain}):
+        return set()
+    return {
+        first_owner,
+        second_owner,
+        first_chain,
+        second_chain,
+        *first_record["methyls"],
+        *second_record["methyls"],
+    }
+
+
+def _dimethylhexane_owner_record(mol, Chem, owner_idx: int, owner_oxygen_idx: int) -> dict | None:
+    owner = mol.GetAtomWithIdx(owner_idx)
+    if owner.GetSymbol() != "C" or owner.IsInRing() or owner.GetFormalCharge() != 0:
+        return None
+    neighbors = [
+        nbr.GetIdx()
+        for nbr in owner.GetNeighbors()
+        if nbr.GetIdx() != owner_oxygen_idx and nbr.GetAtomicNum() > 1
+    ]
+    methyls = [idx for idx in neighbors if _terminal_methyl_carbon(mol, idx, owner_idx)]
+    chain = [idx for idx in neighbors if idx not in methyls]
+    if len(methyls) != 2 or len(chain) != 1:
+        return None
+    if any(
+        mol.GetBondBetweenAtoms(owner_idx, idx).GetBondType() != Chem.BondType.SINGLE
+        for idx in neighbors
+    ):
+        return None
+    return {"methyls": tuple(methyls), "chain": chain[0]}
+
+
+def _terminal_methyl_carbon(mol, atom_idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() != "C" or atom.IsInRing() or atom.GetFormalCharge() != 0:
+        return False
+    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+    return heavy == [parent_idx]
+
+
+def _methylene_bridge_carbon(mol, atom_idx: int, expected_neighbors: set[int]) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() != "C" or atom.IsInRing() or atom.GetFormalCharge() != 0:
+        return False
+    heavy = {nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1}
+    return heavy == expected_neighbors
 
 
 def _oxadiazinane_nitroimine_name(mol, Chem, ring_set: frozenset[int]) -> str:

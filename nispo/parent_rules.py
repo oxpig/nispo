@@ -1028,6 +1028,50 @@ class PhosphorylCholineRetainedParentRule:
                 return
 
 
+class AzinobisBenzothiazolineRetainedParentRule:
+    family = "azinobis-benzothiazoline-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._patterns = (
+            (
+                Chem.MolFromSmarts(
+                    "CCn1c(=NN=c2sc3cc(S(=O)(=O)[O-])ccc3n2CC)sc2cc(S(=O)(=O)[O-])ccc21"
+                ),
+                "2,2'-azinobis(3-ethylbenzothiazoline-6-sulfonate)",
+            ),
+            (
+                Chem.MolFromSmarts(
+                    "CCn1c(=NN=c2sc3cc(S(=O)(=O)O)ccc3n2CC)sc2cc(S(=O)(=O)O)ccc21"
+                ),
+                "2,2'-azinobis(3-ethylbenzothiazoline-6-sulfonic acid)",
+            ),
+            (
+                Chem.MolFromSmarts("CCn1c(=NN=c2sc3ccccc3n2CC)sc2ccccc21"),
+                "2,2'-azinobis(3-ethylbenzothiazoline)",
+            ),
+        )
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        atom_set = set(range(atom_count))
+        for pattern, name in self._patterns:
+            if pattern is None:
+                continue
+            for match in mol.GetSubstructMatches(pattern):
+                if set(match) != atom_set:
+                    continue
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=set(range(atom_count)),
+                    sort_key=(len(name), name),
+                )
+                return
+
+
 class OrganomagnesiumHalideParentRule:
     family = "organomagnesium-halide-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6865,6 +6909,7 @@ def parent_rules(Chem) -> tuple:
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
     organic_peroxide = OrganicPeroxideRetainedParentRule(Chem)
     phosphorylcholine = PhosphorylCholineRetainedParentRule(Chem)
+    azinobis_benzothiazoline = AzinobisBenzothiazolineRetainedParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     organoborane = OrganoboraneParentRule(Chem)
     benziodoxole = BenziodoxoleRetainedParentRule(Chem)
@@ -6960,6 +7005,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             phosphorylcholine.candidates,
+        ),
+        RuleSpec(
+            "azinobis-benzothiazoline-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            azinobis_benzothiazoline.candidates,
         ),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("organoborane-parent", parent_priority("senior-functional-exception"), (), organoborane.candidates),

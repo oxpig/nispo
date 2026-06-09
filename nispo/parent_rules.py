@@ -8195,7 +8195,7 @@ class ExactRetainedParentRule:
         return ctx.candidate_templates(self._templates(), exact_atom_count=True)
 
     def _sort_key(self, template: dict) -> tuple:
-        name = _preferred_parent_stem(template_record_name(template))
+        name = _exact_retained_parent_candidate_name(template)
         return (len(name), template.get("source_family", ""), name)
 
     def candidates(self, ctx):
@@ -8222,11 +8222,20 @@ class ExactRetainedParentRule:
                         if template.get("source_family") == "static-exact-retained"
                         else self.family
                     )
+                    name = _exact_retained_parent_candidate_name(template)
                     yield NameCandidate(
-                        name=_opsin_parseable_retained_parent_name(template_record_name(template)),
+                        name=name,
                         family=family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
+                        stereo_prefix=_exact_retained_parent_stereo_prefix(mol, self._Chem, template, match),
+                        parent_atoms=frozenset(match),
+                        stereo_locants=_template_match_stereo_locants(template, match),
+                        template_id=id(template),
+                        template_name=template_record_name(template),
+                        source_family=str(template.get("source_family", "")),
+                        source_file=str(template.get("source_file", "")),
+                        estimated_length=len(name),
                     )
 
 
@@ -8263,11 +8272,20 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                         if template.get("source_family") == "static-exact-retained"
                         else self.family
                     )
+                    name = _exact_retained_parent_candidate_name(template)
                     yield NameCandidate(
-                        name=_opsin_parseable_retained_parent_name(template_record_name(template)),
+                        name=name,
                         family=family,
                         priority=self.priority,
                         sort_key=self._sort_key(template),
+                        stereo_prefix=_exact_retained_parent_stereo_prefix(mol, self._Chem, template, match),
+                        parent_atoms=frozenset(match),
+                        stereo_locants=_template_match_stereo_locants(template, match),
+                        template_id=id(template),
+                        template_name=template_record_name(template),
+                        source_family=str(template.get("source_family", "")),
+                        source_file=str(template.get("source_file", "")),
+                        estimated_length=len(name),
                     )
 
 
@@ -8291,6 +8309,21 @@ class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):
             for template in ctx.candidate_templates(self._templates(), exact_atom_count=True)
             if template.get("source_family") == "static-exact-retained"
         )
+
+
+def _exact_retained_parent_candidate_name(template: dict) -> str:
+    name = template_record_name(template)
+    if template.get("source_file") == "naturalProducts.xml":
+        name = _terminal_retained_parent_name(name)
+    return _opsin_parseable_retained_parent_name(name)
+
+
+def _exact_retained_parent_stereo_prefix(mol, Chem, template: dict, match: Sequence[int]) -> str:
+    if template.get("source_file") != "naturalProducts.xml":
+        return ""
+    if not template.get("stereochemical"):
+        return ""
+    return _locanted_template_stereo_prefix(mol, Chem, template, match)
 
 
 def parent_rules(Chem) -> tuple:

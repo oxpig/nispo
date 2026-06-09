@@ -55,19 +55,29 @@ _BICYCLIC_FUSION_BASES = {
 }
 
 _TERMINAL_RETAINED_PARENT_BY_STEM = {
+    "aconit": "aconitane",
+    "ajmal": "ajmalan",
     "androst": "androstane",
     "barbiturat": "barbituric acid",
     "barbiturate": "barbituric acid",
     "chol": "cholane",
     "cholest": "cholestane",
     "campest": "campestane",
+    "cinchon": "cinchonan",
     "ergost": "ergostane",
     "estr": "estrane",
+    "furost": "furostane",
     "poriferast": "poriferastane",
+    "prost": "prostane",
+    "pterocarp": "pterocarpan",
+    "roten": "rotenan",
     "stigmast": "stigmastane",
     "gon": "gonane",
+    "gorgost": "gorgostane",
     "pregn": "pregnane",
     "spirost": "spirostane",
+    "thrombox": "thromboxane",
+    "trop": "tropane",
 }
 
 

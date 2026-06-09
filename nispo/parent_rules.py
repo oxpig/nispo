@@ -132,6 +132,16 @@ class SmallInorganicRetainedParentRule:
                 sort_key=(len(name), name),
             )
             return
+        name = _sulfonylamide_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+            return
         name = _sulfonyl_azanide_name(mol, self._Chem)
         if name:
             yield NameCandidate(
@@ -171,6 +181,43 @@ def _nitryl_halide_name(mol, Chem) -> str:
     if double_oxo != 1 or oxido != 1 or not halide:
         return ""
     return f"nitryl {halide}"
+
+
+def _sulfonylamide_name(mol, Chem) -> str:
+    if mol.GetNumAtoms() != 4:
+        return ""
+    nitrogen_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
+    ]
+    sulfur_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    ]
+    if len(nitrogen_atoms) != 1 or len(sulfur_atoms) != 1:
+        return ""
+    nitrogen = nitrogen_atoms[0]
+    sulfur = sulfur_atoms[0]
+    bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), sulfur.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+        return ""
+    double_oxygens = 0
+    for nbr in sulfur.GetNeighbors():
+        if nbr.GetIdx() == nitrogen.GetIdx():
+            continue
+        nbr_bond = mol.GetBondBetweenAtoms(sulfur.GetIdx(), nbr.GetIdx())
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and nbr_bond is not None
+            and nbr_bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            double_oxygens += 1
+        else:
+            return ""
+    return "sulfonylamide" if double_oxygens == 2 else ""
 
 
 def _sulfonyl_azanide_name(mol, Chem) -> str:

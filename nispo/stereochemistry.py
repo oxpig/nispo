@@ -229,9 +229,9 @@ def _locanted_atom_stereo_pieces(
             unlocanted.append(descriptor)
             continue
         text = f"{locant}{descriptor}"
-        if text in existing:
-            continue
         pieces.append((_stereo_locant_sort_key(locant), text))
+    if len(pieces) <= 1 and existing:
+        pieces = [piece for piece in pieces if piece[1] not in existing]
     if unlocanted:
         unlocanted = _remove_locanted_atom_descriptors(unlocanted, _locanted_atom_stereo_descriptors_in_name(name))
     return pieces, unlocanted

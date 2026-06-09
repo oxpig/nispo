@@ -83,6 +83,15 @@ def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_parent_locanted_stereo_is_not_suppressed_by_substituent_locants():
+    input_smiles = "O=C(CO[C@@H]1O[C@H](CO)[C@H](O)[C@H](O)[C@H]1O)[C@@H](O)[C@H](O)[C@H](O)CO"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

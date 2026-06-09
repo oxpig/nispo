@@ -633,7 +633,12 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
     cache = mol_cache_dict(mol, "substituent_from_root_cache")
-    key = (root_idx, blocked_idx)
+    key = (
+        root_idx,
+        blocked_idx,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
     cached = cache.get(key)
     if cached is not None:
         return cached

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 import time
 
@@ -31,6 +31,7 @@ _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
+_FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,11 +65,14 @@ class NameCandidate:
 
 @dataclass(frozen=True, slots=True)
 class _PreparedCandidate:
+    # `name` is the selection surface. `output_name` allows a renderer-only
+    # improvement to be returned without changing parent-family selection.
     name: str
     candidate: NameCandidate
     producer_family: str
     stability_penalty: int
     selection_bonus: int
+    output_name: str = ""
 
 
 class NamingEngine:
@@ -108,17 +112,30 @@ class NamingEngine:
             return best_name
 
         fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
-        fallback_name = _select_best_prepared_candidate(
-            _prepare_candidates(
-                mol,
-                self._Chem,
-                ctx,
-                self._rules,
-                max_length=fallback_evaluation_length,
-                output_max_length=fallback_max_length,
-            ),
-            telemetry=telemetry,
+        had_fragment_fallback_prop = mol.HasProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
+        previous_fragment_fallback_value = (
+            mol.GetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
+            if had_fragment_fallback_prop
+            else ""
         )
+        mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, "1")
+        try:
+            fallback_name = _select_best_prepared_candidate(
+                _prepare_candidates(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._rules,
+                    max_length=fallback_evaluation_length,
+                    output_max_length=fallback_max_length,
+                ),
+                telemetry=telemetry,
+            )
+        finally:
+            if had_fragment_fallback_prop:
+                mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, previous_fragment_fallback_value)
+            else:
+                mol.ClearProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
         return fallback_name
 
 
@@ -139,18 +156,26 @@ def _prepare_candidates(
             for candidate in rule.candidates(ctx):
                 if not candidate.name:
                     continue
-                name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-                if not name:
+                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if not output_name:
                     continue
-                if output_max_length is not None and len(name) > output_max_length:
+                if output_max_length is not None and len(output_name) > output_max_length:
                     continue
+                selection_name = _candidate_selection_surface_name(
+                    mol,
+                    Chem,
+                    candidate,
+                    output_name,
+                    max_length=max_length,
+                )
                 prepared.append(
                     _PreparedCandidate(
-                        name=name,
+                        name=selection_name,
                         candidate=candidate,
                         producer_family=rule.family,
-                        stability_penalty=_candidate_selection_stability_penalty(name, candidate),
-                        selection_bonus=_candidate_selection_bonus(name, candidate),
+                        stability_penalty=_candidate_selection_stability_penalty(selection_name, candidate),
+                        selection_bonus=_candidate_selection_bonus(selection_name, candidate),
+                        output_name=output_name,
                     )
                 )
             continue
@@ -165,21 +190,29 @@ def _prepare_candidates(
                 if not candidate.name:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
-                name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-                if not name:
+                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if not output_name:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
-                if output_max_length is not None and len(name) > output_max_length:
+                if output_max_length is not None and len(output_name) > output_max_length:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
+                selection_name = _candidate_selection_surface_name(
+                    mol,
+                    Chem,
+                    candidate,
+                    output_name,
+                    max_length=max_length,
+                )
                 ctx.telemetry.rendered_candidate_count[rule.family] += 1
                 prepared.append(
                     _PreparedCandidate(
-                        name=name,
+                        name=selection_name,
                         candidate=candidate,
                         producer_family=rule.family,
-                        stability_penalty=_candidate_selection_stability_penalty(name, candidate),
-                        selection_bonus=_candidate_selection_bonus(name, candidate),
+                        stability_penalty=_candidate_selection_stability_penalty(selection_name, candidate),
+                        selection_bonus=_candidate_selection_bonus(selection_name, candidate),
+                        output_name=output_name,
                     )
                 )
         finally:
@@ -212,11 +245,11 @@ def _select_best_prepared_candidate(
             item.name,
         )
         if best_key is None or candidate_key < best_key:
-            best_name = item.name
+            best_name = _prepared_output_name(item)
             best_key = candidate_key
     if best_name and telemetry is not None:
         for item in prepared:
-            if item.name == best_name:
+            if _prepared_output_name(item) == best_name:
                 telemetry.selected_family[item.candidate.family] += 1
                 telemetry.selected_rule_family[item.producer_family] += 1
                 if _candidate_has_structured_facts(item.candidate):
@@ -234,6 +267,27 @@ def _select_best_prepared_candidate(
                 telemetry.selected_safety_reasons.update(candidate_safety_reasons(item.candidate))
                 break
     return best_name
+
+
+def _prepared_output_name(item: _PreparedCandidate) -> str:
+    return item.output_name or item.name
+
+
+def _candidate_selection_surface_name(
+    mol,
+    Chem,
+    candidate: NameCandidate,
+    output_name: str,
+    *,
+    max_length: int,
+) -> str:
+    if (
+        candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}
+        or not candidate.stereo_locants
+    ):
+        return output_name
+    selection_candidate = replace(candidate, stereo_locants=())
+    return _finalize_candidate_name(mol, Chem, selection_candidate, max_length=max_length) or output_name
 
 
 def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
@@ -593,6 +647,9 @@ _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES = {
     "whole-molecule-retained-parent",
 }
 
+_RETAINED_LACTONE_TEMPLATE_NAMES = frozenset({"coumarin", "coumarine"})
+_RETAINED_LACTONE_TOPOLOGY_BONUS = 160
+
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
     return _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
@@ -838,10 +895,46 @@ def _has_contextual_broad_graph_parent_alternative(
     return False
 
 
+def _has_contextual_retained_lactone_topology_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    candidate_parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {"fused-retained-parent", "hydro-fused-retained-parent"}:
+            continue
+        if other_candidate.template_name not in _RETAINED_LACTONE_TEMPLATE_NAMES:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if candidate_parent_count and other_parent_count and abs(candidate_parent_count - other_parent_count) > 2:
+            continue
+        if item.stability_penalty >= other.stability_penalty + 100:
+            continue
+        if len(item.name) - len(other.name) > 140:
+            continue
+        return True
+    return False
+
+
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
     name = item.name
+    retained_lactone_topology = _has_contextual_retained_lactone_topology_candidate(item, prepared)
     unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
@@ -897,7 +990,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
-        unstable_benzimidazolyl
+        retained_lactone_topology
+        or unstable_benzimidazolyl
         or unstable_replacement
         or generic_polycycle
         or fragile_sulfamoyl_benzene
@@ -947,6 +1041,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         return 0
 
     penalty = 0
+    if retained_lactone_topology:
+        penalty -= _RETAINED_LACTONE_TOPOLOGY_BONUS
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
     if has_graph_parent and unstable_benzimidazolyl:
         penalty += 85

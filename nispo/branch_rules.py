@@ -104,7 +104,12 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
     else:
         active_rule_family = ""
     cache = mol_cache_dict(mol, "branch_prefix_cache")
-    key = (idx, parent_idx)
+    key = (
+        idx,
+        parent_idx,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
     cached = cache.get(key)
     if cached is not None:
         if telemetry is not None:
@@ -152,6 +157,8 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             rule_sets_by_symbol = _branch_rule_sets()
             rule_sets = rule_sets_by_symbol.get(atom.GetSymbol(), ()) + rule_sets_by_symbol.get("*", ())
             prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
+        if not prefix and atom.GetAtomicNum() > 1 and not atom.IsInRing() and _subtree_has_ring(mol, idx, parent_idx):
+            prefix = _fragment_named_ring_substituent_prefix(mol, idx, parent_idx)
         cache[key] = prefix
         if telemetry is not None:
             telemetry_key = _branch_prefix_telemetry_key(prefix)
@@ -259,6 +266,7 @@ from .branch.ring_substituents import (
     _hydro_fused_parent_name,
     _has_unsaturated_core_bond,
     _fused_substituent_suffix,
+    _fragment_named_ring_substituent_prefix,
 )
 
 from .branch.hetero_atoms import (

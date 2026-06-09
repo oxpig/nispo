@@ -789,7 +789,14 @@ def _functional_carbon_substituent_name(mol, idx: int, parent_idx: int) -> str:
 
 def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
-    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
+    if atom.GetSymbol() != "N":
+        return ""
+    if atom.GetFormalCharge() == 1 and atom.GetTotalNumHs() == 2:
+        heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx and n.GetAtomicNum() > 1]
+        if not heavy and not atom.IsInRing() and not atom.GetIsotope():
+            return "azaniumylidene"
+        return ""
+    if atom.GetFormalCharge() != 0:
         return ""
     heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
     if not heavy:

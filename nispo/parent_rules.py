@@ -4780,6 +4780,16 @@ def _sequence_stereo_locants(seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
     return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(seq, start=1))
 
 
+def _complete_single_ring_parent_stereo_locants(mol, seq: Sequence[int], Chem) -> tuple[tuple[int, str], ...]:
+    parent_atoms = frozenset(seq)
+    if not parent_atoms:
+        return ()
+    assigned_atoms = {idx for idx, _descriptor in assigned_atom_stereochemistry(mol, Chem)}
+    if not assigned_atoms or not assigned_atoms.issubset(parent_atoms):
+        return ()
+    return _sequence_stereo_locants(seq)
+
+
 class GeneratedFusedParentRule(FusedParentRule):
     """Fallback OPSIN-fusion scaffold family.
 
@@ -5059,7 +5069,7 @@ class SingleRingParentRule:
         ring_facts = self._ring_fact_render_set(ctx, self._candidate_ring_facts(ctx, parent_rings))
         for render_rank, ring_fact in enumerate(ring_facts, start=1):
             ring = ring_fact.ring
-            for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
+            for name, stereo_prefix, locant_seq in _named_ring_instance_names(mol, tuple(ring), self._Chem):
                 yield NameCandidate(
                     name=name,
                     family=self.family,
@@ -5067,6 +5077,8 @@ class SingleRingParentRule:
                     sort_key=_single_ring_candidate_sort_key(name),
                     stereo_prefix=stereo_prefix,
                     parent_atoms=frozenset(ring),
+                    locants=_locants_from_sequence(locant_seq),
+                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
                     estimated_length=len(name),
                     render_rank=render_rank,
                     )
@@ -5112,7 +5124,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
         if mol.GetRingInfo().NumRings() != 1 or _too_large_for_exhaustive_ring_parent_search(mol):
             return
         for ring in mol.GetRingInfo().AtomRings():
-            for name, stereo_prefix in _named_ring_instance_names(mol, tuple(ring), self._Chem):
+            for name, stereo_prefix, locant_seq in _named_ring_instance_names(mol, tuple(ring), self._Chem):
                 if not _has_positive_ring_parent_name(name):
                     continue
                 yield NameCandidate(
@@ -5122,6 +5134,8 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     sort_key=_single_ring_candidate_sort_key(name),
                     stereo_prefix=stereo_prefix,
                     parent_atoms=frozenset(ring),
+                    locants=_locants_from_sequence(locant_seq),
+                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
                     estimated_length=len(name),
                     render_rank=1,
                 )
@@ -5135,6 +5149,10 @@ def _has_positive_ring_parent_name(name: str) -> bool:
 class _SingleRingParentFacts:
     ring: tuple[int, ...]
     structural_key: tuple
+
+
+def _locants_from_sequence(seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    return tuple((idx, str(locant)) for locant, idx in enumerate(seq, start=1))
 
 
 def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:

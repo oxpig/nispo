@@ -1267,6 +1267,14 @@ def _simple_phenoxy_prefix(
 
 
 def _simple_nitrogen_prefix(mol, atom, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if atom.GetFormalCharge() == 1 and atom.GetTotalNumHs() == 2 and order == 2.0:
+        heavy = [
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+        ]
+        if not heavy and not atom.IsInRing() and not atom.GetIsotope() and not _atom_has_isotopic_hydrogen(atom):
+            return _prefix_candidate("azaniumylidene", {idx}, idx, parent_idx, "terminal-azaniumylidene")
     if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope() or _atom_has_isotopic_hydrogen(atom):
         return None
     heavy = [

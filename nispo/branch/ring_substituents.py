@@ -57,7 +57,12 @@ def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     cache = mol_cache_dict(mol, "ring_substituent_prefix_cache")
-    cache_key = (attachment_idx, parent_idx)
+    cache_key = (
+        attachment_idx,
+        parent_idx,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -69,6 +74,8 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     ) or _fused_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem) or _generic_polycyclic_ring_substituent_prefix(
+        mol, attachment_idx, parent_idx
+    ) or _fragment_named_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     )
     cache[cache_key] = prefix
@@ -924,3 +931,110 @@ def _retained_fused_substituent_suffix(parent_name: str, locant: str) -> str:
     if parent_name == "benzoxazole":
         return f"{locant}-benzoxazolyl"
     return ""
+
+
+def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    if not mol.HasProp("_nispo_allow_fragment_substituent_fallback"):
+        return ""
+    depth = int(mol.GetProp("_nispo_fragment_substituent_depth")) if mol.HasProp("_nispo_fragment_substituent_depth") else 0
+    if mol.HasProp("_nispo_fragment_substituent_view") or depth >= 1:
+        return ""
+    atoms = collect_subtree(mol, attachment_idx, parent_idx)
+    if len(atoms) < 5 or len(atoms) > 70:
+        return ""
+    if not any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
+        return ""
+    fragment = _fragment_from_subtree_atoms(mol, atoms)
+    if fragment is None:
+        return ""
+    frag_mol, original_to_fragment = fragment
+    if attachment_idx not in original_to_fragment:
+        return ""
+    attachment = original_to_fragment[attachment_idx]
+    try:
+        from ..api import _engine
+        from ..naming_context import MoleculeContext
+        from ..rule_engine import _prepare_candidates, _select_best_prepared_candidate
+
+        frag_mol.SetProp("_nispo_fragment_substituent_view", "1")
+        frag_mol.SetProp("_nispo_fragment_substituent_depth", str(depth + 1))
+        ctx = MoleculeContext(frag_mol, Chem)
+        prepared = _prepare_candidates(
+            frag_mol,
+            Chem,
+            ctx,
+            _engine()._rules,
+            max_length=360,
+            output_max_length=360,
+        )
+    except Exception:
+        return ""
+    if not prepared:
+        return ""
+    best_name = _select_best_prepared_candidate(prepared)
+    selected = next((item for item in prepared if item.name == best_name), prepared[0])
+    locant = _candidate_atom_locant(selected.candidate, attachment)
+    if not locant:
+        return ""
+    prefix = _parent_name_to_substituent_prefix(selected.name, locant)
+    if len(prefix) > 280:
+        return ""
+    return prefix
+
+
+def _fragment_from_subtree_atoms(mol, atoms: set[int]):
+    ordered = tuple(sorted(atoms))
+    original_to_fragment = {old_idx: new_idx for new_idx, old_idx in enumerate(ordered)}
+    rw = Chem.RWMol()
+    for old_idx in ordered:
+        atom = Chem.Atom(mol.GetAtomWithIdx(old_idx))
+        atom.SetAtomMapNum(0)
+        rw.AddAtom(atom)
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in original_to_fragment or end not in original_to_fragment:
+            continue
+        rw.AddBond(
+            original_to_fragment[begin],
+            original_to_fragment[end],
+            bond.GetBondType(),
+        )
+        new_bond = rw.GetBondBetweenAtoms(original_to_fragment[begin], original_to_fragment[end])
+        if new_bond is not None:
+            new_bond.SetIsAromatic(bond.GetIsAromatic())
+    frag = rw.GetMol()
+    try:
+        Chem.SanitizeMol(frag)
+    except Exception:
+        try:
+            Chem.SanitizeMol(
+                frag,
+                sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL
+                ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE,
+            )
+        except Exception:
+            return None
+    return frag, original_to_fragment
+
+
+def _candidate_atom_locant(candidate, atom_idx: int) -> str:
+    for idx, locant in (*candidate.locants, *candidate.stereo_locants):
+        if int(idx) == atom_idx and str(locant):
+            return str(locant)
+    if candidate.parent_atoms and atom_idx in candidate.parent_atoms and len(candidate.parent_atoms) == 1:
+        return "1"
+    return ""
+
+
+def _parent_name_to_substituent_prefix(name: str, locant: str) -> str:
+    if not name or not locant:
+        return ""
+    retained = _retained_fused_substituent_suffix(name, locant)
+    if retained:
+        return retained
+    if name == "benzene":
+        return "phenyl"
+    if name.endswith("e"):
+        return f"{name[:-1]}-{locant}-yl"
+    return f"{name}-{locant}-yl"

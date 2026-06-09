@@ -916,7 +916,13 @@ def _name_fused_core_match(
     mol, template: dict, match: Sequence[int], parent_name: str | None = None
 ) -> str:
     cache = mol_cache_dict(mol, "fused_core_match_name_cache")
-    cache_key = (id(template), tuple(match), parent_name)
+    cache_key = (
+        id(template),
+        tuple(match),
+        parent_name,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1328,7 +1334,7 @@ def _preserve_generated_fused_indicated_hydrogen(name: str) -> bool:
     return bool(re.match(r"\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
 
 
-def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str]]:
+def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
     ordered = ordered_ring(mol, ring)
     if not ordered:
         return []
@@ -1449,7 +1455,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     if not best_name:
         return []
     best_name = _opsin_parseable_retained_parent_name(best_name)
-    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name))]
+    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name), tuple(best_seq))]
 
 
 def _single_ring_substituent_locant(parent_name: str, loc: int) -> str:

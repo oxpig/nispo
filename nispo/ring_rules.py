@@ -226,6 +226,11 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
         if candidates:
             return candidates
 
+    if n == 4 and (all_aromatic or kekulized_aromatic) and all(sym == "C" for sym in symbols):
+        candidates = _cyclobutene_chalcogenone_candidates(mol, ordered)
+        if candidates:
+            return candidates
+
     if n == 6 and (all_aromatic or kekulized_aromatic):
         candidates = _six_membered_aromatic_candidates(mol, ordered, symbols)
         if candidates:
@@ -554,6 +559,43 @@ def _four_membered_aromatic_heterocycle_candidates(
         if name:
             candidates.append((name, seq))
     return candidates
+
+
+def _cyclobutene_chalcogenone_candidates(mol, ordered: Sequence[int]) -> list[tuple[str, tuple[int, ...]]]:
+    ring_set = set(ordered)
+    chalcogenone_atoms = [idx for idx in ordered if _exocyclic_chalcogenone_symbol(mol, idx, ring_set)]
+    if len(chalcogenone_atoms) != 2:
+        return []
+    if mol.GetBondBetweenAtoms(chalcogenone_atoms[0], chalcogenone_atoms[1]) is None:
+        return []
+    alkene_atoms = [idx for idx in ordered if idx not in chalcogenone_atoms]
+    if len(alkene_atoms) != 2:
+        return []
+    alkene_bond = mol.GetBondBetweenAtoms(alkene_atoms[0], alkene_atoms[1])
+    if alkene_bond is None or alkene_bond.GetBondTypeAsDouble() not in {1.5, 2.0}:
+        return []
+    candidates = []
+    for left, right in (tuple(chalcogenone_atoms), tuple(reversed(chalcogenone_atoms))):
+        for first, second in (tuple(alkene_atoms), tuple(reversed(alkene_atoms))):
+            seq = (left, right, first, second)
+            if all(
+                mol.GetBondBetweenAtoms(a, b) is not None
+                for a, b in zip(seq, seq[1:] + seq[:1])
+            ):
+                candidates.append(("cyclobut-3-ene", seq))
+    return candidates
+
+
+def _exocyclic_chalcogenone_symbol(mol, atom_idx: int, ring_set: set[int]) -> str:
+    found = []
+    for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx in ring_set or nbr.GetSymbol() not in {"O", "S"}:
+            continue
+        bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+        if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            found.append(nbr.GetSymbol())
+    return found[0] if len(found) == 1 else ""
 
 
 def _medium_aromatic_heterocycle_candidates(

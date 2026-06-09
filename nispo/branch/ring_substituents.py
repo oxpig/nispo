@@ -69,8 +69,18 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     if _same_ring_system_attachment(mol, attachment_idx, parent_idx):
         cache[cache_key] = ""
         return ""
-    prefix = _carbohydrate_ring_substituent_prefix(mol, attachment_idx, parent_idx) or _simple_ring_substituent_prefix(
-        mol, attachment_idx, parent_idx
+    prefix = _carbohydrate_ring_substituent_prefix(
+        mol,
+        attachment_idx,
+        parent_idx,
+    ) or _cyclobutenedione_substituent_prefix(
+        mol,
+        attachment_idx,
+        parent_idx,
+    ) or _simple_ring_substituent_prefix(
+        mol,
+        attachment_idx,
+        parent_idx,
     ) or _fused_ring_substituent_prefix(
         mol, attachment_idx, parent_idx
     ) or _resource_substituent_prefix(mol, attachment_idx, parent_idx, Chem) or _generic_polycyclic_ring_substituent_prefix(
@@ -109,6 +119,93 @@ def _generic_polycyclic_ring_substituent_prefix(mol, attachment_idx: int, parent
     from ..polycyclic_rules import polycyclic_substituent_prefix
 
     return polycyclic_substituent_prefix(mol, Chem, attachment_idx, parent_idx)
+
+
+def _cyclobutenedione_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    rings = [tuple(r) for r in mol.GetRingInfo().AtomRings() if attachment_idx in r and parent_idx not in r]
+    if len(rings) != 1 or len(rings[0]) != 4:
+        return ""
+    ring = rings[0]
+    ring_set = set(ring)
+    if any(
+        mol.GetAtomWithIdx(idx).GetSymbol() != "C" or mol.GetAtomWithIdx(idx).GetFormalCharge() != 0
+        for idx in ring
+    ):
+        return ""
+    exocyclic_oxo: dict[int, str] = {}
+    for idx in ring:
+        symbol = _exocyclic_carbonyl_symbol(mol, idx, ring_set)
+        if symbol:
+            exocyclic_oxo[idx] = symbol
+    if len(exocyclic_oxo) != 2:
+        return ""
+    carbonyl_atoms = tuple(exocyclic_oxo)
+    if not _ring_atoms_adjacent(mol, carbonyl_atoms[0], carbonyl_atoms[1]):
+        return ""
+    alkene_atoms = [idx for idx in ring if idx not in exocyclic_oxo]
+    if attachment_idx not in alkene_atoms:
+        return ""
+    other_alkene = next(idx for idx in alkene_atoms if idx != attachment_idx)
+    alkene_bond = mol.GetBondBetweenAtoms(attachment_idx, other_alkene)
+    if alkene_bond is None or alkene_bond.GetBondTypeAsDouble() not in {1.5, 2.0}:
+        return ""
+    seq = _cyclobutenedione_locant_sequence(mol, attachment_idx, other_alkene, carbonyl_atoms)
+    if not seq:
+        return ""
+    pos = {idx: str(loc) for loc, idx in enumerate(seq, start=1)}
+    prefixes = [(pos[idx], "oxo" if symbol == "O" else "thioxo") for idx, symbol in exocyclic_oxo.items()]
+    for ring_idx in seq:
+        for nbr in mol.GetAtomWithIdx(ring_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == parent_idx or nidx in ring_set:
+                continue
+            bond = mol.GetBondBetweenAtoms(ring_idx, nidx)
+            if (
+                ring_idx in exocyclic_oxo
+                and nbr.GetSymbol() == exocyclic_oxo[ring_idx]
+                and bond is not None
+                and bond.GetBondTypeAsDouble() == 2.0
+            ):
+                continue
+            prefix = _simple_or_branch_prefix(mol, nidx, ring_idx)
+            if not prefix:
+                return ""
+            prefixes.append((pos[ring_idx], prefix))
+    prefix_text = _format_prefixes(prefixes)
+    return prefix_text + "cyclobut-1-en-1-yl" if prefix_text else ""
+
+
+def _exocyclic_carbonyl_symbol(mol, atom_idx: int, ring_set: set[int]) -> str:
+    found = []
+    for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx in ring_set or nbr.GetSymbol() not in {"O", "S"}:
+            continue
+        bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+        if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            found.append(nbr.GetSymbol())
+    return found[0] if len(found) == 1 else ""
+
+
+def _cyclobutenedione_locant_sequence(
+    mol,
+    attachment_idx: int,
+    other_alkene_idx: int,
+    carbonyl_atoms: Sequence[int],
+) -> tuple[int, ...]:
+    for left, right in (tuple(carbonyl_atoms), tuple(reversed(carbonyl_atoms))):
+        seq = (attachment_idx, other_alkene_idx, left, right)
+        if all(
+            mol.GetBondBetweenAtoms(a, b) is not None
+            for a, b in zip(seq, seq[1:] + seq[:1])
+        ):
+            return seq
+    return ()
+
+
+def _ring_atoms_adjacent(mol, left: int, right: int) -> bool:
+    bond = mol.GetBondBetweenAtoms(left, right)
+    return bond is not None and bond.IsInRing()
 
 
 def _ring_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:

@@ -922,6 +922,105 @@ def _organoborane_ligand_unit(ligand: str, count: int) -> str:
     return f"{multiplier}({ligand})"
 
 
+class BenziodoxoleRetainedParentRule:
+    family = "benziodoxole-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+        self._lactone = Chem.MolFromSmarts("O=C1O[I]([#6])c2ccccc21")
+        self._geminal = Chem.MolFromSmarts("[#6]C1([#6])O[I]([#6])c2ccccc21")
+        self._iodoxy_lactone = Chem.MolFromSmarts("O=C1O[I](=O)(O)c2ccccc21")
+        self._hydride = Chem.MolFromSmarts("c1ccc2c(c1)CO[I]2")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for pattern, namer in (
+            (self._iodoxy_lactone, _benziodoxole_iodoxy_lactone_name),
+            (self._lactone, _benziodoxole_lactone_name),
+            (self._geminal, _benziodoxole_geminal_name),
+            (self._hydride, _benziodoxole_hydride_name),
+        ):
+            if pattern is None:
+                continue
+            for match in mol.GetSubstructMatches(pattern):
+                name = namer(mol, self._Chem, match)
+                if not name:
+                    continue
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=set(range(atom_count)),
+                    sort_key=(len(name), name),
+                )
+                return
+
+
+def _benziodoxole_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    iodine_idx = match[3]
+    substituent_idx = match[4]
+    covered = set(match)
+    covered.update(_collect_component_atoms(mol, substituent_idx, iodine_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, iodine_idx)
+    if not prefix:
+        return ""
+    return f"1-{_parenthesized_if_complex(_strip_outer_parentheses(prefix))}-1,2-benziodoxol-3-one"
+
+
+def _benziodoxole_geminal_name(mol, Chem, match: Sequence[int]) -> str:
+    ring_carbon_idx = match[1]
+    iodine_idx = match[4]
+    iodine_substituent_idx = match[5]
+    ring_substituent_indices = (match[0], match[2])
+    covered = set(match)
+    iodine_prefix = _simple_or_branch_prefix(mol, iodine_substituent_idx, iodine_idx)
+    if not iodine_prefix:
+        return ""
+    covered.update(_collect_component_atoms(mol, iodine_substituent_idx, iodine_idx))
+    ring_prefixes = []
+    for substituent_idx in ring_substituent_indices:
+        prefix = _simple_or_branch_prefix(mol, substituent_idx, ring_carbon_idx)
+        if not prefix:
+            return ""
+        ring_prefixes.append(_strip_outer_parentheses(prefix))
+        covered.update(_collect_component_atoms(mol, substituent_idx, ring_carbon_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    counts = Counter(ring_prefixes)
+    if len(counts) != 1:
+        return ""
+    ring_prefix = next(iter(counts))
+    if _needs_substituent_parentheses(ring_prefix):
+        geminal_prefix = f"3,3-bis({ring_prefix})"
+    else:
+        geminal_prefix = f"3,3-di{ring_prefix}"
+    iodine_prefix = _parenthesized_if_complex(_strip_outer_parentheses(iodine_prefix))
+    return f"{geminal_prefix}-1-{iodine_prefix}-1,2-benziodoxole"
+
+
+def _benziodoxole_iodoxy_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    if set(match) != set(range(mol.GetNumAtoms())):
+        return ""
+    return "1-hydroxy-1-oxo-1,2-benziodoxol-3-one"
+
+
+def _benziodoxole_hydride_name(mol, Chem, match: Sequence[int]) -> str:
+    if set(match) != set(range(mol.GetNumAtoms())):
+        return ""
+    iodine_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "I" and atom.GetFormalCharge() == 0 and atom.GetTotalNumHs() == 1
+    ]
+    if len(iodine_atoms) != 1:
+        return ""
+    return "1H-1,2-benziodoxole"
+
+
 class IodaneParentRule:
     family = "iodane-parent"
     priority = parent_priority("senior-functional-exception")
@@ -6533,6 +6632,7 @@ def parent_rules(Chem) -> tuple:
     phosphorane = PhosphoraneParentRule(Chem)
     organomagnesium_halide = OrganomagnesiumHalideParentRule(Chem)
     organoborane = OrganoboraneParentRule(Chem)
+    benziodoxole = BenziodoxoleRetainedParentRule(Chem)
     iodane = IodaneParentRule(Chem)
     iodonium = IodoniumParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
@@ -6608,6 +6708,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("organomagnesium-halide-parent", parent_priority("senior-functional-exception"), (acyclic,), organomagnesium_halide.candidates),
         RuleSpec("organoborane-parent", parent_priority("senior-functional-exception"), (), organoborane.candidates),
+        RuleSpec("benziodoxole-retained-parent", parent_priority("senior-functional-exception"), (), benziodoxole.candidates),
         RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
         RuleSpec("iodonium-parent", parent_priority("senior-functional-exception"), (), iodonium.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),

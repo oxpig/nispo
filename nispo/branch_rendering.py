@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 
-from .candidate_facts import PrefixCandidate
+from .branch.graph_facts import branch_miss_shape_key
 from .branch.functional_groups import _formyl_prefix_allowed
+from .candidate_facts import PrefixCandidate
 from .constants import HALO, MULT
 from .formatting import format_prefixes as _format_prefixes
 from .molecule_cache import mol_cache_dict, mol_cache_get
@@ -54,7 +54,7 @@ def render_branch_candidates(
                 ctx.telemetry.branch_structured_prefix_candidates[_structured_prefix_key(candidate)] += 1
         else:
             miss_key = (
-                _branch_miss_key(ctx.mol, idx, parent_idx)
+                branch_miss_shape_key(ctx.mol, idx, parent_idx)
                 if ctx.telemetry.branch_miss_shape_detail
                 else "simple_external_prefix"
             )
@@ -84,102 +84,6 @@ def record_branch_legacy_prefix_call(ctx: BranchRenderContext) -> None:
 
 def _structured_prefix_key(candidate: PrefixCandidate) -> str:
     return f"{candidate.source}:{candidate.kind}"
-
-
-def _branch_miss_key(mol, idx: int, parent_idx: int) -> str:
-    cache = mol_cache_dict(mol, "branch_render_miss_key_cache")
-    key = (idx, parent_idx)
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
-    value = _branch_miss_key_uncached(mol, idx, parent_idx)
-    cache[key] = value
-    return value
-
-
-def _branch_miss_key_uncached(mol, idx: int, parent_idx: int) -> str:
-    atom = mol.GetAtomWithIdx(idx)
-    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
-    bond_order = _bond_order_bucket(parent_bond.GetBondTypeAsDouble() if parent_bond is not None else 0.0)
-    atoms, truncated = _bounded_branch_atoms(mol, idx, parent_idx)
-    symbols = Counter(mol.GetAtomWithIdx(atom_idx).GetSymbol() for atom_idx in atoms)
-    hetero = ",".join(
-        f"{symbol}{count}"
-        for symbol, count in sorted(symbols.items())
-        if symbol not in {"C", "H"}
-    ) or "none"
-    charged = sum(1 for atom_idx in atoms if mol.GetAtomWithIdx(atom_idx).GetFormalCharge() != 0)
-    ring_atoms = sum(1 for atom_idx in atoms if mol.GetAtomWithIdx(atom_idx).IsInRing())
-    unsaturated = sum(
-        1
-        for bond in mol.GetBonds()
-        if bond.GetBeginAtomIdx() in atoms
-        and bond.GetEndAtomIdx() in atoms
-        and bond.GetBondTypeAsDouble() > 1.0
-    )
-    branch_points = sum(
-        1
-        for atom_idx in atoms
-        if sum(1 for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors() if nbr.GetAtomicNum() > 1) > 2
-    )
-    return (
-        "simple_external_prefix:"
-        f"root={atom.GetSymbol()};"
-        f"bond={bond_order};"
-        f"atoms={_count_bucket(len(atoms), truncated)};"
-        f"ring={_count_bucket(ring_atoms, False)};"
-        f"hetero={hetero};"
-        f"charge={_count_bucket(charged, False)};"
-        f"unsat={_count_bucket(unsaturated, False)};"
-        f"branch={_count_bucket(branch_points, False)}"
-    )
-
-
-def _bounded_branch_atoms(mol, idx: int, parent_idx: int, *, limit: int = 32) -> tuple[frozenset[int], bool]:
-    seen = {parent_idx}
-    stack = [idx]
-    atoms: set[int] = set()
-    truncated = False
-    while stack:
-        atom_idx = stack.pop()
-        if atom_idx in seen:
-            continue
-        seen.add(atom_idx)
-        atoms.add(atom_idx)
-        if len(atoms) >= limit:
-            truncated = True
-            break
-        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
-            nbr_idx = nbr.GetIdx()
-            if nbr_idx not in seen and nbr.GetAtomicNum() > 1:
-                stack.append(nbr_idx)
-    return frozenset(atoms), truncated
-
-
-def _bond_order_bucket(order: float) -> str:
-    if order == 1.0:
-        return "1"
-    if order == 2.0:
-        return "2"
-    if order == 3.0:
-        return "3"
-    if order == 1.5:
-        return "arom"
-    return "other"
-
-
-def _count_bucket(count: int, truncated: bool) -> str:
-    if truncated:
-        return "33+"
-    if count <= 2:
-        return str(count)
-    if count <= 4:
-        return "3-4"
-    if count <= 8:
-        return "5-8"
-    if count <= 16:
-        return "9-16"
-    return "17-32"
 
 
 def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

@@ -2790,6 +2790,7 @@ def _unstable_component_spiro_alias_penalty(name: str, candidate: NameCandidate)
 
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     bonus = _locanted_multicenter_stereo_bonus(name, candidate)
+    bonus += _structured_stereo_parent_bonus(candidate)
     if candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
         bonus += _charged_single_ring_parent_bonus(candidate)
         bonus += _single_ring_suffix_parent_bonus(candidate)
@@ -2847,6 +2848,14 @@ def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:
     if kinds.intersection({"ring_imino_suffix", "ring_carbonyl_suffix"}):
         return 12
     return 0
+
+
+def _structured_stereo_parent_bonus(candidate: NameCandidate) -> int:
+    if not candidate.stereo_locants or not candidate.parent_atoms:
+        return 0
+    if not candidate_has_complete_graph(candidate):
+        return 0
+    return min(80, len(candidate.stereo_locants) * 10)
 
 
 def _locanted_multicenter_stereo_bonus(name: str, candidate: NameCandidate) -> int:

@@ -34,6 +34,7 @@ from ..substituent_resource_rules import (
 )
 from ..simple_prefixes import simple_external_prefix
 from ..template_access import template_record_locants, template_record_mol, template_record_name
+from ..template_match_utils import match_has_extra_core_bonds
 from ..template_store import template_store
 from .functional_groups import (
     _is_nitrile_carbon,
@@ -862,6 +863,8 @@ def _fused_ring_substituent_prefix_from_templates(
         for match in _substruct_matches(mol, core):
             if attachment_idx not in match or parent_idx in match:
                 continue
+            if match_has_extra_core_bonds(mol, core, match):
+                continue
             core_set = set(match)
             if ring_system_extends_core(mol, core_set):
                 continue
@@ -903,6 +906,8 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
         query = _topology_query(template_record_mol(template))
         for match in _substruct_matches(mol, query):
             if attachment_idx not in match or parent_idx in match:
+                continue
+            if match_has_extra_core_bonds(mol, query, match):
                 continue
             core_set = set(match)
             if ring_system_extends_core(mol, core_set):

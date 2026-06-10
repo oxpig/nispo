@@ -267,6 +267,7 @@ def test_retained_alias_shortcuts_defer_to_systematic_candidates(input_smiles):
         "O=C(OC1CCCCC1)c1ccccc1C(=O)OC1CCCCC1",
         "C[C@@H](Oc1ccc(N)cc1)C1CC1",
         "CC(c1nnco1)C1CC1",
+        "c1ccc(C2c3ccccc3-c3cccc(-c4ccc5ccccc5c4)c32)cc1",
     ],
 )
 def test_resource_templates_do_not_collapse_extra_core_bonds(input_smiles):

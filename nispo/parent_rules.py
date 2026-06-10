@@ -3237,11 +3237,17 @@ class RetainedAmideParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name in _retained_amide_names(mol, self._Chem):
+        for name, source_family in _retained_amide_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                source_family=source_family,
+            )
 
 
 class BetaDicarbonylParentRule:
@@ -5149,7 +5155,11 @@ def _neutral_carbonyl_count(mol, Chem) -> int:
 
 
 def _retained_amide_names(mol, Chem) -> list[str]:
-    names = []
+    return [name for name, _source_family in _retained_amide_records(mol, Chem)]
+
+
+def _retained_amide_records(mol, Chem) -> list[tuple[str, str]]:
+    records = []
     for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
         n_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
         if n_substituents is None or len(n_substituents) > 2:
@@ -5163,9 +5173,18 @@ def _retained_amide_names(mol, Chem) -> list[str]:
             core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "amide")
             if not core:
                 continue
-            names.append(_join_n_prefix_functional_parent(n_prefix, core))
-        names.extend(_ring_carboxamide_parent_names(mol, Chem, carbonyl_idx, nitrogen_idx, acyl_idx, n_prefix))
-    return names
+            records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide"))
+        records.extend(
+            _ring_carboxamide_parent_records(
+                mol,
+                Chem,
+                carbonyl_idx,
+                nitrogen_idx,
+                acyl_idx,
+                n_prefix,
+            )
+        )
+    return records
 
 
 def _ring_carboxamide_parent_names(
@@ -5176,9 +5195,30 @@ def _ring_carboxamide_parent_names(
     acyl_idx: int,
     n_prefix: str,
 ) -> list[str]:
+    return [
+        name
+        for name, _source_family in _ring_carboxamide_parent_records(
+            mol,
+            Chem,
+            carbonyl_idx,
+            nitrogen_idx,
+            acyl_idx,
+            n_prefix,
+        )
+    ]
+
+
+def _ring_carboxamide_parent_records(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    acyl_idx: int,
+    n_prefix: str,
+) -> list[tuple[str, str]]:
     if not mol.GetAtomWithIdx(acyl_idx).IsInRing():
         return []
-    names = []
+    records = []
     for ring in mol.GetRingInfo().AtomRings():
         if acyl_idx not in ring or _ring_is_fused_to_another_ring(mol, ring):
             continue
@@ -5200,8 +5240,19 @@ def _ring_carboxamide_parent_names(
                 n_prefix,
             )
             if name:
-                names.append(name)
-    return names
+                records.append((name, _ring_carboxamide_source_family(mol, ring)))
+    return records
+
+
+def _ring_carboxamide_source_family(mol, ring: Sequence[int]) -> str:
+    symbols = {mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring}
+    if "Se" in symbols:
+        return "ring-carboxamide:selenium"
+    if "Te" in symbols:
+        return "ring-carboxamide:tellurium"
+    if symbols.intersection({"S", "O"}):
+        return "ring-carboxamide:chalcogen"
+    return "ring-carboxamide"
 
 
 def _ring_is_fused_to_another_ring(mol, ring: Sequence[int]) -> bool:
@@ -9896,8 +9947,12 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
             templates = _retained_topology_replacement_parent_templates_for_graph(*key, self._Chem)
             stage_counts["graph_templates"] += len(templates)
             for template in templates:
-                if _retained_topology_replacement_template_has_nh(template):
-                    continue
+                template_has_nh = _retained_topology_replacement_template_has_nh(template)
+                allow_nh_template = False
+                if template_has_nh:
+                    allow_nh_template = _retained_topology_replacement_template_allows_nh(template)
+                    if not allow_nh_template:
+                        continue
                 stage_counts["after_template_nh"] += 1
                 if not _retained_topology_replacement_template_elements_possible(feature["elements"], template):
                     continue
@@ -9915,7 +9970,12 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
                     if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
                     stage_counts["after_hydrogen_compatibility"] += 1
-                    parent_name = _retained_topology_replacement_parent_name(mol, template, match)
+                    parent_name = _retained_topology_replacement_parent_name(
+                        mol,
+                        template,
+                        match,
+                        allow_nh_template=allow_nh_template,
+                    )
                     if not parent_name:
                         continue
                     stage_counts["facts"] += 1
@@ -10817,6 +10877,7 @@ from .parent.rule_helpers import (
     _skeletal_replacement_query,
     _skeletal_replacement_parent_name,
     _retained_topology_replacement_parent_name,
+    _retained_topology_replacement_template_allows_nh,
     _skeletal_replacement_sort_key,
     _spiro_norbornene_locant_penalty,
     _skeletal_replacement_saturation_penalty,

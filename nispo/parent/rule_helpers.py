@@ -396,10 +396,44 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
     return "-".join(parts) + parent_name
 
 
-def _retained_topology_replacement_parent_name(mol, template: dict, match: Sequence[int]) -> str:
+_RETAINED_TOPOLOGY_REPLACEMENT_NH_PARENT_NAMES = frozenset(
+    {
+        "corrin",
+        "corrine",
+        "porphin",
+        "porphine",
+        "porphyrin",
+        "porphyrine",
+    }
+)
+
+
+def _retained_topology_replacement_template_allows_nh(template: dict) -> bool:
+    parent_name = _terminal_retained_parent_name(template_record_name(template))
+    if parent_name not in _RETAINED_TOPOLOGY_REPLACEMENT_NH_PARENT_NAMES:
+        return False
+    template_mol = template_record_mol(template)
+    if template_mol.GetNumAtoms() < 19 or len(template_mol.GetRingInfo().AtomRings()) < 4:
+        return False
+    return any(
+        atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0
+        for atom in template_mol.GetAtoms()
+    )
+
+
+def _retained_topology_replacement_parent_name(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    *,
+    allow_nh_template: bool = False,
+) -> str:
     grouped: dict[str, list[str]] = {}
     template_mol = template_record_mol(template)
-    if any(atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 for atom in template_mol.GetAtoms()):
+    if (
+        not allow_nh_template
+        and any(atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 for atom in template_mol.GetAtoms())
+    ):
         return ""
     locants = template_record_locants(template)
     for template_idx, mol_idx in enumerate(match):
@@ -1554,7 +1588,11 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_suffix_kind = "ring_functional_suffix"
     if not best_name:
         return []
-    best_name = _opsin_parseable_retained_parent_name(best_name)
+    if not (
+        best_suffix_kind in {"ring_oxo_suffix", "ring_thione_suffix"}
+        and _is_single_ring_indicated_h_chalcogen_suffix_full_form(best_name)
+    ):
+        best_name = _opsin_parseable_retained_parent_name(best_name)
     return [
         RingNameRecord(
             best_name,
@@ -2163,6 +2201,19 @@ _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS = (
     "tetrazol",
 )
 
+_SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENT_FULL_FORMS = {
+    "oxadiazol": "oxadiazole",
+    "thiadiazol": "thiadiazole",
+    "triazol": "triazole",
+    "tetrazol": "tetrazole",
+}
+
+
+def _is_single_ring_indicated_h_chalcogen_suffix_full_form(name: str) -> bool:
+    if "H)-" not in name or not name.endswith(("-one", "-thione")):
+        return False
+    return any(f"{full}-" in name for full in _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENT_FULL_FORMS.values())
+
 
 def _single_ring_indicated_h_chalcogen_suffix_name(
     parent_name: str,
@@ -2173,14 +2224,18 @@ def _single_ring_indicated_h_chalcogen_suffix_name(
     if len(suffix_locs) != 1 or not indicated_h_locs:
         return ""
     parent = _strip_leading_indicated_hydrogen(parent_name)
-    parent = parent[:-1] if parent.endswith("e") else parent
-    parent = _preferred_parent_stem(parent)
-    if not any(stem in parent for stem in _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS):
+    stem_parent = parent[:-1] if parent.endswith("e") else parent
+    stem_parent = _preferred_parent_stem(stem_parent)
+    if not any(stem in stem_parent for stem in _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS):
         return ""
     h_locs = [loc for loc in indicated_h_locs if loc != suffix_locs[0]]
     if not h_locs:
         return ""
     h_loc = sorted(h_locs, key=_locant_sort_key)[-1]
+    for stem, full in _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENT_FULL_FORMS.items():
+        if parent.endswith(stem):
+            parent = f"{parent[:-len(stem)]}{full}"
+            break
     return f"{parent}-{suffix_locs[0]}({h_loc}H)-{suffix}"
 
 

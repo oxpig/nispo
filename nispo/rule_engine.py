@@ -274,6 +274,7 @@ def _select_best_prepared_candidate(
         candidate_key = (
             stability_penalty,
             candidate.priority,
+            _candidate_selection_render_rank_key(candidate),
             len(item.name) - selection_bonus,
             len(item.name),
             _comparable_sort_key(candidate.sort_key),
@@ -643,6 +644,16 @@ _FUSED_PARENT_ATOM_BONUS_FAMILIES = {
     "retained-topology-replacement-fused-parent",
 }
 
+_RENDER_RANK_BEFORE_LENGTH_FAMILIES = {
+    "component-spiro-parent",
+    "functional-generic-bicyclic-parent",
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generic-bicyclic-parent",
+    "kekulized-generic-polycyclic-parent",
+    "retained-topology-replacement-fused-parent",
+}
+
 _ACYCLIC_SKELETON_PARENT_FAMILIES = {
     "acyclic-skeleton-with-ring-substituents",
     "chain-dominant-acyclic-skeleton-with-ring-substituents",
@@ -781,7 +792,17 @@ def _candidate_selection_kekulized_early_rank_bonus(candidate: NameCandidate) ->
         return 0
     if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
         return 0
-    return max(0, 40 - (candidate.render_rank - 1) * 5)
+    return 2 * max(0, 40 - (candidate.render_rank - 1) * 5)
+
+
+def _candidate_selection_render_rank_key(candidate: NameCandidate) -> int:
+    if candidate.family not in _RENDER_RANK_BEFORE_LENGTH_FAMILIES:
+        return 999
+    if candidate.render_rank is None:
+        return 999
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return 999
+    return candidate.render_rank
 
 
 def _static_retained_fused_parent_atom_bonus_blocked(candidate: NameCandidate) -> bool:
@@ -1361,6 +1382,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    broad_incomplete_shortcut_graph_parent = (
+        _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
+    )
     incomplete_senior_hydride_shortcut = _has_contextual_complete_parent_alternative_for_incomplete_senior_hydride_shortcut(
         item,
         prepared,
@@ -1423,6 +1447,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
+        or broad_incomplete_shortcut_graph_parent
         or incomplete_senior_hydride_shortcut
         or benzotriazole_retained_anchor
         or retained_shortcut
@@ -1597,6 +1622,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if incomplete_shortcut_graph_parent:
         penalty += 140
+    if broad_incomplete_shortcut_graph_parent:
+        penalty += 125
     if incomplete_senior_hydride_shortcut:
         penalty += 150
     if benzotriazole_retained_anchor:
@@ -1769,6 +1796,15 @@ _INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES = frozenset(
     }
 )
 
+_BROAD_INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES = frozenset(
+    {
+        "component-spiro-parent",
+        "glutarimide-retained-parent",
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+    }
+)
+
 _COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
     {
         "acyclic-parent",
@@ -1782,6 +1818,23 @@ _COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
         "kekulized-generic-polycyclic-parent",
         "preferred-acyclic-skeleton-with-ring-substituents",
         "retained-topology-replacement-fused-parent",
+    }
+)
+
+_BROAD_COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "functional-generic-bicyclic-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
     }
 )
 
@@ -1827,6 +1880,41 @@ def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
         if len(other.name) > 220 or len(other.name) - len(item.name) > 90:
             continue
         if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _BROAD_INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES:
+        return False
+    if candidate.source_family in {"ring-carboxamide:selenium", "ring-carboxamide:tellurium"}:
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _BROAD_COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if candidate.family == "retained-amide-parent":
+            if other_candidate.family == "single-ring-parent" and not other_candidate.suffixes:
+                continue
+            if (
+                other_candidate.family in (_ACYCLIC_SKELETON_PARENT_FAMILIES | {"acyclic-parent"})
+                and len(other_candidate.parent_atoms) < 7
+            ):
+                continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 135:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 90:
             continue
         return True
     return False

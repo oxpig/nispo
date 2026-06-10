@@ -35,6 +35,7 @@ from ..stereochemistry import assigned_atom_stereochemistry
 
 MAX_ACYCLIC_PARENT_PATHS = 16
 MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR = 2
+_SATURATED_CHAIN_PARENT_STEMS = frozenset(f"{root}an" for root in ROOTS.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,7 +381,9 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
         return ""
 
     replacement_text = replacement_prefixes(mol, path)
-    parent = parent_chain_name(mol, path, as_substituent=False)
+    parent = _standalone_saturated_chain_parent(
+        parent_chain_name(mol, path, as_substituent=False)
+    )
     if not parent or not parent.endswith("e"):
         return ""
     locant = path.index(carbon_idx) + 1
@@ -546,7 +549,9 @@ def _name_ketene_path(
         return ""
 
     replacement_text = replacement_prefixes(mol, path)
-    parent = parent_chain_name(mol, path, as_substituent=False)
+    parent = _standalone_saturated_chain_parent(
+        parent_chain_name(mol, path, as_substituent=False)
+    )
     if not parent:
         return ""
     if replacement_text:
@@ -784,6 +789,8 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         if suffix_parent:
             return suffix_parent
     prefix_text = _format_prefixes(prefixes)
+    if not as_substituent:
+        parent = _standalone_saturated_chain_parent(parent)
     if replacement_text:
         pieces = []
         if prefix_text:
@@ -793,6 +800,12 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
     else:
         name = _join_prefix_parent(prefix_text, parent) if prefix_text else _preferred_parent_stem(parent)
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _standalone_saturated_chain_parent(parent: str) -> str:
+    if parent in _SATURATED_CHAIN_PARENT_STEMS:
+        return parent + "e"
+    return parent
 
 
 def _hydroxy_suffix_parent_name(
@@ -1261,7 +1274,9 @@ def _name_exocyclic_sulfur_suffix_path(
     )
     if prefixes is None:
         return ""
-    parent = parent_chain_name(mol, path, as_substituent=False)
+    parent = _standalone_saturated_chain_parent(
+        parent_chain_name(mol, path, as_substituent=False)
+    )
     if not parent or not parent.endswith("ane"):
         return ""
     locant = path.index(center_idx) + 1

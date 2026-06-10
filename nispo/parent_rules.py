@@ -11,7 +11,7 @@ from functools import lru_cache
 from .branch_rules import branch_prefix
 from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
-from .candidate_facts import CandidateSafety, ChargeEvidence, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND
+from .candidate_facts import CandidateSafety, ChargeEvidence, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND, SuffixCandidate
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
@@ -1453,6 +1453,7 @@ class PhosphorusAcidParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
+        atom_set = set(range(mol.GetNumAtoms()))
         phosphorus_atoms = [
             atom
             for atom in mol.GetAtoms()
@@ -1462,6 +1463,15 @@ class PhosphorusAcidParentRule:
             return
         phosphorus = phosphorus_atoms[0]
         pidx = phosphorus.GetIdx()
+        phosphine_oxide_name = _single_center_phosphine_oxide_name(mol, self._Chem, pidx, atom_set)
+        if phosphine_oxide_name:
+            yield NameCandidate(
+                phosphine_oxide_name,
+                self.family,
+                self.priority,
+                parent_atoms=atom_set,
+                sort_key=(len(phosphine_oxide_name), phosphine_oxide_name),
+            )
         carbon_neighbors = []
         double_oxygen_count = 0
         hydroxy_count = 0
@@ -1728,6 +1738,97 @@ class OrganophosphorusOxideParentRule:
         if prefix_text:
             name = prefix_text + parent
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _single_center_phosphine_oxide_name(mol, Chem, pidx: int, atom_set: set[int]) -> str:
+    phosphorus = mol.GetAtomWithIdx(pidx)
+    ligand_names = []
+    ligand_atom_sets = []
+    covered = {pidx}
+    double_oxygen_count = 0
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+            covered.add(nidx)
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if nbr.GetSymbol() not in {"C", "N", "O"} or nbr.GetFormalCharge() != 0:
+            return ""
+        if nbr.GetSymbol() == "O":
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if len(heavy) != 1:
+                return ""
+        ligand = _simple_or_branch_prefix(mol, nidx, pidx)
+        if not ligand:
+            return ""
+        ligand_names.append(_strip_outer_parentheses(ligand))
+        ligand_atoms = _collect_component_atoms(mol, nidx, pidx)
+        ligand_atom_sets.append(frozenset(ligand_atoms))
+        covered.update(ligand_atoms)
+    if double_oxygen_count != 1 or not ligand_names:
+        return ""
+    phosphorus_hydrogens = phosphorus.GetTotalNumHs()
+    if len(ligand_names) + phosphorus_hydrogens != 3:
+        return ""
+    if covered != atom_set:
+        return ""
+    if phosphorus_hydrogens == 0 and not _simple_no_hydrogen_phosphine_oxide_scope(
+        mol,
+        Chem,
+        ligand_atom_sets,
+    ):
+        return ""
+    ligand_text = _phosphine_oxide_ligand_text(ligand_names)
+    return ligand_text + "phosphine oxide" if ligand_text else ""
+
+
+def _simple_no_hydrogen_phosphine_oxide_scope(mol, Chem, ligand_atom_sets: Sequence[frozenset[int]]) -> bool:
+    if mol.GetNumAtoms() > 18:
+        return False
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+        return False
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+        return False
+    atom_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings()]
+    for ligand_atoms in ligand_atom_sets:
+        heavy_count = sum(
+            1 for idx in ligand_atoms if mol.GetAtomWithIdx(idx).GetAtomicNum() > 1
+        )
+        if heavy_count > 12:
+            return False
+        if sum(1 for ring in atom_rings if ring.issubset(ligand_atoms)) > 1:
+            return False
+    return True
+
+
+def _phosphine_oxide_ligand_text(names: Sequence[str]) -> str:
+    parts = []
+    counts = Counter(names)
+    for name, count in sorted(
+        counts.items(),
+        key=lambda item: (-item[1], _needs_substituent_parentheses(item[0]), item[0]),
+    ):
+        bare = _strip_outer_parentheses(name)
+        if count == 1:
+            if not parts and not _needs_substituent_parentheses(bare):
+                parts.append(bare)
+            else:
+                parts.append(f"({bare})")
+            continue
+        multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
+        if not multiplier:
+            return ""
+        parts.append(f"{multiplier}({bare})")
+    return "".join(parts)
 
 
 class PhosphoraneParentRule:
@@ -8983,18 +9084,19 @@ class SingleRingParentRule:
         ring_facts = self._ring_fact_render_set(ctx, self._candidate_ring_facts(ctx, parent_rings))
         for render_rank, ring_fact in enumerate(ring_facts, start=1):
             ring = ring_fact.ring
-            for name, stereo_prefix, locant_seq in _named_ring_instance_names(mol, tuple(ring), self._Chem):
+            for record in _named_ring_instance_records(mol, tuple(ring), self._Chem):
                 yield NameCandidate(
-                    name=name,
+                    name=record.name,
                     family=self.family,
                     priority=candidate_priority,
-                    sort_key=_single_ring_candidate_sort_key(name),
-                    stereo_prefix=stereo_prefix,
+                    sort_key=_single_ring_candidate_sort_key(record.name),
+                    stereo_prefix=record.stereo_prefix,
                     parent_atoms=frozenset(ring),
-                    locants=_locants_from_sequence(locant_seq),
-                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
+                    locants=_locants_from_sequence(record.locant_seq),
+                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
+                    suffixes=_single_ring_suffix_candidates(record),
                     charge=_single_ring_charge_evidence(mol, ring),
-                    estimated_length=len(name),
+                    estimated_length=len(record.name),
                     render_rank=render_rank,
                 )
 
@@ -9039,26 +9141,33 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
         if mol.GetRingInfo().NumRings() != 1 or _too_large_for_exhaustive_ring_parent_search(mol):
             return
         for ring in mol.GetRingInfo().AtomRings():
-            for name, stereo_prefix, locant_seq in _named_ring_instance_names(mol, tuple(ring), self._Chem):
-                if not _has_positive_ring_parent_name(name):
+            for record in _named_ring_instance_records(mol, tuple(ring), self._Chem):
+                if not _has_positive_ring_parent_name(record.name):
                     continue
                 yield NameCandidate(
-                    name=name,
+                    name=record.name,
                     family=self.family,
                     priority=self.priority,
-                    sort_key=_single_ring_candidate_sort_key(name),
-                    stereo_prefix=stereo_prefix,
+                    sort_key=_single_ring_candidate_sort_key(record.name),
+                    stereo_prefix=record.stereo_prefix,
                     parent_atoms=frozenset(ring),
-                    locants=_locants_from_sequence(locant_seq),
-                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, locant_seq, self._Chem),
+                    locants=_locants_from_sequence(record.locant_seq),
+                    stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
+                    suffixes=_single_ring_suffix_candidates(record),
                     charge=_single_ring_charge_evidence(mol, ring),
-                    estimated_length=len(name),
+                    estimated_length=len(record.name),
                     render_rank=1,
                 )
 
 
 def _has_positive_ring_parent_name(name: str) -> bool:
     return bool(re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name))
+
+
+def _single_ring_suffix_candidates(record) -> tuple[SuffixCandidate, ...]:
+    if not record.suffix_kind:
+        return ()
+    return (SuffixCandidate(text="", kind=record.suffix_kind, source="single-ring-parent"),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -10618,7 +10727,7 @@ from .parent.rule_helpers import (
     _adjust_fused_parent_for_indicated_hydrogen,
     _append_ring_parent_isotope_suffixes,
     _merge_ring_parent_candidates,
-    _named_ring_instance_names,
+    _named_ring_instance_records,
     _single_ring_substituent_locant,
     _single_ring_stereo_prefix,
     _polycyclic_stereo_prefix,

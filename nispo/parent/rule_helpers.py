@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 from itertools import combinations
 
@@ -1373,7 +1374,22 @@ def _preserve_generated_fused_indicated_hydrogen(name: str) -> bool:
     return bool(re.match(r"\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
 
 
+@dataclass(frozen=True, slots=True)
+class RingNameRecord:
+    name: str
+    stereo_prefix: str
+    locant_seq: tuple[int, ...]
+    suffix_kind: str = ""
+
+
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
+    return [
+        (record.name, record.stereo_prefix, record.locant_seq)
+        for record in _named_ring_instance_records(mol, ring, Chem)
+    ]
+
+
+def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNameRecord]:
     ordered = ordered_ring(mol, ring)
     if not ordered:
         return []
@@ -1400,6 +1416,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
     best_key = None
     best_name = ""
     best_seq: Sequence[int] = ()
+    best_suffix_kind = ""
     for parent_name, seq in candidates:
         adjusted_parent = _adjust_ring_parent_for_charge(mol, parent_name, seq, raw_subs)
         if not adjusted_parent:
@@ -1413,6 +1430,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = key
                 best_name = name
                 best_seq = seq
+                best_suffix_kind = ""
             continue
         pos = {idx: i + 1 for i, idx in enumerate(seq)}
         prefixes = [
@@ -1434,6 +1452,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = key
                 best_name = name
                 best_seq = seq
+                best_suffix_kind = ""
             continue
         prefix_text = _format_prefixes(prefixes)
         if not prefix_text:
@@ -1446,6 +1465,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
             best_key = key
             best_name = name
             best_seq = seq
+            best_suffix_kind = ""
         retained_benzene_name = _benzene_retained_parent_name(prefixes, adjusted_parent)
         if retained_benzene_name:
             retained_key = (locants, -1, len(retained_benzene_name), retained_benzene_name)
@@ -1453,6 +1473,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = retained_key
                 best_name = retained_benzene_name
                 best_seq = seq
+                best_suffix_kind = ""
         suffix_name = (
             ""
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
@@ -1465,12 +1486,14 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = sulfur_oxide_key
                 best_name = sulfur_oxide_name
                 best_seq = seq
+                best_suffix_kind = "ring_sulfur_oxide_suffix"
         if suffix_name:
             suffix_key = (locants, 0, suffix_name)
             if best_key is None or suffix_key < best_key:
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
+                best_suffix_kind = "ring_oxo_suffix"
         thione_name = _single_ring_thione_suffix_name(prefixes, adjusted_parent, indicated_h_locs)
         if thione_name:
             thione_key = (locants, 0, thione_name)
@@ -1478,6 +1501,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = thione_key
                 best_name = thione_name
                 best_seq = seq
+                best_suffix_kind = "ring_thione_suffix"
         imino_name = _single_ring_imino_suffix_name(prefixes, adjusted_parent)
         if imino_name:
             imino_key = (locants, 0, imino_name)
@@ -1485,6 +1509,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = imino_key
                 best_name = imino_name
                 best_seq = seq
+                best_suffix_kind = "ring_imino_suffix"
         carbonyl_name = _single_ring_oxo_methylidene_suffix_name(prefixes, adjusted_parent)
         if carbonyl_name:
             carbonyl_key = (locants, 0, carbonyl_name)
@@ -1492,6 +1517,7 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = carbonyl_key
                 best_name = carbonyl_name
                 best_seq = seq
+                best_suffix_kind = "ring_carbonyl_suffix"
         functional_suffix_name = _single_ring_functional_suffix_name(prefixes, adjusted_parent)
         if functional_suffix_name:
             suffix_key = (locants, 0, functional_suffix_name)
@@ -1499,10 +1525,18 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
                 best_key = suffix_key
                 best_name = functional_suffix_name
                 best_seq = seq
+                best_suffix_kind = "ring_functional_suffix"
     if not best_name:
         return []
     best_name = _opsin_parseable_retained_parent_name(best_name)
-    return [(best_name, _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name), tuple(best_seq))]
+    return [
+        RingNameRecord(
+            best_name,
+            _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name),
+            tuple(best_seq),
+            best_suffix_kind,
+        )
+    ]
 
 
 def _single_ring_substituent_locant(parent_name: str, loc: int) -> str:

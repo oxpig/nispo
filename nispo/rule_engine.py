@@ -121,17 +121,30 @@ class NamingEngine:
         )
         mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, "1")
         try:
+            fallback_ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
             fallback_name = _select_best_prepared_candidate(
                 _prepare_candidates(
                     mol,
                     self._Chem,
-                    ctx,
+                    fallback_ctx,
                     self._rules,
                     max_length=fallback_evaluation_length,
                     output_max_length=fallback_max_length,
                 ),
                 telemetry=telemetry,
             )
+            if not fallback_name:
+                fallback_name = _select_best_prepared_candidate(
+                    _prepare_candidates(
+                        mol,
+                        self._Chem,
+                        ctx,
+                        self._rules,
+                        max_length=fallback_evaluation_length,
+                        output_max_length=fallback_max_length,
+                    ),
+                    telemetry=telemetry,
+                )
         finally:
             if had_fragment_fallback_prop:
                 mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, previous_fragment_fallback_value)
@@ -2505,6 +2518,7 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     bonus = _locanted_multicenter_stereo_bonus(name, candidate)
     if candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
         bonus += _charged_single_ring_parent_bonus(candidate)
+        bonus += _single_ring_suffix_parent_bonus(candidate)
     if candidate.family not in {
         "fused-retained-parent",
         "generated-fused-parent",
@@ -2546,6 +2560,19 @@ def _charged_single_ring_parent_bonus(candidate: NameCandidate) -> int:
     if not candidate_has_complete_graph(candidate):
         return 0
     return min(16, 8 + 2 * len(evidence.charged_atoms))
+
+
+def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:
+    if not candidate.suffixes or not candidate_has_complete_graph(candidate):
+        return 0
+    kinds = {suffix.kind for suffix in candidate.suffixes}
+    if kinds.intersection({"ring_oxo_suffix", "ring_thione_suffix"}):
+        return 24
+    if "ring_functional_suffix" in kinds:
+        return 18
+    if kinds.intersection({"ring_imino_suffix", "ring_carbonyl_suffix"}):
+        return 12
+    return 0
 
 
 def _locanted_multicenter_stereo_bonus(name: str, candidate: NameCandidate) -> int:

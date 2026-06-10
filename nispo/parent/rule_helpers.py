@@ -909,6 +909,32 @@ def _benzimidazole_template_h_preference(mol, template: dict, match: Sequence[in
     return (2,)
 
 
+def _benzimidazole_external_n_preference(mol, template: dict, match: Sequence[int]) -> tuple:
+    if template_record_name(template) != "1H-benzimidazole":
+        return ()
+    template_mol = template_record_mol(template)
+    locants = template_record_locants(template)
+    core = set(match)
+    external_n_locants = []
+    for template_idx, mol_idx in enumerate(match):
+        if template_mol.GetAtomWithIdx(template_idx).GetSymbol() != "N":
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if not any(nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            continue
+        locant = locants.get(template_idx, "")
+        if locant:
+            external_n_locants.append(locant)
+    if not external_n_locants:
+        return (1,)
+    locants_key = tuple(sorted(external_n_locants, key=_locant_sort_key))
+    if locants_key == ("3",):
+        return (0,)
+    if locants_key == ("1",):
+        return (2,)
+    return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
+
+
 def _benzotriazole_template_h_preference(mol, template: dict, match: Sequence[int], name: str) -> tuple:
     if "benzotriazole" not in name and "benzotriazole" not in template_record_name(template):
         return ()
@@ -2052,7 +2078,10 @@ def _single_ring_oxo_suffix_name(
     if not parent:
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
     locants = ",".join(sorted(oxo_locs, key=int))
-    suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
+    if "lambda" in parent_name:
+        suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
+    else:
+        suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
     name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 

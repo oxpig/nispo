@@ -240,6 +240,8 @@ _PREFERRED_PARENT_STEMS = (
 def preferred_parent_stem(parent: str) -> str:
     if not parent:
         return parent
+    if "lambda" in parent:
+        return parent
     stemmed = parent
     for full, stem in _PREFERRED_PARENT_STEMS:
         stemmed = stemmed.replace(full, stem)

@@ -1296,6 +1296,23 @@ def _fused_oxo_suffix_name(
         name = "3H,8H-pteridine-4,7-dione"
         return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     if (
+        len(oxo_locs) > 1
+        and indicated_h_locs
+        and not _has_fused_hydro_parent_segment(parent_name)
+        and "acenaphthen" not in parent_name
+        and "naphthyridine" not in parent_name
+        and "isoquinoline" not in parent_name
+        and "spiro[" not in parent_name
+    ):
+        remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
+        prefix_text = _format_prefixes(remaining)
+        parent = _strip_leading_indicated_hydrogen(parent_name)
+        h_text = ",".join(f"{loc}H" for loc in sorted(set(indicated_h_locs), key=_locant_sort_key))
+        locants = ",".join(oxo_locs)
+        suffix = f"{MULT.get(len(oxo_locs), '')}one"
+        name = f"{parent}-{locants}({h_text})-{suffix}"
+        return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+    if (
         len(oxo_locs) == 1
         and indicated_h_locs
         and "hydro-" not in parent_name
@@ -1310,8 +1327,9 @@ def _fused_oxo_suffix_name(
         if _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent):
             name = f"{parent}-{oxo_locs[0]}-one"
         else:
-            h_loc = sorted(set(indicated_h_locs), key=_locant_sort_key)[0]
-            name = f"{parent}-{oxo_locs[0]}({h_loc}H)-one"
+            leading_h_locs, suffix_h_loc = _fused_oxo_suffix_indicated_h_locants(indicated_h_locs)
+            leading = f"{','.join(f'{loc}H' for loc in leading_h_locs)}-" if leading_h_locs else ""
+            name = f"{leading}{parent}-{oxo_locs[0]}({suffix_h_loc}H)-one"
         return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     return ""
 
@@ -1324,6 +1342,21 @@ _FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS = (
 
 def _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent_name: str) -> bool:
     return any(stem in parent_name for stem in _FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS)
+
+
+def _has_fused_hydro_parent_segment(parent_name: str) -> bool:
+    return bool(re.search(r"(?:^|-)(?:di|tri|tetra|penta|hexa|hepta|octa)?hydro", parent_name))
+
+
+def _fused_oxo_suffix_indicated_h_locants(indicated_h_locs: Sequence[str]) -> tuple[tuple[str, ...], str]:
+    locs = tuple(sorted(set(indicated_h_locs), key=_locant_sort_key))
+    if len(locs) <= 1:
+        return (), locs[0]
+    if "1" in locs:
+        suffix_h_loc = next((loc for loc in locs if loc != "1"), locs[0])
+        leading_h_locs = tuple(loc for loc in locs if loc != suffix_h_loc)
+        return leading_h_locs, suffix_h_loc
+    return (), locs[0]
 
 
 def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]) -> str:

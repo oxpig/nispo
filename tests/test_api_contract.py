@@ -563,6 +563,53 @@ def test_cyclic_anhydride_topology_replacements_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCc1cc2c(cc3ccccc3[n+]2S(=O)(=O)O)c(C)c1C",
+        "CC=CCc1c(O)cc(O)c2c1OC(c1ccc(O)cc1)CC2=O",
+        "O=c1[nH]c(-c2ccc3ccccc3c2)ns1",
+    ],
+)
+def test_audit_ranked_parent_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Cc1nc2[nH]nc(I)c2c(=O)[nH]1",
+        "O=c1[nH]c(-c2cnccn2)nc2[nH]ncc12",
+        "O=c1ccc2cn[nH]c2[nH]1",
+    ],
+)
+def test_generated_fused_lactam_multiple_indicated_h_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)c1[nH]nc2c(=O)[nH]c(=O)[nH]c12",
+        "CCc1nn(CC)c2[nH]c(=O)[nH]c(=O)c12",
+    ],
+)
+def test_generated_fused_dione_multiple_indicated_h_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "FC(F)(F)[SiH](C(F)(F)F)C(F)(F)F",
         "CCCOC[Si](CCC)(CCC)COCCC",
         "CC(C)[Si](CCl)(CCl)C(C)C",

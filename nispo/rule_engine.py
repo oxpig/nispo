@@ -693,6 +693,29 @@ _HYDRO_FUSED_SYSTEMATIC_ALTERNATIVE_FAMILIES = {
     "retained-topology-replacement-fused-parent",
 }
 
+_COMPARABLE_COMPLETE_FUSED_PARENT_ALTERNATIVE_FAMILIES = {
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-hydro-fused-parent",
+    "generated-oxido-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "hydro-fused-retained-parent",
+    "kekulized-generic-polycyclic-parent",
+    "oxido-fused-retained-parent",
+    "retained-topology-replacement-fused-parent",
+    "skeletal-replacement-fused-parent",
+}
+
+_LARGE_FUSED_PARENT_WITH_SINGLE_RING_SUFFIX_FAMILIES = {
+    "fused-retained-parent",
+    "generated-fused-parent",
+}
+
+_SINGLE_RING_SUFFIX_PARENT_ALTERNATIVE_FAMILIES = {
+    "positive-single-ring-parent",
+    "single-ring-parent",
+}
+
 _BROAD_GRAPH_PARENT_ALTERNATIVE_FAMILIES = (
     _CONTEXTUAL_GRAPH_PARENT_FAMILIES
     | _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES
@@ -1406,6 +1429,14 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    comparable_complete_fused_parent = _has_contextual_comparable_complete_fused_parent_alternative(
+        item,
+        prepared,
+    )
+    large_fused_single_ring_suffix_parent = _has_contextual_single_ring_suffix_parent_alternative(
+        item,
+        prepared,
+    )
     incomplete_senior_hydride_shortcut = _has_contextual_complete_parent_alternative_for_incomplete_senior_hydride_shortcut(
         item,
         prepared,
@@ -1472,6 +1503,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or hydro_fused_systematic_parent
         or lower_external_locant_polycycle
         or small_acyclic_ring_decomposition
+        or comparable_complete_fused_parent
+        or large_fused_single_ring_suffix_parent
         or incomplete_senior_hydride_shortcut
         or benzotriazole_retained_anchor
         or retained_shortcut
@@ -1654,6 +1687,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 18
     if small_acyclic_ring_decomposition:
         penalty += 90
+    if comparable_complete_fused_parent:
+        penalty += 150
+    if large_fused_single_ring_suffix_parent:
+        penalty += 180
     if incomplete_senior_hydride_shortcut:
         penalty += 150
     if benzotriazole_retained_anchor:
@@ -2007,6 +2044,57 @@ def _has_contextual_small_acyclic_complete_ring_parent_alternative(
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 130:
             continue
         if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_comparable_complete_fused_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        return False
+    if not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _COMPARABLE_COMPLETE_FUSED_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) + 2 < parent_count:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_single_ring_suffix_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _LARGE_FUSED_PARENT_WITH_SINGLE_RING_SUFFIX_FAMILIES:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) < 8:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _SINGLE_RING_SUFFIX_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) > 6:
+            continue
+        if not other_candidate.suffixes:
             continue
         return True
     return False

@@ -674,6 +674,57 @@ _RETAINED_LACTONE_TEMPLATE_NAMES = frozenset({"coumarin", "coumarine"})
 _RETAINED_LACTONE_TOPOLOGY_BONUS = 160
 _RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES = frozenset({"isatoic anhydride"})
 _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS = 80
+_BIOCHEM_HETEROFUSED_RETAINED_STEMS = (
+    "adenin",
+    "guanin",
+    "hypoxanthin",
+    "mercaptopurin",
+    "pteridin",
+    "pterin",
+    "purin",
+    "xanthin",
+)
+_BIOCHEM_HETEROFUSED_TEMPLATE_TERMS = (
+    "adenin",
+    "guanin",
+    "hypoxanthin",
+    "imidazo",
+    "pteridin",
+    "pterin",
+    "purin",
+    "pyrimido",
+    "pyrimidino",
+    "xanthin",
+)
+_BIOCHEM_RETAINED_TEMPLATE_TERMS = (
+    "adenin",
+    "guanin",
+    "hypoxanthin",
+    "pteridin",
+    "pterin",
+    "purin",
+    "xanthin",
+)
+_BIOCHEM_GENERATED_FUSION_TEMPLATE_TERMS = (
+    "imidazo",
+    "pyrimido",
+    "pyrimidino",
+)
+_EXOCYCLIC_FUSED_TEMPLATE_TERMS = (
+    "azaindan",
+    "benzo[1,2-b]pyrrole",
+    "indane",
+    "indan",
+    "indolin",
+    "oxindol",
+)
+_EXOCYCLIC_FUSED_PARENT_FAMILIES = {
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "hydro-fused-retained-parent",
+    "retained-topology-replacement-fused-parent",
+}
 
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
@@ -987,6 +1038,201 @@ def _has_contextual_retained_topology_candidate_for_templates(
     return False
 
 
+def _has_contextual_biochem_heterofused_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in (
+        _ACYCLIC_SKELETON_PARENT_FAMILIES
+        | {
+            "retained-acid-ester-parent",
+            "retained-amide-parent",
+            "single-ring-parent",
+        }
+    ):
+        return False
+    if _is_complete_retained_senior_parent(candidate):
+        return False
+    if not any(stem in item.name for stem in _BIOCHEM_HETEROFUSED_RETAINED_STEMS):
+        return False
+    if candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES | {"single-ring-parent"}:
+        if "8-oxoguanin" not in item.name:
+            return False
+    if candidate.family in {"retained-acid-ester-parent", "retained-amide-parent"}:
+        if "pterin-" not in item.name:
+            return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {
+            "fused-retained-parent",
+            "generated-fused-parent",
+            "generated-hydro-fused-parent",
+            "generated-partial-hydro-fused-parent",
+            "hydro-fused-retained-parent",
+            "retained-topology-replacement-fused-parent",
+        }:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.parent_atoms and len(other_candidate.parent_atoms) < 8:
+            continue
+        template_name = other_candidate.template_name or ""
+        if not any(term in template_name for term in _BIOCHEM_HETEROFUSED_TEMPLATE_TERMS):
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 130:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_exocyclic_fused_single_ring_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _EXOCYCLIC_FUSED_PARENT_FAMILIES:
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    if not (item.name.startswith("(E)-") or item.name.startswith("(Z)-") or candidate.stereo_locants):
+        return False
+    if _has_stable_bis_indolinylidene_parent(item.name):
+        return False
+    template_name = candidate.template_name or ""
+    if not any(term in template_name for term in _EXOCYCLIC_FUSED_TEMPLATE_TERMS):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {
+            "acyclic-skeleton-with-ring-substituents",
+            "functional-acyclic-skeleton-with-ring-substituents",
+            "preferred-acyclic-skeleton-with-ring-substituents",
+            "single-ring-parent",
+        }:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.family == "single-ring-parent":
+            if not other_candidate.parent_atoms or len(other_candidate.parent_atoms) > 6:
+                continue
+            if other_candidate.render_rank is not None and other_candidate.render_rank > 3:
+                continue
+        if len(other.name) > 150 or len(other.name) - len(item.name) > 55:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+def _has_stable_bis_indolinylidene_parent(name: str) -> bool:
+    return bool(
+        re.search(r"indolin-\d+-ylidene\)oxindol\b", name)
+        or re.search(r"indolin-\d+-ylidene\)indolin", name)
+    )
+
+
+def _has_contextual_biochem_fused_sibling_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    template_name = candidate.template_name or ""
+    if any(term in template_name for term in _BIOCHEM_HETEROFUSED_TEMPLATE_TERMS):
+        return False
+    if not any(stem in item.name for stem in _BIOCHEM_HETEROFUSED_RETAINED_STEMS):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {
+            "fused-retained-parent",
+            "generated-fused-parent",
+            "generated-hydro-fused-parent",
+            "generated-partial-hydro-fused-parent",
+            "hydro-fused-retained-parent",
+            "retained-topology-replacement-fused-parent",
+        }:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        other_template_name = other_candidate.template_name or ""
+        if not any(term in other_template_name for term in _BIOCHEM_HETEROFUSED_TEMPLATE_TERMS):
+            continue
+        if other_candidate.parent_atoms and len(other_candidate.parent_atoms) < 8:
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 130:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_retained_biochem_fused_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    template_name = candidate.template_name or ""
+    if not any(term in template_name for term in _BIOCHEM_GENERATED_FUSION_TEMPLATE_TERMS):
+        return False
+    if "dioxo" not in item.name:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {
+            "fused-retained-parent",
+            "hydro-fused-retained-parent",
+        }:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        other_template_name = other_candidate.template_name or ""
+        if not any(term in other_template_name for term in _BIOCHEM_RETAINED_TEMPLATE_TERMS):
+            continue
+        if not any(term in other_template_name for term in {"guanin", "hypoxanthin"}):
+            continue
+        if other_candidate.parent_atoms and len(other_candidate.parent_atoms) < 8:
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 130:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
@@ -1053,6 +1299,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
     retained_aryl_urea = _has_contextual_aryl_urea_alternative(item, prepared)
+    biochem_heterofused_parent = _has_contextual_biochem_heterofused_parent_alternative(item, prepared)
+    exocyclic_fused_single_ring = _has_contextual_exocyclic_fused_single_ring_alternative(item, prepared)
+    biochem_fused_sibling = _has_contextual_biochem_fused_sibling_alternative(item, prepared)
+    retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -1103,6 +1353,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or retained_ester_shortcut
         or acyclic_carbalkoxy_ester
         or retained_aryl_urea
+        or biochem_heterofused_parent
+        or exocyclic_fused_single_ring
+        or biochem_fused_sibling
+        or retained_biochem_fused
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -1277,6 +1531,14 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 12
     if locanted_stereo_miss and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared):
         penalty = max(penalty, 220)
+    if biochem_heterofused_parent:
+        penalty += 120
+    if exocyclic_fused_single_ring:
+        penalty += 95
+    if biochem_fused_sibling:
+        penalty += 90
+    if retained_biochem_fused:
+        penalty += 80
     return penalty
 
 

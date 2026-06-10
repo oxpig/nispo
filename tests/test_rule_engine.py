@@ -37,7 +37,12 @@ def test_candidate_telemetry_serializes_and_merges_deterministically():
 
 def test_branch_prefix_miss_telemetry_records_graph_shape():
     mol = Chem.MolFromSmiles("CC(=O)C(=O)C")
-    telemetry = CandidateTelemetry()
+    default_telemetry = CandidateTelemetry()
+    default_ctx = BranchRenderContext(mol=mol, telemetry=default_telemetry)
+    assert render_branch_candidates(default_ctx, 1, 0) == ()
+    assert default_telemetry.branch_structured_prefix_misses == {"simple_external_prefix": 1}
+
+    telemetry = CandidateTelemetry(branch_miss_shape_detail=True)
     ctx = BranchRenderContext(mol=mol, telemetry=telemetry)
 
     assert render_branch_candidates(ctx, 1, 0) == ()

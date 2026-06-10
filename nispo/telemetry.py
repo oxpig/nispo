@@ -49,6 +49,7 @@ class CandidateTelemetry:
     branch_legacy_prefix_calls_by_rule: Counter[str] = field(default_factory=Counter)
     branch_legacy_prefix_produced: Counter[str] = field(default_factory=Counter)
     branch_legacy_prefix_detail: Counter[str] = field(default_factory=Counter)
+    branch_miss_shape_detail: bool = False
     active_rule_family: str = ""
     filter_stage_count: Counter[str] = field(default_factory=Counter)
     template_candidate_count: Counter[str] = field(default_factory=Counter)

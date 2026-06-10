@@ -53,7 +53,11 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
     return names
 
 
-def _smiles_to_iupac_batch_with_telemetry(smiles_list: Iterable[str]) -> tuple[list[str], dict]:
+def _smiles_to_iupac_batch_with_telemetry(
+    smiles_list: Iterable[str],
+    *,
+    branch_miss_shape_detail: bool = False,
+) -> tuple[list[str], dict]:
     """Convert a batch and return serialized internal naming telemetry.
 
     This helper is intentionally private: benchmark tooling can use it for
@@ -61,7 +65,7 @@ def _smiles_to_iupac_batch_with_telemetry(smiles_list: Iterable[str]) -> tuple[l
     """
 
     smiles_values = list(smiles_list)
-    telemetry = CandidateTelemetry()
+    telemetry = CandidateTelemetry(branch_miss_shape_detail=branch_miss_shape_detail)
     if Chem is None:
         return ["" for _ in smiles_values], telemetry_to_dict(telemetry)
     engine = _engine()

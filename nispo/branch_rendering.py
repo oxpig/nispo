@@ -53,7 +53,12 @@ def render_branch_candidates(
             for candidate in candidates:
                 ctx.telemetry.branch_structured_prefix_candidates[_structured_prefix_key(candidate)] += 1
         else:
-            ctx.telemetry.branch_structured_prefix_misses[_branch_miss_key(ctx.mol, idx, parent_idx)] += 1
+            miss_key = (
+                _branch_miss_key(ctx.mol, idx, parent_idx)
+                if ctx.telemetry.branch_miss_shape_detail
+                else "simple_external_prefix"
+            )
+            ctx.telemetry.branch_structured_prefix_misses[miss_key] += 1
     return candidates
 
 

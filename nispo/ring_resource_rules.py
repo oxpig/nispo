@@ -5,6 +5,7 @@ from functools import lru_cache
 from .molecule_cache import mol_cache_dict
 from .scaffold_catalog import parent_scaffold_catalog
 from .template_access import template_record_locants, template_record_mol, template_record_name
+from .template_match_utils import match_has_extra_core_bonds
 
 
 def resource_ring_parent_candidates(mol, ordered: tuple[int, ...], Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -26,6 +27,8 @@ def _resource_ring_parent_candidates_uncached(mol, ordered: tuple[int, ...], Che
         query = template_record_mol(template)
         for match in mol.GetSubstructMatches(query, uniquify=False):
             if set(match) != ring_set:
+                continue
+            if match_has_extra_core_bonds(mol, query, match):
                 continue
             seq = _sequence_from_match(template, match)
             if seq:
@@ -55,7 +58,6 @@ def _single_ring_templates_by_symbols(Chem) -> dict[tuple[int, tuple[str, ...]],
             symbol_key = tuple(sorted(atom.GetSymbol() for atom in mol.GetAtoms()))
             grouped.setdefault((size, symbol_key), []).append(template)
     return {key: tuple(items) for key, items in grouped.items()}
-
 
 def _sequence_from_match(template: dict, match: tuple[int, ...]) -> tuple[int, ...]:
     locant_items = []

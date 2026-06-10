@@ -263,6 +263,23 @@ def test_retained_alias_shortcuts_defer_to_systematic_candidates(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1ccccc1C(=O)OC1CCCCC1",
+        "O=C(OC1CCCCC1)c1ccccc1C(=O)OC1CCCCC1",
+        "C[C@@H](Oc1ccc(N)cc1)C1CC1",
+        "CC(c1nnco1)C1CC1",
+    ],
+)
+def test_resource_templates_do_not_collapse_extra_core_bonds(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C=C(CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CCC4CCCC[C@]4(C)[C@H]3CC[C@]12C)C(=O)O",
         "C=C(CCC[C@@H](C)[C@H]1CC[C@H]2[C@@H]3CCC4CCCC[C@]4(C)[C@H]3CC[C@]12C)C(=O)[O-]",
     ],

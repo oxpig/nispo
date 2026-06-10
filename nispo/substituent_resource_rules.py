@@ -13,6 +13,7 @@ from .opsin_resource_utils import (
 from .resource_manifest import SUBSTITUENT_FAMILY
 from .resource_operations import apply_token_operations
 from .template_access import template_record_mol, template_record_name
+from .template_match_utils import match_has_extra_core_bonds
 
 
 SUBSTITUENT_RESOURCE_FILES = (
@@ -77,6 +78,8 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
         for match in mol.GetSubstructMatches(query, uniquify=False, useChirality=True):
             if set(match) != atoms:
                 continue
+            if match_has_extra_core_bonds(mol, query, match):
+                continue
             if template.get("unassigned_root_only") and mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
             if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
@@ -84,7 +87,6 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
             if match[0] == idx:
                 return template
     return None
-
 
 def _acyclic_carbalkoxy_token_on_ring(template: dict, mol, match: tuple[int, ...]) -> bool:
     name = template_record_name(template)

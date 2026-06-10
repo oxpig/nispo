@@ -610,6 +610,37 @@ def test_generated_fused_dione_multiple_indicated_h_roundtrips_with_opsin(input_
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Nc1nc2nc[nH]c2c(=S)[nH]1",
+    ],
+)
+def test_generated_fused_thione_indicated_h_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCOC(=O)C=C1CCC2(CC1)OCCO2",
+        "CCOC(=O)C(F)=C1CCC2(CC1)OCCO2",
+        "C(CCOCc1ccccc1)=C1CCC2(CC1)OCCO2",
+        "COC(=O)[C@@H](CCC(=O)C=C1CCC2(CC1)OCCO2)NC(=O)OC(C)(C)C",
+    ],
+)
+def test_functionalized_spiro_alkylidene_substituents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "FC(F)(F)[SiH](C(F)(F)F)C(F)(F)F",
         "CCCOC[Si](CCC)(CCC)COCCC",
         "CC(C)[Si](CCl)(CCl)C(C)C",

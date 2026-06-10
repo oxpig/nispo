@@ -1055,6 +1055,14 @@ def _name_fused_core_match(
         return suffix_name
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
     suffix_name = (
+        _fused_thione_suffix_name(prefixes, parent_name, indicated_h_locs)
+        if _may_have_fused_thione_suffix(prefixes)
+        else ""
+    )
+    if suffix_name:
+        cache[cache_key] = suffix_name
+        return suffix_name
+    suffix_name = (
         _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_oxo_suffix(prefixes)
         else ""
@@ -1332,6 +1340,32 @@ def _fused_oxo_suffix_name(
             name = f"{leading}{parent}-{oxo_locs[0]}({suffix_h_loc}H)-one"
         return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
     return ""
+
+
+def _fused_thione_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
+    thioxo_locs = sorted((loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()), key=int)
+    if (
+        len(thioxo_locs) != 1
+        or any(prefix == "oxo" for _loc, prefix in prefixes)
+        or not indicated_h_locs
+        or _has_fused_hydro_parent_segment(parent_name)
+        or "acenaphthen" in parent_name
+        or "naphthyridine" in parent_name
+        or "isoquinoline" in parent_name
+        or "spiro[" in parent_name
+    ):
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
+    prefix_text = _format_prefixes(remaining)
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    leading_h_locs, suffix_h_loc = _fused_oxo_suffix_indicated_h_locants(indicated_h_locs)
+    leading = f"{','.join(f'{loc}H' for loc in leading_h_locs)}-" if leading_h_locs else ""
+    name = f"{leading}{parent}-{thioxo_locs[0]}({suffix_h_loc}H)-thione"
+    return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
 
 _FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS = (
@@ -2322,6 +2356,10 @@ def _may_have_fused_functional_suffix(prefixes: Sequence[tuple[str, str]]) -> bo
 
 def _may_have_fused_oxo_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
     return any(prefix == "oxo" and loc.isdigit() for loc, prefix in prefixes)
+
+
+def _may_have_fused_thione_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
+    return any(prefix == "thioxo" and loc.isdigit() for loc, prefix in prefixes)
 
 
 _SINGLE_RING_ESTER_SUFFIX_OWNERS = {

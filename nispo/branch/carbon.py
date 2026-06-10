@@ -1332,12 +1332,18 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
             if "-" in ring or ring[:1].isdigit() or ring.startswith("("):
                 return f"({ring})methylidene"
             return ring + "methylidene"
+        functional = _functionalized_carbon_methylidene_prefix(mol, heavy[0], idx)
+        if functional:
+            return functional
         chain = _linear_carbon_chain(mol, heavy[0], idx, max_len=9)
         if not chain:
             return ""
         root = ROOTS.get(len(chain) + 1)
         return root + "ylidene" if root else ""
     if len(heavy) == 2:
+        halo_functional = _halo_functionalized_carbon_methylidene_prefix(mol, heavy, idx)
+        if halo_functional:
+            return halo_functional
         halogens = [mol.GetAtomWithIdx(nidx).GetSymbol() for nidx in heavy]
         if all(symbol in HALO for symbol in halogens):
             parts = []
@@ -1370,6 +1376,71 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
         if any(not chain for chain in chains):
             return ""
     return ""
+
+
+def _halo_functionalized_carbon_methylidene_prefix(
+    mol,
+    substituent_indices: Sequence[int],
+    ylidene_idx: int,
+) -> str:
+    halo_names = []
+    carbon_indices = []
+    for nidx in substituent_indices:
+        atom = mol.GetAtomWithIdx(nidx)
+        symbol = atom.GetSymbol()
+        if symbol in HALO:
+            bond = mol.GetBondBetweenAtoms(nidx, ylidene_idx)
+            if atom.GetFormalCharge() != 0 or atom.GetIsotope() or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+            if any(nbr.GetIdx() != ylidene_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+                return ""
+            halo_names.append(HALO[symbol])
+        elif symbol == "C":
+            carbon_indices.append(nidx)
+        else:
+            return ""
+    if len(halo_names) != 1 or len(carbon_indices) != 1:
+        return ""
+    carbon_name = _functionalized_carbon_methylidene_substituent(mol, carbon_indices[0], ylidene_idx)
+    if not carbon_name:
+        return ""
+    return f"{halo_names[0]}({carbon_name})methylidene"
+
+
+def _functionalized_carbon_methylidene_prefix(mol, carbon_idx: int, ylidene_idx: int) -> str:
+    name = _functionalized_carbon_methylidene_substituent(mol, carbon_idx, ylidene_idx)
+    return name + "methylidene" if name else ""
+
+
+def _functionalized_carbon_methylidene_substituent(mol, carbon_idx: int, ylidene_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(carbon_idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return ""
+    bond = mol.GetBondBetweenAtoms(carbon_idx, ylidene_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    subtree = collect_subtree(mol, carbon_idx, ylidene_idx)
+    if len(subtree) < 2:
+        return ""
+    if not _subtree_has_functional_carbon_evidence(mol, subtree):
+        return ""
+    name = _carbon_branch_prefix(mol, carbon_idx, ylidene_idx)
+    if not name or not name.endswith("yl") or name.endswith("ylidene"):
+        return ""
+    return name
+
+
+def _subtree_has_functional_carbon_evidence(mol, atom_indices: set[int]) -> bool:
+    for atom_idx in atom_indices:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() not in {"C", "H"}:
+            return True
+    return any(
+        bond.GetBondType() in {Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}
+        and bond.GetBeginAtomIdx() in atom_indices
+        and bond.GetEndAtomIdx() in atom_indices
+        for bond in mol.GetBonds()
+    )
 
 
 def _hetero_methylidene_prefix(mol, idx: int, parent_idx: int) -> str:

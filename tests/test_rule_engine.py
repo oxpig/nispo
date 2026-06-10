@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from rdkit import Chem
+
+from nispo.branch_rendering import BranchRenderContext, render_branch_candidates
 from nispo.telemetry import CandidateTelemetry, merge_telemetry_dicts, telemetry_to_dict
 
 
@@ -30,3 +33,17 @@ def test_candidate_telemetry_serializes_and_merges_deterministically():
     assert merged["selected_with_parent_atoms"] == 1
     assert merged["selected_with_template_id"] == 2
     assert merged["substructure_match_calls"] == 10
+
+
+def test_branch_prefix_miss_telemetry_records_graph_shape():
+    mol = Chem.MolFromSmiles("CC(=O)C(=O)C")
+    telemetry = CandidateTelemetry()
+    ctx = BranchRenderContext(mol=mol, telemetry=telemetry)
+
+    assert render_branch_candidates(ctx, 1, 0) == ()
+
+    keys = list(telemetry.branch_structured_prefix_misses)
+    assert len(keys) == 1
+    assert keys[0].startswith("simple_external_prefix:root=C;bond=1;")
+    assert "hetero=O2" in keys[0]
+    assert "unsat=2" in keys[0]

@@ -65,7 +65,7 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
                 _tricyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
                 _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
             )
-        elif 4 <= rank <= 7:
+        elif 4 <= rank <= 9:
             record_sets = (
                 _secondary_bridge_polycyclic_candidate_records(kekulized, Chem, ring_system),
             )
@@ -465,7 +465,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     if not graph:
         return []
     rank = _graph_cycle_rank(graph)
-    if not (4 <= rank <= 7):
+    if not (4 <= rank <= 9):
         return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []

@@ -33,6 +33,7 @@ _STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
+_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +120,14 @@ class NamingEngine:
             if had_fragment_fallback_prop
             else ""
         )
+        had_partial_hydro_fallback_prop = mol.HasProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
+        previous_partial_hydro_fallback_value = (
+            mol.GetProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
+            if had_partial_hydro_fallback_prop
+            else ""
+        )
         mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, "1")
+        mol.SetProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP, "1")
         try:
             fallback_ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
             fallback_name = _select_best_prepared_candidate(
@@ -150,6 +158,10 @@ class NamingEngine:
                 mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, previous_fragment_fallback_value)
             else:
                 mol.ClearProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
+            if had_partial_hydro_fallback_prop:
+                mol.SetProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP, previous_partial_hydro_fallback_value)
+            else:
+                mol.ClearProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
         return fallback_name
 
 

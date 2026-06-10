@@ -74,6 +74,7 @@ _RETAINED_RING_SCAFFOLD_RENDER_SET_SIZE = 16
 _RETAINED_FUSED_RENDER_SET_SIZE = 12
 _SINGLE_RING_PARENT_RING_FACT_SET_SIZE = 3
 _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE = 1
+_RETAINED_PARTIAL_HYDRO_RENDER_SET_SIZE = 12
 _GENERATED_FUSED_RENDER_SET_SIZE = 8
 _MAX_GENERATED_FUSED_PARENT_CANDIDATES = 32
 _SKELETAL_REPLACEMENT_FACT_SCAN_SIZE = 32
@@ -81,6 +82,7 @@ _SKELETAL_REPLACEMENT_RENDER_SET_SIZE = 12
 _RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE = 32
 _RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE = 2
 _MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES = 16
+_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 
 
 def _parenthesized_if_complex(name: str) -> str:
@@ -9339,6 +9341,10 @@ class GeneratedHydroFusedParentRule(HydroFusedParentRule):
 class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
     family = "generated-partial-hydro-fused-parent"
     priority = parent_priority("generated-partial-hydro-parent")
+    partial_hydro_render_set_size = _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE
+    partial_hydro_candidate_limit = 16
+    partial_hydro_output_max_length: int | None = None
+    reject_extra_core_bonds = False
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -9351,25 +9357,27 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
         facts = []
         for template, match in _iter_fused_template_matches(
             ctx,
-            ctx.generated_fused_templates,
+            self._template_iter(ctx),
             self._Chem,
             topology_query=True,
             require_one_ring_system=True,
+            reject_extra_core_bonds=self.reject_extra_core_bonds,
         ):
             for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
                 fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
+                partial_hydro_key = self._partial_hydro_key(template, parent_name, hydro_key)
                 facts.append(
                     _GeneratedPartialHydroCandidateFacts(
                         template=template,
                         match=tuple(match),
                         parent_name=parent_name,
-                        hydro_key=hydro_key,
-                        structural_key=(fusion_key, hydro_key, -len(match), parent_name, tuple(match)),
+                        hydro_key=partial_hydro_key,
+                        structural_key=(fusion_key, partial_hydro_key, -len(match), parent_name, tuple(match)),
                     )
                 )
         if ctx.telemetry is not None:
             ctx.telemetry.candidate_facts_total[self.family] += len(facts)
-        render_set = _generated_partial_hydro_render_set(tuple(facts))
+        render_set = _generated_partial_hydro_render_set(tuple(facts), size=self.partial_hydro_render_set_size)
         if ctx.telemetry is not None:
             ctx.telemetry.render_set_size[self.family] += len(render_set)
             ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
@@ -9381,6 +9389,8 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             hydro_key = fact.hydro_key
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
             if not name:
+                continue
+            if self.partial_hydro_output_max_length is not None and len(name) > self.partial_hydro_output_max_length:
                 continue
             fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
             sort_key = (fusion_key, hydro_key, -len(match), name)
@@ -9408,8 +9418,14 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             seen.add(candidate.name)
             yield candidate
             yielded += 1
-            if yielded >= 16:
+            if yielded >= self.partial_hydro_candidate_limit:
                 return
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.generated_fused_templates
+
+    def _partial_hydro_key(self, template: dict, parent_name: str, hydro_key: tuple) -> tuple:
+        return hydro_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -9423,10 +9439,62 @@ class _GeneratedPartialHydroCandidateFacts:
 
 def _generated_partial_hydro_render_set(
     facts: tuple[_GeneratedPartialHydroCandidateFacts, ...],
+    *,
+    size: int = _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE,
 ) -> tuple[_GeneratedPartialHydroCandidateFacts, ...]:
-    if len(facts) <= _GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE:
+    if len(facts) <= size:
         return facts
-    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_GENERATED_PARTIAL_HYDRO_RENDER_SET_SIZE])
+    return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:size])
+
+
+class PartialHydroFusedParentRule(GeneratedPartialHydroFusedParentRule):
+    family = "partial-hydro-fused-retained-parent"
+    priority = parent_priority("retained-partial-hydro-fallback")
+    partial_hydro_render_set_size = _RETAINED_PARTIAL_HYDRO_RENDER_SET_SIZE
+    partial_hydro_candidate_limit = 16
+    partial_hydro_output_max_length = 100
+    reject_extra_core_bonds = True
+
+    def candidates(self, ctx):
+        if not ctx.mol.HasProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP):
+            return
+        yield from super().candidates(ctx)
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return ctx.candidate_templates(_curated_fused_templates(self._Chem))
+
+    def _partial_hydro_key(self, template: dict, parent_name: str, hydro_key: tuple) -> tuple:
+        return (_retained_partial_hydro_template_saturation_key(template, parent_name), hydro_key)
+
+
+def _retained_partial_hydro_template_saturation_key(template: dict, parent_name: str) -> tuple[int, int]:
+    locants = _partial_hydro_parent_locants(parent_name)
+    if not locants:
+        return (2, 0)
+    locant_to_template_idx = {
+        locant: template_idx
+        for template_idx, locant in template_record_locants(template).items()
+    }
+    template_mol = template_record_mol(template)
+    aromatic_count = 0
+    unsaturated_count = 0
+    for locant in locants:
+        template_idx = locant_to_template_idx.get(locant)
+        if template_idx is None:
+            continue
+        atom = template_mol.GetAtomWithIdx(template_idx)
+        if atom.GetIsAromatic():
+            aromatic_count += 1
+        if _has_unsaturated_template_bond(template_mol, template_idx):
+            unsaturated_count += 1
+    return (aromatic_count, -unsaturated_count)
+
+
+def _partial_hydro_parent_locants(parent_name: str) -> tuple[str, ...]:
+    match = re.match(r"^([0-9a-z,]+)-(?:di|tetra|hexa)hydro-", parent_name)
+    if not match:
+        return ()
+    return tuple(locant for locant in match.group(1).split(",") if locant)
 
 
 class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule):
@@ -10396,6 +10464,7 @@ def parent_rules(Chem) -> tuple:
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
     hydro_fused = HydroFusedParentRule(Chem)
+    partial_hydro_fused = PartialHydroFusedParentRule(Chem)
     oxido_fused = OxidoFusedParentRule(Chem)
     generated_oxido_fused = GeneratedOxidoFusedParentRule(Chem)
     generic_bicyclic = GenericBicyclicParentRule(Chem)
@@ -10632,6 +10701,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_system_ring_count(2),), fused.candidates),
         RuleSpec("hydro-fused-retained-parent", parent_priority("hydro-retained-fused-parent"), (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
+        RuleSpec("partial-hydro-fused-retained-parent", parent_priority("retained-partial-hydro-fallback"), (min_ring_count(2), min_ring_system_ring_count(2)), partial_hydro_fused.candidates),
         RuleSpec(
             "generated-spiro-partial-hydro-parent",
             parent_priority("generated-spiro-component-parent"),

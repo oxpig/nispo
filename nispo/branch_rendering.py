@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .candidate_facts import PrefixCandidate
 from .branch.functional_groups import _formyl_prefix_allowed
 from .constants import HALO, MULT
+from .formatting import format_prefixes as _format_prefixes
 from .molecule_cache import mol_cache_dict, mol_cache_get
 from .simple_prefixes import simple_external_prefix_candidates
 
@@ -1654,10 +1655,10 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
             substituents.append((atom_idx, candidate))
     if not substituents:
         return _prefix_candidate("phenyl", ring_set, idx, parent_idx, "simple-aryl-ring")
-    if len(substituents) == 2:
-        difluoro = _difluorophenyl_prefix(mol, ring_set, idx, parent_idx, substituents)
-        if difluoro is not None:
-            return difluoro
+    if len(substituents) >= 2:
+        multi = _multisubstituted_phenyl_prefix(mol, ring_set, idx, parent_idx, substituents)
+        if multi is not None:
+            return multi
     if len(substituents) != 1:
         return None
     atom_idx, candidate = substituents[0]
@@ -1670,6 +1671,36 @@ def _simple_phenyl_prefix(mol, ring: tuple[int, ...], idx: int, parent_idx: int)
         idx,
         parent_idx,
         "substituted-aryl-ring",
+    )
+
+
+def _multisubstituted_phenyl_prefix(
+    mol,
+    ring_set: set[int],
+    idx: int,
+    parent_idx: int,
+    substituents: list[tuple[int, PrefixCandidate]],
+) -> PrefixCandidate | None:
+    if not (2 <= len(substituents) <= 5):
+        return None
+    if any(candidate.text not in _PHENYL_SIMPLE_SUBSTITUENTS for _, candidate in substituents):
+        return None
+    locanted = _phenyl_multisubstituent_locants(mol, ring_set, idx, substituents)
+    if locanted is None:
+        return None
+    prefixes = [(str(locant), candidate.text) for locant, _atom_idx, candidate in locanted]
+    prefix_text = _format_prefixes(prefixes)
+    if not prefix_text:
+        return None
+    atoms = set(ring_set)
+    for _locant, _atom_idx, candidate in locanted:
+        atoms.update(candidate.atoms)
+    return _prefix_candidate(
+        prefix_text + "phenyl",
+        atoms,
+        idx,
+        parent_idx,
+        "multi-substituted-aryl-ring",
     )
 
 
@@ -1695,6 +1726,45 @@ def _difluorophenyl_prefix(
         parent_idx,
         "difluoro-aryl-ring",
     )
+
+
+def _phenyl_multisubstituent_locants(
+    mol,
+    ring_set: set[int],
+    attachment_idx: int,
+    substituents: list[tuple[int, PrefixCandidate]],
+) -> tuple[tuple[int, int, PrefixCandidate], ...] | None:
+    ring_neighbors = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(attachment_idx).GetNeighbors()
+        if nbr.GetIdx() in ring_set
+    ]
+    if len(ring_neighbors) != 2:
+        return None
+    options = []
+    for first_idx in ring_neighbors:
+        seq = _oriented_ring_sequence(mol, ring_set, attachment_idx, first_idx)
+        if len(seq) != len(ring_set) or set(seq) != ring_set:
+            continue
+        entries = []
+        for atom_idx, candidate in substituents:
+            try:
+                locant = seq.index(atom_idx) + 1
+            except ValueError:
+                entries = []
+                break
+            if locant <= 1:
+                entries = []
+                break
+            entries.append((locant, atom_idx, candidate))
+        if not entries:
+            continue
+        locants = tuple(sorted(locant for locant, _atom_idx, _candidate in entries))
+        prefix_order = tuple(sorted((candidate.text, locant) for locant, _atom_idx, candidate in entries))
+        options.append((locants, prefix_order, tuple(entries)))
+    if not options:
+        return None
+    return min(options, key=lambda item: (item[0], item[1]))[2]
 
 
 def _simple_phenyl_substituent_candidates(mol, idx: int, parent_idx: int) -> tuple[PrefixCandidate, ...]:

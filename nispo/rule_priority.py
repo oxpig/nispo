@@ -262,6 +262,16 @@ PARENT_RULE_PRIORITIES = {
         specificity="fallback",
         rationale="Acyclic-with-ring-substituents is intentionally a broad fallback family.",
     ),
+    "retained-partial-hydro-fallback": RulePriority(
+        70,
+        seniority_score=7,
+        parent_class_score=7,
+        specificity_score=7,
+        seniority="retained partial hydro fallback",
+        parent_class="partially saturated retained fused ring",
+        specificity="fallback",
+        rationale="Retained partial-hydro fused names are generated only after the normal parent pass returns no name.",
+    ),
 }
 
 

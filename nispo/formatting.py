@@ -61,6 +61,23 @@ def loc_unsat(root: str, locs: list[int], suffix: str, terminal_e: bool = False)
     return f"{root}{joiner}{join_locants(locs)}-{ending}"
 
 
+_TERMINAL_ELIDED_UNSATURATION_RE = re.compile(
+    r"(?<![A-Za-z])"
+    r"([A-Za-z0-9,\.\[\]\(\)\^']+"
+    r"-(?:[0-9]+(?:\([0-9]+\))?,)*[0-9]+(?:\([0-9]+\))?"
+    r"-(?:en|dien|trien|tetraen|pentaen|hexaen))"
+    r"(?!e)(?=$|[^A-Za-z])"
+)
+
+
+def restore_terminal_unsaturation_e(name: str) -> str:
+    """Retain terminal ``e`` when renderer context needs an unsaturation parent."""
+
+    if not name:
+        return ""
+    return _TERMINAL_ELIDED_UNSATURATION_RE.sub(lambda match: match.group(1) + "e", name)
+
+
 
 def substituent_parent_suffix(parent: str) -> str:
     if parent in {"methane", "methan"}:

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
-from .formatting import join_locants as _join_locants, loc_unsat
+from .formatting import join_locants as _join_locants, loc_unsat, restore_terminal_unsaturation_e
 from .molecule_cache import mol_cache_dict
 from .ring.hydrogen import _drop_indicated_hydrogen_prefix, _indicated_hydrogen_prefix
 
@@ -1470,7 +1470,7 @@ def _lambda2_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
     if not locants:
         return ""
     prefix = ",".join(f"{loc}lambda2" for loc in locants)
-    return f"{prefix}-{parent_name}"
+    return f"{prefix}-{restore_terminal_unsaturation_e(parent_name)}"
 
 
 def _is_replacement_heterocycle_parent(parent_name: str, charged_symbol: str) -> bool:
@@ -1642,9 +1642,16 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
     if stem:
         return _substituent_suffix_from_stem(stem, loc, charge_loc)
     if parent_name.isascii() and " " not in parent_name and loc >= 1:
+        restored_unsaturation = restore_terminal_unsaturation_e(parent_name)
+        if restored_unsaturation != parent_name and _is_replacement_heterocycle_parent_name(parent_name):
+            return _substituent_suffix_from_stem(restored_unsaturation, loc, charge_loc)
         stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
         return _substituent_suffix_from_stem(stem, loc, charge_loc)
     return ""
+
+
+def _is_replacement_heterocycle_parent_name(parent_name: str) -> bool:
+    return "cyclo" in parent_name and any(f"-{prefix}" in parent_name for prefix in REPLACEMENT.values())
 
 
 def _retained_saturated_n_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None) -> str:

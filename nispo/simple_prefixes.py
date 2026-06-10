@@ -466,17 +466,16 @@ def _locanted_multiplier_prefix(locs: list[int], term: str) -> str:
 
 
 def _simple_linear_alkyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
-    names = {1: "methyl", 2: "ethyl", 3: "propyl", 4: "butyl"}
     if order != 1.0:
         return None
     chain = []
     previous = parent_idx
     current = idx
-    while len(chain) < 4:
+    while len(chain) < max(ROOTS):
         atom = mol.GetAtomWithIdx(current)
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
             return None
-        if atom.GetIsotope() or _atom_has_isotopic_hydrogen(atom):
+        if atom.GetIsotope() or _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
             return None
         bond = mol.GetBondBetweenAtoms(previous, current)
         if bond is None or bond.GetBondTypeAsDouble() != 1.0:
@@ -488,7 +487,10 @@ def _simple_linear_alkyl_prefix(mol, idx: int, parent_idx: int, order: float) ->
             if nbr.GetIdx() != previous and nbr.GetAtomicNum() > 1
         ]
         if not heavy:
-            text = names[len(chain)]
+            root = ROOTS.get(len(chain))
+            if not root:
+                return None
+            text = root + "yl"
             return _prefix_candidate(text, set(chain), idx, parent_idx, "linear-alkyl")
         if len(heavy) != 1:
             return None

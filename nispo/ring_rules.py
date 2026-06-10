@@ -250,6 +250,15 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
             return candidates
 
     if (
+        n in {6, 7}
+        and (all_aromatic or kekulized_aromatic or not all_single_bonds)
+        and _ring_has_exocyclic_suffix_site(mol, ordered)
+    ):
+        candidates = _unsaturated_heterocycle_suffix_parent_candidates(mol, ordered, Counter(symbols))
+        if candidates:
+            return candidates
+
+    if (
         all_aromatic
         and all(sym == "C" for sym in symbols)
         and 3 <= n <= max(ROOTS)
@@ -752,6 +761,51 @@ def _medium_oxaaza_candidates(mol, ordered: Sequence[int], parent: str) -> list[
     ]
 
 
+def _unsaturated_heterocycle_suffix_parent_candidates(
+    mol,
+    ordered: Sequence[int],
+    counts: Counter[str],
+) -> list[tuple[str, tuple[int, ...]]]:
+    if len(ordered) == 7:
+        if counts == Counter({"C": 6, "N": 1}):
+            return [("azepine", seq) for seq in _numberings_with_atom_at(ordered, mol, "N")]
+        if counts == Counter({"C": 5, "N": 2}):
+            return _locanted_unsaturated_heteroring_candidates(mol, ordered, "N", {"N"}, "diazepine")
+        return []
+
+    families = {
+        (("C", 4), ("N", 1), ("O", 1)): ("O", {"N", "O"}, "oxazine"),
+        (("C", 4), ("N", 1), ("S", 1)): ("S", {"N", "S"}, "thiazine"),
+        (("C", 3), ("N", 2), ("O", 1)): ("O", {"N", "O"}, "oxadiazine"),
+        (("C", 3), ("N", 2), ("S", 1)): ("S", {"N", "S"}, "thiadiazine"),
+    }
+    spec = families.get(tuple(sorted(counts.items())))
+    if spec is None:
+        return []
+    anchor, locant_symbols, family = spec
+    return _locanted_unsaturated_heteroring_candidates(mol, ordered, anchor, locant_symbols, family)
+
+
+def _locanted_unsaturated_heteroring_candidates(
+    mol,
+    ordered: Sequence[int],
+    anchor_symbol: str,
+    locant_symbols: set[str],
+    family: str,
+) -> list[tuple[str, tuple[int, ...]]]:
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    for seq in _numberings_with_atom_at(ordered, mol, anchor_symbol):
+        locants = tuple(
+            i + 1
+            for i, idx in enumerate(seq)
+            if mol.GetAtomWithIdx(idx).GetSymbol() in locant_symbols
+        )
+        if not locants:
+            continue
+        candidates.append((f"{_join_locants(locants)}-{family}", seq))
+    return candidates
+
+
 def _five_membered_oxoheterole_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
@@ -1190,6 +1244,16 @@ def _ring_has_exocyclic_oxo(mol, ordered: Sequence[int]) -> bool:
     return any(_has_exocyclic_oxo(mol, idx, ring_set) for idx in ordered)
 
 
+def _ring_has_exocyclic_suffix_site(mol, ordered: Sequence[int]) -> bool:
+    ring_set = set(ordered)
+    return any(
+        _has_exocyclic_oxo(mol, idx, ring_set)
+        or _has_exocyclic_thioxo(mol, idx, ring_set)
+        or _has_exocyclic_imino(mol, idx, ring_set)
+        for idx in ordered
+    )
+
+
 def _has_exocyclic_oxo(mol, idx: int, ring_set: set[int]) -> bool:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "C":
@@ -1211,6 +1275,20 @@ def _has_exocyclic_thioxo(mol, idx: int, ring_set: set[int]) -> bool:
     for nbr in atom.GetNeighbors():
         nidx = nbr.GetIdx()
         if nidx in ring_set or nbr.GetSymbol() != "S":
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            return True
+    return False
+
+
+def _has_exocyclic_imino(mol, idx: int, ring_set: set[int]) -> bool:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C":
+        return False
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx in ring_set or nbr.GetSymbol() != "N":
             continue
         bond = mol.GetBondBetweenAtoms(idx, nidx)
         if bond is not None and bond.GetBondTypeAsDouble() == 2.0:

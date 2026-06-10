@@ -116,6 +116,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     terminal_methyl = _terminal_methyl_prefix(mol, idx, parent_idx)
     if terminal_methyl:
         return terminal_methyl
+    linear_alkyl = _linear_alkyl_prefix(mol, idx, parent_idx)
+    if linear_alkyl:
+        return _with_root_carbon_isotope(mol, idx, linear_alkyl)
     if _is_nitrile_carbon(mol, idx):
         return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("nitrile", "cyano"))
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
@@ -232,6 +235,29 @@ def _terminal_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
         return ""
     return "methyl"
+
+
+def _linear_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    chain = _linear_carbon_chain(mol, idx, parent_idx, max_len=max(ROOTS))
+    if len(chain) < 2:
+        return ""
+    if _path_has_isotopic_hydrogen(mol, chain) or _path_has_assigned_stereo(mol, chain):
+        return ""
+    root = ROOTS.get(len(chain))
+    return root + "yl" if root else ""
+
+
+def _path_has_assigned_stereo(mol, atom_indices: Sequence[int]) -> bool:
+    atom_set = set(atom_indices)
+    for atom_idx in atom_indices:
+        if mol.GetAtomWithIdx(atom_idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return True
+    return any(
+        bond.GetStereo() != Chem.BondStereo.STEREONONE
+        and bond.GetBeginAtomIdx() in atom_set
+        and bond.GetEndAtomIdx() in atom_set
+        for bond in mol.GetBonds()
+    )
 
 
 def _prefer_resource_carbon_prefix(name: str) -> bool:

@@ -23,6 +23,7 @@ from .molecule_cache import mol_cache_get, mol_cache_set
 from .fused_template_families import (
     candidate_generated_fused_templates as _candidate_generated_fused_templates,
     curated_fused_templates as _curated_fused_templates,
+    generated_fusion_orientation_role as _generated_fusion_orientation_role,
     generated_fusion_preference as _generated_fusion_preference,
     hydrocarbon_replacement_parent_templates_for_graph as _hydrocarbon_replacement_parent_templates_for_graph,
     retained_topology_replacement_parent_templates_for_graph as _retained_topology_replacement_parent_templates_for_graph,
@@ -8884,7 +8885,7 @@ class GeneratedFusedParentRule(FusedParentRule):
         if ctx.telemetry is not None:
             ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
             ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += topology_facts
-        return tuple(facts)
+        return _filter_generated_fused_orientation_alias_facts(tuple(facts))
 
     def _render_facts(self, ctx, facts: tuple["_GeneratedFusedCandidateFacts", ...]):
         mol = ctx.mol
@@ -8931,6 +8932,27 @@ class _GeneratedFusedCandidateFacts:
     match: tuple[int, ...]
     topology_query: bool
     structural_key: tuple
+
+
+def _filter_generated_fused_orientation_alias_facts(
+    facts: tuple[_GeneratedFusedCandidateFacts, ...],
+) -> tuple[_GeneratedFusedCandidateFacts, ...]:
+    preferred_core_keys = {
+        (fact.topology_query, frozenset(fact.match))
+        for fact in facts
+        if _generated_fusion_orientation_role(template_record_name(fact.template)) == "preferred-pyrazolo-imidazole"
+    }
+    if not preferred_core_keys:
+        return facts
+    return tuple(
+        fact
+        for fact in facts
+        if not (
+            _generated_fusion_orientation_role(template_record_name(fact.template))
+            == "disfavored-pyrazole-imidazole"
+            and (fact.topology_query, frozenset(fact.match)) in preferred_core_keys
+        )
+    )
 
 
 def _generated_fused_fact_sort_key(

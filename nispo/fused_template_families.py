@@ -389,17 +389,24 @@ def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ..
 
 
 def _preferred_generated_records_for_scaffold(records: list[dict]) -> list[dict]:
-    shortest = sorted(
-        records,
-        key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
-    )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
-    oriented = sorted(
+    orientation_preferred = sorted(
         records,
         key=lambda record: (generated_fusion_preference(str(record.get("name", ""))), len(str(record.get("name", "")))),
     )[:_MAX_ORIENTATION_ALIASES_PER_SCAFFOLD]
+    shortest = sorted(
+        (
+            record
+            for record in records
+            if not _skip_short_generated_fusion_alias(record, orientation_preferred)
+        ),
+        key=lambda record: (
+            len(str(record.get("name", ""))),
+            generated_fusion_preference(str(record.get("name", ""))),
+        ),
+    )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
     selected = []
     seen = set()
-    for record in shortest + oriented:
+    for record in shortest + orientation_preferred:
         marker = id(record)
         if marker in seen:
             continue
@@ -408,12 +415,38 @@ def _preferred_generated_records_for_scaffold(records: list[dict]) -> list[dict]
     return selected
 
 
+def _skip_short_generated_fusion_alias(record: dict, orientation_preferred: list[dict]) -> bool:
+    name = str(record.get("name", ""))
+    if generated_fusion_orientation_role(name) != "disfavored-pyrazole-imidazole":
+        return False
+    return any(
+        generated_fusion_orientation_role(str(preferred.get("name", ""))) == "preferred-pyrazolo-imidazole"
+        for preferred in orientation_preferred
+    )
+
+
 def _target_fusion_orientation_rank(component: str, base: str) -> int:
+    if component.startswith("pyrazolo") and base == "imidazole":
+        return 0
+    if component.startswith("imidazo") and base == "pyrazole":
+        return 3
     if component.startswith(_TARGET_FUSION_COMPONENT_PREFIXES) and base in _TARGET_FUSION_BASES:
         return 0
     if component.startswith(("pyrido", "pyrimido")) and base in {"pyrazole", "pyrrole", "imidazole", "triazole"}:
         return 2
     return 1
+
+
+def generated_fusion_orientation_role(name: str) -> str:
+    match = _FUSION_NAME_RE.match(name)
+    if match is None:
+        return ""
+    component, _locant_text, _letter, base = match.groups()
+    if component.startswith("pyrazolo") and base == "imidazole":
+        return "preferred-pyrazolo-imidazole"
+    if component.startswith("imidazo") and base == "pyrazole":
+        return "disfavored-pyrazole-imidazole"
+    return ""
 
 
 def _fusion_descriptor_locants(text: str) -> tuple:

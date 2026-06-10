@@ -3214,11 +3214,17 @@ class RetainedAcidEsterParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name in _retained_acid_ester_names(mol, self._Chem):
+        for name, source_family in _retained_acid_ester_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                source_family=source_family,
+            )
 
 
 class RetainedAmideParentRule:
@@ -5055,20 +5061,91 @@ def _is_exocyclic_double_oxygen(mol, Chem, atom_idx: int, oxygen_idx: int) -> bo
 
 
 def _retained_acid_ester_names(mol, Chem) -> list[str]:
+    return [name for name, _source_family in _retained_acid_ester_records(mol, Chem)]
+
+
+def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
     names = []
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
         if not owner:
             continue
+        generic_source = _retained_acid_ester_source_family(mol, Chem, carbonyl_idx, acyl_idx, "generic")
         generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
-        names.extend(generic)
+        names.extend((name, generic_source) for name in generic)
         dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
         if dicarboxylate:
-            names.append(dicarboxylate)
+            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate"))
         acrylate = _acrylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
         if acrylate:
-            names.append(acrylate)
+            names.append((acrylate, "retained-acid-ester:acrylate"))
     return names
+
+
+def _retained_acid_ester_source_family(mol, Chem, carbonyl_idx: int, acyl_idx: int, kind: str) -> str:
+    source = f"retained-acid-ester:{kind}"
+    if kind == "generic" and _has_stable_retained_acid_ester_graph(mol, Chem, carbonyl_idx, acyl_idx):
+        return f"{source}:stable-retained"
+    return source
+
+
+def _has_stable_retained_acid_ester_graph(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> bool:
+    if any(atom.GetSymbol() in {"I", "Si"} for atom in mol.GetAtoms()):
+        return True
+    if _has_isothiocyanate_motif(mol, Chem):
+        return True
+    return _is_simple_alpha_amino_ester(mol, Chem, carbonyl_idx, acyl_idx)
+
+
+def _has_isothiocyanate_motif(mol, Chem) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C":
+            continue
+        double_nitrogen = False
+        double_sulfur = False
+        atom_idx = atom.GetIdx()
+        for nbr in atom.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx())
+            if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+                continue
+            if nbr.GetSymbol() == "N":
+                double_nitrogen = True
+            elif nbr.GetSymbol() == "S":
+                double_sulfur = True
+        if double_nitrogen and double_sulfur:
+            return True
+    return False
+
+
+def _is_simple_alpha_amino_ester(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> bool:
+    acyl_atom = mol.GetAtomWithIdx(acyl_idx)
+    if acyl_atom.GetSymbol() != "C":
+        return False
+    has_alpha_nitrogen = False
+    for nbr in acyl_atom.GetNeighbors():
+        if nbr.GetIdx() == carbonyl_idx or nbr.GetSymbol() != "N":
+            continue
+        if nbr.GetFormalCharge() != 0:
+            continue
+        bond = mol.GetBondBetweenAtoms(acyl_idx, nbr.GetIdx())
+        if bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            has_alpha_nitrogen = True
+            break
+    return has_alpha_nitrogen and _neutral_carbonyl_count(mol, Chem) == 1
+
+
+def _neutral_carbonyl_count(mol, Chem) -> int:
+    count = 0
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
+            continue
+        atom_idx = atom.GetIdx()
+        for nbr in atom.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx())
+            if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+                count += 1
+                break
+    return count
 
 
 def _retained_amide_names(mol, Chem) -> list[str]:

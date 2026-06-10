@@ -634,6 +634,15 @@ _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY = {
     "preferred-acyclic-skeleton-with-ring-substituents": 19,
 }
 
+_FUSED_PARENT_ATOM_BONUS_FAMILIES = {
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-hydro-fused-parent",
+    "generated-partial-hydro-fused-parent",
+    "hydro-fused-retained-parent",
+    "retained-topology-replacement-fused-parent",
+}
+
 _ACYCLIC_SKELETON_PARENT_FAMILIES = {
     "acyclic-skeleton-with-ring-substituents",
     "chain-dominant-acyclic-skeleton-with-ring-substituents",
@@ -740,7 +749,46 @@ _EXOCYCLIC_FUSED_PARENT_FAMILIES = {
 
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
-    return _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
+    bonus = _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
+    bonus += _candidate_selection_parent_atom_bonus(candidate)
+    bonus += _candidate_selection_kekulized_early_rank_bonus(candidate)
+    return bonus
+
+
+def _candidate_selection_parent_atom_bonus(candidate: NameCandidate) -> int:
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return 0
+    if candidate.family == "natural-product-topology-parent":
+        return 0
+    if (
+        candidate.family == "fused-retained-parent"
+        and candidate.source_family == "static-retained"
+        and _static_retained_fused_parent_atom_bonus_blocked(candidate)
+    ):
+        return 0
+    parent_count = len(candidate.parent_atoms)
+    if candidate.family in _FUSED_PARENT_ATOM_BONUS_FAMILIES:
+        return min(120, max(0, parent_count - 6) * 8)
+    return min(80, max(0, parent_count - 6) * 4)
+
+
+def _candidate_selection_kekulized_early_rank_bonus(candidate: NameCandidate) -> int:
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return 0
+    if candidate.render_rank is None:
+        return 0
+    if "tetraaza" in candidate.name:
+        return 0
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return 0
+    return max(0, 40 - (candidate.render_rank - 1) * 5)
+
+
+def _static_retained_fused_parent_atom_bonus_blocked(candidate: NameCandidate) -> bool:
+    template_name = (candidate.template_name or "").lower()
+    if template_name == "pterin":
+        return True
+    return "one" in template_name
 
 
 def _candidate_selection_broad_graph_parent_penalty(
@@ -1309,6 +1357,15 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
     natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
     neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
+    incomplete_shortcut_graph_parent = _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
+        item,
+        prepared,
+    )
+    incomplete_senior_hydride_shortcut = _has_contextual_complete_parent_alternative_for_incomplete_senior_hydride_shortcut(
+        item,
+        prepared,
+    )
+    benzotriazole_retained_anchor = _has_contextual_benzotriazole_retained_anchor_alternative(item, prepared)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
@@ -1365,6 +1422,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generic_spiro_parent
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
+        or incomplete_shortcut_graph_parent
+        or incomplete_senior_hydride_shortcut
+        or benzotriazole_retained_anchor
         or retained_shortcut
         or retained_ester_shortcut
         or acyclic_carbalkoxy_ester
@@ -1535,6 +1595,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 90
     if neutral_amine_shortcut:
         penalty += 140
+    if incomplete_shortcut_graph_parent:
+        penalty += 140
+    if incomplete_senior_hydride_shortcut:
+        penalty += 150
+    if benzotriazole_retained_anchor:
+        penalty += 45
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
     if retained_shortcut:
@@ -1690,6 +1756,212 @@ def _has_contextual_complete_kekulized_polycycle_alternative(
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 150:
             continue
         if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+_INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES = frozenset(
+    {
+        "component-spiro-parent",
+        "glutarimide-retained-parent",
+        "retained-acid-ester-parent",
+    }
+)
+
+_COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "functional-generic-bicyclic-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-topology-replacement-fused-parent",
+    }
+)
+
+
+def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES:
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    if (
+        candidate.family == "retained-acid-ester-parent"
+        and candidate.source_family.endswith(":stable-retained")
+    ):
+        return False
+    if candidate.family == "retained-acid-ester-parent" and _has_complete_non_acyclic_parent_alternative(
+        item,
+        prepared,
+    ):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if candidate.family == "retained-acid-ester-parent" and other_candidate.family not in (
+            _ACYCLIC_SKELETON_PARENT_FAMILIES | {"acyclic-parent"}
+        ):
+            continue
+        if not candidate_has_complete_graph(other_candidate) or len(other_candidate.parent_atoms) < 8:
+            continue
+        if candidate.family == "glutarimide-retained-parent" and len(other.name) + 20 < len(item.name):
+            continue
+        if (
+            candidate.family == "glutarimide-retained-parent"
+            and _candidate_selection_broad_graph_parent_penalty(other, prepared) >= 70
+        ):
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+def _has_complete_non_acyclic_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES | {"acyclic-parent"}:
+            continue
+        if other_candidate.family not in _COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+_INCOMPLETE_SENIOR_HYDRIDE_SHORTCUT_FAMILIES = frozenset(
+    {
+        "azanium-parent",
+        "guanidine-retained-parent",
+        "pnictogen-hydride-parent",
+    }
+)
+
+_COMPLETE_SENIOR_HYDRIDE_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "phosphorus-acid-parent",
+        "positive-single-ring-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
+
+
+def _has_contextual_complete_parent_alternative_for_incomplete_senior_hydride_shortcut(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _INCOMPLETE_SENIOR_HYDRIDE_SHORTCUT_FAMILIES:
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    if _has_same_priority_incomplete_parent_blocker(item, prepared):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _COMPLETE_SENIOR_HYDRIDE_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or len(other_candidate.parent_atoms) < 5:
+            continue
+        if candidate.family == "azanium-parent" and other_candidate.family == "phosphorus-acid-parent":
+            continue
+        if candidate.family == "pnictogen-hydride-parent" and other_candidate.family in {
+            "positive-single-ring-parent",
+            "single-ring-parent",
+        }:
+            continue
+        if candidate.family == "guanidine-retained-parent" and other_candidate.family not in {
+            "acyclic-parent",
+            "functional-acyclic-skeleton-with-ring-substituents",
+            "phosphorus-acid-parent",
+        }:
+            continue
+        if len(other.name) < len(item.name):
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 110:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_same_priority_incomplete_parent_blocker(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family == item.candidate.family:
+            continue
+        if candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.priority > item.candidate.priority:
+            continue
+        if other.stability_penalty > item.stability_penalty + 20:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_benzotriazole_retained_anchor_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    template_name = (candidate.template_name or "").lower()
+    if not template_name or "benzotriazol" in template_name:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        other_template_name = (other_candidate.template_name or "").lower()
+        if "benzotriazol" not in other_template_name:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other.name) > len(item.name) + 8:
+            continue
+        if other.stability_penalty > item.stability_penalty + 20:
             continue
         return True
     return False

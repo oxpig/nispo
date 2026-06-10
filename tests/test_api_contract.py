@@ -183,6 +183,15 @@ def test_parent_locanted_stereo_is_not_suppressed_by_substituent_locants():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_repeated_locanted_substituent_stereo_roundtrips_with_opsin():
+    input_smiles = "C[C@@H]1O[C@@H](OCCC(CCO[C@@H]2O[C@@H](C)[C@@H](O)[C@@H](O)[C@@H]2O)(CC(N)=O)CC(N)=O)[C@@H](O)[C@H](O)[C@@H]1O"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [
@@ -1056,6 +1065,23 @@ def test_repeated_onium_substituents_use_global_stereo_roundtrip(input_smiles):
     ],
 )
 def test_ring_parent_charge_and_lambda2_forms_roundtrip(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Cc1cc(C(=O)C2=CS[C-](S)N2)cc(=O)n1C",
+        "O=C1/C(=C(\\Nc2ccccc2)c2cccs2)c2ccccc2C1c1ccccc1",
+        "COc1cccc(-c2ccc(-c3cc4c(cc3Cl)NC(=O)C4=C(O)c3cc(C4CC4)no3)cc2)c1O",
+        "CCOC(=O)C1CC2(NC(=O)OCc3ccccc3)C=CC1C1C=CC12",
+    ],
+)
+def test_structured_contextual_parent_selection_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

@@ -8928,6 +8928,16 @@ def _sequence_stereo_locants(seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
     return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(seq, start=1))
 
 
+def _external_locants_from_sequence(mol, seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    parent_atoms = frozenset(seq)
+    locants = []
+    for locant, atom_idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if any(nbr.GetIdx() not in parent_atoms and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            locants.append((int(atom_idx), str(locant)))
+    return tuple(locants)
+
+
 def _complete_single_ring_parent_stereo_locants(mol, seq: Sequence[int], Chem) -> tuple[tuple[int, str], ...]:
     parent_atoms = frozenset(seq)
     if not parent_atoms:
@@ -10235,6 +10245,7 @@ class _PolycyclicRecordParentRule:
                 sort_key=(record_order, len(name), name),
                 stereo_prefix=_polycyclic_stereo_prefix(mol, seq, self._Chem, name=name),
                 parent_atoms=frozenset(seq),
+                locants=_external_locants_from_sequence(mol, seq),
                 stereo_locants=_sequence_stereo_locants(seq),
                 source_family=self.record_family,
                 estimated_length=len(name),

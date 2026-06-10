@@ -270,7 +270,11 @@ def _select_best_prepared_candidate(
             + _candidate_selection_contextual_penalty(item, prepared)
             + _candidate_selection_broad_graph_parent_penalty(item, prepared)
         )
-        selection_bonus = item.selection_bonus + _candidate_selection_graph_parent_bonus(candidate)
+        selection_bonus = (
+            item.selection_bonus
+            + _candidate_selection_graph_parent_bonus(candidate)
+            + _candidate_selection_contextual_bonus(item, prepared)
+        )
         candidate_key = (
             stability_penalty,
             candidate.priority,
@@ -1397,6 +1401,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
     hydro_fused_systematic_parent = _has_contextual_hydro_fused_systematic_parent_alternative(item, prepared)
+    lower_external_locant_polycycle = _has_contextual_lower_external_locant_polycycle_alternative(item, prepared)
     small_acyclic_ring_decomposition = _has_contextual_small_acyclic_complete_ring_parent_alternative(
         item,
         prepared,
@@ -1465,6 +1470,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or incomplete_shortcut_graph_parent
         or broad_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
+        or lower_external_locant_polycycle
         or small_acyclic_ring_decomposition
         or incomplete_senior_hydride_shortcut
         or benzotriazole_retained_anchor
@@ -1644,6 +1650,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 125
     if hydro_fused_systematic_parent:
         penalty += 80
+    if lower_external_locant_polycycle:
+        penalty += 18
     if small_acyclic_ring_decomposition:
         penalty += 90
     if incomplete_senior_hydride_shortcut:
@@ -1675,6 +1683,13 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if retained_biochem_fused:
         penalty += 80
     return penalty
+
+
+def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
+    bonus = 0
+    if _has_contextual_larger_single_ring_parent_alternative(item, prepared):
+        bonus += 40
+    return bonus
 
 
 _LOCANTED_STEREO_GRAPH_RING_PARENT_FAMILIES = {
@@ -2098,6 +2113,82 @@ def _has_same_priority_incomplete_parent_blocker(
         if other_candidate.priority > item.candidate.priority:
             continue
         if other.stability_penalty > item.stability_penalty + 20:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_lower_external_locant_polycycle_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    current_locants = _candidate_external_numeric_locants(candidate)
+    if not current_locants:
+        return False
+    if len(current_locants) > 2:
+        return False
+    current_rank = candidate.render_rank or 0
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != candidate.family:
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        other_locants = _candidate_external_numeric_locants(other_candidate)
+        if not other_locants or other_locants >= current_locants:
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if current_rank and other_rank and other_rank > current_rank + 8:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 35:
+            continue
+        if other.stability_penalty > item.stability_penalty + 36:
+            continue
+        return True
+    return False
+
+
+def _candidate_external_numeric_locants(candidate: NameCandidate) -> tuple[int, ...]:
+    locants = []
+    for _atom_idx, locant in candidate.locants:
+        if not locant.isdigit():
+            return ()
+        locants.append(int(locant))
+    return tuple(locants)
+
+
+def _has_contextual_larger_single_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    current_parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) <= current_parent_count:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 30:
             continue
         return True
     return False
@@ -3329,7 +3420,7 @@ def _charged_single_ring_parent_bonus(candidate: NameCandidate) -> int:
         return 0
     if not candidate_has_complete_graph(candidate):
         return 0
-    return min(16, 8 + 2 * len(evidence.charged_atoms))
+    return min(56, 36 + 4 * len(evidence.charged_atoms))
 
 
 def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:

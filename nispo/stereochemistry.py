@@ -140,7 +140,7 @@ def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
 def _extra_multiplied_locanted_stereo_descriptors(name: str, kinds: str) -> list[str]:
     extras: list[str] = []
     pattern = re.compile(
-        r"\b(?P<mult>bis|tris|tetrakis|pentakis|hexakis)\(\((?P<locants>\d+'?[RSZE](?:,\d+'?[RSZE])*)\)-"
+        r"\b(?P<mult>bis|tris|tetrakis|pentakis|hexakis)\({2,}(?P<locants>\d+'?[RSZE](?:,\d+'?[RSZE])*)\)-"
     )
     for match in pattern.finditer(name):
         count = _STEREO_MULTIPLIERS.get(match.group("mult"), 1)

@@ -1307,6 +1307,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     fragile_group14_hetero_ligand = _has_fragile_group14_hetero_carbon_ligand(item.candidate)
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
+    natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
+    neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
@@ -1361,6 +1363,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_terminal_azabicyclo_benzimidazole
         or fragile_group14_hetero_ligand
         or generic_spiro_parent
+        or natural_topology_generic_polycycle
+        or neutral_amine_shortcut
         or retained_shortcut
         or retained_ester_shortcut
         or acyclic_carbalkoxy_ester
@@ -1527,6 +1531,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if generic_spiro_parent and _has_contextual_spiro_functional_chain_alternative(item, prepared):
         penalty += 125
+    if natural_topology_generic_polycycle:
+        penalty += 90
+    if neutral_amine_shortcut:
+        penalty += 140
     if missing_relative_stereo and _has_contextual_relative_stereo_alternative(item, prepared, max_extra=35):
         penalty += 36
     if retained_shortcut:
@@ -1632,6 +1640,56 @@ def _has_contextual_systematic_alternative_for_retained_shortcut(
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_neutral_amine_systematic_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "neutral-amine-parent":
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "acyclic-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other.name) < len(item.name):
+            continue
+        if len(other.name) > 160 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_complete_kekulized_polycycle_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "natural-product-topology-parent":
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 150:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
             continue
         return True
     return False

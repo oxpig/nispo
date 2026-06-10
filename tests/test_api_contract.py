@@ -102,6 +102,21 @@ def test_unsaturated_replacement_heterocycle_substituents_roundtrip_with_opsin(i
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1cc2[nH]nc(I)c2s1",
+        "NC(=O)c1cc2c(-c3ccncc3)n[nH]c2s1",
+    ],
+)
+def test_thienopyrazole_generated_fused_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C1=C[NH2+]N=C1",
         "C1C[NH2+]N1",
         "C1=NCC[NH2+]1",

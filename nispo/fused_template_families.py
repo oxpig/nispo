@@ -253,7 +253,7 @@ def generated_fusion_preference(name: str) -> tuple:
     orientation_rank = _target_fusion_orientation_rank(component, base)
     base_rank = _FUSION_BASE_PRIORITY.get(base, 500)
     locants = _fusion_descriptor_locants(locant_text)
-    letter_rank = ord(letter) - ord("a")
+    letter_rank = _fusion_letter_rank(component, base, letter)
     component_rank = _component_alias_penalty(component)
     return (orientation_rank, base_rank, letter_rank, locants, component_rank, name)
 
@@ -435,6 +435,12 @@ def _target_fusion_orientation_rank(component: str, base: str) -> int:
     if component.startswith(("pyrido", "pyrimido")) and base in {"pyrazole", "pyrrole", "imidazole", "triazole"}:
         return 2
     return 1
+
+
+def _fusion_letter_rank(component: str, base: str, letter: str) -> int:
+    if component.startswith("thieno") and base == "pyrazole":
+        return {"d": 0, "c": 1}.get(letter, ord(letter) - ord("a") + 2)
+    return ord(letter) - ord("a")
 
 
 def generated_fusion_orientation_role(name: str) -> str:

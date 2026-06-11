@@ -1571,7 +1571,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
-    complete_fused_retained_amide_parent = _has_contextual_incomplete_retained_amide_alternative_for_complete_fused_parent(
+    complete_fused_retained_amide_parent_bonus = _contextual_incomplete_retained_amide_alternative_bonus_for_complete_fused_parent(
         item,
         prepared,
     )
@@ -1658,7 +1658,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
-        or complete_fused_retained_amide_parent
+        or complete_fused_retained_amide_parent_bonus
         or broad_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
         or lower_external_locant_polycycle
@@ -1844,8 +1844,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if incomplete_shortcut_graph_parent:
         penalty += 140
-    if complete_fused_retained_amide_parent:
-        penalty -= 220
+    if complete_fused_retained_amide_parent_bonus:
+        penalty -= complete_fused_retained_amide_parent_bonus
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
     if hydro_fused_systematic_parent:
@@ -1876,7 +1876,11 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
         penalty += 12
-    if locanted_stereo_miss and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared):
+    if (
+        locanted_stereo_miss
+        and complete_fused_retained_amide_parent_bonus < 600
+        and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared)
+    ):
         penalty = max(penalty, 220)
     if biochem_heterofused_parent:
         penalty += 120
@@ -2091,6 +2095,17 @@ _RETAINED_AMIDE_COMPLETE_FUSED_ALTERNATIVE_FAMILIES = frozenset(
         "generated-fused-parent",
     }
 )
+_RETAINED_AMIDE_GENERIC_ACYL_HIGH_BONUS_TEMPLATE_BLOCKLIST = frozenset(
+    {
+        "1,4-benzodioxane",
+        "fluoren",
+    }
+)
+_RETAINED_AMIDE_GENERIC_ACYL_HIGH_BONUS_CONTEXT_TEMPLATE_BLOCKLIST = frozenset(
+    {
+        "1,4-benzodioxane",
+    }
+)
 
 
 def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
@@ -2139,23 +2154,25 @@ def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
     return False
 
 
-def _has_contextual_incomplete_retained_amide_alternative_for_complete_fused_parent(
+def _contextual_incomplete_retained_amide_alternative_bonus_for_complete_fused_parent(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
-) -> bool:
+) -> int:
     candidate = item.candidate
     if candidate.family not in _RETAINED_AMIDE_COMPLETE_FUSED_ALTERNATIVE_FAMILIES:
-        return False
+        return 0
     if candidate.template_name in (
         _RETAINED_LACTONE_TEMPLATE_NAMES | _RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES
     ):
-        return False
+        return 0
     if not candidate_has_complete_graph(candidate) or len(candidate.parent_atoms) < 8:
-        return False
+        return 0
     if candidate.suffixes:
-        return False
+        return 0
     if candidate.render_rank is not None and candidate.render_rank > 3:
-        return False
+        return 0
+    template_name = candidate.template_name or ""
+    bonus = 0
     for other in prepared:
         if other is item or other.name == item.name:
             continue
@@ -2169,6 +2186,42 @@ def _has_contextual_incomplete_retained_amide_alternative_for_complete_fused_par
         if len(item.name) > 260 or len(item.name) - len(other.name) > 135:
             continue
         if item.stability_penalty >= other.stability_penalty + 90:
+            continue
+        bonus = max(bonus, 220)
+        if other_candidate.source_family == "generic-acyl-amide":
+            if template_name in _RETAINED_AMIDE_GENERIC_ACYL_HIGH_BONUS_TEMPLATE_BLOCKLIST:
+                continue
+            if _has_contextual_complete_template_parent_alternative(
+                item,
+                prepared,
+                _RETAINED_AMIDE_GENERIC_ACYL_HIGH_BONUS_CONTEXT_TEMPLATE_BLOCKLIST,
+            ):
+                continue
+            bonus = max(bonus, 1100)
+        elif (
+            other_candidate.source_family == "ring-carboxamide"
+            and template_name in {"1,3-benzodioxole", "indan"}
+        ):
+            bonus = max(bonus, 400)
+    return bonus
+
+
+def _has_contextual_complete_template_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    template_names: frozenset[str],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _RETAINED_AMIDE_COMPLETE_FUSED_ALTERNATIVE_FAMILIES:
+            continue
+        if other_candidate.template_name not in template_names:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or len(other_candidate.parent_atoms) < 8:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 90:
             continue
         return True
     return False

@@ -127,6 +127,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     fluorinated_alkyl = _branched_fluoroalkyl_prefix(mol, idx, parent_idx)
     if fluorinated_alkyl:
         return _with_root_carbon_isotope(mol, idx, fluorinated_alkyl)
+    locanted_chain = _locanted_acyclic_substituent_chain_prefix(mol, idx, parent_idx)
+    if locanted_chain:
+        return _with_root_carbon_isotope(mol, idx, locanted_chain)
     substituted_alkyl = _simple_substituted_alkyl_prefix(mol, idx, parent_idx)
     if substituted_alkyl:
         return _with_root_carbon_isotope(mol, idx, substituted_alkyl)
@@ -356,6 +359,284 @@ def _fluoroalkyl_path_name(
     if not prefixes:
         return ""
     return "-".join(prefixes + [root + "yl"])
+
+
+def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -> str:
+    """Render acyclic carbon substituents whose attachment is not path-terminal.
+
+    Legacy carbon prefixes root every substituent path at the attachment atom,
+    so branched chains such as C(S)-C(C)-C=C become
+    ``1,2-dimethyl-4-penten-1-yl``.  OPSIN more reliably roundtrips the graph
+    when the longest substituent chain is named with an explicit attachment
+    locant, e.g. ``3-methylhex-5-en-2-yl``.  Keep this renderer narrowly scoped:
+    all assigned stereo in the substituent subtree must be representable on the
+    chosen path, and side branches must already have branch-prefix coverage.
+    """
+
+    atoms = collect_subtree(mol, idx, parent_idx)
+    if len(atoms) < 4 or len(atoms) > 18:
+        return ""
+    if any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
+        return ""
+    if _subtree_has_isotopic_hydrogen(mol, atoms):
+        return ""
+    carbon_atoms = {
+        atom_idx
+        for atom_idx in atoms
+        if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
+        and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
+        and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
+    }
+    if idx not in carbon_atoms or len(carbon_atoms) < 4:
+        return ""
+    paths = _longest_carbon_paths_through_attachment(mol, carbon_atoms, idx)
+    candidates = []
+    for path in paths:
+        name = _locanted_substituent_path_name(mol, path, atoms, idx, parent_idx)
+        if not name:
+            continue
+        root_locant = path.index(idx) + 1
+        candidates.append(
+            (
+                -len(path),
+                root_locant,
+                _substituent_path_locant_key(mol, path, atoms, parent_idx),
+                len(name),
+                name,
+            )
+        )
+    if not candidates:
+        return ""
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def _longest_carbon_paths_through_attachment(
+    mol,
+    carbon_atoms: set[int],
+    attachment_idx: int,
+) -> list[tuple[int, ...]]:
+    leaves = [
+        atom_idx
+        for atom_idx in carbon_atoms
+        if atom_idx != attachment_idx
+        and sum(
+            1
+            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+            if nbr.GetIdx() in carbon_atoms
+            and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondType()
+            in {Chem.BondType.SINGLE, Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}
+        )
+        <= 1
+    ]
+    if len(leaves) < 2:
+        return []
+    paths: list[tuple[int, ...]] = []
+    best_len = 0
+    for left_pos, left in enumerate(leaves):
+        for right in leaves[left_pos + 1 :]:
+            path = tuple(Chem.rdmolops.GetShortestPath(mol, left, right))
+            if attachment_idx not in path or any(atom_idx not in carbon_atoms for atom_idx in path):
+                continue
+            if not _path_bonds_supported(mol, path):
+                continue
+            if len(path) > best_len:
+                best_len = len(path)
+                paths.clear()
+            if len(path) == best_len:
+                paths.append(path)
+                paths.append(tuple(reversed(path)))
+    return paths
+
+
+def _path_bonds_supported(mol, path: Sequence[int]) -> bool:
+    for left, right in zip(path, path[1:]):
+        bond = mol.GetBondBetweenAtoms(left, right)
+        if bond is None or bond.GetBondType() not in {
+            Chem.BondType.SINGLE,
+            Chem.BondType.DOUBLE,
+            Chem.BondType.TRIPLE,
+        }:
+            return False
+    return True
+
+
+def _locanted_substituent_path_name(
+    mol,
+    path: Sequence[int],
+    atoms: set[int],
+    attachment_idx: int,
+    blocked_idx: int,
+) -> str:
+    path_set = set(path)
+    root = ROOTS.get(len(path))
+    if not root:
+        return ""
+    attachment_locant = path.index(attachment_idx) + 1
+    prefixes = []
+    for pos, atom_idx in enumerate(path, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+            return ""
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == blocked_idx or nidx in path_set:
+                continue
+            if nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+                continue
+            if nidx not in atoms:
+                continue
+            prefix = branch_prefix(mol, nidx, atom_idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(pos), prefix))
+    unsaturation = _path_unsaturation_locants(mol, path)
+    if unsaturation is None:
+        return ""
+    ene_locs, yne_locs = unsaturation
+    parent = _locanted_substituent_parent(root, ene_locs, yne_locs, attachment_locant)
+    if not parent:
+        return ""
+    stereo_prefix = _locanted_substituent_path_stereo_prefix(mol, path, atoms)
+    if stereo_prefix is None:
+        return ""
+    prefix_text = _format_prefixes(prefixes)
+    name = "-".join(part for part in (prefix_text, parent) if part)
+    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _path_unsaturation_locants(mol, path: Sequence[int]) -> tuple[list[int], list[int]] | None:
+    ene_locs = []
+    yne_locs = []
+    for pos, (left, right) in enumerate(zip(path, path[1:]), start=1):
+        bond = mol.GetBondBetweenAtoms(left, right)
+        if bond is None:
+            return None
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(pos)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(pos)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+    return ene_locs, yne_locs
+
+
+def _locanted_substituent_parent(
+    root: str,
+    ene_locs: Sequence[int],
+    yne_locs: Sequence[int],
+    attachment_locant: int,
+) -> str:
+    locant = str(attachment_locant)
+    if not ene_locs and not yne_locs:
+        if attachment_locant == 1:
+            return root + "yl"
+        return f"{root}an-{locant}-yl"
+    if yne_locs and not ene_locs:
+        unsat = _modern_unsaturation_parent(root, yne_locs, "yn")
+        return f"{unsat}-{locant}-yl" if unsat else ""
+    if ene_locs and not yne_locs:
+        unsat = _modern_unsaturation_parent(root, ene_locs, "en")
+        return f"{unsat}-{locant}-yl" if unsat else ""
+    ene = _modern_unsaturation_parent(root, ene_locs, "en")
+    yne = _modern_unsaturation_parent("", yne_locs, "yn")
+    return f"{ene}-{yne}-{locant}-yl" if ene and yne else ""
+
+
+def _modern_unsaturation_parent(root: str, locants: Sequence[int], suffix: str) -> str:
+    locant_text = ",".join(str(locant) for locant in locants)
+    if len(locants) == 1:
+        return f"{root}-{locant_text}-{suffix}" if root else f"{locant_text}-{suffix}"
+    multiplier = MULT.get(len(locants), "")
+    ending = f"{multiplier}{suffix}"
+    return f"{root}a-{locant_text}-{ending}" if root else f"{locant_text}-{ending}"
+
+
+def _locanted_substituent_path_stereo_prefix(
+    mol,
+    path: Sequence[int],
+    atoms: set[int],
+) -> str | None:
+    locants = {atom_idx: pos for pos, atom_idx in enumerate(path, start=1)}
+    atom_descriptors = []
+    for atom_idx in atoms:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+            continue
+        if atom_idx not in locants:
+            return None
+    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+    for atom_idx, descriptor in Chem.FindMolChiralCenters(
+        mol,
+        includeUnassigned=False,
+        useLegacyImplementation=False,
+    ):
+        if atom_idx not in atoms:
+            continue
+        if descriptor not in {"R", "S"}:
+            continue
+        locant = locants.get(atom_idx)
+        if locant is None:
+            return None
+        atom_descriptors.append((locant, f"{locant}{descriptor}"))
+    bond_descriptors = []
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in atoms or end not in atoms:
+            continue
+        stereo = bond.GetStereo()
+        if stereo == Chem.BondStereo.STEREONONE:
+            continue
+        if begin not in locants or end not in locants:
+            return None
+        if abs(locants[begin] - locants[end]) != 1:
+            return None
+        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+            descriptor = "E"
+        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+            descriptor = "Z"
+        else:
+            continue
+        locant = min(locants[begin], locants[end])
+        bond_descriptors.append((locant, f"{locant}{descriptor}"))
+    descriptors = atom_descriptors + bond_descriptors
+    return ",".join(text for _locant, text in sorted(descriptors))
+
+
+def _substituent_path_locant_key(
+    mol,
+    path: Sequence[int],
+    atoms: set[int],
+    blocked_idx: int,
+) -> tuple[int, ...]:
+    path_set = set(path)
+    locants = []
+    for pos, atom_idx in enumerate(path, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            locants.append(pos)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == blocked_idx or nidx in path_set:
+                continue
+            if nidx in atoms and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0):
+                locants.append(pos)
+        for bond in atom.GetBonds():
+            if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+                continue
+            other_idx = bond.GetOtherAtomIdx(atom_idx)
+            if other_idx in path_set:
+                locants.append(min(pos, path.index(other_idx) + 1))
+    return tuple(sorted(locants))
+
+
+def _subtree_has_isotopic_hydrogen(mol, atoms: set[int]) -> bool:
+    return any(
+        nbr.GetSymbol() == "H" and nbr.GetIsotope()
+        for atom_idx in atoms
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+    )
 
 
 def _terminal_trifluoromethyl_atoms(

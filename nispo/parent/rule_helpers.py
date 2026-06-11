@@ -1524,6 +1524,8 @@ def _drop_indicated_hydrogen_prefix(name: str) -> str:
 def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, str]]) -> str:
     if "benzimidazole" in name and any(prefix == "oxo" for _, prefix in prefixes):
         return name
+    if _preserve_tautomer_sensitive_fused_indicated_hydrogen(name):
+        return name
     if _preserve_generated_fused_indicated_hydrogen(name):
         return name
 
@@ -1536,6 +1538,13 @@ def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, s
         return match.group(1)
 
     return re.sub(r"(^|-)(\d+)H-", replacement, name)
+
+
+def _preserve_tautomer_sensitive_fused_indicated_hydrogen(name: str) -> bool:
+    h_locs = re.findall(r"(?:^|-)(\d+)H-", name)
+    if not any(loc != "1" for loc in h_locs):
+        return False
+    return "benzotriazol" in name
 
 
 def _adjust_fused_parent_for_indicated_hydrogen(mol, template: dict, reverse: dict[int, int]) -> str:

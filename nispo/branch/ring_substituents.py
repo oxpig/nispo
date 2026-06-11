@@ -890,9 +890,27 @@ def _fused_ring_substituent_prefix_from_templates(
 def _fused_substituent_candidate_key(
     template: dict, match: Sequence[int], locant: str, name: str, generated: bool
 ) -> tuple:
+    template_name = template_record_name(template)
     if generated:
-        return (_generated_fusion_preference(template_record_name(template)), -len(match), locant, name)
+        return (_generated_fusion_preference(template_name), -len(match), locant, name)
+    if template_name in _LOW_LOCANT_TAUTOMER_FUSED_SUBSTITUENT_PARENTS:
+        return (len(match), _low_locant_retained_fused_substituent_key(locant), name)
     return (len(match), locant, name)
+
+
+_LOW_LOCANT_TAUTOMER_FUSED_SUBSTITUENT_PARENTS = frozenset(
+    {
+        "1H-benzimidazole",
+        "1H-benzotriazole",
+        "2H-benzotriazole",
+    }
+)
+
+
+def _low_locant_retained_fused_substituent_key(locant: str) -> tuple:
+    if locant.isdigit():
+        return (0, 100 - int(locant))
+    return (-1, locant)
 
 
 def _hydro_fused_ring_substituent_prefix_from_templates(

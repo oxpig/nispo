@@ -641,6 +641,23 @@ def test_functionalized_spiro_alkylidene_substituents_roundtrip_with_opsin(input
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC1(C)Oc2ncccc2NC1=O",
+        "O=C1COc2nc(Br)ccc2N1",
+        "O=C1COc2cc(Br)cnc2N1",
+        "C#Cc1cnc2c(c1)OCC(=O)N2",
+    ],
+)
+def test_high_impact_pyrido_oxazinone_templates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "FC(F)(F)[SiH](C(F)(F)F)C(F)(F)F",
         "CCCOC[Si](CCC)(CCC)COCCC",
         "CC(C)[Si](CCl)(CCl)C(C)C",
@@ -1160,6 +1177,24 @@ def test_ring_parent_charge_and_lambda2_forms_roundtrip(input_smiles):
     ],
 )
 def test_structured_contextual_parent_selection_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C(#Cn1cnc2ccccc21)c1ccccc1",
+        "CN(C)N(C)C(=O)c1ccc2nc[nH]c2c1",
+        "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",
+        "NC(=O)c1cccc2[nH]c(-c3ccc(C(=O)N4CCN(c5nc6ccccc6[nH]5)CC4)cc3)nc12",
+        "C[C@@H](C(=O)N(C)c1ccc2[nH]c(-c3n[nH]c4c3C[C@@H]3C[C@]3(C)C4)nc2c1)C1CCOCC1",
+    ],
+)
+def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

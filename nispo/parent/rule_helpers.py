@@ -969,6 +969,25 @@ def _benzimidazole_external_n_preference(mol, template: dict, match: Sequence[in
     return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
 
 
+def _benzimidazole_external_carbon_locant_preference(mol, template: dict, match: Sequence[int]) -> tuple:
+    if template_record_name(template) != "1H-benzimidazole":
+        return ()
+    template_mol = template_record_mol(template)
+    locants = template_record_locants(template)
+    core = set(match)
+    external_locs: list[int] = []
+    for template_idx, mol_idx in enumerate(match):
+        if template_mol.GetAtomWithIdx(template_idx).GetSymbol() == "N":
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if not any(nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            continue
+        locant = locants.get(template_idx, "")
+        if locant.isdigit() and int(locant) >= 4:
+            external_locs.append(int(locant))
+    return tuple(sorted(external_locs)) or (99,)
+
+
 def _benzotriazole_template_h_preference(mol, template: dict, match: Sequence[int], name: str) -> tuple:
     if "benzotriazole" not in name and "benzotriazole" not in template_record_name(template):
         return ()

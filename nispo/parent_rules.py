@@ -8163,7 +8163,7 @@ class FusedParentRule:
                     template=template,
                     match=tuple(match),
                     topology_query=False,
-                    structural_key=_retained_fused_fact_sort_key(template, match, topology_query=False),
+                    structural_key=_retained_fused_fact_sort_key(mol, template, match, topology_query=False),
                 )
             )
             exact_facts += 1
@@ -8183,7 +8183,7 @@ class FusedParentRule:
                     template=template,
                     match=tuple(match),
                     topology_query=True,
-                    structural_key=_retained_fused_fact_sort_key(template, match, topology_query=True),
+                    structural_key=_retained_fused_fact_sort_key(mol, template, match, topology_query=True),
                 )
             )
             topology_facts += 1
@@ -8240,6 +8240,7 @@ class _RetainedFusedCandidateFacts:
 
 
 def _retained_fused_fact_sort_key(
+    mol,
     template: dict,
     match: Sequence[int],
     *,
@@ -8253,6 +8254,9 @@ def _retained_fused_fact_sort_key(
         -len(match),
         len(template_name),
         template_name,
+        _benzimidazole_template_h_preference(mol, template, match, template_name),
+        _benzimidazole_external_n_preference(mol, template, match),
+        _benzimidazole_external_carbon_locant_preference(mol, template, match),
         tuple(match),
     )
 
@@ -8261,6 +8265,8 @@ def _retained_fused_render_set(
     facts: tuple[_RetainedFusedCandidateFacts, ...],
 ) -> tuple[_RetainedFusedCandidateFacts, ...]:
     if len(facts) <= _RETAINED_FUSED_RENDER_SET_SIZE:
+        if any(template_record_name(fact.template) == "1H-benzimidazole" for fact in facts):
+            return tuple(sorted(facts, key=lambda fact: fact.structural_key))
         return facts
     return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_FUSED_RENDER_SET_SIZE])
 
@@ -10913,6 +10919,7 @@ from .parent.rule_helpers import (
     _benzimidazole_orientation_preference,
     _benzimidazole_template_h_preference,
     _benzimidazole_external_n_preference,
+    _benzimidazole_external_carbon_locant_preference,
     _benzotriazole_template_h_preference,
     _has_n_oxide_on_match,
     _name_fused_core_match,

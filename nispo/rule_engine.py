@@ -823,7 +823,25 @@ _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
         "skeletal-replacement-fused-parent",
     }
 )
-_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 320
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 640
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_COMPETITOR_STABILITY_MARGIN = 220
+_IMIDAZO45A_TEMPLATELESS_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "retained-acid-ester-parent",
+        "spiro-functional-chain-substituent",
+    }
+)
+_IMIDAZO45A_LARGE_ACYCLIC_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+    }
+)
 _LOW_CONFIDENCE_FUSED_TEMPLATE_TO_TEMPLATELESS_FAMILIES = {
     "benzo[1,2-b]furan": frozenset({"single-ring-parent"}),
     "imidazo[1,2-b]pyridazine": frozenset(
@@ -1945,6 +1963,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         locanted_stereo_miss
         and complete_fused_retained_amide_parent_bonus < 600
         and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared)
+        and not _allow_high_confidence_imidazo45a_unlocanted_stereo_candidate(item, prepared)
     ):
         penalty = max(penalty, 220)
     if biochem_heterofused_parent:
@@ -2008,6 +2027,22 @@ def _allow_generated_fused_unlocanted_stereo_candidate(
         max_extra=100,
         max_length=260,
     )
+
+
+def _allow_high_confidence_imidazo45a_unlocanted_stereo_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.template_name != "imidazo[4,5-a]benzene":
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 2:
+        return False
+    if len(candidate.parent_atoms) < 9:
+        return False
+    return bool(_contextual_high_confidence_fused_template_parent_bonus(item, prepared))
 
 
 def _has_contextual_locanted_stereo_family_alternative(
@@ -2280,19 +2315,20 @@ def _contextual_high_confidence_fused_template_parent_bonus(
         return 0
     if candidate.template_name not in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES:
         return 0
-    if candidate.template_name == "imidazo[4,5-a]benzene" and _has_contextual_complete_named_fused_template_alternative(
-        item,
-        prepared,
-        frozenset({"1H-benzimidazole"}),
-    ):
-        return 0
     if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
         return 0
     if candidate.render_rank is not None and candidate.render_rank > 8:
         return 0
     if len(item.name) > 280:
         return 0
-    if not _has_contextual_template_less_parent_competitor_for_fused_template(item, prepared):
+    competitor_families = None
+    if candidate.template_name == "imidazo[4,5-a]benzene":
+        competitor_families = _IMIDAZO45A_TEMPLATELESS_COMPETITOR_FAMILIES
+    if not _has_contextual_template_less_parent_competitor_for_fused_template(
+        item,
+        prepared,
+        allowed_families=competitor_families,
+    ):
         return 0
     return _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS
 
@@ -2300,6 +2336,8 @@ def _contextual_high_confidence_fused_template_parent_bonus(
 def _has_contextual_template_less_parent_competitor_for_fused_template(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
+    *,
+    allowed_families: frozenset[str] | None = None,
 ) -> bool:
     parent_count = len(item.candidate.parent_atoms)
     for other in prepared:
@@ -2308,11 +2346,20 @@ def _has_contextual_template_less_parent_competitor_for_fused_template(
         other_candidate = other.candidate
         if other_candidate.template_name:
             continue
+        if allowed_families is not None and other_candidate.family not in allowed_families:
+            continue
+        if item.candidate.template_name == "imidazo[4,5-a]benzene" and not _is_imidazo45a_template_less_competitor(
+            other_candidate
+        ):
+            continue
         if other_candidate.family in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES and candidate_has_complete_graph(
             other_candidate
         ):
             continue
-        if other.stability_penalty > item.stability_penalty:
+        if (
+            other.stability_penalty
+            > item.stability_penalty + _HIGH_CONFIDENCE_FUSED_TEMPLATE_COMPETITOR_STABILITY_MARGIN
+        ):
             continue
         if parent_count and len(other_candidate.parent_atoms) > parent_count + 4:
             continue
@@ -2320,6 +2367,19 @@ def _has_contextual_template_less_parent_competitor_for_fused_template(
             continue
         return True
     return False
+
+
+def _is_imidazo45a_template_less_competitor(candidate: NameCandidate) -> bool:
+    if candidate.family in _IMIDAZO45A_LARGE_ACYCLIC_COMPETITOR_FAMILIES:
+        return len(candidate.parent_atoms) >= 9
+    if candidate.family == "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return len(candidate.parent_atoms) >= 7
+    return candidate.family in {
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "retained-acid-ester-parent",
+        "spiro-functional-chain-substituent",
+    }
 
 
 def _has_contextual_complete_named_fused_template_alternative(

@@ -438,7 +438,7 @@ def _target_fusion_orientation_rank(component: str, base: str) -> int:
 
 
 def _fusion_letter_rank(component: str, base: str, letter: str) -> int:
-    if component.startswith("thieno") and base == "pyrazole":
+    if base.startswith("pyrazol") and not component.startswith(("imidazo", "pyrazolo")):
         return {"d": 0, "c": 1}.get(letter, ord(letter) - ord("a") + 2)
     return ord(letter) - ord("a")
 

@@ -801,6 +801,50 @@ _EXOCYCLIC_FUSED_PARENT_FAMILIES = {
 }
 
 _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST = frozenset({"1H-benzimidazole"})
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
+    {
+        "1,4-benzodioxane",
+        "1H-benzotriazole",
+        "fluoren",
+        "fluorene",
+        "imidazo[4,5-a]benzene",
+        "tetralin",
+    }
+)
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "oxido-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 320
+_LOW_CONFIDENCE_FUSED_TEMPLATE_TO_TEMPLATELESS_FAMILIES = {
+    "benzo[1,2-b]furan": frozenset({"single-ring-parent"}),
+    "imidazo[1,2-b]pyridazine": frozenset(
+        {
+            "acyclic-skeleton-with-ring-substituents",
+            "single-ring-parent",
+        }
+    ),
+    "pyrimido[4,5-a]benzene": frozenset({"acyclic-skeleton-with-ring-substituents"}),
+    "pyrrolo[2,1-f]as-triazine": frozenset({"single-ring-parent"}),
+}
+_LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+    }
+)
+_LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_PENALTY = 180
+_NAMED_TEMPLATE_PAIR_PARENT_BONUS = 260
 
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
@@ -1575,6 +1619,18 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    high_confidence_fused_template_parent_bonus = _contextual_high_confidence_fused_template_parent_bonus(
+        item,
+        prepared,
+    )
+    named_template_pair_parent_bonus = _contextual_named_template_pair_parent_bonus(
+        item,
+        prepared,
+    )
+    low_confidence_fused_template_parent_penalty = _contextual_low_confidence_fused_template_parent_penalty(
+        item,
+        prepared,
+    )
     broad_incomplete_shortcut_graph_parent = (
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
@@ -1659,6 +1715,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
         or complete_fused_retained_amide_parent_bonus
+        or high_confidence_fused_template_parent_bonus
+        or named_template_pair_parent_bonus
+        or low_confidence_fused_template_parent_penalty
         or broad_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
         or lower_external_locant_polycycle
@@ -1846,6 +1905,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if complete_fused_retained_amide_parent_bonus:
         penalty -= complete_fused_retained_amide_parent_bonus
+    if high_confidence_fused_template_parent_bonus:
+        penalty -= high_confidence_fused_template_parent_bonus
+    if named_template_pair_parent_bonus:
+        penalty -= named_template_pair_parent_bonus
+    if low_confidence_fused_template_parent_penalty:
+        penalty += low_confidence_fused_template_parent_penalty
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
     if hydro_fused_systematic_parent:
@@ -2204,6 +2269,161 @@ def _contextual_incomplete_retained_amide_alternative_bonus_for_complete_fused_p
         ):
             bonus = max(bonus, 400)
     return bonus
+
+
+def _contextual_high_confidence_fused_template_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family not in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES:
+        return 0
+    if candidate.template_name not in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES:
+        return 0
+    if candidate.template_name == "imidazo[4,5-a]benzene" and _has_contextual_complete_named_fused_template_alternative(
+        item,
+        prepared,
+        frozenset({"1H-benzimidazole"}),
+    ):
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 8:
+        return 0
+    if len(item.name) > 280:
+        return 0
+    if not _has_contextual_template_less_parent_competitor_for_fused_template(item, prepared):
+        return 0
+    return _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS
+
+
+def _has_contextual_template_less_parent_competitor_for_fused_template(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    parent_count = len(item.candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.template_name:
+            continue
+        if other_candidate.family in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES and candidate_has_complete_graph(
+            other_candidate
+        ):
+            continue
+        if other.stability_penalty > item.stability_penalty:
+            continue
+        if parent_count and len(other_candidate.parent_atoms) > parent_count + 4:
+            continue
+        if len(item.name) - len(other.name) > 150:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_complete_named_fused_template_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    template_names: frozenset[str],
+) -> bool:
+    parent_count = len(item.candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES:
+            continue
+        if other_candidate.template_name not in template_names:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if parent_count and len(other_candidate.parent_atoms) + 1 < parent_count:
+            continue
+        if other.stability_penalty > item.stability_penalty:
+            continue
+        return True
+    return False
+
+
+def _contextual_named_template_pair_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 8:
+        return 0
+    if len(item.name) > 280:
+        return 0
+    if (
+        candidate.family == "skeletal-replacement-fused-parent"
+        and candidate.template_name in {"fluoren", "fluorene"}
+        and _has_contextual_complete_named_fused_template_alternative(
+            item,
+            prepared,
+            frozenset({"dibenzofuran"}),
+        )
+    ):
+        return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
+    if (
+        candidate.family == "generated-hydro-fused-parent"
+        and candidate.template_name in {"pyrido[4,3-d]imidazole", "pyridino[4,3-d]imidazole"}
+        and _has_contextual_complete_named_fused_template_alternative(
+            item,
+            prepared,
+            frozenset({"benzo[1,2-d]pyrazole"}),
+        )
+    ):
+        return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
+    return 0
+
+
+def _contextual_low_confidence_fused_template_parent_penalty(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    alternative_families = _LOW_CONFIDENCE_FUSED_TEMPLATE_TO_TEMPLATELESS_FAMILIES.get(
+        candidate.template_name
+    )
+    if not alternative_families:
+        return 0
+    if candidate.family not in _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 8:
+        return 0
+    if not _has_contextual_template_less_family_alternative_for_low_confidence_template(
+        item,
+        prepared,
+        alternative_families,
+    ):
+        return 0
+    return _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_PENALTY
+
+
+def _has_contextual_template_less_family_alternative_for_low_confidence_template(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    alternative_families: frozenset[str],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.template_name:
+            continue
+        if other_candidate.family not in alternative_families:
+            continue
+        if other.stability_penalty > item.stability_penalty + 140:
+            continue
+        if len(other.name) > 280:
+            continue
+        if len(other.name) - len(item.name) > 160:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_complete_template_parent_alternative(

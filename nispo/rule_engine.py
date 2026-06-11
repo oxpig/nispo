@@ -811,6 +811,13 @@ _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
         "tetralin",
     }
 )
+_VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
+    {
+        "1,4-benzodioxane",
+        "1H-benzotriazole",
+        "tetralin",
+    }
+)
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
     {
         "fused-retained-parent",
@@ -823,8 +830,11 @@ _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
         "skeletal-replacement-fused-parent",
     }
 )
-_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 640
+_HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 960
+_VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS = 1320
+_HIGH_CONFIDENCE_IMIDAZO45A_FUSED_TEMPLATE_PARENT_BONUS = 640
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_COMPETITOR_STABILITY_MARGIN = 220
+_TETRALIN_TO_BENZODIOXANE_TEMPLATE_PAIR_BONUS = 220
 _IMIDAZO45A_TEMPLATELESS_COMPETITOR_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
@@ -1964,6 +1974,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         and complete_fused_retained_amide_parent_bonus < 600
         and not _allow_generated_fused_unlocanted_stereo_candidate(item, prepared)
         and not _allow_high_confidence_imidazo45a_unlocanted_stereo_candidate(item, prepared)
+        and not _allow_high_confidence_retained_template_unlocanted_stereo_candidate(item, prepared)
     ):
         penalty = max(penalty, 220)
     if biochem_heterofused_parent:
@@ -2041,6 +2052,24 @@ def _allow_high_confidence_imidazo45a_unlocanted_stereo_candidate(
     if candidate.render_rank is None or candidate.render_rank > 2:
         return False
     if len(candidate.parent_atoms) < 9:
+        return False
+    return bool(_contextual_high_confidence_fused_template_parent_bonus(item, prepared))
+
+
+def _allow_high_confidence_retained_template_unlocanted_stereo_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES:
+        return False
+    if candidate.template_name not in _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_NAMES:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) < 9:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
         return False
     return bool(_contextual_high_confidence_fused_template_parent_bonus(item, prepared))
 
@@ -2321,6 +2350,15 @@ def _contextual_high_confidence_fused_template_parent_bonus(
         return 0
     if len(item.name) > 280:
         return 0
+    if (
+        candidate.family == "retained-topology-replacement-fused-parent"
+        and candidate.template_name == "tetralin"
+        and (
+            _has_contextual_same_template_static_retained_parent(item, prepared)
+            or _has_contextual_large_acyclic_parent_for_retained_topology_template(item, prepared)
+        )
+    ):
+        return 0
     competitor_families = None
     if candidate.template_name == "imidazo[4,5-a]benzene":
         competitor_families = _IMIDAZO45A_TEMPLATELESS_COMPETITOR_FAMILIES
@@ -2330,6 +2368,10 @@ def _contextual_high_confidence_fused_template_parent_bonus(
         allowed_families=competitor_families,
     ):
         return 0
+    if candidate.template_name == "imidazo[4,5-a]benzene":
+        return _HIGH_CONFIDENCE_IMIDAZO45A_FUSED_TEMPLATE_PARENT_BONUS
+    if candidate.template_name in _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_NAMES:
+        return _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS
     return _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS
 
 
@@ -2380,6 +2422,58 @@ def _is_imidazo45a_template_less_competitor(candidate: NameCandidate) -> bool:
         "retained-acid-ester-parent",
         "spiro-functional-chain-substituent",
     }
+
+
+def _has_contextual_same_template_static_retained_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if other_candidate.source_family != "static-retained":
+            continue
+        if other_candidate.template_name != candidate.template_name:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_large_acyclic_parent_for_retained_topology_template(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if (
+            other_candidate.family != "charged-ring-acyclic-skeleton-with-ring-substituents"
+            and len(other_candidate.parent_atoms) < parent_count + 5
+        ):
+            continue
+        if other.stability_penalty > item.stability_penalty + 120:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_complete_named_fused_template_alternative(
@@ -2437,6 +2531,17 @@ def _contextual_named_template_pair_parent_bonus(
         )
     ):
         return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
+    if (
+        candidate.family == "retained-topology-replacement-fused-parent"
+        and candidate.source_family == "opsin-retained-ring-cml"
+        and candidate.template_name == "tetralin"
+        and _has_contextual_complete_named_fused_template_alternative(
+            item,
+            prepared,
+            frozenset({"1,4-benzodioxane"}),
+        )
+    ):
+        return _TETRALIN_TO_BENZODIOXANE_TEMPLATE_PAIR_BONUS
     return 0
 
 

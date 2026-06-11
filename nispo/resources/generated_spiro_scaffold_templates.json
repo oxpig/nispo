@@ -36521,5 +36521,134 @@
     "smiles": "N1=CC=NC2=NN=C3C=CC4(CC123)CNCC4",
     "source_file": "generated_spiro_scaffold_templates.json",
     "source_subtype": "targeted-spiro-component-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "2'",
+      "10": "6'",
+      "11": "5'",
+      "12": "3",
+      "7": "8'",
+      "9": "7'"
+    },
+    "name": "spiro[cyclopropane-1,3'-dicyclopenta[b,e]pyridine]",
+    "smiles": "C1=c2c(nc3c(c2)C=CC=3)C2(C1)CC2",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "2'",
+      "10": "6'",
+      "11": "5'",
+      "12": "3",
+      "7": "8'",
+      "9": "7'"
+    },
+    "name": "1',5',6',7'-tetrahydro-2'H-spiro[cyclopropane-1,3'-dicyclopenta[b,e]pyridine]",
+    "smiles": "C1CC2(c3nc4c(cc31)CCC4)CC2",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "6'",
+      "12": "8",
+      "15": "2",
+      "2": "5'",
+      "6": "6",
+      "7": "5"
+    },
+    "name": "spiro[cyclopenta[d][1,2,4]triazolo[1,5-a]pyrimidine-7,4'-piperidine]",
+    "smiles": "N1CCC2(CC1)C=Cc1nc3n(cc12)ncn3",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "6'",
+      "15": "1",
+      "16": "2",
+      "17": "3",
+      "2": "5'",
+      "6": "6",
+      "7": "5",
+      "9": "4"
+    },
+    "name": "5,8-dihydrospiro[cyclopenta[d][1,2,4]triazolo[1,5-a]pyrimidine-7,4'-piperidine]-8-one",
+    "smiles": "N1CCC2(CC1)CCc1nc3n(c(=O)c12)[nH]cn3",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "10": "5",
+      "11": "6",
+      "13": "5'",
+      "14": "6'",
+      "15": "1'",
+      "4": "4",
+      "7": "1",
+      "8": "2",
+      "9": "3"
+    },
+    "name": "8-oxo-5,8-dihydrospiro[cyclopenta[d][1,2,4]triazolo[1,5-a]pyrimidin-7,4'-piperidin]",
+    "smiles": "O=c1c2c(nc3n1[nH]cn3)CCC21CCNCC1",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "6'",
+      "12": "8",
+      "15": "2",
+      "16": "3",
+      "2": "5'",
+      "6": "6",
+      "7": "5"
+    },
+    "name": "spiro[cyclopenta[d]pyrazolo[1,5-a]pyrimidine-7,4'-piperidine]",
+    "smiles": "N1CCC2(CC1)C=Cc1nc3n(cc12)ncc3",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "0": "1'",
+      "1": "6'",
+      "15": "1",
+      "16": "2",
+      "17": "3",
+      "2": "5'",
+      "6": "6",
+      "7": "5",
+      "9": "4"
+    },
+    "name": "5,8-dihydrospiro[cyclopenta[d]pyrazolo[1,5-a]pyrimidine-7,4'-piperidine]-8-one",
+    "smiles": "N1CCC2(CC1)CCc1nc3n(c(=O)c12)[nH]cc3",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
+  },
+  {
+    "locants": {
+      "10": "5",
+      "11": "6",
+      "13": "5'",
+      "14": "6'",
+      "15": "1'",
+      "4": "4",
+      "7": "1",
+      "8": "2",
+      "9": "3"
+    },
+    "name": "8-oxo-5,8-dihydrospiro[cyclopenta[d]pyrazolo[1,5-a]pyrimidin-7,4'-piperidin]",
+    "smiles": "O=c1c2c(nc3n1[nH]cc3)CCC21CCNCC1",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-retained-family"
   }
 ]

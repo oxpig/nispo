@@ -33,6 +33,18 @@ _OPSIN_PARSEABLE_RETAINED_PARENT_ALIASES = {
     "boronicacidpinacolester": "4,4,5,5-tetramethyl-1,3,2-dioxaborolane",
     "mequinol": "4-methoxyphenol",
     "paraben": "4-hydroxybenzoic acid",
+    "xanthin": "purin-2,6(1H,3H,9H)-dione",
+}
+
+_ELEMENT_RADICAL_PARENT_WORDS = {
+    "B": "boron",
+    "C": "carbon",
+    "N": "nitrogen",
+    "O": "oxygen",
+    "P": "phosphorus",
+    "S": "sulfur",
+    "Se": "selenium",
+    "Si": "silicon",
 }
 
 
@@ -1043,6 +1055,10 @@ def _name_fused_core_match(
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
     parent_name = _opsin_parseable_retained_parent_name(parent_name)
+    radical_parent_name = _fused_single_external_element_radical_name(mol, template, match, reverse, parent_name)
+    if radical_parent_name:
+        cache[cache_key] = radical_parent_name
+        return radical_parent_name
     prefixes = []
     for mol_idx in match:
         template_idx = reverse[mol_idx]
@@ -1096,6 +1112,54 @@ def _name_fused_core_match(
     result = _join_prefix_parent(prefix_text, parent_name)
     cache[cache_key] = result
     return result
+
+
+def _fused_single_external_element_radical_name(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    reverse: dict[int, int],
+    parent_name: str,
+) -> str:
+    core_set = set(match)
+    external: list[tuple[str, int, int]] = []
+    locants = template_record_locants(template)
+    for mol_idx in match:
+        template_idx = reverse[mol_idx]
+        locant = locants.get(template_idx, "")
+        for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in core_set:
+                continue
+            external.append((locant, nidx, mol_idx))
+    if len(external) != 1:
+        return ""
+    locant, radical_idx, parent_idx = external[0]
+    if not locant:
+        return ""
+    radical = mol.GetAtomWithIdx(radical_idx)
+    element = _ELEMENT_RADICAL_PARENT_WORDS.get(radical.GetSymbol())
+    if not element:
+        return ""
+    if not _is_terminal_element_radical_substituent(mol, radical_idx, parent_idx):
+        return ""
+    return f"{parent_name}-{locant}-yl{element}"
+
+
+def _is_terminal_element_radical_substituent(mol, atom_idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return False
+    if atom.GetNumRadicalElectrons() <= 0:
+        return False
+    if atom.GetTotalNumHs() != 0:
+        return False
+    if atom.IsInRing():
+        return False
+    bond = mol.GetBondBetweenAtoms(atom_idx, parent_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return False
+    return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
 
 
 def _match_has_unlocanted_external_substitution(
@@ -1547,6 +1611,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
     if not candidates:
         return []
     ring_set = set(ordered)
+    external_subs: list[tuple[int, int, str]] = []
     raw_subs = []
     for ring_idx in ordered:
         atom = mol.GetAtomWithIdx(ring_idx)
@@ -1557,6 +1622,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return []
+            external_subs.append((ring_idx, nidx, prefix))
             raw_subs.append((ring_idx, prefix))
 
     best_key = None
@@ -1579,6 +1645,15 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_suffix_kind = ""
             continue
         pos = {idx: i + 1 for i, idx in enumerate(seq)}
+        radical_name = _single_ring_external_element_radical_name(mol, adjusted_parent, pos, external_subs)
+        if radical_name:
+            locants = sorted(pos[idx] for idx, _, _ in external_subs if idx in pos)
+            radical_key = (locants, -2, radical_name)
+            if best_key is None or radical_key < best_key:
+                best_key = radical_key
+                best_name = radical_name
+                best_seq = seq
+                best_suffix_kind = ""
         prefixes = [
             (_single_ring_substituent_locant(adjusted_parent, pos[idx]), prefix)
             for idx, prefix in raw_subs
@@ -1687,6 +1762,39 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             best_suffix_kind,
         )
     ]
+
+
+def _single_ring_external_element_radical_name(
+    mol,
+    parent_name: str,
+    pos: dict[int, int],
+    external_subs: Sequence[tuple[int, int, str]],
+) -> str:
+    radical_subs = [
+        (ring_idx, atom_idx, prefix)
+        for ring_idx, atom_idx, prefix in external_subs
+        if ring_idx in pos and _is_terminal_element_radical_substituent(mol, atom_idx, ring_idx)
+    ]
+    if len(radical_subs) != 1:
+        return ""
+    ring_idx, radical_idx, _ = radical_subs[0]
+    radical = mol.GetAtomWithIdx(radical_idx)
+    element = _ELEMENT_RADICAL_PARENT_WORDS.get(radical.GetSymbol())
+    if not element:
+        return ""
+    radical_locant = _single_ring_substituent_locant(parent_name, pos[ring_idx])
+    if not radical_locant.isdigit():
+        return ""
+    other_prefixes = [
+        (_single_ring_substituent_locant(parent_name, pos[other_ring_idx]), prefix)
+        for other_ring_idx, other_atom_idx, prefix in external_subs
+        if other_atom_idx != radical_idx and other_ring_idx in pos
+    ]
+    if other_prefixes and not _single_ring_parent_prefixes_supported(parent_name, other_prefixes):
+        return ""
+    radical_parent = f"{parent_name}-{radical_locant}-yl{element}"
+    prefix_text = _format_prefixes(other_prefixes)
+    return _join_prefix_parent(prefix_text, radical_parent)
 
 
 def _single_ring_substituent_locant(parent_name: str, loc: int) -> str:

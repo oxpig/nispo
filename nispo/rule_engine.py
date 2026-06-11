@@ -4167,9 +4167,19 @@ def _charged_single_ring_parent_bonus(candidate: NameCandidate) -> int:
 def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:
     if not candidate.suffixes or not candidate_has_complete_graph(candidate):
         return 0
-    kinds = {suffix.kind for suffix in candidate.suffixes}
-    if kinds.intersection({"ring_oxo_suffix", "ring_thione_suffix"}):
+    chalcogen_suffixes = [
+        suffix
+        for suffix in candidate.suffixes
+        if suffix.kind in {"ring_oxo_suffix", "ring_thione_suffix"}
+    ]
+    if chalcogen_suffixes:
+        if any(
+            "compact_hetero_ring_chalcogen_suffix_parent" in suffix.source
+            for suffix in chalcogen_suffixes
+        ):
+            return 64
         return 24
+    kinds = {suffix.kind for suffix in candidate.suffixes}
     if "ring_functional_suffix" in kinds:
         return 18
     if kinds.intersection({"ring_imino_suffix", "ring_carbonyl_suffix"}):

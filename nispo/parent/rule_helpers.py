@@ -1599,6 +1599,7 @@ class RingNameRecord:
     stereo_prefix: str
     locant_seq: tuple[int, ...]
     suffix_kind: str = ""
+    suffix_graph_class: str = ""
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
@@ -1769,8 +1770,24 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name),
             tuple(best_seq),
             best_suffix_kind,
+            _single_ring_suffix_graph_class(mol, best_seq, best_suffix_kind),
         )
     ]
+
+
+def _single_ring_suffix_graph_class(mol, seq: Sequence[int], suffix_kind: str) -> str:
+    if suffix_kind not in {"ring_oxo_suffix", "ring_thione_suffix"}:
+        return ""
+    if len(seq) > 5:
+        return ""
+    hetero_atoms = sum(
+        1
+        for idx in seq
+        if mol.GetAtomWithIdx(idx).GetAtomicNum() not in {1, 6}
+    )
+    if hetero_atoms < 2:
+        return ""
+    return "compact_hetero_ring_chalcogen_suffix_parent"
 
 
 def _single_ring_external_element_radical_name(

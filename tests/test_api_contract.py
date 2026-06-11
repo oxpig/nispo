@@ -181,6 +181,26 @@ def test_single_ring_lactam_and_thione_indicated_h_suffixes_roundtrip_with_opsin
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "COc1nccc(-c2ccc3c(c2)cc(C(=O)O)n3[C@@]2(c3noc(=O)[nH]3)C[C@@H]2C)c1C",
+        "C[C@H]1C[C@]1(c1noc(=O)[nH]1)n1c(C(=O)O)c(N2CCOC(C)(C)C2)c2ccccc21",
+        "C[C@H]1C[C@]1(c1noc(=O)[nH]1)n1c(C(=O)O)cc2cc(C3CCC(F)(F)CC3)ccc21",
+        "CC1(C)C[C@H](c2ccn3c(C4(c5noc(=O)[nH]5)CC4)c(C(=O)O)cc3c2)CCO1",
+        "CC1(C)C[C@@H](c2ccn3c(C4(c5noc(=O)[nH]5)CC4)c(C(=O)O)cc3c2)CCO1",
+        "CN1C(=O)/C(=C/c2ccc3[nH]ncc3c2)N=C1N[C@H]1CCCOC1",
+        "CCN1CC(=O)N([C@@H]2CCN(C(=O)c3cc(/C=C4\\OC(=O)c5ccccc54)ccc3F)C2)C1=O",
+    ],
+)
+def test_single_ring_oxo_suffix_parent_selection_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

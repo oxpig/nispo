@@ -9341,7 +9341,10 @@ def _has_positive_ring_parent_name(name: str) -> bool:
 def _single_ring_suffix_candidates(record) -> tuple[SuffixCandidate, ...]:
     if not record.suffix_kind:
         return ()
-    return (SuffixCandidate(text="", kind=record.suffix_kind, source="single-ring-parent"),)
+    source = "single-ring-parent"
+    if record.suffix_graph_class:
+        source = f"{source}:{record.suffix_graph_class}"
+    return (SuffixCandidate(text="", kind=record.suffix_kind, source=source),)
 
 
 @dataclass(frozen=True, slots=True)

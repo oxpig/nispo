@@ -744,6 +744,10 @@ _RETAINED_LACTONE_TEMPLATE_NAMES = frozenset({"coumarin", "coumarine"})
 _RETAINED_LACTONE_TOPOLOGY_BONUS = 160
 _RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES = frozenset({"isatoic anhydride"})
 _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS = 80
+_FRAGILE_RETAINED_TOPOLOGY_REPLACEMENT_SELECTED_TEMPLATE_TERMS = (
+    "benzothiazep",
+    "pyrido[",
+)
 _BIOCHEM_HETEROFUSED_RETAINED_STEMS = (
     "adenin",
     "guanin",
@@ -1122,6 +1126,52 @@ def _has_contextual_retained_cyclic_anhydride_topology_candidate(
     )
 
 
+def _has_contextual_fused_parent_alternative_for_retained_topology_replacement(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.source_family != "opsin-retained-ring-cml":
+        return False
+    if candidate.suffixes:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 1:
+        return False
+    candidate_parent_count = len(candidate.parent_atoms)
+    if candidate_parent_count < 10:
+        return False
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        other_template_name = (other_candidate.template_name or "").lower()
+        if any(
+            term in other_template_name
+            for term in _FRAGILE_RETAINED_TOPOLOGY_REPLACEMENT_SELECTED_TEMPLATE_TERMS
+        ):
+            continue
+        if len(candidate.parent_atoms & other_candidate.parent_atoms) < min(candidate_parent_count, 8):
+            continue
+        if len(other_candidate.parent_atoms) < candidate_parent_count:
+            continue
+        if len(item.name) - len(other.name) > 160:
+            continue
+        if item.stability_penalty >= other.stability_penalty + 90:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_retained_topology_candidate_for_templates(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -1459,6 +1509,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    retained_topology_replacement_parent = (
+        _has_contextual_fused_parent_alternative_for_retained_topology_replacement(item, prepared)
+    )
     unstable_benzimidazolyl = _has_unstable_benzimidazolyl_orientation_artifact(name)
     unstable_replacement = _has_unstable_replacement_polycycle_alias(name)
     generic_polycycle = _has_contextual_generic_polycycle_fallback(name, item.candidate)
@@ -1518,6 +1571,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    complete_fused_retained_amide_parent = _has_contextual_incomplete_retained_amide_alternative_for_complete_fused_parent(
+        item,
+        prepared,
+    )
     broad_incomplete_shortcut_graph_parent = (
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
@@ -1556,6 +1613,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if not (
         retained_lactone_topology
         or retained_cyclic_anhydride_topology
+        or retained_topology_replacement_parent
         or unstable_benzimidazolyl
         or unstable_replacement
         or generic_polycycle
@@ -1600,6 +1658,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
+        or complete_fused_retained_amide_parent
         or broad_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
         or lower_external_locant_polycycle
@@ -1629,6 +1688,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= _RETAINED_LACTONE_TOPOLOGY_BONUS
     if retained_cyclic_anhydride_topology:
         penalty -= _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS
+    if retained_topology_replacement_parent:
+        penalty -= 140
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
     if has_graph_parent and unstable_benzimidazolyl:
         penalty += 85
@@ -1783,6 +1844,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if incomplete_shortcut_graph_parent:
         penalty += 140
+    if complete_fused_retained_amide_parent:
+        penalty -= 220
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
     if hydro_fused_systematic_parent:
@@ -2022,6 +2085,13 @@ _BROAD_COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
     }
 )
 
+_RETAINED_AMIDE_COMPLETE_FUSED_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+    }
+)
+
 
 def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
     item: _PreparedCandidate,
@@ -2064,6 +2134,41 @@ def _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
         if len(other.name) > 220 or len(other.name) - len(item.name) > 90:
             continue
         if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_incomplete_retained_amide_alternative_for_complete_fused_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _RETAINED_AMIDE_COMPLETE_FUSED_ALTERNATIVE_FAMILIES:
+        return False
+    if candidate.template_name in (
+        _RETAINED_LACTONE_TEMPLATE_NAMES | _RETAINED_CYCLIC_ANHYDRIDE_TEMPLATE_NAMES
+    ):
+        return False
+    if not candidate_has_complete_graph(candidate) or len(candidate.parent_atoms) < 8:
+        return False
+    if candidate.suffixes:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 3:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "retained-amide-parent":
+            continue
+        if other_candidate.source_family in {"ring-carboxamide:selenium", "ring-carboxamide:tellurium"}:
+            continue
+        if candidate_has_complete_graph(other_candidate):
+            continue
+        if len(item.name) > 260 or len(item.name) - len(other.name) > 135:
+            continue
+        if item.stability_penalty >= other.stability_penalty + 90:
             continue
         return True
     return False

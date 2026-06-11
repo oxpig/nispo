@@ -796,6 +796,8 @@ _EXOCYCLIC_FUSED_PARENT_FAMILIES = {
     "retained-topology-replacement-fused-parent",
 }
 
+_GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST = frozenset({"1H-benzimidazole"})
+
 
 def _candidate_selection_graph_parent_bonus(candidate: NameCandidate) -> int:
     bonus = _GRAPH_PARENT_STABILITY_BONUS_BY_FAMILY.get(candidate.family, 0)
@@ -1307,6 +1309,102 @@ def _has_contextual_biochem_fused_sibling_alternative(
     return False
 
 
+def _has_contextual_generated_fused_same_atoms_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
+        "oxido-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    if candidate.template_name in _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST:
+        return False
+    parent_atoms = candidate.parent_atoms
+    ring_atoms = candidate.ring_system_atoms
+    if not parent_atoms and not ring_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 3:
+            continue
+        same_parent = bool(parent_atoms and other_candidate.parent_atoms == parent_atoms)
+        same_ring = bool(ring_atoms and other_candidate.ring_system_atoms == ring_atoms)
+        if not same_parent and not same_ring:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_chain_dominant_ring_substituent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_kekulized_polycycle_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(other.name) > 90:
+            continue
+        if item.stability_penalty >= other.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_retained_biochem_fused_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -1449,6 +1547,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     biochem_heterofused_parent = _has_contextual_biochem_heterofused_parent_alternative(item, prepared)
     exocyclic_fused_single_ring = _has_contextual_exocyclic_fused_single_ring_alternative(item, prepared)
     biochem_fused_sibling = _has_contextual_biochem_fused_sibling_alternative(item, prepared)
+    generated_fused_same_atoms = _has_contextual_generated_fused_same_atoms_alternative(item, prepared)
+    chain_dominant_ring_substituent = _has_contextual_chain_dominant_ring_substituent_alternative(item, prepared)
+    kekulized_polycycle_parent = _has_contextual_kekulized_polycycle_parent_alternative(item, prepared)
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -1514,6 +1615,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or biochem_heterofused_parent
         or exocyclic_fused_single_ring
         or biochem_fused_sibling
+        or generated_fused_same_atoms
+        or chain_dominant_ring_substituent
+        or kekulized_polycycle_parent
         or retained_biochem_fused
         or aza_alias_penalty
         or spiro_penalty
@@ -1717,6 +1821,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 95
     if biochem_fused_sibling:
         penalty += 90
+    if generated_fused_same_atoms:
+        penalty += 140
+    if chain_dominant_ring_substituent:
+        penalty += 150
+    if kekulized_polycycle_parent:
+        penalty -= 260
     if retained_biochem_fused:
         penalty += 80
     return penalty
@@ -2029,7 +2139,7 @@ def _has_contextual_small_acyclic_complete_ring_parent_alternative(
     candidate = item.candidate
     if candidate.family not in _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES:
         return False
-    if len(candidate.parent_atoms) > 6:
+    if len(candidate.parent_atoms) > 3:
         return False
     for other in prepared:
         if other is item or other.name == item.name:

@@ -285,6 +285,8 @@ def _component_dispiro_candidates_for_blocks(
                 if _has_unpromoted_component_replacement(dispiro_name):
                     continue
                 name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
+                render_rank = _component_spiro_render_rank(left, center, right)
+                graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
                 candidates.append(
                     NameCandidate(
                         name=name,
@@ -299,6 +301,9 @@ def _component_dispiro_candidates_for_blocks(
                         ),
                         stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, ctx.Chem, locants),
                         stereo_locants=_component_spiro_stereo_locants(locants),
+                        parent_atoms=graph_atoms,
+                        ring_system_atoms=graph_atoms,
+                        render_rank=render_rank,
                     )
                 )
     return candidates
@@ -461,6 +466,8 @@ def _component_spiro_candidates_for_split(
             if _has_unpromoted_component_replacement(spiro_name):
                 continue
             name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+            render_rank = _component_spiro_render_rank(simple_component, poly_component)
+            graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
             candidates.append(
                 NameCandidate(
                     name=name,
@@ -475,6 +482,9 @@ def _component_spiro_candidates_for_split(
                     ),
                     stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
                     stereo_locants=_component_spiro_stereo_locants(locants),
+                    parent_atoms=graph_atoms,
+                    ring_system_atoms=graph_atoms,
+                    render_rank=render_rank,
                 )
             )
     return candidates
@@ -553,6 +563,8 @@ def _poly_component_spiro_candidates_for_split(
             if _has_unpromoted_component_replacement(spiro_name):
                 continue
             name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+            render_rank = _component_spiro_render_rank(left_component, right_component)
+            graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
             candidates.append(
                 NameCandidate(
                     name=name,
@@ -567,6 +579,9 @@ def _poly_component_spiro_candidates_for_split(
                     ),
                     stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
                     stereo_locants=_component_spiro_stereo_locants(locants),
+                    parent_atoms=graph_atoms,
+                    ring_system_atoms=graph_atoms,
+                    render_rank=render_rank,
                 )
             )
     return candidates
@@ -647,6 +662,7 @@ class _Component:
         locants: dict[int, str],
         replacement_prefixes: tuple[tuple[str, str], ...] = (),
         component_rank: int = 0,
+        component_kind: str = "",
         covered_external_atoms: frozenset[int] = frozenset(),
     ) -> None:
         self.parent_name = parent_name
@@ -654,6 +670,7 @@ class _Component:
         self.locants = locants
         self.replacement_prefixes = replacement_prefixes
         self.component_rank = component_rank
+        self.component_kind = component_kind
         self.covered_external_atoms = covered_external_atoms
 
 
@@ -683,6 +700,7 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
                 spiro_locant=locants[spiro_idx],
                 locants=locants,
                 replacement_prefixes=tuple(replacement_prefixes),
+                component_kind="simple-ring",
             )
         )
     components.sort(
@@ -697,33 +715,36 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
 
 
 def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
-    records = []
-    records.extend(bicyclic_parent_candidate_records(mol, Chem))
-    records.extend(spiro_parent_candidate_records(mol, Chem))
-    records.extend(kekulized_polycyclic_parent_candidate_records(mol, Chem))
     components: list[_Component] = []
     seen = set()
-    for raw_name, seq in records:
-        if spiro_idx not in seq:
-            continue
-        parent_name, replacement_prefixes = _strip_leading_replacement_prefixes(raw_name)
-        if not parent_name:
-            continue
-        locants = {atom_idx: str(index) for index, atom_idx in enumerate(seq, start=1)}
-        key = (parent_name, tuple(replacement_prefixes), locants[spiro_idx])
-        if key in seen:
-            continue
-        seen.add(key)
-        component_rank = 3 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", parent_name) else 1
-        components.append(
-            _Component(
-                parent_name=parent_name,
-                spiro_locant=locants[spiro_idx],
-                locants=locants,
-                replacement_prefixes=tuple(replacement_prefixes),
-                component_rank=component_rank,
+    record_groups = (
+        (bicyclic_parent_candidate_records(mol, Chem), "generic-bicyclic"),
+        (spiro_parent_candidate_records(mol, Chem), "generic-spiro"),
+        (kekulized_polycyclic_parent_candidate_records(mol, Chem), "kekulized-polycyclic"),
+    )
+    for records, component_kind in record_groups:
+        for raw_name, seq in records:
+            if spiro_idx not in seq:
+                continue
+            parent_name, replacement_prefixes = _strip_leading_replacement_prefixes(raw_name)
+            if not parent_name:
+                continue
+            locants = {atom_idx: str(index) for index, atom_idx in enumerate(seq, start=1)}
+            key = (parent_name, tuple(replacement_prefixes), locants[spiro_idx])
+            if key in seen:
+                continue
+            seen.add(key)
+            component_rank = 3 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", parent_name) else 1
+            components.append(
+                _Component(
+                    parent_name=parent_name,
+                    spiro_locant=locants[spiro_idx],
+                    locants=locants,
+                    replacement_prefixes=tuple(replacement_prefixes),
+                    component_rank=component_rank,
+                    component_kind=component_kind,
+                )
             )
-        )
     components.sort(
         key=lambda item: (
             item.component_rank,
@@ -841,7 +862,39 @@ def _component_from_fused_template(
         return None
     if "hydro" in parent_name:
         return None
-    return _Component(parent_name=parent_name, spiro_locant=spiro_locant, locants=locants, component_rank=0)
+    return _Component(
+        parent_name=parent_name,
+        spiro_locant=spiro_locant,
+        locants=locants,
+        component_rank=0,
+        component_kind="fused-template",
+    )
+
+
+_EXPLICIT_HETERO_GENERIC_COMPONENT_KINDS = frozenset(
+    {
+        "generic-bicyclic",
+        "generic-spiro",
+        "kekulized-polycyclic",
+    }
+)
+
+
+def _component_spiro_render_rank(*components: _Component) -> int | None:
+    """Rank component-spiro renderings using component provenance facts."""
+
+    explicit_generic_replacements = sum(
+        len(component.replacement_prefixes)
+        for component in components
+        if component.component_kind in _EXPLICIT_HETERO_GENERIC_COMPONENT_KINDS
+    )
+    if explicit_generic_replacements < 2:
+        return None
+    return (
+        1
+        + sum(component.component_rank for component in components) * 10
+        + sum(len(component.replacement_prefixes) for component in components)
+    )
 
 
 def _fused_component_parent_rank(name: str) -> tuple:

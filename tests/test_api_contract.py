@@ -657,6 +657,22 @@ def test_functionalized_spiro_alkylidene_substituents_roundtrip_with_opsin(input
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C(O)c1ccc2c(c1)N=CC1(C=COC1)O2",
+        "O=C([O-])c1ccc2c(c1)N=CC1(C=COC1)O2",
+        "CC(C)(C)OC(=O)N1CCC2(CC1)OCc1cc(Br)ccc1O2",
+    ],
+)
+def test_explicit_hetero_component_spiro_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC1(C)Oc2ncccc2NC1=O",
         "O=C1COc2nc(Br)ccc2N1",
         "O=C1COc2cc(Br)cnc2N1",

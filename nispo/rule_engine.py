@@ -1645,6 +1645,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generated_spiro_functional_chain = _has_contextual_generated_spiro_functional_chain_alternative(item, prepared)
     complete_spiro_functional_chain = _has_contextual_complete_spiro_functional_chain_alternative(item, prepared)
     single_ring_lactam_parent = _has_contextual_single_ring_lactam_parent_alternative(item, prepared)
+    fused_retained_parent_for_generic_spiro = (
+        _has_contextual_fused_retained_parent_alternative_for_generic_spiro(item, prepared)
+    )
     natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
     neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
     incomplete_shortcut_graph_parent = _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
@@ -1751,6 +1754,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generated_spiro_functional_chain
         or complete_spiro_functional_chain
         or single_ring_lactam_parent
+        or fused_retained_parent_for_generic_spiro
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
@@ -1944,6 +1948,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 280
     if single_ring_lactam_parent:
         penalty += 330
+    if fused_retained_parent_for_generic_spiro:
+        penalty += 95
     if natural_topology_generic_polycycle:
         penalty += 90
     if neutral_amine_shortcut:
@@ -3696,6 +3702,44 @@ def _has_contextual_single_ring_lactam_parent_alternative(
         if len(other.name) > 180 or len(other.name) - len(item.name) > 65:
             continue
         if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_fused_retained_parent_alternative_for_generic_spiro(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generic-spiro-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.charge is not None and candidate.charge.formal_charge != 0:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 4:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 7 or parent_count > 8:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.template_id is None:
+            continue
+        if other_candidate.render_rank != 1:
+            continue
+        if len(other_candidate.parent_atoms) < max(8, parent_count):
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 50:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
             continue
         return True
     return False

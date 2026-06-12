@@ -10588,6 +10588,7 @@ class _PolycyclicRecordParentRule:
                 parent_atoms=frozenset(seq),
                 locants=_external_locants_from_sequence(mol, seq),
                 stereo_locants=_sequence_stereo_locants(seq),
+                charge=_polycyclic_parent_charge_evidence(mol, seq),
                 source_family=self.record_family,
                 estimated_length=len(name),
                 render_rank=record_order + 1,
@@ -10599,6 +10600,22 @@ class GenericBicyclicParentRule(_PolycyclicRecordParentRule):
     priority = parent_priority("generic-bicyclic-parent")
     record_family = "bicyclic"
     requires_generic_bicyclic_topology = True
+
+
+def _polycyclic_parent_charge_evidence(mol, seq: Sequence[int]) -> ChargeEvidence | None:
+    charged_atoms = tuple(
+        int(idx)
+        for idx in seq
+        if mol.GetAtomWithIdx(int(idx)).GetFormalCharge() != 0
+    )
+    if not charged_atoms:
+        return None
+    formal_charge = sum(mol.GetAtomWithIdx(idx).GetFormalCharge() for idx in charged_atoms)
+    return ChargeEvidence(
+        formal_charge=formal_charge,
+        charged_atoms=charged_atoms,
+        rendered_terms=(),
+    )
 
 
 _FUNCTIONAL_GENERIC_BICYCLIC_TERMS = (

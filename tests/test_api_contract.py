@@ -324,6 +324,30 @@ def test_spiro_chain_deferral_skips_charged_exocyclic_imino_ring_suffix():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C1Nc2ccc(F)cc2/C1=C1/Nc2ccccc2/C1=N\\OCC(=O)N1CC2(CNC2)C1",
+        "CN(C(=O)C1CC2(COC(=O)N2)C1)C1CC(c2ccc3c(c2)CC3)C1",
+    ],
+)
+def test_generic_spiro_deferred_to_compact_fused_retained_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_generic_spiro_deferral_preserves_charged_parent():
+    input_smiles = "Cn1ccc2c(OC3CC4(C[NH2+]C4)C3)ccc(Cl)c2c1=O"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

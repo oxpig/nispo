@@ -928,6 +928,22 @@ def test_small_sulfur_imide_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "COc1cc2nncc(N3CCC4(CC3)CCN([SH2](=O)C=N)C4)c2cc1OC",
+        "COc1cc2ncnc(N3CCC4(CCN([SH2](=O)C=N)CC4)C3)c2cc1OC",
+        "COc1cc2ncnc(N3CCC4(CC3)CCN([SH2](=O)C=N)CC4)c2cc1OC",
+    ],
+)
+def test_spiro_lambda_sulfanone_substituent_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",
         "O=[N+]([O-])N=C1NCCN1Cc1ccc(Cl)nc1",
         "O=[N+]([O-])N=C1NCCN1Cc1cnc(Cl)s1",

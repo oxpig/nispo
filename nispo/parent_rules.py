@@ -25,6 +25,7 @@ from .parent.partial_hydro import (
     partial_hydro_render_set,
     retained_partial_hydro_template_saturation_key,
 )
+from .polycyclic_rules import polycyclic_substituent_prefix
 from .fused_template_families import (
     candidate_generated_fused_templates as _candidate_generated_fused_templates,
     curated_fused_templates as _curated_fused_templates,
@@ -7249,6 +7250,105 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
             )
 
 
+@dataclass(frozen=True, slots=True)
+class _LambdaSulfanoneMotif:
+    sulfur_idx: int
+    ring_idx: int
+    methyl_idx: int
+    imino_idx: int
+    oxo_idx: int
+
+
+class LambdaSulfanoneSpiroSubstituentRule:
+    family = "lambda-sulfanone-spiro-substituent"
+    priority = parent_priority("senior-spiro-functional-chain-substituent")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() == 0 or not ctx.has_spiro_topology:
+            return
+
+        seen: set[str] = set()
+        for motif in _lambda_sulfanone_spiro_motifs(mol):
+            substituent = polycyclic_substituent_prefix(mol, self._Chem, motif.ring_idx, motif.sulfur_idx)
+            if not substituent:
+                continue
+            name = f"[{substituent}](imino)methyl-lambda6-sulfanone"
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(
+                    len(substituent),
+                    motif.ring_idx,
+                    motif.sulfur_idx,
+                    name,
+                ),
+                parent_atoms=_heavy_atom_indices(mol),
+                source_family="lambda-sulfanone",
+                estimated_length=len(name),
+            )
+
+
+def _lambda_sulfanone_spiro_motifs(mol) -> tuple[_LambdaSulfanoneMotif, ...]:
+    motifs: list[_LambdaSulfanoneMotif] = []
+    for sulfur in mol.GetAtoms():
+        if (
+            sulfur.GetSymbol() != "S"
+            or sulfur.IsInRing()
+            or sulfur.GetFormalCharge() != 0
+            or sulfur.GetTotalNumHs() != 2
+        ):
+            continue
+        sulfur_idx = sulfur.GetIdx()
+        oxo_neighbors: list[int] = []
+        ring_neighbors: list[int] = []
+        imino_methyl: list[tuple[int, int]] = []
+        for neighbor in sulfur.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sulfur_idx, neighbor_idx)
+            if bond is None:
+                continue
+            bond_order = bond.GetBondTypeAsDouble()
+            if neighbor.GetSymbol() == "O" and bond_order == 2.0 and neighbor.GetDegree() == 1:
+                oxo_neighbors.append(neighbor_idx)
+                continue
+            if neighbor.IsInRing() and bond_order == 1.0:
+                ring_neighbors.append(neighbor_idx)
+                continue
+            if neighbor.GetSymbol() != "C" or neighbor.IsInRing() or bond_order != 1.0:
+                continue
+            imino_nitrogens = [
+                next_neighbor.GetIdx()
+                for next_neighbor in neighbor.GetNeighbors()
+                if next_neighbor.GetIdx() != sulfur_idx
+                and next_neighbor.GetSymbol() == "N"
+                and next_neighbor.GetDegree() == 1
+                and mol.GetBondBetweenAtoms(neighbor_idx, next_neighbor.GetIdx()).GetBondTypeAsDouble() == 2.0
+            ]
+            if len(imino_nitrogens) == 1 and neighbor.GetDegree() == 2 and neighbor.GetTotalNumHs() == 1:
+                imino_methyl.append((neighbor_idx, imino_nitrogens[0]))
+        if len(oxo_neighbors) != 1 or len(ring_neighbors) != 1 or len(imino_methyl) != 1:
+            continue
+        methyl_idx, imino_idx = imino_methyl[0]
+        motifs.append(
+            _LambdaSulfanoneMotif(
+                sulfur_idx=sulfur_idx,
+                ring_idx=ring_neighbors[0],
+                methyl_idx=methyl_idx,
+                imino_idx=imino_idx,
+                oxo_idx=oxo_neighbors[0],
+            )
+        )
+    return tuple(motifs)
+
+
 class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "charged-ring-acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("polycyclic-functional-skeleton")
@@ -10599,6 +10699,7 @@ def parent_rules(Chem) -> tuple:
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
     chain_dominant_acyclic = ChainDominantAcyclicSkeletonWithRingSubstituentsRule()
     spiro_functional_chain = SpiroFunctionalChainSubstituentRule()
+    lambda_sulfanone_spiro = LambdaSulfanoneSpiroSubstituentRule(Chem)
     charged_ring_acyclic = ChargedRingAcyclicSkeletonWithRingSubstituentsRule()
     functional_acyclic = FunctionalAcyclicSkeletonWithRingSubstituentsRule()
     acyclic_with_ring_substituents = AcyclicSkeletonWithRingSubstituentsRule()
@@ -10774,6 +10875,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-spiro-functional-chain-substituent"),
             (min_ring_count(1), spiro_topology),
             spiro_functional_chain.candidates,
+        ),
+        RuleSpec(
+            "lambda-sulfanone-spiro-substituent",
+            parent_priority("senior-spiro-functional-chain-substituent"),
+            (min_ring_count(1), spiro_topology),
+            lambda_sulfanone_spiro.candidates,
         ),
         RuleSpec(
             "charged-ring-acyclic-skeleton-with-ring-substituents",

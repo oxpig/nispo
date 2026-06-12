@@ -220,6 +220,24 @@ def test_senior_azolone_parent_deferred_from_spiro_core_roundtrips(input_smiles)
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C5(c6ncco6)CC5)c4c(=O)[nH]3)CC2)[C@@H]1N",
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C5(c6ccccn6)CC5)c4c(=O)[nH]3)CC2)[C@@H]1N",
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C5(c6ccncc6)CC5)c4c(=O)[nH]3)CC2)[C@@H]1N",
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C5(c6cccc(Br)c6)CC5)c4c(=O)[nH]3)CC2)[C@@H]1N",
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C5(c6nc7ccccc7o6)CC5)c4c(=O)[nH]3)CC2)[C@@H]1N",
+    ],
+)
+def test_senior_fused_oxo_parent_deferred_from_spiro_core_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

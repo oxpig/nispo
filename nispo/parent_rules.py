@@ -7643,6 +7643,48 @@ def _senior_azolone_ring_atom_sets(mol) -> tuple[frozenset[int], ...]:
     return mol_cache_set(mol, "senior_azolone_ring_atom_sets", tuple(ring_sets))
 
 
+def _senior_oxo_aza_fused_ring_system_atom_sets(mol) -> tuple[frozenset[int], ...]:
+    cached = mol_cache_get(mol, "senior_oxo_aza_fused_ring_system_atom_sets")
+    if cached is not None:
+        return cached
+    atom_rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
+    ring_sets: list[frozenset[int]] = []
+    seen: set[frozenset[int]] = set()
+    for ring in atom_rings:
+        fused_component = {ring}
+        changed = True
+        while changed:
+            changed = False
+            for other in atom_rings:
+                if other in fused_component:
+                    continue
+                if any(len(other & component_ring) >= 2 for component_ring in fused_component):
+                    fused_component.add(other)
+                    changed = True
+        if len(fused_component) < 2:
+            continue
+        ring_system = frozenset().union(*fused_component)
+        if ring_system in seen:
+            continue
+        seen.add(ring_system)
+        atoms = tuple(mol.GetAtomWithIdx(idx) for idx in ring_system)
+        nitrogen_count = sum(1 for atom in atoms if atom.GetAtomicNum() == 7)
+        hetero_count = sum(1 for atom in atoms if atom.GetAtomicNum() in {7, 8, 16})
+        if nitrogen_count < 3 or hetero_count < 3:
+            continue
+        ring_nh_count = sum(
+            1
+            for atom in atoms
+            if atom.GetAtomicNum() == 7 and atom.GetFormalCharge() == 0 and atom.GetTotalNumHs() > 0
+        )
+        if ring_nh_count < 2:
+            continue
+        if not any(_ring_atom_has_exocyclic_chalcogen_double_bond(mol, idx, ring_system) for idx in ring_system):
+            continue
+        ring_sets.append(ring_system)
+    return mol_cache_set(mol, "senior_oxo_aza_fused_ring_system_atom_sets", tuple(ring_sets))
+
+
 def _ring_atom_has_exocyclic_chalcogen_double_bond(mol, atom_idx: int, ring_set: frozenset[int]) -> bool:
     atom = mol.GetAtomWithIdx(atom_idx)
     if atom.GetAtomicNum() != 6:
@@ -7657,7 +7699,7 @@ def _ring_atom_has_exocyclic_chalcogen_double_bond(mol, atom_idx: int, ring_set:
 
 
 def _parent_leaves_senior_azolone_ring_outside(mol, parent_atoms: Sequence[int] | frozenset[int]) -> bool:
-    senior_rings = _senior_azolone_ring_atom_sets(mol)
+    senior_rings = _senior_azolone_ring_atom_sets(mol) + _senior_oxo_aza_fused_ring_system_atom_sets(mol)
     if not senior_rings:
         return False
     parent_set = frozenset(parent_atoms)
@@ -7689,11 +7731,18 @@ def _should_defer_spiro_core_parent_to_senior_azolone(
     )
 
 
-def _should_defer_spiro_substituent_parent_to_senior_azolone(
+def _should_defer_spiro_context_parent_to_senior_azolone(
     ctx,
     parent_atoms: Sequence[int] | frozenset[int],
 ) -> bool:
     return bool(ctx.has_spiro_topology) and _parent_leaves_senior_azolone_ring_outside(ctx.mol, parent_atoms)
+
+
+def _should_defer_spiro_substituent_parent_to_senior_azolone(
+    ctx,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    return _should_defer_spiro_context_parent_to_senior_azolone(ctx, parent_atoms)
 
 
 def _complete_acyclic_stereo_locants(
@@ -8394,7 +8443,7 @@ class FusedParentRule:
                 continue
             if fact.topology_query and not _allow_retained_topology_fused_candidate(template_record_name(template), name):
                 continue
-            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
             sort_key = self._candidate_sort_key(mol, template, match, name)
             if fact.topology_query:
@@ -9243,7 +9292,7 @@ class GeneratedFusedParentRule(FusedParentRule):
             template_name = template_record_name(template)
             if fact.topology_query and not _allow_generated_topology_fused_candidate(template_name, name):
                 continue
-            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
             yielded_names.add(name)
             yielded += 1
@@ -9656,7 +9705,7 @@ class HydroFusedParentRule:
             if not parent_name:
                 continue
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
-            if name and _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+            if name and _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
             if name:
                 yield NameCandidate(
@@ -9735,7 +9784,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
             if not name:
                 continue
-            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
             if self.partial_hydro_output_max_length is not None and len(name) > self.partial_hydro_output_max_length:
                 continue
@@ -10115,7 +10164,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
                 continue
-            if _should_defer_spiro_core_parent_to_senior_azolone(mol, fact.match):
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, fact.match):
                 continue
             yielded_names.add(name)
             yielded += 1
@@ -10286,7 +10335,7 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
                 continue
-            if _should_defer_spiro_core_parent_to_senior_azolone(mol, fact.match):
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, fact.match):
                 continue
             yielded_names.add(name)
             yielded += 1

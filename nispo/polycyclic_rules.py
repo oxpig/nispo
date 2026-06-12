@@ -691,6 +691,8 @@ def _unsuitable_ring_atom(mol, idx: int) -> bool:
     atom = mol.GetAtomWithIdx(idx)
     charge_allowed = atom.GetFormalCharge() == 0 or (
         atom.GetFormalCharge() > 0 and atom.GetSymbol() in {"N", "S"}
+    ) or (
+        atom.GetSymbol() == "C" and atom.GetFormalCharge() in {-1, 1}
     )
     return (
         atom.GetSymbol() not in SKELETON_ATOMS
@@ -1036,6 +1038,9 @@ def _dispiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int, int, int])
 
 
 def _polycyclic_parent_with_prefixes(mol, seq: Sequence[int], parent: str) -> str:
+    parent = _polycyclic_parent_with_charge_suffix(mol, seq, parent)
+    if not parent:
+        return ""
     replacement_locs: dict[str, list[str]] = defaultdict(list)
     lambda_locs: list[str] = []
     for loc, idx in enumerate(seq, start=1):
@@ -1054,6 +1059,25 @@ def _polycyclic_parent_with_prefixes(mol, seq: Sequence[int], parent: str) -> st
         else:
             parts.append(f"{_join_polycyclic_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
     return "-".join(parts) + parent if parts else parent
+
+
+def _polycyclic_parent_with_charge_suffix(mol, seq: Sequence[int], parent: str) -> str:
+    charged_carbons = []
+    for loc, idx in enumerate(seq, start=1):
+        atom = mol.GetAtomWithIdx(idx)
+        charge = atom.GetFormalCharge()
+        if charge == 0:
+            continue
+        if atom.GetSymbol() != "C" or charge not in {-1, 1}:
+            continue
+        charged_carbons.append((loc, charge))
+    if not charged_carbons:
+        return parent
+    if len(charged_carbons) != 1:
+        return ""
+    loc, charge = charged_carbons[0]
+    stem = parent[:-1] if parent.endswith("e") else parent
+    return f"{stem}-{loc}-{'ylium' if charge > 0 else 'ide'}"
 
 
 def _polycyclic_lambda_locant(mol, idx: int, loc: int) -> str:

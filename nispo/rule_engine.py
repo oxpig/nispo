@@ -1641,6 +1641,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     fragile_group14_hetero_ligand = _has_fragile_group14_hetero_carbon_ligand(item.candidate)
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
+    generated_spiro_functional_chain = _has_contextual_generated_spiro_functional_chain_alternative(item, prepared)
+    complete_spiro_functional_chain = _has_contextual_complete_spiro_functional_chain_alternative(item, prepared)
     natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
     neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
     incomplete_shortcut_graph_parent = _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
@@ -1744,6 +1746,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_terminal_azabicyclo_benzimidazole
         or fragile_group14_hetero_ligand
         or generic_spiro_parent
+        or generated_spiro_functional_chain
+        or complete_spiro_functional_chain
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
@@ -1931,6 +1935,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if generic_spiro_parent and _has_contextual_spiro_functional_chain_alternative(item, prepared):
         penalty += 125
+    if generic_spiro_parent and complete_spiro_functional_chain:
+        penalty += 160
+    if generated_spiro_functional_chain:
+        penalty += 280
     if natural_topology_generic_polycycle:
         penalty += 90
     if neutral_amine_shortcut:
@@ -3562,6 +3570,63 @@ def _has_fragile_retained_spiro_alias(name: str, candidate: NameCandidate) -> bo
 
 def _has_fragile_generic_spiro_parent(name: str, candidate: NameCandidate) -> bool:
     return candidate.family == "generic-spiro-parent" and "spiro[" in name
+
+
+def _has_contextual_generated_spiro_functional_chain_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "generated-fused-parent",
+        "generated-spiro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+    }:
+        return False
+    if not (candidate.template_name or "").startswith("spiro["):
+        return False
+    return _has_contextual_complete_spiro_functional_chain_alternative(item, prepared)
+
+
+def _has_contextual_complete_spiro_functional_chain_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "generated-fused-parent",
+        "generated-spiro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "generic-spiro-parent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 8:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count > 12:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "spiro-functional-chain-substituent":
+            continue
+        if other_candidate.source_family == "spiro-functional-chain:noncarbon-group14":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) < max(7, parent_count):
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 160:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_spiro_functional_chain_alternative(

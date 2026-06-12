@@ -7251,12 +7251,16 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
             and _polycyclic_substituent_chain_signal(name)
             and not _fragile_senior_spiro_chain_name(name)
         ):
+            source_family = ""
+            if _parent_atoms_contain_noncarbon_group14(mol, parent_atoms):
+                source_family = "spiro-functional-chain:noncarbon-group14"
             yield NameCandidate(
                 name,
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=parent_atoms,
+                source_family=source_family,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -7269,6 +7273,10 @@ class _LambdaSulfanoneMotif:
     methyl_idx: int
     imino_idx: int
     oxo_idx: int
+
+
+def _parent_atoms_contain_noncarbon_group14(mol, atom_indices: frozenset[int]) -> bool:
+    return any(mol.GetAtomWithIdx(idx).GetAtomicNum() in {14, 32, 50, 82} for idx in atom_indices)
 
 
 class LambdaSulfanoneSpiroSubstituentRule:

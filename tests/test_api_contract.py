@@ -269,6 +269,32 @@ def test_component_spiro_dioxo_orientation_control_roundtrips(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)(C)[C@H](NC(=O)Cc1ccc(Cl)c(Cl)c1)C(=O)N1CC2(CC2)C[C@H]1C(=O)NC(C#N)c1cncc2ccccc12",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(Oc2ccc3ncn([C@H]4CCC5(CCN(C(=O)OC(C)(C)C)CC5)C4)c(=O)c3c2)c1C#N",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(Oc2ccc3ncn([C@H]4CCC5(CCN(C(=O)OC(C)(C)C)CC5)C4)c(=O)c3c2Cl)c1C#N",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(Oc2ccc3ncn([C@H]4CCC5(CCN(C(=O)OC(C)(C)C)CC5)C4)c(=O)c3c2C)c1C#N",
+    ],
+)
+def test_spiro_functional_chain_alternatives_beat_small_spiro_parents(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_spiro_functional_chain_defer_skips_noncarbon_group14_parent():
+    input_smiles = "CC(C)(C)OC(=O)N1CCC2(CC1)CC(O[Si](C)(C)C(C)(C)C)C[C@H]2N[S@](=O)C(C)(C)C"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

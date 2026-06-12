@@ -600,6 +600,10 @@ def _five_membered_aromatic_candidates(
     if counts == Counter({"N": 5}):
         return [("pentazole", seq) for seq in _ring_numberings(ordered)]
 
+    candidates = _five_membered_main_group_heterole_candidates(mol, ordered, counts)
+    if candidates:
+        return candidates
+
     if counts == Counter({"C": 1, "N": 3, "O": 1}):
         candidates.extend(
             _ring_pattern_candidates(
@@ -664,9 +668,34 @@ def _five_membered_aromatic_candidates(
     return candidates
 
 
+def _five_membered_main_group_heterole_candidates(
+    mol, ordered: Sequence[int], counts: Counter[str]
+) -> list[tuple[str, tuple[int, ...]]]:
+    pattern_specs = (
+        (Counter({"C": 3, "N": 1, "Si": 1}), "azasilole", ("N", "Si", "C", "C", "C")),
+        (Counter({"C": 2, "N": 2, "Si": 1}), "diazasilole", ("N", "N", "Si", "C", "C")),
+        (Counter({"C": 1, "N": 3, "Si": 1}), "triazasilole", ("N", "N", "N", "Si", "C")),
+        (Counter({"B": 1, "C": 2, "N": 2}), "diazaborole", ("N", "N", "B", "C", "C")),
+        (Counter({"B": 1, "C": 3, "S": 1}), "thiaborole", ("S", "B", "C", "C", "C")),
+        (Counter({"B": 1, "C": 3, "O": 1}), "oxaborole", ("O", "B", "C", "C", "C")),
+        (Counter({"B": 1, "C": 2, "O": 2}), "dioxaborole", ("O", "O", "B", "C", "C")),
+    )
+    for target_counts, name, pattern in pattern_specs:
+        if counts != target_counts:
+            continue
+        return _ring_pattern_candidates(mol, ordered, name, pattern)
+    return []
+
+
 def _four_membered_aromatic_heterocycle_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
+    if counts == Counter({"C": 2, "S": 2}):
+        return [
+            ("1,2-dithiete", seq)
+            for seq in _numberings_with_atom_at(ordered, mol, "S")
+            if _symbol_locants(mol, seq, "S") == [1, 2]
+        ]
     if counts == Counter({"C": 2, "O": 2}):
         return [
             ("1,2-dioxete", seq)
@@ -746,6 +775,10 @@ def _medium_aromatic_heterocycle_candidates(
         ]
     if len(ordered) == 8 and counts == Counter({"C": 6, "N": 1, "O": 1}):
         return _medium_oxaaza_candidates(mol, ordered, "1,2-oxazocine")
+    if len(ordered) == 8 and counts == Counter({"C": 6, "N": 1, "S": 1}):
+        return _ring_pattern_candidates(mol, ordered, "thiazocine", ("S", "N", "C", "C", "C", "C", "C", "C"))
+    if len(ordered) == 9 and counts == Counter({"C": 8, "P": 1}):
+        return [("phosphonine", seq) for seq in _numberings_with_atom_at(ordered, mol, "P")]
     if len(ordered) == 9 and counts == Counter({"C": 8, "O": 1}):
         return [("oxonine", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
     if len(ordered) == 9 and counts == Counter({"C": 7, "N": 1, "O": 1}):

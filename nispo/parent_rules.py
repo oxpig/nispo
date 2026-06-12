@@ -9604,6 +9604,11 @@ class SingleRingParentRule:
                     sort_key=_single_ring_candidate_sort_key(record.name),
                     stereo_prefix=record.stereo_prefix,
                     parent_atoms=frozenset(ring),
+                    parent_aromatic_atom_count=_ring_aromatic_atom_count(mol, ring),
+                    parent_hetero_atom_count=_ring_hetero_atom_count(mol, ring),
+                    parent_terminal_hetero_substituent_count=_ring_terminal_hetero_substituent_count(mol, ring),
+                    parent_external_nitrogen_substituent_count=_ring_external_nitrogen_substituent_count(mol, ring),
+                    parent_external_oxygen_substituent_count=_ring_external_oxygen_substituent_count(mol, ring),
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
@@ -9629,7 +9634,9 @@ class SingleRingParentRule:
         ctx,
         facts: tuple["_SingleRingParentFacts", ...],
     ) -> tuple["_SingleRingParentFacts", ...]:
-        if len(facts) <= _SINGLE_RING_PARENT_RING_FACT_SET_SIZE:
+        if len(facts) <= _SINGLE_RING_PARENT_RING_FACT_SET_SIZE and not any(
+            fact.structural_key and fact.structural_key[0] == 0 for fact in facts
+        ):
             finalists = facts
         else:
             finalists = tuple(
@@ -9663,6 +9670,11 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     sort_key=_single_ring_candidate_sort_key(record.name),
                     stereo_prefix=record.stereo_prefix,
                     parent_atoms=frozenset(ring),
+                    parent_aromatic_atom_count=_ring_aromatic_atom_count(mol, ring),
+                    parent_hetero_atom_count=_ring_hetero_atom_count(mol, ring),
+                    parent_terminal_hetero_substituent_count=_ring_terminal_hetero_substituent_count(mol, ring),
+                    parent_external_nitrogen_substituent_count=_ring_external_nitrogen_substituent_count(mol, ring),
+                    parent_external_oxygen_substituent_count=_ring_external_oxygen_substituent_count(mol, ring),
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
@@ -9741,6 +9753,51 @@ def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:
         hetero_atoms,
         tuple(sorted(ring)),
     )
+
+
+def _ring_aromatic_atom_count(mol, ring: Sequence[int]) -> int:
+    return sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetIsAromatic())
+
+
+def _ring_hetero_atom_count(mol, ring: Sequence[int]) -> int:
+    return sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6)
+
+
+def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetIdx() in ring_set or neighbor.GetAtomicNum() == 6:
+                continue
+            if neighbor.GetDegree() == 1:
+                count += 1
+    return count
+
+
+def _ring_external_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetIdx() not in ring_set and neighbor.GetAtomicNum() == 7:
+                count += 1
+    return count
+
+
+def _ring_external_oxygen_substituent_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetIdx() in ring_set or neighbor.GetAtomicNum() != 8:
+                continue
+            if neighbor.GetDegree() > 1:
+                count += 1
+    return count
 
 
 def _single_ring_charge_evidence(mol, ring: Sequence[int]) -> ChargeEvidence | None:

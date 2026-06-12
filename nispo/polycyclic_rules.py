@@ -919,15 +919,17 @@ def _blue_book_secondary_bridge_selection_key(bracket: Sequence[int | str]) -> t
         if left <= base_atom_count and right <= base_atom_count
     ]
     dependent = [item for item in secondary if item not in independent]
+    independent_lengths = tuple(-length for length, _left, _right in independent)
+    dependent_lengths = tuple(-length for length, _left, _right in dependent)
     all_secondary_locants = tuple(sorted(locant for _length, left, right in secondary for locant in (left, right)))
     citation_locants = tuple(locant for _length, left, right in secondary for locant in (left, right))
     return (
         -(first + second + 2),
-        main_bridge == 0,
-        abs(first - second),
-        tuple(-length for length, _left, _right in independent),
+        independent_lengths,
         len(dependent),
-        tuple(-length for length, _left, _right in dependent),
+        dependent_lengths,
+        abs(first - second),
+        main_bridge == 0,
         all_secondary_locants,
         citation_locants,
         _dominant_bridge_sort_key(bracket),

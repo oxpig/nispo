@@ -58,6 +58,11 @@ class NameCandidate:
     source_family: str = ""
     source_file: str = ""
     ring_system_atoms: frozenset[int] = field(default_factory=frozenset)
+    parent_aromatic_atom_count: int = 0
+    parent_hetero_atom_count: int = 0
+    parent_terminal_hetero_substituent_count: int = 0
+    parent_external_nitrogen_substituent_count: int = 0
+    parent_external_oxygen_substituent_count: int = 0
     prefixes: tuple[PrefixCandidate, ...] = ()
     suffixes: tuple[SuffixCandidate, ...] = ()
     charge: ChargeEvidence | None = None
@@ -1790,6 +1795,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
+    aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -1872,6 +1878,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or large_kekulized_candidate_has_chain_alternative
         or retained_biochem_fused
         or small_late_single_ring_parent
+        or aromatic_single_ring_parent
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -2115,6 +2122,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if retained_biochem_fused:
         penalty += 80
     if small_late_single_ring_parent:
+        penalty += 72
+    if aromatic_single_ring_parent:
         penalty += 72
     return penalty
 
@@ -3108,7 +3117,10 @@ def _has_contextual_early_six_member_single_ring_parent_alternative(
         return False
     if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
         return False
-    if len(candidate.parent_atoms) > 4:
+    current_parent_count = len(candidate.parent_atoms)
+    if current_parent_count > 4:
+        return False
+    if current_parent_count <= 3 and candidate.parent_terminal_hetero_substituent_count:
         return False
     current_rank = candidate.render_rank or 0
     if current_rank <= 2:
@@ -3121,7 +3133,16 @@ def _has_contextual_early_six_member_single_ring_parent_alternative(
             continue
         if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
             continue
-        if len(other_candidate.parent_atoms) != 6:
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count != 6:
+            continue
+        if (
+            candidate.parent_terminal_hetero_substituent_count
+            or candidate.parent_external_nitrogen_substituent_count
+        ) and (
+            other_candidate.parent_aromatic_atom_count != other_parent_count
+            and not other_candidate.parent_hetero_atom_count
+        ):
             continue
         other_rank = other_candidate.render_rank or 0
         if other_rank < 1 or other_rank > min(2, current_rank - 1):
@@ -3129,6 +3150,47 @@ def _has_contextual_early_six_member_single_ring_parent_alternative(
         if len(other.name) > 180 or len(other.name) - len(item.name) > 45:
             continue
         if other.stability_penalty > item.stability_penalty + 30:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_aromatic_single_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.parent_hetero_atom_count:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count:
+        return False
+    current_parent_count = len(candidate.parent_atoms)
+    if current_parent_count >= 5 and not candidate.parent_external_oxygen_substituent_count:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count < min(6, current_parent_count):
+            continue
+        if other_candidate.parent_aromatic_atom_count != other_parent_count:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 55:
+            continue
+        if other.stability_penalty > item.stability_penalty + 40:
             continue
         return True
     return False

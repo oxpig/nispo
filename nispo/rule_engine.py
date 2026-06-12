@@ -1749,6 +1749,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     broad_incomplete_shortcut_graph_parent = (
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
+    strict_incomplete_shortcut_graph_parent = (
+        _has_contextual_strict_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
+    )
     hydro_fused_systematic_parent = _has_contextual_hydro_fused_systematic_parent_alternative(item, prepared)
     lower_external_locant_polycycle = _has_contextual_lower_external_locant_polycycle_alternative(item, prepared)
     small_acyclic_ring_decomposition = _has_contextual_small_acyclic_complete_ring_parent_alternative(
@@ -1847,6 +1850,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or named_template_pair_parent_bonus
         or low_confidence_fused_template_parent_penalty
         or broad_incomplete_shortcut_graph_parent
+        or strict_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
         or lower_external_locant_polycycle
         or small_acyclic_ring_decomposition
@@ -2054,6 +2058,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += low_confidence_fused_template_parent_penalty
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
+    if strict_incomplete_shortcut_graph_parent:
+        penalty += 140
     if hydro_fused_systematic_parent:
         penalty += 80
     if lower_external_locant_polycycle:
@@ -2761,6 +2767,45 @@ def _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(
         if len(other.name) > 260 or len(other.name) - len(item.name) > 135:
             continue
         if other.stability_penalty >= item.stability_penalty + 90:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_strict_complete_parent_alternative_for_incomplete_shortcut(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _BROAD_INCOMPLETE_SHORTCUT_GRAPH_PARENT_FAMILIES:
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    if candidate.source_family in {"ring-carboxamide:selenium", "ring-carboxamide:tellurium"}:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _BROAD_COMPLETE_SHORTCUT_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if other_candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
+            continue
+        if (
+            candidate.family == "retained-amide-parent"
+            and other_candidate.family not in (_ACYCLIC_SKELETON_PARENT_FAMILIES | {"acyclic-parent"})
+        ):
+            continue
+        if (
+            candidate.family == "retained-amide-parent"
+            and _candidate_selection_broad_graph_parent_penalty(other, prepared) >= 100
+        ):
+            continue
+        if not candidate_has_complete_graph(other_candidate) or len(other_candidate.parent_atoms) < 7:
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 70:
             continue
         return True
     return False

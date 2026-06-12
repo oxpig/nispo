@@ -4921,6 +4921,9 @@ def _nitrile_oxide_names_from_prefix(prefix: str) -> list[str]:
         names.append("benzonitrile oxide")
     elif prefix.endswith("phenyl"):
         names.append(prefix[: -len("phenyl")] + "benzonitrile oxide")
+    locanted_parent = re.fullmatch(r"(.+-\d+(?:\([^)]+\))?)-yl", prefix)
+    if locanted_parent:
+        names.append(locanted_parent.group(1) + "-carbonitrile oxide")
     return names
 
 

@@ -1847,6 +1847,10 @@ def test_multiligand_oxosulfanium_parents_roundtrip_with_opsin(input_smiles):
     [
         "N#CC#[N+][O-]",
         "Cc1cc(O)cc(C)c1C#[N+][O-]",
+        "[O-][N+]#Cc1cccc2ccccc12",
+        "[O-][N+]#Cc1c(OCC2CO2)ccc2ccccc12",
+        "[O-][N+]#Cc1ccc(N2c3ccccc3Sc3ccccc32)cc1",
+        "[O-][N+]#CC=CC=Cc1ccccc1",
     ],
 )
 def test_nitrile_oxide_retained_parents_roundtrip_with_opsin(input_smiles):

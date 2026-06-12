@@ -1654,6 +1654,29 @@ def _has_contextual_retained_biochem_fused_alternative(
     return False
 
 
+def _has_contextual_complete_nitrile_oxide_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family == "nitrile-oxide-retained-parent":
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "nitrile-oxide-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other.name) - len(item.name) > 100:
+            continue
+        return True
+    return False
+
+
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
@@ -1798,6 +1821,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
+    complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
     single_ring_stereo_prefix_parent = _has_contextual_stereo_prefix_free_ring_alternative(item, prepared)
@@ -1883,6 +1907,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or chain_candidate_has_large_kekulized_alternative
         or large_kekulized_candidate_has_chain_alternative
         or retained_biochem_fused
+        or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
         or single_ring_stereo_prefix_parent
@@ -1898,6 +1923,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS
     if retained_topology_replacement_parent:
         penalty -= 140
+    if complete_nitrile_oxide_parent:
+        penalty += 180
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
     if high_impact_exact_retained_parent:
         penalty += 260

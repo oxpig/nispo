@@ -1559,6 +1559,26 @@ class ThiooxoEsterRetainedParentRule:
             )
 
 
+class SulfinateRetainedParentRule:
+    family = "sulfinate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _sulfinate_retained_parent_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class PhosphorothioicTriamideRetainedParentRule:
     family = "phosphorothioic-triamide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3654,6 +3674,61 @@ def _thiooxo_ester_names(mol, Chem) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
+    names = []
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
+            continue
+        record = _sulfinate_retained_parent_record(mol, Chem, sulfur.GetIdx())
+        if not record or record["covered_atoms"] != set(range(mol.GetNumAtoms())):
+            continue
+        substituent = record["substituent"]
+        if substituent:
+            names.append(substituent + "sulfinate")
+    return names
+
+
+def _sulfinate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:
+    carbon_neighbors = []
+    double_oxygen = 0
+    terminal_oxido = 0
+    covered_atoms = {sulfur_idx}
+    for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered_atoms.add(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == -1
+            and len(nbr.GetNeighbors()) == 1
+        ):
+            terminal_oxido += 1
+            covered_atoms.add(nidx)
+            continue
+        return None
+    if len(carbon_neighbors) != 1 or double_oxygen != 1 or terminal_oxido != 1:
+        return None
+    carbon_idx = carbon_neighbors[0]
+    substituent = _simple_or_branch_prefix(mol, carbon_idx, sulfur_idx)
+    if not substituent:
+        return None
+    covered_atoms.add(carbon_idx)
+    covered_atoms.update(_collect_component_atoms(mol, carbon_idx, sulfur_idx))
+    return {
+        "substituent": _retained_parent_substituent_alias(substituent),
+        "covered_atoms": covered_atoms,
+    }
 
 
 def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
@@ -11094,6 +11169,7 @@ def parent_rules(Chem) -> tuple:
     biphenyl_diphosphonite = BiphenylDiphosphoniteParentRule(Chem)
     phosphite_ester = PhosphiteEsterParentRule(Chem)
     thiooxo_ester = ThiooxoEsterRetainedParentRule(Chem)
+    sulfinate = SulfinateRetainedParentRule(Chem)
     phosphorothioic_triamide = PhosphorothioicTriamideRetainedParentRule(Chem)
     dithiophosphate = DithiophosphateRetainedParentRule(Chem)
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
@@ -11226,6 +11302,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("biphenyl-diphosphonite-parent", parent_priority("senior-functional-exception"), (), biphenyl_diphosphonite.candidates),
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
         RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
+        RuleSpec("sulfinate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfinate.candidates),
         RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),
         RuleSpec("dithiophosphate-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), dithiophosphate.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),

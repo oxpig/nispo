@@ -238,6 +238,37 @@ def test_senior_fused_oxo_parent_deferred_from_spiro_core_roundtrips(input_smile
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@@H]1CN(c2nc(=O)n3c4c(c(-c5ccc(F)cc5F)c(Cl)cc24)OCC2(COC2)C3)[C@@H](C)CN1",
+        "C=CC(=O)N1CCN(c2nc(=O)n3c4c(c(-c5ccc(F)cc5F)c(C(F)(F)F)cc24)SCC2(COC2)C3)CC1",
+        "C[C@@H]1CN(c2nc(=O)n3c4c(c(-c5cc(Cl)c(F)cc5F)c(C(F)(F)F)cc24)SCC2(CCC2)C3)C[C@H](C)N1",
+    ],
+)
+def test_component_spiro_oxo_orientation_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=c1[nH]c(=O)n2c3c(c(Cl)c(C(F)(F)F)cc13)SCC1(COC1)C2",
+        "O=c1[nH]c(=O)n2c3c(c(Cl)c(C(F)(F)F)cc13)SCC1(CCC1)C2",
+    ],
+)
+def test_component_spiro_dioxo_orientation_control_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

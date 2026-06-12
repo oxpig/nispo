@@ -890,11 +890,24 @@ def _component_spiro_render_rank(*components: _Component) -> int | None:
     )
     if explicit_generic_replacements < 2:
         return None
-    return (
+    base_rank = (
         1
         + sum(component.component_rank for component in components) * 10
         + sum(len(component.replacement_prefixes) for component in components)
     )
+    return base_rank * 10 + _component_spiro_orientation_rank(*components)
+
+
+def _component_spiro_orientation_rank(*components: _Component) -> int:
+    suffix_locants = []
+    for component in components:
+        for locant, term in component.replacement_prefixes:
+            locant_number = _locant_key(locant)[0]
+            if term in {"oxo", "thioxo", "imino"}:
+                suffix_locants.append(locant_number)
+    if len(suffix_locants) == 1:
+        return min(9, min(suffix_locants))
+    return 0
 
 
 def _fused_component_parent_rank(name: str) -> tuple:

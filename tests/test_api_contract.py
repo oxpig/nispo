@@ -1910,6 +1910,24 @@ def test_large_hetero_kekulized_bridge_order_preserves_lower_unsaturation_contro
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_component_spiro_preserves_polycyclic_component_graph_order():
+    input_smiles = "O=C1Oc2ccc(cc2)C2(CCCCC2)c2ccc(cc2)O1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_component_spiro_prefers_stable_polycyclic_component_numbering():
+    input_smiles = "c1cc2c3c(c1)ncc1ncn(c13)C1(CCC1)CO2"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -18,6 +18,7 @@ from .parent.rule_helpers import (
     _partial_hydro_parent_names,
 )
 from .polycyclic_rules import (
+    _unsaturation_contiguity_key,
     bicyclic_parent_candidate_records,
     kekulized_polycyclic_parent_candidate_records,
     spiro_parent_candidate_records,
@@ -295,6 +296,12 @@ def _component_dispiro_candidates_for_blocks(
                         sort_key=(
                             left.component_rank + center.component_rank + right.component_rank,
                             len(replacement_prefixes),
+                            (
+                                left.numbering_key,
+                                center.numbering_key,
+                                right.numbering_key,
+                            ),
+                            (left.component_order, center.component_order, right.component_order),
                             _locant_key_for_text(name),
                             len(name),
                             name,
@@ -358,6 +365,8 @@ def _mapped_component_names(
                 locants=locants,
                 replacement_prefixes=component.replacement_prefixes,
                 component_rank=component.component_rank,
+                component_order=component.component_order,
+                numbering_key=component.numbering_key,
                 covered_external_atoms=covered_external_atoms,
             )
         )
@@ -365,6 +374,8 @@ def _mapped_component_names(
         key=lambda item: (
             item.component_rank,
             len(item.replacement_prefixes),
+            item.numbering_key,
+            item.component_order,
             tuple(_locant_key(item.locants[idx]) for idx in spiro_atoms),
             len(item.parent_name),
             item.parent_name,
@@ -476,6 +487,8 @@ def _component_spiro_candidates_for_split(
                     sort_key=(
                         simple_component.component_rank + poly_component.component_rank,
                         len(parent_prefixes),
+                        (simple_component.numbering_key, poly_component.numbering_key),
+                        (simple_component.component_order, poly_component.component_order),
                         _locant_key_for_text(name),
                         len(name),
                         name,
@@ -573,6 +586,8 @@ def _poly_component_spiro_candidates_for_split(
                     sort_key=(
                         left_component.component_rank + right_component.component_rank,
                         len(parent_prefixes),
+                        (left_component.numbering_key, right_component.numbering_key),
+                        (left_component.component_order, right_component.component_order),
                         _locant_key_for_text(name),
                         len(name),
                         name,
@@ -664,6 +679,8 @@ class _Component:
         component_rank: int = 0,
         component_kind: str = "",
         covered_external_atoms: frozenset[int] = frozenset(),
+        component_order: int = 0,
+        numbering_key: tuple = (0, ()),
     ) -> None:
         self.parent_name = parent_name
         self.spiro_locant = spiro_locant
@@ -672,6 +689,8 @@ class _Component:
         self.component_rank = component_rank
         self.component_kind = component_kind
         self.covered_external_atoms = covered_external_atoms
+        self.component_order = component_order
+        self.numbering_key = numbering_key
 
 
 def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
@@ -685,7 +704,7 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     if not records:
         records = resource_ring_parent_candidates(mol, ordered, Chem)
     components = []
-    for parent_name, seq in records:
+    for component_order, (parent_name, seq) in enumerate(records):
         if spiro_idx not in seq:
             continue
         locants = {atom_idx: str(index) for index, atom_idx in enumerate(seq, start=1)}
@@ -701,11 +720,13 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
                 locants=locants,
                 replacement_prefixes=tuple(replacement_prefixes),
                 component_kind="simple-ring",
+                component_order=component_order,
             )
         )
     components.sort(
         key=lambda item: (
             len(item.replacement_prefixes),
+            item.component_order,
             len(item.parent_name),
             item.parent_name,
             item.spiro_locant,
@@ -722,16 +743,20 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         (spiro_parent_candidate_records(mol, Chem), "generic-spiro"),
         (kekulized_polycyclic_parent_candidate_records(mol, Chem), "kekulized-polycyclic"),
     )
+    component_order = 0
     for records, component_kind in record_groups:
         for raw_name, seq in records:
             if spiro_idx not in seq:
+                component_order += 1
                 continue
             parent_name, replacement_prefixes = _strip_leading_replacement_prefixes(raw_name)
             if not parent_name:
+                component_order += 1
                 continue
             locants = {atom_idx: str(index) for index, atom_idx in enumerate(seq, start=1)}
             key = (parent_name, tuple(replacement_prefixes), locants[spiro_idx])
             if key in seen:
+                component_order += 1
                 continue
             seen.add(key)
             component_rank = 3 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", parent_name) else 1
@@ -743,12 +768,17 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
                     replacement_prefixes=tuple(replacement_prefixes),
                     component_rank=component_rank,
                     component_kind=component_kind,
+                    component_order=component_order,
+                    numbering_key=_unsaturation_contiguity_key(mol, seq),
                 )
             )
+            component_order += 1
     components.sort(
         key=lambda item: (
             item.component_rank,
             len(item.replacement_prefixes),
+            item.numbering_key,
+            item.component_order,
             _locant_key(item.spiro_locant),
             len(item.parent_name),
             item.parent_name,
@@ -759,6 +789,8 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         key=lambda item: (
             item.component_rank,
             len(item.replacement_prefixes),
+            item.numbering_key,
+            item.component_order,
             _locant_key(item.spiro_locant),
             len(item.parent_name),
             item.parent_name,

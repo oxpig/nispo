@@ -417,6 +417,25 @@ def _skeletal_replacement_unsaturated_hetero_bond_penalty(mol, template: dict, m
     return penalty
 
 
+_SKELETAL_REPLACEMENT_UNSTABLE_SPIRO_LOCANT_TEMPLATES = frozenset(
+    {
+        "spiro[cyclohexane-1,5'-s-indacen]",
+        "spiro[cyclohexane-1,5'-s-indacene]",
+        "spiro[cyclopentane-1,8'-as-indacen]",
+        "spiro[cyclopentane-1,8'-as-indacene]",
+    }
+)
+
+
+def _skeletal_replacement_spiro_locant_instability_penalty(template: dict) -> int:
+    """Generated spiro-fused aliases whose skeletal-replacement locants are unstable in OPSIN."""
+    if template.get("source_family") != "generated-fused":
+        return 0
+    if template_record_name(template) in _SKELETAL_REPLACEMENT_UNSTABLE_SPIRO_LOCANT_TEMPLATES:
+        return 1
+    return 0
+
+
 def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     grouped: dict[str, list[str]] = {}
     for template_idx, mol_idx in enumerate(match):

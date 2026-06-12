@@ -693,6 +693,8 @@ def _unsuitable_ring_atom(mol, idx: int) -> bool:
         atom.GetFormalCharge() > 0 and atom.GetSymbol() in {"N", "S"}
     ) or (
         atom.GetSymbol() == "C" and atom.GetFormalCharge() in {-1, 1}
+    ) or (
+        atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1
     )
     return (
         atom.GetSymbol() not in SKELETON_ATOMS
@@ -1062,20 +1064,22 @@ def _polycyclic_parent_with_prefixes(mol, seq: Sequence[int], parent: str) -> st
 
 
 def _polycyclic_parent_with_charge_suffix(mol, seq: Sequence[int], parent: str) -> str:
-    charged_carbons = []
+    charged_suffix_atoms = []
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
         charge = atom.GetFormalCharge()
         if charge == 0:
             continue
-        if atom.GetSymbol() != "C" or charge not in {-1, 1}:
+        if atom.GetSymbol() == "C" and charge in {-1, 1}:
+            charged_suffix_atoms.append((loc, charge))
             continue
-        charged_carbons.append((loc, charge))
-    if not charged_carbons:
+        if atom.GetSymbol() == "B" and charge == -1:
+            charged_suffix_atoms.append((loc, charge))
+    if not charged_suffix_atoms:
         return parent
-    if len(charged_carbons) != 1:
+    if len(charged_suffix_atoms) != 1:
         return ""
-    loc, charge = charged_carbons[0]
+    loc, charge = charged_suffix_atoms[0]
     stem = parent[:-1] if parent.endswith("e") else parent
     return f"{stem}-{loc}-{'ylium' if charge > 0 else 'ide'}"
 

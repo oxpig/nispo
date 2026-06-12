@@ -107,6 +107,8 @@ def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> b
 
 
 def _carbohydrate_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    if not mol.GetAtomWithIdx(parent_idx).IsInRing():
+        return ""
     template = _resource_substituent_match(mol, attachment_idx, parent_idx, Chem)
     if not template or template.get("source_file") != "carbohydrates.xml":
         return ""

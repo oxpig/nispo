@@ -7140,6 +7140,9 @@ class AcyclicSkeletonWithRingSubstituentsRule:
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
         if (
             name
             and mol.GetRingInfo().NumRings() >= 2
@@ -7153,7 +7156,7 @@ class AcyclicSkeletonWithRingSubstituentsRule:
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -7177,6 +7180,9 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -7185,7 +7191,7 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -7204,6 +7210,9 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _chain_dominates_single_ring(mol, name):
@@ -7212,7 +7221,7 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
                 self.family,
                 self.priority,
                 sort_key=((750, 999, (), 999, name), len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -7233,6 +7242,9 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
         if (
             name
             and "spiro[" in name
@@ -7244,7 +7256,7 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -7607,6 +7619,81 @@ def _heavy_atom_indices(mol) -> frozenset[int]:
 
 def _nonring_heavy_atom_indices(mol) -> frozenset[int]:
     return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+
+
+def _senior_azolone_ring_atom_sets(mol) -> tuple[frozenset[int], ...]:
+    cached = mol_cache_get(mol, "senior_azolone_ring_atom_sets")
+    if cached is not None:
+        return cached
+    ring_sets: list[frozenset[int]] = []
+    for ring in mol.GetRingInfo().AtomRings():
+        if len(ring) != 5:
+            continue
+        ring_set = frozenset(ring)
+        atoms = tuple(mol.GetAtomWithIdx(idx) for idx in ring)
+        nitrogen_count = sum(1 for atom in atoms if atom.GetAtomicNum() == 7)
+        hetero_count = sum(1 for atom in atoms if atom.GetAtomicNum() in {7, 8, 16})
+        if nitrogen_count < 2 or hetero_count < 3:
+            continue
+        if not any(atom.GetAtomicNum() == 7 and atom.GetTotalNumHs() > 0 for atom in atoms):
+            continue
+        if not any(_ring_atom_has_exocyclic_chalcogen_double_bond(mol, idx, ring_set) for idx in ring):
+            continue
+        ring_sets.append(ring_set)
+    return mol_cache_set(mol, "senior_azolone_ring_atom_sets", tuple(ring_sets))
+
+
+def _ring_atom_has_exocyclic_chalcogen_double_bond(mol, atom_idx: int, ring_set: frozenset[int]) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetAtomicNum() != 6:
+        return False
+    for bond in atom.GetBonds():
+        other = bond.GetOtherAtom(atom)
+        if other.GetIdx() in ring_set:
+            continue
+        if other.GetAtomicNum() in {8, 16} and bond.GetBondTypeAsDouble() == 2.0:
+            return True
+    return False
+
+
+def _parent_leaves_senior_azolone_ring_outside(mol, parent_atoms: Sequence[int] | frozenset[int]) -> bool:
+    senior_rings = _senior_azolone_ring_atom_sets(mol)
+    if not senior_rings:
+        return False
+    parent_set = frozenset(parent_atoms)
+    if not parent_set:
+        return False
+    if parent_set == _heavy_atom_indices(mol):
+        return False
+    return not any(ring <= parent_set for ring in senior_rings)
+
+
+def _parent_atoms_have_spiro_topology(mol, parent_atoms: Sequence[int] | frozenset[int]) -> bool:
+    parent_set = frozenset(parent_atoms)
+    if not parent_set:
+        return False
+    parent_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if frozenset(ring) <= parent_set]
+    for left, right in combinations(parent_rings, 2):
+        if len(left & right) == 1:
+            return True
+    return False
+
+
+def _should_defer_spiro_core_parent_to_senior_azolone(
+    mol,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    return _parent_leaves_senior_azolone_ring_outside(mol, parent_atoms) and _parent_atoms_have_spiro_topology(
+        mol,
+        parent_atoms,
+    )
+
+
+def _should_defer_spiro_substituent_parent_to_senior_azolone(
+    ctx,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    return bool(ctx.has_spiro_topology) and _parent_leaves_senior_azolone_ring_outside(ctx.mol, parent_atoms)
 
 
 def _complete_acyclic_stereo_locants(
@@ -8306,6 +8393,8 @@ class FusedParentRule:
             if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                 continue
             if fact.topology_query and not _allow_retained_topology_fused_candidate(template_record_name(template), name):
+                continue
+            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
                 continue
             sort_key = self._candidate_sort_key(mol, template, match, name)
             if fact.topology_query:
@@ -9154,6 +9243,8 @@ class GeneratedFusedParentRule(FusedParentRule):
             template_name = template_record_name(template)
             if fact.topology_query and not _allow_generated_topology_fused_candidate(template_name, name):
                 continue
+            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+                continue
             yielded_names.add(name)
             yielded += 1
             mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
@@ -9565,6 +9656,8 @@ class HydroFusedParentRule:
             if not parent_name:
                 continue
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            if name and _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+                continue
             if name:
                 yield NameCandidate(
                     name=name,
@@ -9641,6 +9734,8 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             hydro_key = fact.hydro_key
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
             if not name:
+                continue
+            if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
                 continue
             if self.partial_hydro_output_max_length is not None and len(name) > self.partial_hydro_output_max_length:
                 continue
@@ -9726,6 +9821,8 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
                 name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
                 if not name:
                     continue
+                if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
+                    continue
                 sort_key = (
                     _partial_hydro_spiro_alias_penalty(parent_name),
                     hydro_key,
@@ -9765,7 +9862,10 @@ class ComponentSpiroParentRule:
     min_ring_system_ring_count = 3
 
     def candidates(self, ctx):
-        yield from component_spiro_parent_candidates(ctx, self.priority)
+        for candidate in component_spiro_parent_candidates(ctx, self.priority):
+            if _should_defer_spiro_core_parent_to_senior_azolone(ctx.mol, candidate.parent_atoms):
+                continue
+            yield candidate
 
 
 _NATURAL_PRODUCT_TOPOLOGY_STEMS = {
@@ -10015,6 +10115,8 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
                 continue
+            if _should_defer_spiro_core_parent_to_senior_azolone(mol, fact.match):
+                continue
             yielded_names.add(name)
             yielded += 1
             yield NameCandidate(
@@ -10183,6 +10285,8 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
             if _unsafe_retained_ring_scaffold_candidate(name):
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
+                continue
+            if _should_defer_spiro_core_parent_to_senior_azolone(mol, fact.match):
                 continue
             yielded_names.add(name)
             yielded += 1
@@ -10450,6 +10554,9 @@ class GenericSpiroParentRule(_PolycyclicRecordParentRule):
     record_family = "spiro"
     min_ring_system_ring_count = 2
     requires_spiro_topology = True
+
+    def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
+        return _should_defer_spiro_core_parent_to_senior_azolone(ctx.mol, seq)
 
 
 class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):

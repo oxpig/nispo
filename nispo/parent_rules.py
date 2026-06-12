@@ -819,7 +819,7 @@ class PhosphaniumParentRule:
         pidx = phosphorus.GetIdx()
         neighbors = [nbr.GetIdx() for nbr in phosphorus.GetNeighbors()]
         implicit_hydrogens = phosphorus.GetTotalNumHs()
-        if len(neighbors) + implicit_hydrogens != 4 or len(neighbors) not in {3, 4}:
+        if len(neighbors) + implicit_hydrogens != 4 or len(neighbors) not in {1, 2, 3, 4}:
             return
         if any(mol.GetAtomWithIdx(nidx).GetSymbol() == "P" for nidx in neighbors):
             return
@@ -2637,14 +2637,10 @@ class IodoniumParentRule:
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
         for iodine in mol.GetAtoms():
-            if (
-                iodine.GetSymbol() != "I"
-                or iodine.GetFormalCharge() != 1
-                or iodine.IsInRing()
-                or iodine.GetTotalNumHs() != 0
-            ):
+            if iodine.GetSymbol() != "I" or iodine.GetFormalCharge() != 1 or iodine.IsInRing():
                 continue
             iodine_idx = iodine.GetIdx()
+            implicit_hydrogens = iodine.GetTotalNumHs()
             carbon_neighbors = []
             for nbr in iodine.GetNeighbors():
                 if nbr.GetAtomicNum() <= 1:
@@ -2658,7 +2654,7 @@ class IodoniumParentRule:
                     break
                 carbon_neighbors.append(nbr.GetIdx())
             else:
-                if len(carbon_neighbors) != 2:
+                if len(carbon_neighbors) + implicit_hydrogens != 2 or len(carbon_neighbors) not in {1, 2}:
                     continue
                 ligand_names = []
                 covered = {iodine_idx}
@@ -2677,7 +2673,7 @@ class IodoniumParentRule:
 
 
 def _iodonium_parent_name(ligand_names: Sequence[str]) -> str:
-    if len(ligand_names) != 2:
+    if not 1 <= len(ligand_names) <= 2:
         return ""
     counts = Counter(ligand_names)
     parts = []

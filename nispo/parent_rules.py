@@ -3328,6 +3328,13 @@ class SulfonamideRetainedParentRule:
             base = _sulfonamide_base_name(mol, sulfur_idx, substituent_idx)
             if not base:
                 continue
+            imino_substituent = _sulfonamide_imino_n_substituent(mol, self._Chem, nitrogen_idx, sulfur_idx)
+            if imino_substituent:
+                name = f"N-({imino_substituent}){base}"
+                yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+                continue
+            if _sulfonamide_defer_to_sulfonohydrazide(mol, self._Chem, nitrogen_idx, sulfur_idx):
+                continue
             nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, sulfur_idx)
             if nitrogen_substituents is None or len(nitrogen_substituents) > 2:
                 continue
@@ -6481,6 +6488,79 @@ def _sulfonamide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
         if ok and len(double_o) == 2 and len(single_n) == 1 and len(single_substituent) == 1:
             motifs.append((sidx, single_substituent[0], single_n[0]))
     return motifs
+
+
+def _sulfonamide_imino_n_substituent(mol, Chem, nitrogen_idx: int, sulfur_idx: int) -> str:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+    if sulfur_idx not in heavy or len(heavy) != 2:
+        return ""
+    imine_carbons = [
+        nbr.GetIdx()
+        for nbr in nitrogen.GetNeighbors()
+        if nbr.GetIdx() != sulfur_idx
+        and nbr.GetSymbol() == "C"
+        and mol.GetBondBetweenAtoms(nitrogen_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+    ]
+    if len(imine_carbons) != 1:
+        return ""
+    return _imino_carbon_retained_substituent(mol, imine_carbons[0], nitrogen_idx)
+
+
+def _imino_carbon_retained_substituent(mol, carbon_idx: int, imine_nitrogen_idx: int) -> str:
+    substituents = []
+    for nbr in mol.GetAtomWithIdx(carbon_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == imine_nitrogen_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        if nbr.GetSymbol() == "N" and _terminal_amino_substituent(mol, nidx, carbon_idx):
+            substituents.append("amino")
+            continue
+        name = _simple_or_branch_prefix(mol, nidx, carbon_idx)
+        if not name:
+            return ""
+        substituents.append(_retained_parent_substituent_alias(name))
+    if not substituents:
+        return "methylene"
+    if len(substituents) == 1:
+        return f"{_parenthesized_if_complex(substituents[0])}methylene"
+    if len(substituents) != 2:
+        return ""
+    if "amino" in substituents:
+        other = next(name for name in substituents if name != "amino")
+        return f"amino({_strip_outer_parentheses(other)})methylene"
+    if "methyl" in substituents:
+        other = next(name for name in substituents if name != "methyl")
+        return f"1-({_strip_outer_parentheses(other)})ethylidene"
+    left, right = sorted(substituents)
+    return f"{_parenthesized_if_complex(left)}({_strip_outer_parentheses(right)})methylene"
+
+
+def _terminal_amino_substituent(mol, nitrogen_idx: int, carbon_idx: int) -> bool:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetFormalCharge() != 0:
+        return False
+    heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+    return heavy == [carbon_idx]
+
+
+def _sulfonamide_defer_to_sulfonohydrazide(mol, Chem, nitrogen_idx: int, sulfur_idx: int) -> bool:
+    distal = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors()
+        if nbr.GetIdx() != sulfur_idx
+        and nbr.GetSymbol() == "N"
+        and mol.GetBondBetweenAtoms(nitrogen_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(distal) != 1:
+        return False
+    distal_n = mol.GetAtomWithIdx(distal[0])
+    return any(
+        nbr.GetSymbol() == "C"
+        and mol.GetBondBetweenAtoms(distal[0], nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+        for nbr in distal_n.GetNeighbors()
+        if nbr.GetIdx() != nitrogen_idx
+    )
 
 
 def _sulfonimidamide_motifs(mol, Chem) -> list[dict]:

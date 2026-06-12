@@ -1256,6 +1256,22 @@ def test_sulfonylamide_retained_parent_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "NC(=NS(=O)(=O)c1ccccc1)c1ccccc1",
+        "CC(=NS(=O)(=O)c1ccc(C)cc1)c1ccc(C#N)cc1",
+        "CC(=NNS(=O)(=O)c1ccc(C)cc1)C1CN(C(=O)OC(C)(C)C)C1",
+    ],
+)
+def test_imino_sulfonamide_and_sulfonohydrazide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCCN[SH](=N)=O",
         "CS(N)(=O)=NC(=O)Nc1c2c(cc3c1CCC3)CCC2",
         "Cc1nn(C)cc1S(N)(=O)=NC(=O)Nc1c(C(C)C)cc(F)cc1C(C)C",

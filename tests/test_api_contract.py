@@ -1806,6 +1806,22 @@ def test_hydride_onium_parents_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[S+](C)(=O)CCl",
+        "COc1ccc([S+](C)(C)=O)cc1",
+        "O=[S+](c1ccccc1)(c1ccccc1)c1ccco1",
+    ],
+)
+def test_multiligand_oxosulfanium_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

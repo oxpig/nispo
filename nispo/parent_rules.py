@@ -2819,15 +2819,36 @@ class OxoSulfaniumParentRule:
                 else:
                     ok = False
                     break
-            if not ok or len(oxo) != 1 or len(heavy) != 1:
+            if not ok or len(oxo) != 1 or not 1 <= len(heavy) <= 3:
                 continue
-            prefix = _simple_or_branch_prefix(mol, heavy[0], sidx)
-            if not prefix:
-                continue
-            if _needs_substituent_parentheses(prefix):
-                prefix = f"({prefix})"
-            name = f"{prefix}-oxosulfanium"
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            names = []
+            covered = {sidx, oxo[0]}
+            for nidx in heavy:
+                prefix = _simple_or_branch_prefix(mol, nidx, sidx)
+                if not prefix:
+                    break
+                names.append(prefix)
+                covered.update(_collect_component_atoms(mol, nidx, sidx))
+            else:
+                if covered != set(range(mol.GetNumAtoms())):
+                    continue
+                name = _oxo_sulfanium_name(names)
+                if name:
+                    yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _oxo_sulfanium_name(names: Sequence[str]) -> str:
+    if len(names) == 1:
+        prefix = names[0]
+        if not prefix:
+            return ""
+        if _needs_substituent_parentheses(prefix):
+            prefix = f"({prefix})"
+        return f"{prefix}-oxosulfanium"
+    base = _sulfanium_name(names)
+    if not base.endswith("sulfanium"):
+        return ""
+    return base[: -len("sulfanium")] + "oxosulfanium"
 
 
 class NHaloImineParentRule:

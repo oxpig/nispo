@@ -2958,6 +2958,26 @@ class OximeSulfonateNitrileParentRule:
             return
 
 
+class NitrileOxideRetainedParentRule:
+    family = "nitrile-oxide-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _nitrile_oxide_retained_parent_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class GuanidineRetainedParentRule:
     family = "guanidine-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -4675,6 +4695,78 @@ def _thiophenylidene_oxime_sulfonate_acetonitrile_name(mol, Chem, motif: dict) -
     if covered != set(range(mol.GetNumAtoms())):
         return ""
     return f"{ring_name}({_strip_outer_parentheses(aryl)})acetonitrile"
+
+
+def _nitrile_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C":
+            continue
+        record = _nitrile_oxide_retained_parent_record(mol, Chem, carbon.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        names.extend(_nitrile_oxide_names_from_prefix(record["prefix"]))
+    return list(dict.fromkeys(names))
+
+
+def _nitrile_oxide_retained_parent_record(mol, Chem, carbon_idx: int) -> dict | None:
+    nitrile_oxide_nitrogens = []
+    external_neighbors = []
+    covered_atoms = {carbon_idx}
+    for nbr in mol.GetAtomWithIdx(carbon_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if (
+            nbr.GetSymbol() == "N"
+            and nbr.GetFormalCharge() > 0
+            and bond.GetBondType() == Chem.BondType.TRIPLE
+        ):
+            oxygen_idx = _terminal_nitrile_oxide_oxygen(mol, nidx, carbon_idx)
+            if oxygen_idx < 0:
+                return None
+            nitrile_oxide_nitrogens.append(nidx)
+            covered_atoms.update({nidx, oxygen_idx})
+            continue
+        if nbr.GetAtomicNum() > 1:
+            external_neighbors.append(nidx)
+    if len(nitrile_oxide_nitrogens) != 1:
+        return None
+    if not external_neighbors:
+        return {"prefix": "", "covered_atoms": covered_atoms}
+    if len(external_neighbors) != 1:
+        return None
+    external_idx = external_neighbors[0]
+    prefix = _retained_parent_substituent_alias(_simple_or_branch_prefix(mol, external_idx, carbon_idx) or "")
+    if not prefix:
+        return None
+    covered_atoms.update(_collect_component_atoms(mol, external_idx, carbon_idx))
+    return {"prefix": prefix, "covered_atoms": covered_atoms}
+
+
+def _terminal_nitrile_oxide_oxygen(mol, nitrogen_idx: int, carbon_idx: int) -> int:
+    oxygens = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors()
+        if nbr.GetIdx() != carbon_idx
+        and nbr.GetSymbol() == "O"
+        and nbr.GetFormalCharge() < 0
+        and len(nbr.GetNeighbors()) == 1
+    ]
+    return oxygens[0] if len(oxygens) == 1 else -1
+
+
+def _nitrile_oxide_names_from_prefix(prefix: str) -> list[str]:
+    if not prefix:
+        return ["fulminate"]
+    names = []
+    if prefix == "cyano":
+        names.extend(["ethanedinitrile oxide", "cyanoformonitrile oxide"])
+    if prefix == "phenyl":
+        names.append("benzonitrile oxide")
+    elif prefix.endswith("phenyl"):
+        names.append(prefix[: -len("phenyl")] + "benzonitrile oxide")
+    return names
 
 
 def _five_membered_thiophene_like_ring_for_atom(mol, atom_idx: int) -> frozenset[int]:
@@ -11210,6 +11302,7 @@ def parent_rules(Chem) -> tuple:
     n_halo_imine = NHaloImineParentRule(Chem)
     cyclic_nitroimine = CyclicNitroimineParentRule(Chem)
     oxime_sulfonate_nitrile = OximeSulfonateNitrileParentRule(Chem)
+    nitrile_oxide = NitrileOxideRetainedParentRule(Chem)
     carbodiimide = CarbodiimideRetainedParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
@@ -11373,6 +11466,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("n-halo-imine-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), n_halo_imine.candidates),
         RuleSpec("cyclic-nitroimine-parent", parent_priority("senior-functional-exception"), (), cyclic_nitroimine.candidates),
         RuleSpec("oxime-sulfonate-nitrile-parent", parent_priority("senior-functional-exception"), (), oxime_sulfonate_nitrile.candidates),
+        RuleSpec("nitrile-oxide-retained-parent", parent_priority("senior-functional-exception"), (), nitrile_oxide.candidates),
         RuleSpec("carbodiimide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), carbodiimide.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),

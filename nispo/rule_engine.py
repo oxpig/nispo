@@ -1532,6 +1532,78 @@ def _has_contextual_kekulized_polycycle_parent_alternative(
     return False
 
 
+def _is_large_structured_kekulized_polycycle(candidate: NameCandidate) -> bool:
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 14 or parent_count > 24:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 4:
+        return False
+    if candidate.suffixes:
+        return False
+    if len(candidate.stereo_locants) < parent_count:
+        return False
+    return True
+
+
+def _has_contextual_large_structured_kekulized_polycycle_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8 or parent_count > 12:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if not _is_large_structured_kekulized_polycycle(other.candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 45:
+            continue
+        if other.stability_penalty > item.stability_penalty + 30:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_chain_parent_alternative_for_large_kekulized_polycycle(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not _is_large_structured_kekulized_polycycle(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        parent_count = len(other_candidate.parent_atoms)
+        if parent_count < 8 or parent_count > 12:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(other.name) > 45:
+            continue
+        if other.stability_penalty > item.stability_penalty + 30:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_retained_biochem_fused_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -1702,6 +1774,13 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generated_fused_same_atoms = _has_contextual_generated_fused_same_atoms_alternative(item, prepared)
     chain_dominant_ring_substituent = _has_contextual_chain_dominant_ring_substituent_alternative(item, prepared)
     kekulized_polycycle_parent = _has_contextual_kekulized_polycycle_parent_alternative(item, prepared)
+    chain_candidate_has_large_kekulized_alternative = (
+        _has_contextual_large_structured_kekulized_polycycle_alternative(item, prepared)
+    )
+    large_kekulized_candidate_has_chain_alternative = _has_contextual_chain_parent_alternative_for_large_kekulized_polycycle(
+        item,
+        prepared,
+    )
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
@@ -1780,6 +1859,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generated_fused_same_atoms
         or chain_dominant_ring_substituent
         or kekulized_polycycle_parent
+        or chain_candidate_has_large_kekulized_alternative
+        or large_kekulized_candidate_has_chain_alternative
         or retained_biochem_fused
         or small_late_single_ring_parent
         or aza_alias_penalty
@@ -2014,6 +2095,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 150
     if kekulized_polycycle_parent:
         penalty -= 260
+    if chain_candidate_has_large_kekulized_alternative:
+        penalty += 300
+    if large_kekulized_candidate_has_chain_alternative:
+        penalty -= 370
     if retained_biochem_fused:
         penalty += 80
     if small_late_single_ring_parent:

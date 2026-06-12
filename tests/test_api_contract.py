@@ -1448,6 +1448,22 @@ def test_structured_contextual_parent_selection_roundtrips_with_opsin(input_smil
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@H](Nc1ccc2c(c1)OCCn1cc(N3C(=O)OC[C@H]3C(F)F)nc1-2)C(N)=O",
+        "C[C@@H](Nc1ccc2c(c1)OCCn1cc(N3C(=O)OC[C@H]3CF)nc1-2)C(N)=O",
+        "C[C@H](Nc1ccc2c(c1)OCCn1cc(N3C(=C=O)CNC[C@H]3C(F)F)nc1-2)C(N)=O",
+    ],
+)
+def test_large_structured_kekulized_parents_beat_chain_decompositions(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCOC(=O)[C@H]1[C@@H](C2COC2)[N@]1C(c1ccccc1)c1ccccc1",
         "CCOC(=O)[C@H]1[C@@H](C2COC2)[N@@]1C(c1ccccc1)c1ccccc1",
     ],

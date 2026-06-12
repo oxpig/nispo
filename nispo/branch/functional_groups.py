@@ -15,6 +15,7 @@ from ..constants import HALO, MULT
 from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
 from ..formatting import format_prefixes as _format_prefixes
 from ..molecule_cache import mol_cache_dict
+from ..stereochemistry import assigned_atom_stereochemistry
 from .functional_suffixes import suffix_prefix_term, suffix_supported_term
 
 _HALOSULFUR_OXO_PREFIXES = {
@@ -127,7 +128,7 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             if not ring:
                 return ""
             suffix = _sulfur_oxo_substituent_suffix(double_o)
-            return ring + suffix if suffix else ""
+            return _apply_sulfinyl_stereo(mol, idx, double_o, ring + suffix) if suffix else ""
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "N" and double_o == 2:
             amino = _nitrogen_prefix(mol, heavy[0], idx)
             if not amino:
@@ -149,7 +150,26 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         if not alk:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)
-        return alk + suffix if suffix else ""
+        return _apply_sulfinyl_stereo(mol, idx, double_o, alk + suffix) if suffix else ""
+    return ""
+
+
+def _apply_sulfinyl_stereo(mol, sulfur_idx: int, double_o: int, prefix: str) -> str:
+    if double_o != 1 or not prefix:
+        return prefix
+    descriptor = _sulfinyl_stereo_descriptor(mol, sulfur_idx)
+    return f"({descriptor})-{prefix}" if descriptor else prefix
+
+
+def _sulfinyl_stereo_descriptor(mol, sulfur_idx: int) -> str:
+    if Chem is None:
+        return ""
+    atom = mol.GetAtomWithIdx(sulfur_idx)
+    if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0:
+        return ""
+    for atom_idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx"):
+        if atom_idx == sulfur_idx and descriptor in {"R", "S"}:
+            return descriptor
     return ""
 
 

@@ -1412,6 +1412,21 @@ def test_spiro_tetraline_component_stereo_order_stays_roundtripping():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(C)(C)N1CCC2(CC1)Cc1ccc(C#N)cc1C2N[S@](=O)C(C)(C)C",
+        "CC(C)(C)N1CCC2(CC1)Cc1ccc(C#N)cc1C2N[S@@](=O)C(C)(C)C",
+    ],
+)
+def test_sulfinyl_branch_stereo_stays_on_sulfur(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COc1ccc(C(=O)C[C@H](c2ccc(OC)cc2)[C@@H]2COC3(CCCCC3)O2)cc1",
         "N#Cc1ccc2ncn(CC3(O)CCCC4(C3)OCCO4)c2c1",
         "CC1(C)CC(C)(Cn2cnc3ccc(C#N)cc32)CC2(C1)OCCO2",

@@ -34,13 +34,14 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
     bond_descriptors = _bond_stereochemistry(mol, Chem)
     locanted_bond_descriptors = _locanted_bond_stereo_descriptors_in_name(name)
     if locanted_bond_descriptors:
-        bond_descriptors = _remove_locanted_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
-    descriptors = []
+        bond_descriptors = _remove_represented_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
     locanted_atom_descriptors = _locanted_atom_stereo_descriptors_in_name(name)
-    if not _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_atom_descriptors):
+    represented_atom_descriptors = locanted_atom_descriptors + _internal_atom_stereo_descriptors_in_name(name)
+    descriptors = []
+    if not _name_has_complete_atom_stereo(mol, Chem, represented_atom_descriptors):
         descriptors = _atom_stereochemistry(mol, Chem, atom_order=atom_order)
-        if locanted_atom_descriptors:
-            descriptors = _remove_locanted_atom_descriptors(descriptors, locanted_atom_descriptors)
+        if represented_atom_descriptors:
+            descriptors = _remove_represented_atom_descriptors(descriptors, represented_atom_descriptors)
     descriptors.extend(bond_descriptors)
     if not descriptors:
         return name
@@ -128,6 +129,16 @@ def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     return descriptors
 
 
+def _internal_atom_stereo_descriptors_in_name(name: str) -> list[str]:
+    return [
+        match.group("descriptor")
+        for match in re.finditer(
+            r"(?<![A-Za-z])\((?P<descriptor>[RS])\)-[A-Za-z0-9'\[\]\(\),.-]*sulfinyl",
+            name,
+        )
+    ]
+
+
 def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
     descriptors = [
         descriptor[-1]
@@ -164,18 +175,18 @@ def _locanted_bond_stereo_texts_in_name(name: str) -> set[str]:
     return set(re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name))
 
 
-def _name_has_complete_locanted_atom_stereo(mol, Chem, locanted_descriptors: list[str]) -> bool:
-    if not locanted_descriptors:
+def _name_has_complete_atom_stereo(mol, Chem, represented_descriptors: list[str]) -> bool:
+    if not represented_descriptors:
         return False
     chiral_count = len(assigned_atom_stereochemistry(mol, Chem))
-    return chiral_count > 0 and len(locanted_descriptors) >= chiral_count
+    return chiral_count > 0 and len(represented_descriptors) >= chiral_count
 
 
-def _remove_locanted_atom_descriptors(descriptors: list[str], locanted_descriptors: list[str]) -> list[str]:
+def _remove_represented_atom_descriptors(descriptors: list[str], represented_descriptors: list[str]) -> list[str]:
     remaining = list(descriptors)
-    for locanted in locanted_descriptors:
+    for represented in represented_descriptors:
         try:
-            remaining.remove(locanted)
+            remaining.remove(represented)
         except ValueError:
             continue
     return remaining
@@ -263,7 +274,8 @@ def _locanted_atom_stereo_pieces(
     if len(pieces) <= 1 and existing:
         pieces = [piece for piece in pieces if piece[1] not in existing]
     if unlocanted:
-        unlocanted = _remove_locanted_atom_descriptors(unlocanted, _locanted_atom_stereo_descriptors_in_name(name))
+        represented = _locanted_atom_stereo_descriptors_in_name(name) + _internal_atom_stereo_descriptors_in_name(name)
+        unlocanted = _remove_represented_atom_descriptors(unlocanted, represented)
     return pieces, unlocanted
 
 
@@ -306,7 +318,7 @@ def _locanted_bond_stereo_pieces(
             continue
         pieces.append((_stereo_locant_sort_key(locant), text))
     if unlocanted:
-        unlocanted = _remove_locanted_atom_descriptors(unlocanted, _locanted_bond_stereo_descriptors_in_name(name))
+        unlocanted = _remove_represented_atom_descriptors(unlocanted, _locanted_bond_stereo_descriptors_in_name(name))
     return pieces, unlocanted
 
 

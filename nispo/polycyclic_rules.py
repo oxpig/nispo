@@ -959,20 +959,7 @@ def _bicyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, int, int]) -> 
     )
     if not parent:
         return ""
-    grouped: dict[str, list[int]] = defaultdict(list)
-    for loc, idx in enumerate(seq, start=1):
-        replacement = _polycyclic_replacement_term(mol, idx)
-        if not replacement:
-            continue
-        grouped[replacement].append(loc)
-    parts = []
-    for replacement in sorted(grouped):
-        locants = grouped[replacement]
-        if len(locants) == 1:
-            parts.append(f"{locants[0]}-{replacement}")
-        else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
-    return "-".join(parts) + parent if parts else parent
+    return _polycyclic_parent_with_prefixes(mol, seq, parent)
 
 
 def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, ...]) -> str:
@@ -987,20 +974,7 @@ def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, ...]) -> str:
     )
     if not parent:
         return ""
-    grouped: dict[str, list[int]] = defaultdict(list)
-    for loc, idx in enumerate(seq, start=1):
-        replacement = _polycyclic_replacement_term(mol, idx)
-        if not replacement:
-            continue
-        grouped[replacement].append(loc)
-    parts = []
-    for replacement in sorted(grouped):
-        locants = grouped[replacement]
-        if len(locants) == 1:
-            parts.append(f"{locants[0]}-{replacement}")
-        else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
-    return "-".join(parts) + parent if parts else parent
+    return _polycyclic_parent_with_prefixes(mol, seq, parent)
 
 
 def _generic_polycyclic_parent(mol, seq: Sequence[int], bracket: Sequence[int | str]) -> str:
@@ -1016,20 +990,7 @@ def _generic_polycyclic_parent(mol, seq: Sequence[int], bracket: Sequence[int | 
     )
     if not parent:
         return ""
-    grouped: dict[str, list[int]] = defaultdict(list)
-    for loc, idx in enumerate(seq, start=1):
-        replacement = _polycyclic_replacement_term(mol, idx)
-        if not replacement:
-            continue
-        grouped[replacement].append(loc)
-    parts = []
-    for replacement in sorted(grouped):
-        locants = grouped[replacement]
-        if len(locants) == 1:
-            parts.append(f"{locants[0]}-{replacement}")
-        else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
-    return "-".join(parts) + parent if parts else parent
+    return _polycyclic_parent_with_prefixes(mol, seq, parent)
 
 
 def _generic_polycyclic_prefix(cycle_count: int) -> str:
@@ -1049,20 +1010,7 @@ def _spiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int]) -> str:
     )
     if not parent:
         return ""
-    grouped: dict[str, list[int]] = defaultdict(list)
-    for loc, idx in enumerate(seq, start=1):
-        replacement = _polycyclic_replacement_term(mol, idx)
-        if not replacement:
-            continue
-        grouped[replacement].append(loc)
-    parts = []
-    for replacement in sorted(grouped):
-        locants = grouped[replacement]
-        if len(locants) == 1:
-            parts.append(f"{locants[0]}-{replacement}")
-        else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
-    return "-".join(parts) + parent if parts else parent
+    return _polycyclic_parent_with_prefixes(mol, seq, parent)
 
 
 def _dispiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int, int, int]) -> str:
@@ -1077,20 +1025,56 @@ def _dispiro_parent(mol, seq: Sequence[int], bracket: tuple[int, int, int, int])
     )
     if not parent:
         return ""
-    grouped: dict[str, list[int]] = defaultdict(list)
+    return _polycyclic_parent_with_prefixes(mol, seq, parent)
+
+
+def _polycyclic_parent_with_prefixes(mol, seq: Sequence[int], parent: str) -> str:
+    replacement_locs: dict[str, list[str]] = defaultdict(list)
+    lambda_locs: list[str] = []
     for loc, idx in enumerate(seq, start=1):
+        lambda_loc = _polycyclic_lambda_locant(mol, idx, loc)
         replacement = _polycyclic_replacement_term(mol, idx)
-        if not replacement:
-            continue
-        grouped[replacement].append(loc)
-    parts = []
-    for replacement in sorted(grouped):
-        locants = grouped[replacement]
+        if replacement:
+            replacement_locs[replacement].append(lambda_loc or str(loc))
+        elif lambda_loc:
+            lambda_locs.append(lambda_loc)
+
+    parts = sorted(lambda_locs, key=_polycyclic_locant_sort_key)
+    for replacement in sorted(replacement_locs):
+        locants = sorted(replacement_locs[replacement], key=_polycyclic_locant_sort_key)
         if len(locants) == 1:
             parts.append(f"{locants[0]}-{replacement}")
         else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
+            parts.append(f"{_join_polycyclic_locants(locants)}-{MULT.get(len(locants), '')}{replacement}")
     return "-".join(parts) + parent if parts else parent
+
+
+def _polycyclic_lambda_locant(mol, idx: int, loc: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    symbol = atom.GetSymbol()
+    if atom.GetFormalCharge() != 0:
+        return ""
+    if symbol == "N" and atom.GetTotalNumHs() == 0 and atom.GetNumRadicalElectrons():
+        return f"{loc}lambda2"
+    if symbol == "S" and atom.GetTotalNumHs() > 0:
+        valence = int(atom.GetTotalValence())
+        if valence in {4, 6}:
+            return f"{loc}lambda{valence}"
+    return ""
+
+
+def _join_polycyclic_locants(locants: Sequence[str]) -> str:
+    return ",".join(sorted(locants, key=_polycyclic_locant_sort_key))
+
+
+def _polycyclic_locant_sort_key(locant: str) -> tuple[int, str]:
+    digits = []
+    for char in locant:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    value = int("".join(digits)) if digits else 0
+    return (value, locant)
 
 
 def _polycyclic_replacement_term(mol, idx: int) -> str:

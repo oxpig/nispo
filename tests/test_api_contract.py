@@ -944,6 +944,22 @@ def test_spiro_lambda_sulfanone_substituent_parents_roundtrip_with_opsin(input_s
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C1[N]CC12COC2",
+        "O=C1[N]CCC2(CC2)N1",
+        "NC(=O)C1CC2(CC[SH4]2)C1",
+    ],
+)
+def test_polycyclic_lambda_spiro_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",
         "O=[N+]([O-])N=C1NCCN1Cc1ccc(Cl)nc1",
         "O=[N+]([O-])N=C1NCCN1Cc1cnc(Cl)s1",

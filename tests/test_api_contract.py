@@ -1008,6 +1008,26 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CP(=O)([O-])[O-]",
+        "c1ccccc1P(=O)([O-])[O-]",
+        "C#CP(N)(=O)[O-]",
+        "COP(=O)[O-]",
+        "COO[PH](=O)[O-]",
+        "C=P([O-])([O-])[O-]",
+        "CCCCC(CC)C(c1ccccc1)(c1ccccc1)P(=O)([O-])[O-]",
+    ],
+)
+def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc2c(c1)nnn2O[P+](N1CCCC1)(N1CCCC1)N1CCCC1",
         "CN(C)[P+](On1nnc2ccccc21)(N(C)C)N(C)C",
         "CC(C)(C)N=P(N1CCCC1)(N1CCCC1)N1CCCC1",

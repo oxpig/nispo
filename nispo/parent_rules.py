@@ -1539,6 +1539,26 @@ class PhosphiteEsterParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class ChargedOrganophosphorusOxoParentRule:
+    family = "charged-organophosphorus-oxo-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_nonring_neutral_phosphorus = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        atom_set = set(range(ctx.mol.GetNumAtoms()))
+        for name in _charged_organophosphorus_oxo_names(ctx.mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=atom_set,
+                sort_key=(len(name), name),
+            )
+
+
 class ThiooxoEsterRetainedParentRule:
     family = "thiooxo-ester-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3698,6 +3718,139 @@ def _phosphite_monoester_name(owner: str, hydroxy_count: int) -> str:
         return ""
     hydrogen_text = {0: "", 1: "hydrogen", 2: "dihydrogen"}[hydroxy_count]
     return " ".join(part for part in (_parenthesized_if_complex(owner), hydrogen_text, "phosphite") if part)
+
+
+def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+            continue
+        pidx = phosphorus.GetIdx()
+        terminal_anionic_oxygens = []
+        terminal_double_oxygens = []
+        carbon_single_ligands = []
+        carbon_double_ligands = []
+        oxygen_ligands = []
+        terminal_amino_ligands = []
+        covered = {pidx}
+        ok = True
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond is None:
+                ok = False
+                break
+            bond_type = bond.GetBondType()
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and bond_type == Chem.BondType.SINGLE
+                and not heavy
+            ):
+                terminal_anionic_oxygens.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.DOUBLE:
+                terminal_double_oxygens.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.SINGLE:
+                carbon_single_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.DOUBLE:
+                carbon_double_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.SINGLE
+                and len(heavy) == 1
+            ):
+                oxygen_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif (
+                nbr.GetSymbol() == "N"
+                and nbr.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.SINGLE
+                and not heavy
+            ):
+                terminal_amino_ligands.append(nidx)
+                covered.add(nidx)
+            else:
+                ok = False
+                break
+        if not ok or covered != atom_set:
+            continue
+
+        double_oxygen_count = len(terminal_double_oxygens)
+        anionic_oxygen_count = len(terminal_anionic_oxygens)
+        if (
+            double_oxygen_count == 1
+            and anionic_oxygen_count == 2
+            and len(carbon_single_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not terminal_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            if prefix:
+                names.append(prefix + "phosphonate")
+            continue
+
+        if (
+            double_oxygen_count == 1
+            and anionic_oxygen_count == 1
+            and len(carbon_single_ligands) == 1
+            and len(terminal_amino_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            if prefix:
+                names.append(prefix + "phosphonamidate")
+            continue
+
+        if (
+            double_oxygen_count == 1
+            and anionic_oxygen_count == 1
+            and len(oxygen_ligands) == 1
+            and not carbon_single_ligands
+            and not carbon_double_ligands
+            and not terminal_amino_ligands
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            if owner and not _unstable_retained_functional_parent_substituent(owner):
+                names.append(f"{_parenthesized_if_complex(owner)} phosphonate")
+            continue
+
+        if (
+            double_oxygen_count == 0
+            and anionic_oxygen_count == 3
+            and len(carbon_double_ligands) == 1
+            and not carbon_single_ligands
+            and not oxygen_ligands
+            and not terminal_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _phosphorus_attached_prefix(mol, carbon_double_ligands[0], pidx)
+            if prefix:
+                names.append(prefix + "phosphite")
+    return names
+
+
+def _phosphorus_attached_prefix(mol, atom_idx: int, phosphorus_idx: int) -> str:
+    prefix = _simple_or_branch_prefix(mol, atom_idx, phosphorus_idx)
+    if not prefix:
+        return ""
+    bare = _strip_outer_parentheses(prefix)
+    return f"({bare})" if _needs_substituent_parentheses(bare) else bare
 
 
 def _thiooxo_ester_names(mol, Chem) -> list[str]:
@@ -11279,6 +11432,7 @@ def parent_rules(Chem) -> tuple:
     phosphorus_acid = PhosphorusAcidParentRule(Chem)
     biphenyl_diphosphonite = BiphenylDiphosphoniteParentRule(Chem)
     phosphite_ester = PhosphiteEsterParentRule(Chem)
+    charged_organophosphorus_oxo = ChargedOrganophosphorusOxoParentRule(Chem)
     thiooxo_ester = ThiooxoEsterRetainedParentRule(Chem)
     sulfinate = SulfinateRetainedParentRule(Chem)
     phosphorothioic_triamide = PhosphorothioicTriamideRetainedParentRule(Chem)
@@ -11413,6 +11567,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("phosphorus-acid-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorus_acid.candidates),
         RuleSpec("biphenyl-diphosphonite-parent", parent_priority("senior-functional-exception"), (), biphenyl_diphosphonite.candidates),
         RuleSpec("phosphite-ester-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphite_ester.candidates),
+        RuleSpec(
+            "charged-organophosphorus-oxo-parent",
+            parent_priority("senior-functional-exception"),
+            (nonring_neutral_phosphorus,),
+            charged_organophosphorus_oxo.candidates,
+        ),
         RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
         RuleSpec("sulfinate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfinate.candidates),
         RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),

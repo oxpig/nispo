@@ -859,6 +859,8 @@ def _fused_ring_substituent_prefix_from_templates(
     best = ""
     best_key = None
     for template in template_store(Chem).candidate_templates(mol, templates):
+        if _template_requires_systematic_substituent_name(template):
+            continue
         core = template_record_mol(template)
         for match in _substruct_matches(mol, core):
             if attachment_idx not in match or parent_idx in match:
@@ -885,6 +887,20 @@ def _fused_ring_substituent_prefix_from_templates(
                 best_key = key
                 best = name
     return best
+
+
+def _template_requires_systematic_substituent_name(template: dict) -> bool:
+    return template_record_name(template) in _SYSTEMATIC_ONLY_SUBSTITUENT_TEMPLATE_NAMES
+
+
+_SYSTEMATIC_ONLY_SUBSTITUENT_TEMPLATE_NAMES = frozenset(
+    {
+        # OPSIN accepts the bare retained acetal scaffold, but not its
+        # locanted substituent forms. Let the graph renderer emit
+        # 1,4-dioxaspiro[4.5]decane substituents instead.
+        "cyclohexanone ethylene ketal",
+    }
+)
 
 
 def _fused_substituent_candidate_key(

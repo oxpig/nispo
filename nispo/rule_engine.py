@@ -1743,6 +1743,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    high_impact_exact_retained_parent = _has_contextual_high_impact_exact_retained_parent_alternative(
+        item,
+        prepared,
+    )
     named_template_pair_parent_bonus = _contextual_named_template_pair_parent_bonus(
         item,
         prepared,
@@ -1853,6 +1857,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or incomplete_shortcut_graph_parent
         or complete_fused_retained_amide_parent_bonus
         or high_confidence_fused_template_parent_bonus
+        or high_impact_exact_retained_parent
         or named_template_pair_parent_bonus
         or low_confidence_fused_template_parent_penalty
         or broad_incomplete_shortcut_graph_parent
@@ -1892,6 +1897,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if retained_topology_replacement_parent:
         penalty -= 140
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
+    if high_impact_exact_retained_parent:
+        penalty += 260
     if has_graph_parent and unstable_benzimidazolyl:
         penalty += 85
     if has_graph_parent and unstable_replacement:
@@ -2507,6 +2514,39 @@ def _contextual_high_confidence_fused_template_parent_bonus(
     if candidate.template_name in _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_NAMES:
         return _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS
     return _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS
+
+
+def _has_contextual_high_impact_exact_retained_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if _is_high_impact_exact_retained_parent_candidate(item.candidate):
+        return False
+    if item.candidate.family == "whole-molecule-retained-parent":
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if not _is_high_impact_exact_retained_parent_candidate(other.candidate):
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        if len(other.name) - len(item.name) > 260:
+            continue
+        return True
+    return False
+
+
+def _is_high_impact_exact_retained_parent_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family not in {"exact-retained-parent", "exact-functional-retained-parent"}:
+        return False
+    if candidate.source_family != "static-retained":
+        return False
+    if candidate.source_file != "high_impact_fused_parent_templates.json":
+        return False
+    if candidate.template_id is None:
+        return False
+    return bool(candidate.parent_atoms and candidate_has_complete_graph(candidate))
 
 
 def _has_contextual_template_less_parent_competitor_for_fused_template(

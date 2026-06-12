@@ -54,6 +54,7 @@ from .rule_dispatch import (
     charged_ring_atom,
     component_spiro_topology,
     conjugated_carbonyl_diene_signal,
+    exact_functional_retained_signal,
     exact_ring_system,
     functional_skeleton_signal,
     generic_bicyclic_topology,
@@ -11297,7 +11298,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "exact-functional-retained-parent",
             parent_priority("exact-retained-parent"),
-            (min_ring_count(1), functional_skeleton_signal),
+            (min_ring_count(1), exact_functional_retained_signal),
             exact_functional_retained.candidates,
         ),
         RuleSpec(

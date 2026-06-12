@@ -83,6 +83,14 @@ def functional_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal
 
 
+def exact_functional_retained_signal(ctx) -> bool:
+    return (
+        ctx.profile.has_functional_skeleton_signal
+        or ctx.profile.has_charged_ring_atom
+        or not ctx.features["all_atoms_in_one_ring_system"]
+    )
+
+
 def acyclic_preference_signal(ctx) -> bool:
     return ctx.profile.may_prefer_acyclic_skeleton
 

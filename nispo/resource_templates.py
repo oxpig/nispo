@@ -2185,6 +2185,11 @@ def _build_json_scaffold_templates(
                 "stereochemical": _has_stereochemical_smiles(record.get("smiles", "")),
             }
         )
+        if "general_parent_safe" in record:
+            template["general_parent_safe"] = bool(record["general_parent_safe"])
+        flags = tuple(str(flag) for flag in record.get("flags", ()) if str(flag))
+        if flags:
+            template["flags"] = flags
         dedupe_key = (template["name"], Chem.MolToSmiles(mol, canonical=True))
         if dedupe_key in seen:
             continue

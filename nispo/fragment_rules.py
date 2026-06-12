@@ -159,6 +159,7 @@ OXOANIONS = {
     ("N", 2, -1, 0): "nitrite",
     ("N", 3, -1, 0): "nitrate",
     ("N", 3, -2, 0): "azonate",
+    ("N", 4, -3, 0): "orthonitrate",
     ("P", 4, -3, 0): "phosphate",
     ("P", 4, -2, 1): "hydrogen phosphate",
     ("P", 4, -1, 2): "dihydrogen phosphate",
@@ -168,18 +169,33 @@ OXOANIONS = {
     ("S", 3, -1, 1): "hydrogen sulfite",
     ("S", 4, -2, 0): "sulfate",
     ("S", 4, -1, 1): "hydrogen sulfate",
+    ("F", 1, -1, 0): "hypofluorite",
+    ("Cl", 1, 0, 1): "hypochlorous acid",
     ("Cl", 1, -1, 0): "hypochlorite",
+    ("Cl", 2, 0, 1): "chlorous acid",
     ("Cl", 2, -1, 0): "chlorite",
+    ("Cl", 3, 0, 1): "chloric acid",
     ("Cl", 3, -1, 0): "chlorate",
+    ("Cl", 4, 0, 1): "perchloric acid",
     ("Cl", 4, -1, 0): "perchlorate",
+    ("Br", 1, 0, 1): "hypobromous acid",
     ("Br", 1, -1, 0): "hypobromite",
+    ("Br", 2, 0, 1): "bromous acid",
     ("Br", 2, -1, 0): "bromite",
+    ("Br", 3, 0, 1): "bromic acid",
     ("Br", 3, -1, 0): "bromate",
+    ("Br", 4, 0, 1): "perbromic acid",
     ("Br", 4, -1, 0): "perbromate",
+    ("I", 1, 0, 1): "hypoiodous acid",
     ("I", 1, -1, 0): "hypoiodite",
+    ("I", 2, 0, 1): "iodous acid",
     ("I", 2, -1, 0): "iodite",
+    ("I", 3, 0, 1): "iodic acid",
     ("I", 3, -1, 0): "iodate",
+    ("I", 4, 0, 1): "periodic acid",
     ("I", 4, -1, 0): "periodate",
+    ("I", 6, 0, 5): "orthoperiodic acid",
+    ("I", 6, -5, 0): "orthoperiodate",
 }
 
 
@@ -299,10 +315,12 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _oxoanion_name(mol, Chem)
         or _diphosphite_name(mol, Chem)
         or _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem)
+        or _phosphorus_hydrido_oxoanion_name(mol, Chem)
         or _phosphorus_hydrido_thiooxoanion_name(mol, Chem)
         or _simple_thiosulfur_oxoanion_name(mol, Chem)
         or _chalcogen_thiooxoanion_name(mol, Chem)
         or _phosphorus_thiooxoanion_name(mol, Chem)
+        or _phosphorus_selenooxoanion_name(mol, Chem)
         or _organophosphorus_oxoanion_name(mol, Chem)
         or _pseudohalide_name(mol, Chem)
         or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
@@ -317,7 +335,9 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
         return ""
     return (
         _small_retained_template_name(mol, Chem)
+        or _isodiazene_name(mol, Chem)
         or _azanol_name(mol, Chem)
+        or _phosphorus_oxo_cation_name(mol, Chem)
         or _sulfur_oxo_cation_name(mol, Chem)
         or _peracetate_name(mol, Chem)
         or _thiauronium_name(mol, Chem)
@@ -516,6 +536,20 @@ def _azanol_name(mol, Chem) -> str:
     if nitrogen.GetNumRadicalElectrons() or oxygen.GetNumRadicalElectrons():
         return ""
     return "azanol" if nitrogen.GetTotalNumHs() == 2 and oxygen.GetTotalNumHs() == 1 else ""
+
+
+def _isodiazene_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"N": 2} or _total_charge(mol) != 0:
+        return ""
+    nitrogens = list(mol.GetAtoms())
+    bond = mol.GetBondBetweenAtoms(nitrogens[0].GetIdx(), nitrogens[1].GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+        return ""
+    return (
+        "isodiazene"
+        if sorted((atom.GetFormalCharge(), atom.GetTotalNumHs()) for atom in nitrogens) == [(-1, 0), (1, 2)]
+        else ""
+    )
 
 
 def _peracetate_name(mol, Chem) -> str:
@@ -1058,6 +1092,20 @@ def _sulfur_oxo_cation_name(mol, Chem) -> str:
     return "oxosulfonium" if oxygen_count == 1 else "dioxosulfonium"
 
 
+def _phosphorus_oxo_cation_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts != {"O": 1, "P": 1} or _total_charge(mol) != 1:
+        return ""
+    phosphorus = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"), None)
+    oxygen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"), None)
+    if phosphorus is None or oxygen is None:
+        return ""
+    bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), oxygen.GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+        return ""
+    return "phosphinylium" if phosphorus.GetFormalCharge() > 0 and phosphorus.GetTotalNumHs() == 2 else ""
+
+
 def _phosphorus_thiooxoanion_name(mol, Chem) -> str:
     if _total_charge(mol) != -3:
         return ""
@@ -1174,6 +1222,52 @@ def _phosphorus_hydrido_thiooxoanion_name(mol, Chem) -> str:
     return ""
 
 
+def _phosphorus_hydrido_oxoanion_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"O": 2, "P": 1} or _total_charge(mol) != -2:
+        return ""
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    if phosphorus.GetFormalCharge() != -1:
+        return ""
+    single_oxido = 0
+    double_oxygen = 0
+    for nbr in phosphorus.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_oxido += 1
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen += 1
+        else:
+            return ""
+    return "phosphoranidate" if single_oxido == 1 and double_oxygen == 1 else ""
+
+
+def _phosphorus_selenooxoanion_name(mol, Chem) -> str:
+    counts = _element_counts(mol)
+    if counts != {"O": 2, "P": 1, "Se": 2} or _total_charge(mol) != -3:
+        return ""
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    if len(phosphorus_atoms) != 1:
+        return ""
+    phosphorus = phosphorus_atoms[0]
+    single_oxido = 0
+    single_selenido = 0
+    double_selenium = 0
+    for nbr in phosphorus.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_oxido += 1
+        elif nbr.GetSymbol() == "Se" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            single_selenido += 1
+        elif nbr.GetSymbol() == "Se" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_selenium += 1
+        else:
+            return ""
+    return "diselenophosphate" if single_oxido == 2 and single_selenido == 1 and double_selenium == 1 else ""
+
+
 def _organophosphorus_oxoanion_name(mol, Chem) -> str:
     phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0]
     if len(phosphorus_atoms) != 1:
@@ -1248,6 +1342,13 @@ def _pseudohalide_name(mol, Chem) -> str:
             mol, Chem, "C", "S", Chem.BondType.DOUBLE
         ):
             return "isothiocyanate"
+    if counts == {"C": 1, "N": 1, "Se": 1}:
+        if _has_bond(mol, Chem, "C", "N", Chem.BondType.TRIPLE):
+            return "selenocyanate"
+        if _has_bond(mol, Chem, "C", "N", Chem.BondType.DOUBLE) and _has_bond(
+            mol, Chem, "C", "Se", Chem.BondType.DOUBLE
+        ):
+            return "isoselenocyanate"
     return ""
 
 

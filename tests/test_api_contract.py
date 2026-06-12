@@ -454,6 +454,25 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=[PH2+]",
+        "O=[PH-][O-]",
+        "[O-]P([O-])(=[Se])[Se-]",
+        "N#C[Se-]",
+        "[N-]=[NH2+]",
+        "[O-]F",
+    ],
+)
+def test_charged_polyatomic_empty_coverage_fragments_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCOC(=O)CCC#N",
         "N#CCC(=O)N",
     ],
@@ -1657,6 +1676,29 @@ def test_sulfinyl_branch_stereo_stays_on_sulfur(input_smiles):
     ],
 )
 def test_ketal_spiro_substituents_use_systematic_dioxaspiro_names(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C12=NC=C(N1)C=C1C=CC(=N1)C=C1C=CC(N1)=CC=1C=CC(N1)=C2",
+        "C12=NN=C(N1)C=C1C=CC(=N1)C=C1C=CC(N1)=CC=1C=CC(N1)=C2",
+        "S=C1C2=CC3=CC=C(N3)C=C3C=CC(C=C4C=CC(=CC(=C1)N2)N4)=N3",
+        "[C-]1=[C-]C=C2C=CC=C3C4=CC=CC5=CC=CC(C1=C23)=C45",
+        "C1=CC2=CC=CC3=CC=4C5(C=CC=C1C5=C32)CC=CC4",
+        "C1=C2C=CC34C(C=CC5=CC=C(C=C1)C2=C53)=CC=CC4",
+        "C1=CC2=C3C(CC4=CC=CC5=CC=C1C3=C45)=CC=C2",
+        "C1=CC=C2C3=C(C=4C=C5C(=C6C=CC1=C2C64)C=CC=C5)C=CC=C3",
+        "C1=CC=CC2=[NH+]C3=CC=CC=C3C(=C12)C=1C2=CC=CC=C2[NH+]=C2C=CC=CC12",
+        "C1=CC(=CC=2C3=CC=CC=C3NC12)B([O-])[O-]",
+    ],
+)
+def test_high_impact_large_fused_retained_templates_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

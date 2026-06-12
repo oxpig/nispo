@@ -473,8 +473,13 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     candidates = []
     branch_atoms = sorted(idx for idx in atoms if len(graph.get(idx, ())) >= 3)
     multiple_bond_count = _ring_multiple_bond_count(mol, atoms)
-    allow_relaxed_base_paths = multiple_bond_count <= 8
+    relaxed_aromatic_fallback = (
+        multiple_bond_count > 8
+        and bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view"))
+    )
+    allow_relaxed_base_paths = multiple_bond_count <= 8 or relaxed_aromatic_fallback
     use_saturated_bridge_selection = multiple_bond_count == 0 and mol.GetRingInfo().NumRings() >= 7
+    candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
@@ -499,11 +504,11 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                     name,
                 )
                 candidates.append((key, name, tuple(seq)))
-                if len(candidates) >= _secondary_bridge_candidate_limit(rank):
+                if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
-                    return [(name, seq) for _key, name, seq in candidates[:24]]
+                    return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
     candidates.sort(key=lambda item: item[0])
-    return [(name, seq) for _key, name, seq in candidates[:24]]
+    return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
 
 
 def _has_stereochemical_evidence(mol, Chem) -> bool:

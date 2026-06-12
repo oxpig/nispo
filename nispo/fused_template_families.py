@@ -80,7 +80,7 @@ _FUSION_BASE_PRIORITY = {
 @lru_cache(maxsize=8)
 def curated_fused_templates(Chem) -> tuple[dict, ...]:
     catalog = parent_scaffold_catalog(Chem)
-    return (
+    templates = (
         build_fused_templates(Chem)
         + catalog.static_retained
         + catalog.opsin_test_scaffolds
@@ -89,6 +89,7 @@ def curated_fused_templates(Chem) -> tuple[dict, ...]:
         + catalog.opsin_retained_ring_csv_fused
         + catalog.fusion_component_parents
     )
+    return tuple(template for template in templates if not _exact_retained_only(template))
 
 
 @lru_cache(maxsize=8)
@@ -184,6 +185,8 @@ def retained_topology_replacement_parent_templates_for_graph(
     selected = []
     seen: set[tuple[str, str]] = set()
     for template in templates:
+        if _exact_retained_only(template):
+            continue
         if not template.get("general_parent_safe", True):
             continue
         if template.get("stereochemical"):
@@ -209,6 +212,10 @@ def retained_topology_replacement_parent_templates_for_graph(
     return tuple(sorted(selected, key=generated_template_key))[
         :_MAX_RETAINED_TOPOLOGY_REPLACEMENT_TEMPLATES_PER_GRAPH
     ]
+
+
+def _exact_retained_only(template: dict) -> bool:
+    return "exact-retained-only" in set(template.get("flags", ()))
 
 
 def candidate_generated_fused_templates(

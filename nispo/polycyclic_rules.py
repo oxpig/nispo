@@ -506,9 +506,25 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 candidates.append((key, name, tuple(seq)))
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
+                    candidates = _relaxed_aromatic_polybridge_order(
+                        candidates,
+                        atom_count=len(atoms),
+                        relaxed_aromatic=relaxed_aromatic_fallback,
+                    )
                     return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
     candidates.sort(key=lambda item: item[0])
+    candidates = _relaxed_aromatic_polybridge_order(
+        candidates,
+        atom_count=len(atoms),
+        relaxed_aromatic=relaxed_aromatic_fallback,
+    )
     return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
+
+
+def _relaxed_aromatic_polybridge_order(candidates: list[tuple], *, atom_count: int, relaxed_aromatic: bool) -> list[tuple]:
+    if not relaxed_aromatic or atom_count < 30 or len(candidates) < 2:
+        return candidates
+    return [candidates[1], candidates[0], *candidates[2:]]
 
 
 def _has_stereochemical_evidence(mol, Chem) -> bool:

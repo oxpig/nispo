@@ -23,7 +23,11 @@ from .fragment_rules import (
 from .naming_context import MoleculeContext
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .rule_dispatch import RuleSpec
-from .stereochemistry import apply_locanted_stereochemical_prefix, apply_stereochemical_prefix
+from .stereochemistry import (
+    apply_locanted_stereochemical_prefix,
+    apply_stereochemical_prefix,
+    assigned_atom_stereochemistry,
+)
 from .telemetry import CandidateTelemetry
 
 
@@ -4518,7 +4522,11 @@ def _finalize_candidate_name(
             Chem,
             name,
             candidate.stereo_locants,
-            atom_order=_fallback_stereo_atom_order(candidate.family, name),
+            atom_order=_fallback_stereo_atom_order(
+                candidate.family,
+                name,
+                stereo_locant_count=_candidate_assigned_stereo_locant_count(mol, Chem, candidate),
+            ),
             include_unlocanted=not _has_retained_carbohydrate_substituent(name),
         )
         if locanted_name != name:
@@ -4619,9 +4627,28 @@ def _mol_has_isotope(mol) -> bool:
     return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
 
 
-def _fallback_stereo_atom_order(family: str, name: str = "") -> str:
+def _fallback_stereo_atom_order(family: str, name: str = "", *, stereo_locant_count: int = 0) -> str:
+    if family in {
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    } and stereo_locant_count <= 1 and any(
+        fragment in name for fragment in ("tetralin", "tetrahydroquinolin")
+    ):
+        return "idx_desc"
     if any(fragment in name for fragment in ("pseudouridin", "uridin", "spirostane")):
         return "idx"
     if ("pterin" in name or "pteridin" in name) and "tetrahydropterin" not in name:
         return "idx_desc"
     return "idx"
+
+
+def _candidate_assigned_stereo_locant_count(mol, Chem, candidate: NameCandidate) -> int:
+    if not candidate.stereo_locants:
+        return 0
+    locanted_atoms = {atom_idx for atom_idx, _locant in candidate.stereo_locants}
+    return sum(
+        1
+        for atom_idx, _descriptor in assigned_atom_stereochemistry(mol, Chem)
+        if atom_idx in locanted_atoms
+    )

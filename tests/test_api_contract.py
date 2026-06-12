@@ -1335,6 +1335,33 @@ def test_generated_retained_spiro_scaffold_templates_roundtrip_with_opsin(input_
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@H](C(=O)O)[C@H](c1ccc2c(c1)O[C@@H](C1CCNCC1)CC2)C1CC1",
+        "C[C@H](C(=O)O)[C@H](c1ccc2c(c1)N[C@@H](C1CCN(Cc3cc(C(F)(F)F)ccc3C(F)(F)F)CC1)CC2)C1CC1",
+    ],
+)
+def test_retained_hydride_fused_parent_stereo_order_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_spiro_tetraline_component_stereo_order_stays_roundtripping():
+    input_smiles = (
+        "C=CC[C@@H](O)[C@H](C)S(=O)(=O)NC(=O)c1ccc2c(c1)"
+        "N(C[C@@H]1CC[C@H]1[C@H](/C=C/CCC)OC)C[C@@]1(CCCc3cc(Cl)ccc31)CO2"
+    )
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

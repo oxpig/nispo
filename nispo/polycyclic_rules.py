@@ -479,6 +479,22 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     )
     allow_relaxed_base_paths = multiple_bond_count <= 8 or relaxed_aromatic_fallback
     use_saturated_bridge_selection = multiple_bond_count == 0 and mol.GetRingInfo().NumRings() >= 7
+    use_kekulized_blue_book_bridge_selection = _use_kekulized_blue_book_bridge_selection(
+        mol,
+        Chem,
+        atoms,
+        rank,
+        multiple_bond_count,
+    )
+    use_stereo_hetero_macrocycle_bridge_order = (
+        _use_stereo_hetero_kekulized_macrocycle_bridge_order(
+            mol,
+            Chem,
+            atoms,
+            rank,
+            multiple_bond_count,
+        )
+    )
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
@@ -506,11 +522,24 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                         _large_hetero_kekulized_bridge_preference_key(mol, seq, atoms, bracket),
                         name,
                     )
+                elif use_stereo_hetero_macrocycle_bridge_order:
+                    key = (
+                        _stereo_hetero_kekulized_macrocycle_bridge_preference_key(
+                            mol,
+                            seq,
+                            atoms,
+                            bracket,
+                        ),
+                        name,
+                    )
                 else:
                     key = (
                         _secondary_bridge_preference_key(
                             bracket,
-                            saturated_alicyclic=use_saturated_bridge_selection,
+                            saturated_alicyclic=(
+                                use_saturated_bridge_selection
+                                or use_kekulized_blue_book_bridge_selection
+                            ),
                         ),
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
                         name,
@@ -551,6 +580,88 @@ def _use_large_hetero_kekulized_bridge_order(mol, atoms: set[int]) -> bool:
         if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
             external_attachment_atoms += 1
     return has_oxygen_or_sulfur and external_attachment_atoms >= 3
+
+
+def _use_kekulized_blue_book_bridge_selection(
+    mol,
+    Chem,
+    atoms: set[int],
+    rank: int,
+    multiple_bond_count: int,
+) -> bool:
+    if not bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")):
+        return False
+    if rank < 4 or multiple_bond_count < 5:
+        return False
+    if not _has_stereochemical_evidence(mol, Chem):
+        return False
+
+    hetero_atoms = 0
+    external_attachment_atoms = 0
+    for idx in atoms:
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() != "C":
+            hetero_atoms += 1
+        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
+            external_attachment_atoms += 1
+
+    if len(atoms) >= 30 and external_attachment_atoms == 0 and hetero_atoms >= 2:
+        return True
+    return 14 <= len(atoms) <= 18 and external_attachment_atoms >= 4 and hetero_atoms >= 3
+
+
+def _use_stereo_hetero_kekulized_macrocycle_bridge_order(
+    mol,
+    Chem,
+    atoms: set[int],
+    rank: int,
+    multiple_bond_count: int,
+) -> bool:
+    if not bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")):
+        return False
+    if rank not in {4, 5}:
+        return False
+    if not 22 <= len(atoms) <= 24:
+        return False
+    if multiple_bond_count < 5:
+        return False
+    if not _has_stereochemical_evidence(mol, Chem):
+        return False
+    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+        return False
+
+    hetero_atoms = 0
+    external_attachment_atoms = 0
+    for idx in atoms:
+        atom = mol.GetAtomWithIdx(idx)
+        symbol = atom.GetSymbol()
+        if symbol not in {"C", "N", "O"}:
+            return False
+        if symbol != "C":
+            hetero_atoms += 1
+        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
+            external_attachment_atoms += 1
+
+    return hetero_atoms >= 5 and 1 <= external_attachment_atoms <= 3
+
+
+def _stereo_hetero_kekulized_macrocycle_bridge_preference_key(
+    mol,
+    seq: Sequence[int],
+    core_atoms: set[int],
+    bracket: Sequence[int | str],
+) -> tuple:
+    parsed = _bridge_sort_key(bracket)
+    first_main = parsed[0][0] if len(parsed) > 0 else 99
+    second_main = parsed[1][0] if len(parsed) > 1 else 0
+    third_main = parsed[2][0] if len(parsed) > 2 else 99
+    return (
+        third_main != 1,
+        -second_main,
+        *_polycyclic_numbering_preference_key(mol, seq, core_atoms),
+        first_main,
+        _secondary_bridge_preference_key(bracket),
+    )
 
 
 def _large_hetero_kekulized_bridge_preference_key(

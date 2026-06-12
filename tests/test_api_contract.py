@@ -1910,6 +1910,38 @@ def test_large_hetero_kekulized_bridge_order_preserves_lower_unsaturation_contro
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1cc2cc(c1)Oc1ccc(cc1)C[C@@H]1NCCc3ccc(cc31)Oc1cccc3c1[C@@H](C2)NCC3",
+        "C[C@@H]1COc2c(Br)c(F)cc3ncc4c(c23)n1c(=O)n4C",
+        "Cn1c(=O)n2c3c4c(c(Br)c(F)cc4ncc31)OC[C@H]2Cc1ccccc1",
+    ],
+)
+def test_stereo_kekulized_bridge_polycycles_use_opsin_stable_bridge_selection(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@@H]1COc2ccc3[nH]nc(c3c2)-c2cnn(c2)CCOCCO1",
+        "C[C@@H]1CCOC[C@@H](C)Oc2cncc(c2)-c2n[nH]c3ccc(cc23)O1",
+        "C[C@H]1COc2nccc(n2)-c2nn(C3CCCCO3)c3ccc(cc23)O[C@@H](C)CCO1",
+    ],
+)
+def test_stereo_hetero_kekulized_macrocycles_use_stable_bridge_numbering(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_component_spiro_preserves_polycyclic_component_graph_order():
     input_smiles = "O=C1Oc2ccc(cc2)C2(CCCCC2)c2ccc(cc2)O1"
     generated_name = smiles_to_iupac(input_smiles)

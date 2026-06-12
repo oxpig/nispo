@@ -9954,13 +9954,26 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                     parent_name = _skeletal_replacement_parent_name(mol, template, match)
                     if not parent_name:
                         continue
+                    bond_order_mismatches = _skeletal_replacement_bond_order_mismatch_count(
+                        mol,
+                        template,
+                        match,
+                    )
+                    alignment_key = (
+                        bond_order_mismatches,
+                        _skeletal_replacement_saturation_penalty(mol, match, parent_name),
+                        _skeletal_replacement_unsaturated_hetero_bond_penalty(mol, template, match),
+                    )
                     stage_counts["facts"] += 1
                     facts.append(
                         _SkeletalReplacementCandidateFacts(
                             template=template,
                             match=tuple(match),
                             parent_name=parent_name,
+                            bond_order_mismatches=bond_order_mismatches,
+                            alignment_key=alignment_key,
                             structural_key=(
+                                alignment_key,
                                 _skeletal_replacement_sort_key(mol, match, parent_name),
                                 _template_source_rank(template),
                                 _hydrogenated_template_penalty(template_record_name(template)),
@@ -10008,6 +10021,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=(
+                    fact.alignment_key,
                     _skeletal_replacement_sort_key(mol, fact.match, fact.parent_name),
                     _substituent_locant_tuple(name),
                     len(name),
@@ -10031,15 +10045,38 @@ class _SkeletalReplacementCandidateFacts:
     template: dict
     match: tuple[int, ...]
     parent_name: str
+    bond_order_mismatches: int
+    alignment_key: tuple[int, int, int]
     structural_key: tuple
 
 
 def _skeletal_replacement_render_set(
     facts: tuple[_SkeletalReplacementCandidateFacts, ...],
 ) -> tuple[_SkeletalReplacementCandidateFacts, ...]:
+    facts = _skeletal_replacement_best_bond_order_facts(facts)
     if len(facts) <= _SKELETAL_REPLACEMENT_RENDER_SET_SIZE:
         return facts
     return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_SKELETAL_REPLACEMENT_RENDER_SET_SIZE])
+
+
+def _skeletal_replacement_best_bond_order_facts(
+    facts: tuple[_SkeletalReplacementCandidateFacts, ...],
+) -> tuple[_SkeletalReplacementCandidateFacts, ...]:
+    if not facts:
+        return facts
+    min_by_core: dict[frozenset[int], tuple[int, int, int]] = {}
+    for fact in facts:
+        core = frozenset(fact.match)
+        current = min_by_core.get(core)
+        if current is None or fact.alignment_key < current:
+            min_by_core[core] = fact.alignment_key
+    if all(fact.alignment_key == min_by_core[frozenset(fact.match)] for fact in facts):
+        return facts
+    return tuple(
+        fact
+        for fact in facts
+        if fact.alignment_key == min_by_core[frozenset(fact.match)]
+    )
 
 
 class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
@@ -11003,6 +11040,8 @@ from .parent.rule_helpers import (
     _subtree_has_cumulated_diene,
     _skeletal_replacement_query,
     _skeletal_replacement_parent_name,
+    _skeletal_replacement_bond_order_mismatch_count,
+    _skeletal_replacement_unsaturated_hetero_bond_penalty,
     _retained_topology_replacement_parent_name,
     _retained_topology_replacement_template_allows_nh,
     _skeletal_replacement_sort_key,

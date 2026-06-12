@@ -331,6 +331,21 @@ def test_skeletal_replacement_fused_parent_prefers_numeric_replacement_locants()
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(C)n1ncc2c1C(=O)CC1(CCNCC1)C2",
+        "O=c1c2c(cnn1-c1ncccn1)CC1(CC2)OCCO1",
+    ],
+)
+def test_skeletal_replacement_fused_parents_align_template_bonds(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "N[C@@H](Cc1ccc(O)c(O)c1)C(=O)OCc1ccccc1",
         "Cc1cccc(NC(=O)Nc2cccc(C)c2)c1",
         "Cc1ccccc1NC(=O)Nc1ccccc1C",

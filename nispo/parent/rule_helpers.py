@@ -384,6 +384,39 @@ def _skeletal_replacement_query(template_mol, Chem):
     return query.GetMol()
 
 
+def _skeletal_replacement_bond_order_mismatch_count(mol, template: dict, match: Sequence[int]) -> int:
+    template_mol = template_record_mol(template)
+    mismatches = 0
+    for template_bond in template_mol.GetBonds():
+        begin = template_bond.GetBeginAtomIdx()
+        end = template_bond.GetEndAtomIdx()
+        mol_bond = mol.GetBondBetweenAtoms(match[begin], match[end])
+        if mol_bond is None:
+            mismatches += 4
+            continue
+        template_unsaturated = template_bond.GetIsAromatic() or template_bond.GetBondTypeAsDouble() > 1.0
+        mol_unsaturated = mol_bond.GetIsAromatic() or mol_bond.GetBondTypeAsDouble() > 1.0
+        if template_unsaturated != mol_unsaturated:
+            mismatches += 1
+            continue
+        if template_unsaturated and template_bond.GetIsAromatic() != mol_bond.GetIsAromatic():
+            mismatches += 1
+    return mismatches
+
+
+def _skeletal_replacement_unsaturated_hetero_bond_penalty(mol, template: dict, match: Sequence[int]) -> int:
+    template_mol = template_record_mol(template)
+    penalty = 0
+    for template_bond in template_mol.GetBonds():
+        if template_bond.GetIsAromatic() or template_bond.GetBondTypeAsDouble() <= 1.0:
+            continue
+        begin_atom = mol.GetAtomWithIdx(match[template_bond.GetBeginAtomIdx()])
+        end_atom = mol.GetAtomWithIdx(match[template_bond.GetEndAtomIdx()])
+        if begin_atom.GetSymbol() != "C" and end_atom.GetSymbol() != "C":
+            penalty += 1
+    return penalty
+
+
 def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     grouped: dict[str, list[str]] = {}
     for template_idx, mol_idx in enumerate(match):

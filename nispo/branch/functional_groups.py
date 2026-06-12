@@ -614,7 +614,13 @@ def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:
     return name
 
 
-def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
+def _carbamoyl_substituent_name(
+    mol,
+    cidx: int,
+    nidx: int,
+    *,
+    localize_ligand_stereo: bool = False,
+) -> str:
     atom = mol.GetAtomWithIdx(cidx)
     if atom.GetSymbol() != "C":
         return ""
@@ -651,6 +657,10 @@ def _carbamoyl_substituent_name(mol, cidx: int, nidx: int) -> str:
             name = _ring_substituent_prefix(mol, nbr_idx, amine)
         else:
             name = branch_prefix(mol, nbr_idx, amine) or substituent_from_root(mol, nbr_idx, amine)
+            if localize_ligand_stereo:
+                alpha_stereo = _alpha_ligand_stereo_prefix(mol, nbr_idx, name)
+                if alpha_stereo:
+                    name = alpha_stereo + name
         if not name:
             return ""
         groups.append(name)
@@ -942,7 +952,13 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     nitrocarbonyl = _nitrocarbonyl_prefix(mol, distal, idx)
     if nitrocarbonyl:
         return nitrocarbonyl
-    carbamoyl = _carbamoyl_substituent_name(mol, idx, parent_idx)
+    localize_ligand_stereo = _carbonyl_branch_stereo_context(mol, parent_idx)
+    carbamoyl = _carbamoyl_substituent_name(
+        mol,
+        idx,
+        parent_idx,
+        localize_ligand_stereo=localize_ligand_stereo,
+    )
     if carbamoyl:
         return carbamoyl
     oxido_carbamoyl = _oxido_carbamoyl_prefix(mol, distal, idx)
@@ -960,6 +976,10 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
         name = branch_prefix(mol, distal, idx) or substituent_from_root(mol, distal, idx)
     if not name:
         return ""
+    if localize_ligand_stereo:
+        alpha_stereo = _alpha_ligand_stereo_prefix(mol, distal, name)
+        if alpha_stereo:
+            name = alpha_stereo + name
     retained = _retained_carbonyl_prefix(name)
     return retained if retained else name + "carbonyl"
 
@@ -1115,6 +1135,61 @@ def _aminoacyl_stereo_prefix(mol, alpha_idx: int, prefix: str) -> str | None:
     if prefix == "cysteinyl":
         return "D-" if code == "S" else ""
     return "D-" if code == "R" else ""
+
+
+def _alpha_ligand_stereo_prefix(mol, alpha_idx: int, ligand_name: str) -> str:
+    if not ligand_name:
+        return ""
+    if ligand_name.startswith("("):
+        return ""
+    atom = mol.GetAtomWithIdx(alpha_idx)
+    if atom.GetSymbol() != "C" or atom.IsInRing() or atom.GetIsotope():
+        return ""
+    if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+        return ""
+    try:
+        Chem.AssignStereochemistry(mol, force=True, cleanIt=False)
+    except Exception:
+        return ""
+    code = atom.GetProp("_CIPCode") if atom.HasProp("_CIPCode") else ""
+    if code not in {"R", "S"}:
+        return ""
+    return f"(1{code})-"
+
+
+def _carbonyl_branch_stereo_context(mol, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    return (
+        parent.GetSymbol() in {"C", "N"}
+        and parent.IsInRing()
+        and not parent.GetIsAromatic()
+        and _ring_component_ring_count(mol, parent_idx) > 1
+    )
+
+
+def _ring_component_ring_count(mol, atom_idx: int) -> int:
+    cache = mol_cache_dict(mol, "branch_ring_component_ring_count")
+    cached = cache.get(atom_idx)
+    if cached is not None:
+        return cached
+    atom_rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    seeds = [idx for idx, ring in enumerate(atom_rings) if atom_idx in ring]
+    if not seeds:
+        cache[atom_idx] = 0
+        return 0
+    seen = set(seeds)
+    stack = list(seeds)
+    while stack:
+        current = stack.pop()
+        current_ring = atom_rings[current]
+        for idx, ring in enumerate(atom_rings):
+            if idx in seen or current_ring.isdisjoint(ring):
+                continue
+            seen.add(idx)
+            stack.append(idx)
+    count = len(seen)
+    cache[atom_idx] = count
+    return count
 
 
 def _retained_carbonyl_prefix(name: str) -> str:

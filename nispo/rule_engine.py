@@ -1716,6 +1716,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
     generated_spiro_functional_chain = _has_contextual_generated_spiro_functional_chain_alternative(item, prepared)
     complete_spiro_functional_chain = _has_contextual_complete_spiro_functional_chain_alternative(item, prepared)
+    compact_bicyclic_parent_for_spiro_chain = _has_contextual_compact_bicyclic_parent_alternative_for_spiro_chain(
+        item,
+        prepared,
+    )
     single_ring_lactam_parent = _has_contextual_single_ring_lactam_parent_alternative(item, prepared)
     fused_retained_parent_for_generic_spiro = (
         _has_contextual_fused_retained_parent_alternative_for_generic_spiro(item, prepared)
@@ -1832,6 +1836,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generic_spiro_parent
         or generated_spiro_functional_chain
         or complete_spiro_functional_chain
+        or compact_bicyclic_parent_for_spiro_chain
         or single_ring_lactam_parent
         or fused_retained_parent_for_generic_spiro
         or natural_topology_generic_polycycle
@@ -2027,6 +2032,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 160
     if generated_spiro_functional_chain:
         penalty += 280
+    if compact_bicyclic_parent_for_spiro_chain:
+        penalty += 110
     if single_ring_lactam_parent:
         penalty += 330
     if fused_retained_parent_for_generic_spiro:
@@ -3739,6 +3746,38 @@ def _has_contextual_spiro_functional_chain_alternative(
         if len(other.name) > 260 or len(other.name) - len(item.name) > 160:
             continue
         if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_compact_bicyclic_parent_alternative_for_spiro_chain(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "spiro-functional-chain-substituent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) < 14:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "functional-generic-bicyclic-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        parent_count = len(other_candidate.parent_atoms)
+        if parent_count < 5 or parent_count > 10:
+            continue
+        if other_candidate.render_rank is not None and other_candidate.render_rank > 4:
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 100:
             continue
         return True
     return False

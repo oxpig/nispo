@@ -1755,6 +1755,22 @@ def test_high_impact_large_fused_retained_templates_roundtrip_with_opsin(input_s
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(=O)N1CCC[C@H](NS(=O)(=O)C2CCCCC2)[C@@H]1CO[C@H]1CC[C@@H](C(C)C)CC1",
+        "NC[C@H]1CC[C@H](C(F)(F)c2cc(Cl)nc(N3CCN(S(=O)(=O)c4ccc(N5C[C@H](N)CC5=O)cc4)CC3)c2)CC1",
+        "CS(=O)(=O)[C@H]1CCC[C@H](CN=C=S)C1",
+    ],
+)
+def test_single_ring_stereo_prefix_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

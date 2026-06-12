@@ -1427,6 +1427,21 @@ def test_component_dispiro_fused_middle_parents_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Fc1ccc2c(c1)COC21CCC2(CC1)OCCO2",
+        "CC1=Nc2cccc(Br)c2C12CCC1(CC2)OCCO1",
+    ],
+)
+def test_component_dispiro_complete_graph_candidates_beat_nested_spiro_aliases(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(C)(C)N1CCC2(CC1)Cc1ccc(C#N)cc1C2N[S@](=O)C(C)(C)C",
         "CC(C)(C)N1CCC2(CC1)Cc1ccc(C#N)cc1C2N[S@@](=O)C(C)(C)C",
     ],

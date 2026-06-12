@@ -286,7 +286,7 @@ def _component_dispiro_candidates_for_blocks(
                     continue
                 name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
                 render_rank = _component_spiro_render_rank(left, center, right)
-                graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
+                graph_atoms = frozenset(ring_system_atoms)
                 candidates.append(
                     NameCandidate(
                         name=name,

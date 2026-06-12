@@ -1865,6 +1865,51 @@ def test_nonring_linked_carbohydrate_branch_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC1=C(CCC(=O)O)c2cc3[nH]c(cc4[nH]c(cc5nc(cc1n2)C(C)=C5CCC(=O)O)c(CCC(=O)O)c4C)c(C)c3CCC(=O)O",
+        "C=Cc1c(C)c2cc3c(C=C)c(C)c(cc4nc(cc5nc(cc1[nH]2)C(C)=C5CCC(=O)O)C(CCC(=O)O)=C4C)n3C",
+    ],
+)
+def test_large_kekulized_bridge_polycycle_orientation_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C1Oc2ccccc2-c2ccc(cc2)-c2ccccc2OC(=O)c2ccc1cc2C(=O)[O-]",
+        "O=C(O)c1ccc2c3ccc4c5c(ccc(c6ccc(C(=O)O)c1c26)c53)C(=O)OC4=O",
+    ],
+)
+def test_large_hetero_kekulized_bridge_polycycle_orientation_roundtrips(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C(O)Cc1ccc(-n2c(=O)c3ccc4oc5ccc(C(F)(F)F)cc5c5ccc(c2=O)c3c45)cc1",
+        "CC(C)(CN1CCCCCCc2ccccc2-c2nc(sc2I)NS(=O)(=O)c2cccc1n2)C(=O)O",
+    ],
+)
+def test_large_hetero_kekulized_bridge_order_preserves_lower_unsaturation_controls(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -480,6 +480,12 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     allow_relaxed_base_paths = multiple_bond_count <= 8 or relaxed_aromatic_fallback
     use_saturated_bridge_selection = multiple_bond_count == 0 and mol.GetRingInfo().NumRings() >= 7
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
+    use_large_hetero_bridge_order = bool(
+        getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
+    ) and _use_large_hetero_kekulized_bridge_order(
+        mol,
+        atoms,
+    )
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
@@ -495,14 +501,20 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
                 if not name:
                     continue
-                key = (
-                    _secondary_bridge_preference_key(
-                        bracket,
-                        saturated_alicyclic=use_saturated_bridge_selection,
-                    ),
-                    *_polycyclic_numbering_preference_key(mol, seq, atoms),
-                    name,
-                )
+                if use_large_hetero_bridge_order:
+                    key = (
+                        _large_hetero_kekulized_bridge_preference_key(mol, seq, atoms, bracket),
+                        name,
+                    )
+                else:
+                    key = (
+                        _secondary_bridge_preference_key(
+                            bracket,
+                            saturated_alicyclic=use_saturated_bridge_selection,
+                        ),
+                        *_polycyclic_numbering_preference_key(mol, seq, atoms),
+                        name,
+                    )
                 candidates.append((key, name, tuple(seq)))
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
@@ -523,6 +535,39 @@ def _secondary_bridge_candidate_limit(rank: int) -> int:
     if rank == 7:
         return 36
     return 24
+
+
+def _use_large_hetero_kekulized_bridge_order(mol, atoms: set[int]) -> bool:
+    if len(atoms) < 20:
+        return False
+    if _ring_multiple_bond_count(mol, atoms) < 9:
+        return False
+    has_oxygen_or_sulfur = False
+    external_attachment_atoms = 0
+    for idx in atoms:
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetSymbol() in {"O", "S"}:
+            has_oxygen_or_sulfur = True
+        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
+            external_attachment_atoms += 1
+    return has_oxygen_or_sulfur and external_attachment_atoms >= 3
+
+
+def _large_hetero_kekulized_bridge_preference_key(
+    mol,
+    seq: Sequence[int],
+    core_atoms: set[int],
+    bracket: Sequence[int | str],
+) -> tuple:
+    parsed = _bridge_sort_key(bracket)
+    max_secondary_start = max((left for _length, left, _right in parsed[3:]), default=0)
+    return (
+        -max_secondary_start,
+        _substituent_locants(mol, seq, core_atoms),
+        _secondary_bridge_preference_key(bracket),
+        _hetero_locants(mol, seq),
+        _unsaturation_contiguity_key(mol, seq),
+    )
 
 
 def _secondary_bridge_completion(
@@ -1193,6 +1238,43 @@ def _unsaturation_contiguity_key(mol, seq: Sequence[int]) -> tuple[int, tuple[tu
     return noncontiguous, tuple(sorted(locants))
 
 
+def _noncontiguous_unsaturation_locants(mol, seq: Sequence[int]) -> tuple[tuple[int, int], ...]:
+    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    locants = []
+    seen = set()
+    for idx in seq:
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in pos:
+                continue
+            key = tuple(sorted((idx, nidx)))
+            if key in seen:
+                continue
+            seen.add(key)
+            bond = mol.GetBondBetweenAtoms(idx, nidx)
+            if bond.GetBondTypeAsDouble() <= 1.0:
+                continue
+            low, high = sorted((pos[idx], pos[nidx]))
+            if high != low + 1:
+                locants.append((low, high))
+    return tuple(sorted(locants))
+
+
+def _bridge_unsaturation_preference_key(
+    mol, seq: Sequence[int], core_atoms: set[int]
+) -> tuple[int, tuple[tuple[int, int], ...]]:
+    if not mol.HasProp("_nispo_kekulized_aromatic_view"):
+        return (1, ())
+    if len(core_atoms) < 20:
+        return (1, ())
+    if _ring_multiple_bond_count(mol, set(core_atoms)) < 5:
+        return (1, ())
+    locants = _noncontiguous_unsaturation_locants(mol, seq)
+    if len(locants) < 2:
+        return (1, ())
+    return (0, locants)
+
+
 def _poly_loc_unsat(root: str, locs: list[str], suffix: str, terminal_e: bool = True) -> str:
     if len(locs) == 1:
         if not root:
@@ -1309,6 +1391,7 @@ def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: se
     hetero_locants = _hetero_locants(mol, seq)
     return (
         hetero_locants,
+        _bridge_unsaturation_preference_key(mol, seq, core_atoms),
         _unsaturation_contiguity_key(mol, seq),
         _substituent_locants(mol, seq, core_atoms),
     )

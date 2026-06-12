@@ -2995,6 +2995,8 @@ class GuanidineRetainedParentRule:
             if template_record_mol(template).GetNumAtoms() > mol.GetNumAtoms():
                 continue
             for match in ctx.template_matches(template):
+                if any(mol.GetAtomWithIdx(idx).GetFormalCharge() > 0 for idx in match):
+                    continue
                 name = _name_acyclic_retained_core_match(mol, template, match)
                 if not name:
                     continue

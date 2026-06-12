@@ -1696,6 +1696,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     chain_dominant_ring_substituent = _has_contextual_chain_dominant_ring_substituent_alternative(item, prepared)
     kekulized_polycycle_parent = _has_contextual_kekulized_polycycle_parent_alternative(item, prepared)
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
+    small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -1769,6 +1770,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or chain_dominant_ring_substituent
         or kekulized_polycycle_parent
         or retained_biochem_fused
+        or small_late_single_ring_parent
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -1995,6 +1997,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= 260
     if retained_biochem_fused:
         penalty += 80
+    if small_late_single_ring_parent:
+        penalty += 72
     return penalty
 
 
@@ -2932,6 +2936,41 @@ def _has_contextual_larger_single_ring_parent_alternative(
         if len(other_candidate.parent_atoms) <= current_parent_count:
             continue
         if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 30:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_early_six_member_single_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) > 4:
+        return False
+    current_rank = candidate.render_rank or 0
+    if current_rank <= 2:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) != 6:
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if other_rank < 1 or other_rank > min(2, current_rank - 1):
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 45:
             continue
         if other.stability_penalty > item.stability_penalty + 30:
             continue

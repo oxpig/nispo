@@ -334,8 +334,8 @@ def _mapped_component_names(
     raw_components: list[_Component] = []
     if submol.GetRingInfo().NumRings() == 1:
         raw_components.extend(_simple_component_names(submol, Chem, sub_spiros[0]))
-    if len(spiro_atoms) == 1:
-        raw_components.extend(_poly_component_names(submol, Chem, sub_spiros[0]))
+    for sub_spiro in sub_spiros:
+        raw_components.extend(_poly_component_names(submol, Chem, sub_spiro))
 
     components: list[_Component] = []
     seen = set()

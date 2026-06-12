@@ -36,9 +36,15 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
     if locanted_bond_descriptors:
         bond_descriptors = _remove_represented_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
     locanted_atom_descriptors = _locanted_atom_stereo_descriptors_in_name(name)
+    internal_relative_descriptor_count = _internal_relative_stereo_descriptor_count(name)
     represented_atom_descriptors = locanted_atom_descriptors + _internal_atom_stereo_descriptors_in_name(name)
     descriptors = []
-    if not _name_has_complete_atom_stereo(mol, Chem, represented_atom_descriptors):
+    if not _name_has_complete_atom_stereo(
+        mol,
+        Chem,
+        represented_atom_descriptors,
+        internal_relative_descriptor_count=internal_relative_descriptor_count,
+    ):
         descriptors = _atom_stereochemistry(mol, Chem, atom_order=atom_order)
         if represented_atom_descriptors:
             descriptors = _remove_represented_atom_descriptors(descriptors, represented_atom_descriptors)
@@ -139,6 +145,10 @@ def _internal_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     ]
 
 
+def _internal_relative_stereo_descriptor_count(name: str) -> int:
+    return 2 * len(re.findall(r"\((?:cis|trans)\)-", name))
+
+
 def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
     descriptors = [
         descriptor[-1]
@@ -175,11 +185,18 @@ def _locanted_bond_stereo_texts_in_name(name: str) -> set[str]:
     return set(re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name))
 
 
-def _name_has_complete_atom_stereo(mol, Chem, represented_descriptors: list[str]) -> bool:
-    if not represented_descriptors:
+def _name_has_complete_atom_stereo(
+    mol,
+    Chem,
+    represented_descriptors: list[str],
+    *,
+    internal_relative_descriptor_count: int = 0,
+) -> bool:
+    represented_count = len(represented_descriptors) + internal_relative_descriptor_count
+    if represented_count <= 0:
         return False
     chiral_count = len(assigned_atom_stereochemistry(mol, Chem))
-    return chiral_count > 0 and len(represented_descriptors) >= chiral_count
+    return chiral_count > 0 and represented_count >= chiral_count
 
 
 def _remove_represented_atom_descriptors(descriptors: list[str], represented_descriptors: list[str]) -> list[str]:

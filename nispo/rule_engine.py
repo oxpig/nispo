@@ -4917,7 +4917,10 @@ def _finalize_candidate_name(
                 name,
                 stereo_locant_count=_candidate_assigned_stereo_locant_count(mol, Chem, candidate),
             ),
-            include_unlocanted=not _has_retained_carbohydrate_substituent(name),
+            include_unlocanted=not (
+                _has_retained_carbohydrate_substituent(name)
+                or _has_relative_stereo_descriptor(name)
+            ),
         )
         if locanted_name != name:
             name = locanted_name

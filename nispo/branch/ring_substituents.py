@@ -747,8 +747,12 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
         for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
         if descriptor in {"R", "S"} and idx in seq_set
     ]
+    if len(centers) < 2:
+        relative = _simple_ring_relative_cis_trans_prefix(mol, seq)
+        if relative:
+            return relative
     if not centers:
-        return _simple_ring_relative_cis_trans_prefix(mol, seq)
+        return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     return ",".join(
         f"{locants[idx]}{descriptor}"
@@ -773,6 +777,8 @@ def _simple_ring_relative_cis_trans_prefix(mol, seq: Sequence[int]) -> str:
         if atom.GetIdx() in seq_set and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     ]
     if len(tagged) != 2:
+        return ""
+    if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C" for atom_idx in seq_set):
         return ""
     if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
         return ""

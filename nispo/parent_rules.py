@@ -9201,9 +9201,93 @@ def _complete_single_ring_parent_stereo_locants(mol, seq: Sequence[int], Chem) -
     if not parent_atoms:
         return ()
     assigned_atoms = {idx for idx, _descriptor in assigned_atom_stereochemistry(mol, Chem)}
-    if not assigned_atoms or not assigned_atoms.issubset(parent_atoms):
+    if not assigned_atoms:
+        return ()
+    if not assigned_atoms.issubset(parent_atoms) and not _external_stereo_represented_by_relative_ring_branches(
+        mol,
+        parent_atoms,
+        assigned_atoms - parent_atoms,
+        Chem,
+    ):
         return ()
     return _sequence_stereo_locants(seq)
+
+
+def _external_stereo_represented_by_relative_ring_branches(
+    mol,
+    parent_atoms: frozenset[int],
+    external_assigned_atoms: set[int],
+    Chem,
+) -> bool:
+    remaining = set(external_assigned_atoms)
+    if not remaining:
+        return True
+    relative_rings = _relative_stereo_ring_branch_sets(mol, Chem)
+    if not relative_rings:
+        return False
+    for atom_idx in tuple(external_assigned_atoms):
+        if atom_idx not in remaining:
+            continue
+        represented = False
+        for ring, tagged in relative_rings:
+            if atom_idx not in ring or ring & parent_atoms:
+                continue
+            ring_remaining = remaining & ring
+            if not ring_remaining:
+                continue
+            if not ring_remaining.issubset(tagged):
+                continue
+            remaining -= ring_remaining
+            represented = True
+            break
+        if not represented:
+            return False
+    return not remaining
+
+
+def _relative_stereo_ring_branch_sets(mol, Chem) -> tuple[tuple[frozenset[int], frozenset[int]], ...]:
+    cached = mol_cache_get(mol, "relative_stereo_ring_branch_sets")
+    if cached is not None:
+        return cached
+    rings = []
+    for raw_ring in mol.GetRingInfo().AtomRings():
+        ring = frozenset(raw_ring)
+        tagged = _simple_relative_stereo_ring_branch_tagged_atoms(mol, ring, Chem)
+        if tagged:
+            rings.append((ring, tagged))
+    return mol_cache_set(mol, "relative_stereo_ring_branch_sets", tuple(rings))
+
+
+def _simple_relative_stereo_ring_branch(mol, ring: frozenset[int], Chem) -> bool:
+    return bool(_simple_relative_stereo_ring_branch_tagged_atoms(mol, ring, Chem))
+
+
+def _simple_relative_stereo_ring_branch_tagged_atoms(mol, ring: frozenset[int], Chem) -> frozenset[int]:
+    tagged = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetIdx() in ring and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged) != 2:
+        return frozenset()
+    if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C" for atom_idx in ring):
+        return frozenset()
+    if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
+        return frozenset()
+    if any(_ring_external_heavy_degree(mol, atom.GetIdx(), ring) != 1 for atom in tagged):
+        return frozenset()
+    for bond in mol.GetBonds():
+        if bond.GetBeginAtomIdx() in ring and bond.GetEndAtomIdx() in ring and bond.GetBondType() != Chem.BondType.SINGLE:
+            return frozenset()
+    return frozenset(atom.GetIdx() for atom in tagged)
+
+
+def _ring_external_heavy_degree(mol, atom_idx: int, ring_atoms: frozenset[int]) -> int:
+    return sum(
+        1
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_atoms and nbr.GetAtomicNum() > 1
+    )
 
 
 class GeneratedFusedParentRule(FusedParentRule):

@@ -295,6 +295,35 @@ def test_spiro_functional_chain_defer_skips_noncarbon_group14_parent():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "NC(=O)[C@H](C[C@@H]1CCCNC1=O)NC(=O)C1CC2(CCCCC2)CN1C(=O)c1cc2c(Cl)cccc2[nH]1",
+        "COc1cccc2[nH]c(C(=O)N3CC4(CCCCC4)CC3C(=O)N[C@@H](C[C@@H]3CCCNC3=O)C(N)=O)cc12",
+        "COc1cccc2[nH]c(C(=O)N3CC4(CCCCC4)CC3C(=O)N[C@@H](C[C@@H]3CCNC3=O)C(N)=O)cc12",
+        "COc1cc(Cl)c2[nH]c(C(=O)N3CC4(CCCCC4)CC3C(=O)N[C@@H](C[C@@H]3CCCNC3=O)C(N)=O)cc2c1",
+    ],
+)
+def test_spiro_chain_deferred_to_single_ring_lactam_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_spiro_chain_deferral_skips_charged_exocyclic_imino_ring_suffix():
+    input_smiles = (
+        "CCC1(C)CC(=O)N([C@H](CCOC)c2cccc(C(=O)NC3c4ccccc4C4(CC4)C3O)c2)"
+        "C(=[NH2+])N1"
+    )
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_unsaturated_n_acyl_amino_acid_roundtrips_with_opsin():
     input_smiles = "CCCCCCCC/C=C\\CCCCCCCC(=O)N[C@@H](C)C(=O)O"
     generated_name = smiles_to_iupac(input_smiles)

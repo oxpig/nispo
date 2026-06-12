@@ -9,6 +9,7 @@ from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
     HydrogenEvidence,
+    OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     PrefixCandidate,
     StereoEvidence,
@@ -1643,6 +1644,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     generic_spiro_parent = _has_fragile_generic_spiro_parent(name, item.candidate)
     generated_spiro_functional_chain = _has_contextual_generated_spiro_functional_chain_alternative(item, prepared)
     complete_spiro_functional_chain = _has_contextual_complete_spiro_functional_chain_alternative(item, prepared)
+    single_ring_lactam_parent = _has_contextual_single_ring_lactam_parent_alternative(item, prepared)
     natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
     neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
     incomplete_shortcut_graph_parent = _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
@@ -1748,6 +1750,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or generic_spiro_parent
         or generated_spiro_functional_chain
         or complete_spiro_functional_chain
+        or single_ring_lactam_parent
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
         or incomplete_shortcut_graph_parent
@@ -1939,6 +1942,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 160
     if generated_spiro_functional_chain:
         penalty += 280
+    if single_ring_lactam_parent:
+        penalty += 330
     if natural_topology_generic_polycycle:
         penalty += 90
     if neutral_amine_shortcut:
@@ -3645,6 +3650,74 @@ def _has_contextual_spiro_functional_chain_alternative(
         if other.stability_penalty >= item.stability_penalty + 80:
             continue
         return True
+    return False
+
+
+def _has_contextual_single_ring_lactam_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generated-spiro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "generic-spiro-parent",
+        "spiro-functional-chain-substituent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) > 14:
+        return False
+    if candidate.family in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+    } and not _has_sibling_spiro_functional_chain_parent(item, prepared):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) not in {5, 6}:
+            continue
+        ring_oxo_suffixes = [suffix for suffix in other_candidate.suffixes if suffix.kind == "ring_oxo_suffix"]
+        if not ring_oxo_suffixes:
+            continue
+        if any(OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX in suffix.safety.reasons for suffix in ring_oxo_suffixes):
+            continue
+        if other_candidate.render_rank is not None and other_candidate.render_rank > 2:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 65:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_sibling_spiro_functional_chain_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "spiro-functional-chain-substituent":
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.parent_atoms == candidate.parent_atoms:
+            return True
     return False
 
 

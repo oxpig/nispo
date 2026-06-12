@@ -11,7 +11,13 @@ from functools import lru_cache
 from .branch_rules import branch_prefix
 from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
-from .candidate_facts import CandidateSafety, ChargeEvidence, OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND, SuffixCandidate
+from .candidate_facts import (
+    CandidateSafety,
+    ChargeEvidence,
+    OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
+    OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
+    SuffixCandidate,
+)
 from .constants import HALO, MULT, ROOTS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
@@ -9516,7 +9522,7 @@ class SingleRingParentRule:
                     parent_atoms=frozenset(ring),
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
-                    suffixes=_single_ring_suffix_candidates(record),
+                    suffixes=_single_ring_suffix_candidates(mol, record),
                     charge=_single_ring_charge_evidence(mol, ring),
                     estimated_length=len(record.name),
                     render_rank=render_rank,
@@ -9575,7 +9581,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     parent_atoms=frozenset(ring),
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
-                    suffixes=_single_ring_suffix_candidates(record),
+                    suffixes=_single_ring_suffix_candidates(mol, record),
                     charge=_single_ring_charge_evidence(mol, ring),
                     estimated_length=len(record.name),
                     render_rank=1,
@@ -9586,13 +9592,40 @@ def _has_positive_ring_parent_name(name: str) -> bool:
     return bool(re.search(r"(?:^|-)[^-]+-\d+-ium(?:$|-)", name))
 
 
-def _single_ring_suffix_candidates(record) -> tuple[SuffixCandidate, ...]:
+def _single_ring_suffix_candidates(mol, record) -> tuple[SuffixCandidate, ...]:
     if not record.suffix_kind:
         return ()
     source = "single-ring-parent"
     if record.suffix_graph_class:
         source = f"{source}:{record.suffix_graph_class}"
-    return (SuffixCandidate(text="", kind=record.suffix_kind, source=source),)
+    safety = CandidateSafety()
+    if _single_ring_suffix_has_exocyclic_charged_multiple_bond(mol, record.locant_seq, record.suffix_kind):
+        safety = CandidateSafety(
+            opsin_fragility_reasons=(OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,),
+        )
+    return (SuffixCandidate(text="", kind=record.suffix_kind, source=source, safety=safety),)
+
+
+def _single_ring_suffix_has_exocyclic_charged_multiple_bond(
+    mol,
+    seq: Sequence[int],
+    suffix_kind: str,
+) -> bool:
+    if suffix_kind not in {"ring_oxo_suffix", "ring_thione_suffix"}:
+        return False
+    ring_set = set(seq)
+    for ring_idx in seq:
+        ring_atom = mol.GetAtomWithIdx(ring_idx)
+        for neighbor in ring_atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx in ring_set:
+                continue
+            bond = mol.GetBondBetweenAtoms(ring_idx, nidx)
+            if bond is None or bond.GetBondTypeAsDouble() <= 1.5:
+                continue
+            if neighbor.GetFormalCharge() != 0:
+                return True
+    return False
 
 
 @dataclass(frozen=True, slots=True)

@@ -1259,6 +1259,7 @@ def test_sulfonylamide_retained_parent_roundtrips_with_opsin():
         "NC(=NS(=O)(=O)c1ccccc1)c1ccccc1",
         "CC(=NS(=O)(=O)c1ccc(C)cc1)c1ccc(C#N)cc1",
         "CC(=NNS(=O)(=O)c1ccc(C)cc1)C1CN(C(=O)OC(C)(C)C)C1",
+        "CC(C)=C/C(=C\\C=NS(=O)(=O)c1ccc([N+](=O)[O-])cc1)N1CCCC1",
     ],
 )
 def test_imino_sulfonamide_and_sulfonohydrazide_parents_roundtrip_with_opsin(input_smiles):

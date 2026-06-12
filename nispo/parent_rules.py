@@ -6520,10 +6520,6 @@ def _imino_carbon_retained_substituent(mol, carbon_idx: int, imine_nitrogen_idx:
         if not name:
             return ""
         substituents.append(_retained_parent_substituent_alias(name))
-    if not substituents:
-        return "methylene"
-    if len(substituents) == 1:
-        return f"{_parenthesized_if_complex(substituents[0])}methylene"
     if len(substituents) != 2:
         return ""
     if "amino" in substituents:
@@ -6532,8 +6528,7 @@ def _imino_carbon_retained_substituent(mol, carbon_idx: int, imine_nitrogen_idx:
     if "methyl" in substituents:
         other = next(name for name in substituents if name != "methyl")
         return f"1-({_strip_outer_parentheses(other)})ethylidene"
-    left, right = sorted(substituents)
-    return f"{_parenthesized_if_complex(left)}({_strip_outer_parentheses(right)})methylene"
+    return ""
 
 
 def _terminal_amino_substituent(mol, nitrogen_idx: int, carbon_idx: int) -> bool:

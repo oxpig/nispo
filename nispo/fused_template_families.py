@@ -36,6 +36,18 @@ _TARGET_FUSION_BASES = {
     "naphthyridine",
 }
 
+_IMIDAZOLE_DESCENDING_FUSION_COMPONENT_PREFIXES = (
+    "isoquino",
+    "naphtho",
+    "pyridazino",
+    "pyrido",
+    "pyrimido",
+    "quinazolino",
+    "quino",
+    "quinoxalino",
+    "thieno",
+)
+
 _FUSION_BASE_PRIORITY = {
     name: index
     for index, name in enumerate(
@@ -260,6 +272,7 @@ def generated_fusion_preference(name: str) -> tuple:
     orientation_rank = _target_fusion_orientation_rank(component, base)
     base_rank = _FUSION_BASE_PRIORITY.get(base, 500)
     locants = _fusion_descriptor_locants(locant_text)
+    locants = _fusion_descriptor_locant_preference(component, base, locants)
     letter_rank = _fusion_letter_rank(component, base, letter)
     component_rank = _component_alias_penalty(component)
     return (orientation_rank, base_rank, letter_rank, locants, component_rank, name)
@@ -472,6 +485,12 @@ def _fusion_descriptor_locants(text: str) -> tuple:
         else:
             values.append((999, suffix or part))
     return tuple(values)
+
+
+def _fusion_descriptor_locant_preference(component: str, base: str, locants: tuple) -> tuple:
+    if base == "imidazole" and component.startswith(_IMIDAZOLE_DESCENDING_FUSION_COMPONENT_PREFIXES):
+        return tuple((-number, suffix) for number, suffix in locants)
+    return locants
 
 
 def _component_alias_penalty(component: str) -> tuple:

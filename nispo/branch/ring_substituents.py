@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from functools import lru_cache
 
@@ -41,6 +42,7 @@ from .functional_groups import (
     _name_subtree_path,
     _sulfur_prefix,
     collect_subtree,
+    rooted_paths,
     substituent_from_root,
     substituent_locants,
 )
@@ -657,6 +659,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             prefix = _simple_or_branch_prefix(mol, nidx, ring_idx)
             if not prefix:
                 return ""
+            prefix = _with_ring_branch_atom_stereo_prefix(mol, nidx, ring_idx, prefix)
             raw_subs.append((ring_idx, prefix))
 
     best = ""
@@ -698,6 +701,88 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             best_key = key
             best = name
     return best
+
+
+def _with_ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int, prefix: str) -> str:
+    if not prefix or _has_locanted_atom_stereo_prefix(prefix):
+        return prefix
+    stereo_prefix = _ring_branch_atom_stereo_prefix(mol, root_idx, blocked_idx)
+    if not stereo_prefix:
+        return prefix
+    if prefix.startswith("(") and prefix.endswith(")"):
+        inner = prefix[1:-1]
+        if inner:
+            return f"(({stereo_prefix})-{inner})"
+    return f"({stereo_prefix})-{prefix}"
+
+
+def _has_locanted_atom_stereo_prefix(prefix: str) -> bool:
+    return bool(re.search(r"\(\d+'?[RS](?:,\d+'?[RS])*\)-", prefix))
+
+
+def _ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int) -> str:
+    if mol.GetAtomWithIdx(root_idx).IsInRing():
+        return ""
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if not assigned:
+        return ""
+    atoms = collect_subtree(mol, root_idx, blocked_idx)
+    if not atoms:
+        return ""
+    relevant = [(idx, descriptor) for idx, descriptor in assigned if idx in atoms]
+    if not relevant:
+        return ""
+    paths = rooted_paths(mol, root_idx, atoms)
+    if not paths:
+        return ""
+    best_path = ()
+    best_key = None
+    for path in paths:
+        name = _name_subtree_path(mol, path, atoms, blocked_idx)
+        if not name:
+            continue
+        key = (-len(path), substituent_locants(mol, path, atoms, blocked_idx), name)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_path = path
+    if not best_path:
+        return ""
+    locant_by_atom = {idx: loc for loc, idx in enumerate(best_path, start=1)}
+    connector_offset = _ring_branch_stereo_locant_connector_offset(mol, root_idx, blocked_idx)
+    pieces = []
+    for atom_idx, descriptor in relevant:
+        locant = locant_by_atom.get(atom_idx)
+        if locant is None:
+            continue
+        if connector_offset:
+            if atom_idx == root_idx:
+                continue
+            locant -= connector_offset
+            if locant < 1:
+                continue
+        pieces.append(f"{locant}{descriptor}")
+    return ",".join(pieces)
+
+
+def _ring_branch_stereo_locant_connector_offset(mol, root_idx: int, blocked_idx: int) -> int:
+    root = mol.GetAtomWithIdx(root_idx)
+    if root.GetSymbol() == "C":
+        return 0
+    if root.GetFormalCharge() != 0 or root.IsInRing():
+        return 0
+    parent_bond = mol.GetBondBetweenAtoms(root_idx, blocked_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return 0
+    heavy = [
+        nbr.GetIdx()
+        for nbr in root.GetNeighbors()
+        if nbr.GetIdx() != blocked_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return 0
+    if root.GetSymbol() in {"N", "O", "S"}:
+        return 1
+    return 0
 
 
 def _merge_ring_parent_candidates(

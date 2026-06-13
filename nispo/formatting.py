@@ -406,6 +406,8 @@ def _is_composite_substituent_name(name: str) -> bool:
         return True
     if name.endswith("phosphoryl") and _has_leading_multiplier(name):
         return True
+    if name.endswith(("acetyl", "benzoyl", "formyl")):
+        return True
     return name.endswith("amino") and _has_leading_multiplier(name)
 
 

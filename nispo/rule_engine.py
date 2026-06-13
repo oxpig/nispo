@@ -1807,6 +1807,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     benzotriazole_retained_anchor = _has_contextual_benzotriazole_retained_anchor_alternative(item, prepared)
     retained_shortcut = _has_contextual_systematic_alternative_for_retained_shortcut(item, prepared)
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
+    cyclic_n_carbamate_carboxylate = _has_contextual_complete_cyclic_n_carbamate_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
     retained_aryl_urea = _has_contextual_aryl_urea_alternative(item, prepared)
     biochem_heterofused_parent = _has_contextual_biochem_heterofused_parent_alternative(item, prepared)
@@ -1898,6 +1899,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or benzotriazole_retained_anchor
         or retained_shortcut
         or retained_ester_shortcut
+        or cyclic_n_carbamate_carboxylate
         or acyclic_carbalkoxy_ester
         or retained_aryl_urea
         or biochem_heterofused_parent
@@ -2125,6 +2127,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if retained_ester_shortcut:
         penalty += 160
+    if cyclic_n_carbamate_carboxylate:
+        penalty += 1600
     if acyclic_carbalkoxy_ester:
         penalty += 180
     if retained_aryl_urea:
@@ -3348,6 +3352,7 @@ def _has_contextual_benzotriazole_retained_anchor_alternative(
 
 _COMPLETE_RETAINED_SENIOR_PARENT_FAMILIES = frozenset(
     {
+        "cyclic-n-carbamate-carboxylate-retained-parent",
         "dithiophosphate-retained-parent",
         "phosphorothioic-triamide-retained-parent",
         "thiooxo-ester-retained-parent",
@@ -3381,6 +3386,41 @@ def _has_contextual_retained_acid_ester_alternative(
         if len(other.name) > 170 or len(other.name) - len(item.name) > 100:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+_CYCLIC_N_CARBAMATE_FALLBACK_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+    }
+)
+
+
+def _has_contextual_complete_cyclic_n_carbamate_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in _CYCLIC_N_CARBAMATE_FALLBACK_FAMILIES:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        if other.candidate.family != "cyclic-n-carbamate-carboxylate-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other.candidate) or not other.candidate.parent_atoms:
+            continue
+        if len(other.name) > 220:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
             continue
         return True
     return False
@@ -5090,6 +5130,17 @@ def _finalize_candidate_name(
         name = f"({candidate.stereo_prefix})-{name}"
         structured_stereo_applied = True
     elif candidate.stereo_locants:
+        invert_unlocanted_bond_stereo = _candidate_needs_indene_exocyclic_carbon_stereo_inversion(
+            mol,
+            Chem,
+            candidate,
+        )
+        reverse_descriptor_sequence = _candidate_prefers_reversed_mixed_stereo_prefix(
+            mol,
+            Chem,
+            candidate,
+        )
+        reverse_atom_descriptor_sequence = False
         locanted_name = apply_locanted_stereochemical_prefix(
             mol,
             Chem,
@@ -5104,6 +5155,9 @@ def _finalize_candidate_name(
                 _has_retained_carbohydrate_substituent(name)
                 or _has_relative_stereo_descriptor(name)
             ),
+            invert_unlocanted_bond_stereo=invert_unlocanted_bond_stereo,
+            reverse_descriptor_sequence=reverse_descriptor_sequence,
+            reverse_atom_descriptor_sequence=reverse_atom_descriptor_sequence,
         )
         if locanted_name != name:
             name = locanted_name
@@ -5132,9 +5186,109 @@ def _finalize_candidate_name(
             Chem,
             name,
             atom_order=_fallback_stereo_atom_order(candidate.family, name),
+            invert_unlocanted_bond_stereo=_candidate_needs_indene_exocyclic_carbon_stereo_inversion(
+                mol,
+                Chem,
+                candidate,
+            ),
         )
     name = _apply_uniform_isotope_label(mol, name)
     return name if len(name) <= max_length else ""
+
+
+def _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
+    if (
+        candidate.family != "fused-retained-parent"
+        or candidate.template_name != "inden"
+        or not candidate.parent_atoms
+        or not candidate.stereo_locants
+    ):
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    locant_by_atom = dict(candidate.stereo_locants)
+    external_numeric_locants: set[str] = set()
+    exocyclic_stereo_bonds = 0
+    for parent_idx in parent_atoms:
+        parent_atom = mol.GetAtomWithIdx(parent_idx)
+        parent_locant = locant_by_atom.get(parent_idx, "")
+        for neighbor in parent_atom.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            if neighbor_idx in parent_atoms or neighbor.GetAtomicNum() <= 1:
+                continue
+            if parent_locant.isdigit():
+                external_numeric_locants.add(parent_locant)
+            bond = mol.GetBondBetweenAtoms(parent_idx, neighbor_idx)
+            if (
+                parent_locant == "1"
+                and neighbor.GetSymbol() == "C"
+                and not neighbor.IsInRing()
+                and bond is not None
+                and bond.GetBondType() == Chem.BondType.DOUBLE
+                and bond.GetStereo() != Chem.BondStereo.STEREONONE
+            ):
+                exocyclic_stereo_bonds += 1
+    return (
+        exocyclic_stereo_bonds == 1
+        and {"1", "2", "3"}.issubset(external_numeric_locants)
+        and "7" not in external_numeric_locants
+    )
+
+
+_MIXED_STEREO_COMPLEX_PARENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+    }
+)
+
+
+def _candidate_prefers_reversed_mixed_stereo_prefix(mol, Chem, candidate: NameCandidate) -> bool:
+    if candidate.family not in _MIXED_STEREO_COMPLEX_PARENT_FAMILIES:
+        return False
+    if not candidate.stereo_locants or not candidate.parent_atoms:
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) < 8 or mol.GetRingInfo().NumRings() < 2:
+        return False
+    locanted_atoms = {atom_idx for atom_idx, _locant in candidate.stereo_locants}
+    assigned_atoms = {atom_idx for atom_idx, _descriptor in assigned_atom_stereochemistry(mol, Chem)}
+    if not assigned_atoms or assigned_atoms.issubset(locanted_atoms):
+        return False
+    if len(assigned_atoms & locanted_atoms) < 4:
+        return False
+    external_assigned_atoms = assigned_atoms - locanted_atoms
+    if len(external_assigned_atoms) < 2:
+        return False
+    if not any(atom_idx not in candidate.parent_atoms for atom_idx in external_assigned_atoms):
+        return False
+    if _has_any_assigned_bond_stereo(mol, Chem) and not _has_external_assigned_bond_stereo(mol, Chem, candidate):
+        return False
+    return True
+
+
+def _has_any_assigned_bond_stereo(mol, Chem) -> bool:
+    for bond in mol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            return True
+    return False
+
+
+def _has_external_assigned_bond_stereo(mol, Chem, candidate: NameCandidate) -> bool:
+    parent_atoms = set(candidate.parent_atoms)
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            continue
+        if bond.GetBeginAtomIdx() not in parent_atoms or bond.GetEndAtomIdx() not in parent_atoms:
+            return True
+    return False
 
 
 def _has_retained_carbohydrate_substituent(name: str) -> bool:

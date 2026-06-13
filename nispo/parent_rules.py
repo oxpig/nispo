@@ -3275,6 +3275,41 @@ class CarbamateRetainedParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class CyclicNCarbamateCarboxylateRetainedParentRule:
+    family = "cyclic-n-carbamate-carboxylate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for carbonyl_idx, oxygen_idx, nitrogen_idx in _carbamate_motifs(mol, self._Chem):
+            nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+            if not nitrogen.IsInRing() or nitrogen.GetFormalCharge() != 0:
+                continue
+            oxygen_substituent = _single_external_substituent_name(mol, oxygen_idx, carbonyl_idx)
+            if not oxygen_substituent:
+                continue
+            ring_parent = _cyclic_n_carbamate_carboxylate_parent_name(mol, self._Chem, nitrogen_idx, carbonyl_idx)
+            if not ring_parent:
+                continue
+            name = f"{oxygen_substituent} {ring_parent}"
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                source_family="cyclic-n-carbamate:carboxylate",
+                estimated_length=len(name),
+            )
+
+
 class CarbodiimideRetainedParentRule:
     family = "carbodiimide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3311,6 +3346,30 @@ class RetainedAcidEsterParentRule:
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+            )
+
+
+class AcylDiphosphateRetainedParentRule:
+    family = "retained-acid-ester-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for name, source_family, parent_atoms in _acyl_diphosphate_parent_records(mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                source_family=source_family,
+                parent_atoms=parent_atoms,
             )
 
 
@@ -3504,6 +3563,31 @@ class UreaRetainedParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class SydnoneUreaAmidateRetainedParentRule:
+    family = "charged-urea-amidate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for name in _sydnone_urea_amidate_names(mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                source_family="charged-urea-amidate:sydnone",
+                estimated_length=len(name),
+            )
+
+
 class GlutarimideRetainedParentRule:
     family = "glutarimide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3570,6 +3654,118 @@ def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
         if ok and len(double_o) == 1 and len(single_o) == 1 and len(single_n) == 1:
             motifs.append((cidx, single_o[0], single_n[0]))
     return motifs
+
+
+def _cyclic_n_carbamate_carboxylate_parent_name(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> str:
+    branch = _simple_or_branch_prefix(mol, nitrogen_idx, carbonyl_idx)
+    if not branch:
+        return ""
+    branch, has_exocyclic_carboxymethylidene = _with_exocyclic_carboxymethylidene_branch(
+        mol,
+        Chem,
+        nitrogen_idx,
+        carbonyl_idx,
+        branch,
+    )
+    if not has_exocyclic_carboxymethylidene:
+        return ""
+    return _cyclic_n_carbamate_parent_from_branch(branch)
+
+
+def _cyclic_n_carbamate_parent_name(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> str:
+    branch = _simple_or_branch_prefix(mol, nitrogen_idx, carbonyl_idx)
+    if not branch:
+        return ""
+    branch, _has_exocyclic_carboxymethylidene = _with_exocyclic_carboxymethylidene_branch(
+        mol,
+        Chem,
+        nitrogen_idx,
+        carbonyl_idx,
+        branch,
+    )
+    return _cyclic_n_carbamate_parent_from_branch(branch)
+
+
+def _cyclic_n_carbamate_parent_from_branch(branch: str) -> str:
+    parent = _cyclic_n_branch_to_carboxylate_parent(branch)
+    if not parent:
+        return ""
+    if " " in parent:
+        return ""
+    if len(parent) > 180:
+        return ""
+    return parent
+
+
+def _with_exocyclic_carboxymethylidene_branch(
+    mol,
+    Chem,
+    nitrogen_idx: int,
+    carbonyl_idx: int,
+    branch: str,
+) -> tuple[str, bool]:
+    if "2-oxo-3-oxapropyl" not in branch:
+        return branch, False
+    kind = _exocyclic_carboxymethylidene_kind(mol, Chem, nitrogen_idx, carbonyl_idx)
+    if not kind:
+        return branch, False
+    replacement = "carboxylatomethylidene" if kind == "carboxylate" else "carboxymethylidene"
+    return branch.replace("2-oxo-3-oxapropyl", replacement, 1), True
+
+
+def _exocyclic_carboxymethylidene_kind(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> str:
+    rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if nitrogen_idx in ring]
+    if len(rings) != 1:
+        return ""
+    ring_set = set(rings[0])
+    for ring_idx in ring_set:
+        if ring_idx == nitrogen_idx:
+            continue
+        for alpha in mol.GetAtomWithIdx(ring_idx).GetNeighbors():
+            alpha_idx = alpha.GetIdx()
+            if alpha_idx in ring_set or alpha_idx == carbonyl_idx or alpha.GetSymbol() != "C":
+                continue
+            alpha_bond = mol.GetBondBetweenAtoms(ring_idx, alpha_idx)
+            if alpha_bond is None or alpha_bond.GetBondType() != Chem.BondType.DOUBLE:
+                continue
+            carboxyl_carbons = [
+                nbr.GetIdx()
+                for nbr in alpha.GetNeighbors()
+                if nbr.GetIdx() != ring_idx and nbr.GetSymbol() == "C"
+            ]
+            if len(carboxyl_carbons) != 1:
+                continue
+            kind = _terminal_carboxyl_group_kind(mol, Chem, carboxyl_carbons[0], alpha_idx)
+            if kind in {"acid", "carboxylate"}:
+                return kind
+    return ""
+
+
+def _cyclic_n_branch_to_carboxylate_parent(branch: str) -> str:
+    saturated_n_suffixes = {
+        "piperidino": "piperidine-1-carboxylate",
+        "piperazino": "piperazine-1-carboxylate",
+        "pyrrolidino": "pyrrolidine-1-carboxylate",
+        "morpholino": "morpholine-4-carboxylate",
+    }
+    for suffix, replacement in saturated_n_suffixes.items():
+        if branch == suffix:
+            return replacement
+        if branch.endswith(suffix):
+            return branch[: -len(suffix)] + replacement
+    match = re.fullmatch(
+        r"(.+(?:aza|diaza|triaza)[A-Za-z0-9,\.\[\]\(\)\^']*?)(?:an|ane)-([0-9]+[a-z]?)-yl",
+        branch,
+    )
+    if match:
+        return f"{match.group(1)}ane-{match.group(2)}-carboxylate"
+    match = re.fullmatch(
+        r"(.+(?:azetidin|pyrrolidin|piperidin|piperazin|morpholin))-([0-9]+[a-z]?)-yl",
+        branch,
+    )
+    if match:
+        return f"{match.group(1)}e-{match.group(2)}-carboxylate"
+    return ""
 
 
 def _glutarimide_ring_parent_names(mol, Chem, ring: Sequence[int]) -> list[str]:
@@ -5474,12 +5670,26 @@ def _is_exocyclic_double_oxygen(mol, Chem, atom_idx: int, oxygen_idx: int) -> bo
     return bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE
 
 
+def _carbonyl_double_oxygen(mol, Chem, carbonyl_idx: int) -> int | None:
+    oxygens = []
+    for nbr in mol.GetAtomWithIdx(carbonyl_idx).GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nbr.GetIdx())
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            oxygens.append(nbr.GetIdx())
+    return oxygens[0] if len(oxygens) == 1 else None
+
+
 def _retained_acid_ester_names(mol, Chem) -> list[str]:
     return [name for name, _source_family in _retained_acid_ester_records(mol, Chem)]
 
 
 def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
-    names = []
+    names = _acyl_diphosphate_records(mol, Chem)
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
         if not owner:
@@ -5494,6 +5704,186 @@ def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
         if acrylate:
             names.append((acrylate, "retained-acid-ester:acrylate"))
     return names
+
+
+def _acyl_diphosphate_records(mol, Chem) -> list[tuple[str, str]]:
+    return [(name, source_family) for name, source_family, _atoms in _acyl_diphosphate_parent_records(mol, Chem)]
+
+
+def _acyl_diphosphate_parent_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
+    records = []
+    for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
+        record = _acyl_diphosphate_record(mol, Chem, carbonyl_idx, ester_oxygen_idx, acyl_idx)
+        if record:
+            name, parent_atoms = record
+            records.append((name, "retained-acid-ester:acyl-diphosphate", parent_atoms))
+    return records
+
+
+def _acyl_diphosphate_name(mol, Chem, carbonyl_idx: int, ester_oxygen_idx: int, acyl_idx: int) -> str:
+    record = _acyl_diphosphate_record(mol, Chem, carbonyl_idx, ester_oxygen_idx, acyl_idx)
+    return record[0] if record else ""
+
+
+def _acyl_diphosphate_record(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    ester_oxygen_idx: int,
+    acyl_idx: int,
+) -> tuple[str, frozenset[int]] | None:
+    diphosphate_atoms = _acyl_diphosphate_atoms(mol, Chem, carbonyl_idx, ester_oxygen_idx)
+    if not diphosphate_atoms:
+        return None
+    carbonyl_oxygen = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    if carbonyl_oxygen is None:
+        return None
+    covered_atoms = {carbonyl_idx, carbonyl_oxygen}
+    covered_atoms.update(diphosphate_atoms)
+    covered_atoms.update(_collect_component_atoms(mol, acyl_idx, carbonyl_idx))
+    if covered_atoms != set(range(mol.GetNumAtoms())):
+        return None
+    names = []
+    for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
+        acyl_name = _generic_acyl_ligand_path_name(mol, Chem, carbonyl_idx, path)
+        if acyl_name:
+            names.append(f"{acyl_name} diphosphate")
+    if not names:
+        return None
+    return min(names, key=lambda value: (len(value), value)), frozenset(covered_atoms)
+
+
+def _acyl_diphosphate_atoms(mol, Chem, carbonyl_idx: int, ester_oxygen_idx: int) -> set[int] | None:
+    ester_oxygen = mol.GetAtomWithIdx(ester_oxygen_idx)
+    if ester_oxygen.GetSymbol() != "O" or ester_oxygen.GetFormalCharge() != 0:
+        return None
+    carbonyl_bond = mol.GetBondBetweenAtoms(carbonyl_idx, ester_oxygen_idx)
+    if carbonyl_bond is None or carbonyl_bond.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    phosphorus_neighbors = []
+    for nbr in ester_oxygen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(ester_oxygen_idx, nidx)
+        if nbr.GetSymbol() == "P" and bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            phosphorus_neighbors.append(nidx)
+        else:
+            return None
+    if len(phosphorus_neighbors) != 1:
+        return None
+    return _diphosphate_chain_atoms(mol, Chem, phosphorus_neighbors[0], ester_oxygen_idx)
+
+
+def _diphosphate_chain_atoms(mol, Chem, first_phosphorus_idx: int, ester_oxygen_idx: int) -> set[int] | None:
+    first = _diphosphate_first_phosphorus_atoms(mol, Chem, first_phosphorus_idx, ester_oxygen_idx)
+    if not first:
+        return None
+    second = _diphosphate_terminal_phosphorus_atoms(mol, Chem, first["second_phosphorus"], first["bridge_oxygen"])
+    if not second:
+        return None
+    atoms = {ester_oxygen_idx, first_phosphorus_idx}
+    atoms.update(first["atoms"])
+    atoms.update(second)
+    return atoms
+
+
+def _diphosphate_first_phosphorus_atoms(
+    mol,
+    Chem,
+    phosphorus_idx: int,
+    ester_oxygen_idx: int,
+) -> dict | None:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return None
+    if phosphorus.GetTotalNumHs() != 0:
+        return None
+    double_oxygen = []
+    terminal_oxido = []
+    bridge_records = []
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if nidx == ester_oxygen_idx:
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return None
+            continue
+        if nbr.GetSymbol() != "O" or bond is None:
+            return None
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            if nbr.GetFormalCharge() != 0 or _heavy_degree_excluding(mol, nidx, phosphorus_idx) != 0:
+                return None
+            double_oxygen.append(nidx)
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != phosphorus_idx and atom.GetAtomicNum() > 1
+        ]
+        if not heavy and nbr.GetFormalCharge() < 0:
+            terminal_oxido.append(nidx)
+            continue
+        if len(heavy) == 1 and nbr.GetFormalCharge() == 0 and mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "P":
+            bridge_records.append((nidx, heavy[0]))
+            continue
+        return None
+    if len(double_oxygen) != 1 or len(terminal_oxido) != 1 or len(bridge_records) != 1:
+        return None
+    bridge_oxygen, second_phosphorus = bridge_records[0]
+    return {
+        "atoms": {double_oxygen[0], terminal_oxido[0], bridge_oxygen},
+        "bridge_oxygen": bridge_oxygen,
+        "second_phosphorus": second_phosphorus,
+    }
+
+
+def _diphosphate_terminal_phosphorus_atoms(
+    mol,
+    Chem,
+    phosphorus_idx: int,
+    bridge_oxygen_idx: int,
+) -> set[int] | None:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return None
+    if phosphorus.GetTotalNumHs() != 0:
+        return None
+    double_oxygen = []
+    terminal_oxido = []
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if nidx == bridge_oxygen_idx:
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return None
+            continue
+        if nbr.GetSymbol() != "O" or bond is None:
+            return None
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            if nbr.GetFormalCharge() != 0 or _heavy_degree_excluding(mol, nidx, phosphorus_idx) != 0:
+                return None
+            double_oxygen.append(nidx)
+            continue
+        if bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            if _heavy_degree_excluding(mol, nidx, phosphorus_idx) != 0:
+                return None
+            terminal_oxido.append(nidx)
+            continue
+        return None
+    if len(double_oxygen) != 1 or len(terminal_oxido) != 2:
+        return None
+    return {phosphorus_idx, double_oxygen[0], *terminal_oxido}
+
+
+def _heavy_degree_excluding(mol, atom_idx: int, excluded_idx: int) -> int:
+    return sum(
+        1
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() != excluded_idx and nbr.GetAtomicNum() > 1
+    )
 
 
 def _retained_acid_ester_source_family(mol, Chem, carbonyl_idx: int, acyl_idx: int, kind: str) -> str:
@@ -6828,6 +7218,92 @@ def _urea_motifs(mol, Chem) -> list[tuple[int, int, int]]:
         if ok and len(double_o) == 1 and len(single_n) == 2:
             motifs.append((cidx, single_n[0], single_n[1]))
     return motifs
+
+
+def _sydnone_urea_amidate_names(mol, Chem) -> list[str]:
+    names = []
+    for carbonyl_idx, nitrogen_a, nitrogen_b in _urea_motifs(mol, Chem):
+        for anionic_n, neutral_n in ((nitrogen_a, nitrogen_b), (nitrogen_b, nitrogen_a)):
+            anion_atom = mol.GetAtomWithIdx(anionic_n)
+            neutral_atom = mol.GetAtomWithIdx(neutral_n)
+            if anion_atom.GetFormalCharge() != -1 or neutral_atom.GetFormalCharge() != 0:
+                continue
+            anion_substituent_idx = _single_heavy_neighbor_excluding(mol, anionic_n, carbonyl_idx)
+            neutral_substituent_idx = _single_heavy_neighbor_excluding(mol, neutral_n, carbonyl_idx)
+            if anion_substituent_idx is None or neutral_substituent_idx is None:
+                continue
+            if not _sydnone_like_urea_amidate_substituent(mol, anion_substituent_idx):
+                continue
+            anion_substituent = _simple_or_branch_prefix(mol, anion_substituent_idx, anionic_n)
+            neutral_substituent = _simple_or_branch_prefix(mol, neutral_substituent_idx, neutral_n)
+            if not _allowed_sydnone_urea_amidate_substituent(anion_substituent, charged=True):
+                continue
+            if not _allowed_sydnone_urea_amidate_substituent(neutral_substituent, charged=False):
+                continue
+            names.append(f"({anion_substituent})(({neutral_substituent})carbamoyl)amide")
+    return names
+
+
+def _single_heavy_neighbor_excluding(mol, atom_idx: int, excluded_idx: int) -> int | None:
+    neighbors = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() != excluded_idx and nbr.GetAtomicNum() > 1
+    ]
+    return neighbors[0] if len(neighbors) == 1 else None
+
+
+def _sydnone_like_urea_amidate_substituent(mol, attach_idx: int) -> bool:
+    attach_atom = mol.GetAtomWithIdx(attach_idx)
+    if attach_atom.GetSymbol() != "C" or attach_atom.GetFormalCharge() != 0:
+        return False
+    for ring in mol.GetRingInfo().AtomRings():
+        if attach_idx not in ring or len(ring) != 5:
+            continue
+        counts = Counter(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring)
+        if counts != {"C": 2, "N": 2, "O": 1}:
+            continue
+        charged_nitrogens = [
+            idx
+            for idx in ring
+            if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetFormalCharge() == 1
+        ]
+        if len(charged_nitrogens) != 1:
+            continue
+        if any(
+            mol.GetAtomWithIdx(idx).GetFormalCharge() not in {0, 1}
+            for idx in ring
+        ):
+            continue
+        return True
+    return False
+
+
+def _allowed_sydnone_urea_amidate_substituent(name: str, *, charged: bool) -> bool:
+    if not name:
+        return False
+    if len(name) > (120 if charged else 72):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if charged:
+        return True
+    return _allowed_n_retained_parent_substituent(name) or any(
+        fragment in name
+        for fragment in (
+            "trifluoromethyl",
+            "fluorophenyl",
+            "chlorophenyl",
+            "bromophenyl",
+            "iodophenyl",
+            "tolyl",
+            "anisyl",
+        )
+    )
 
 
 def _n_substituted_sulfonamide_motifs(mol, Chem) -> list[tuple[int, int]]:
@@ -9672,12 +10148,19 @@ def _complete_single_ring_parent_stereo_locants(mol, seq: Sequence[int], Chem) -
     assigned_atoms = {idx for idx, _descriptor in assigned_atom_stereochemistry(mol, Chem)}
     if not assigned_atoms:
         return ()
-    if not assigned_atoms.issubset(parent_atoms) and not _external_stereo_represented_by_relative_ring_branches(
+    assigned_parent_atoms = assigned_atoms & parent_atoms
+    if not assigned_parent_atoms:
+        return ()
+    if assigned_atoms.issubset(parent_atoms):
+        return _sequence_stereo_locants(seq)
+    if _external_stereo_represented_by_relative_ring_branches(
         mol,
         parent_atoms,
         assigned_atoms - parent_atoms,
         Chem,
     ):
+        return _sequence_stereo_locants(seq)
+    if len(assigned_parent_atoms) < 2:
         return ()
     return _sequence_stereo_locants(seq)
 
@@ -11516,16 +11999,19 @@ def parent_rules(Chem) -> tuple:
     carbodiimide = CarbodiimideRetainedParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
+    acyl_diphosphate = AcylDiphosphateRetainedParentRule(Chem)
     retained_acid_ester = RetainedAcidEsterParentRule(Chem)
     retained_amide = RetainedAmideParentRule(Chem)
     beta_dicarbonyl = BetaDicarbonylParentRule(Chem)
     oxo_carboxylate = OxoCarboxylateRetainedParentRule(Chem)
     boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
+    cyclic_n_carbamate_carboxylate = CyclicNCarbamateCarboxylateRetainedParentRule(Chem)
     sulfonamide = SulfonamideRetainedParentRule(Chem)
     n_substituted_sulfonamide = SulfonamideParentRule(Chem)
     sulfonimidamide = SulfonimidamideParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
+    sydnone_urea_amidate = SydnoneUreaAmidateRetainedParentRule(Chem)
     glutarimide = GlutarimideRetainedParentRule(Chem)
     amino_acid = AminoAcidRetainedParentRule(Chem)
     biphenyl = BiphenylParentRule(Chem)
@@ -11631,6 +12117,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("sulfinate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfinate.candidates),
         RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),
         RuleSpec("dithiophosphate-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), dithiophosphate.candidates),
+        RuleSpec("acyl-diphosphate-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), acyl_diphosphate.candidates),
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),
@@ -11692,10 +12179,17 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (acyclic, functional_skeleton_signal), oxo_carboxylate.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
+        RuleSpec(
+            "cyclic-n-carbamate-carboxylate-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (min_ring_count(1), functional_skeleton_signal),
+            cyclic_n_carbamate_carboxylate.candidates,
+        ),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
         RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), n_substituted_sulfonamide.candidates),
         RuleSpec("sulfonimidamide-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonimidamide.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
+        RuleSpec("sydnone-urea-amidate-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom, functional_skeleton_signal), sydnone_urea_amidate.candidates),
         RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),
         RuleSpec("amino-acid-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), amino_acid.candidates),
         RuleSpec("biphenyl-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(2),), biphenyl.candidates),

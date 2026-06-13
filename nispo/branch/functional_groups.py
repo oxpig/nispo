@@ -686,37 +686,63 @@ def _carbamoyl_substituent_name(
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
     cache = mol_cache_dict(mol, "substituent_from_root_cache")
-    key = (
+    cache_key = (
         root_idx,
         blocked_idx,
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    cached = cache.get(key)
+    cached = cache.get(cache_key)
     if cached is not None:
         return cached
     if mol.GetAtomWithIdx(root_idx).GetSymbol() == "C":
         direct = _carbonyl_substituent_prefix(mol, root_idx, blocked_idx)
         if direct:
-            cache[key] = direct
+            cache[cache_key] = direct
             return direct
     atoms = collect_subtree(mol, root_idx, blocked_idx)
     paths = rooted_paths(mol, root_idx, atoms)
     if not paths:
-        cache[key] = ""
+        cache[cache_key] = ""
         return ""
     best = ""
+    best_path: Sequence[int] = ()
     best_key = None
     for path in paths:
         name = _name_subtree_path(mol, path, atoms, blocked_idx)
         if not name:
             continue
-        key = (-len(path), substituent_locants(mol, path, atoms, blocked_idx), name)
-        if best_key is None or key < best_key:
-            best_key = key
+        path_key = (-len(path), substituent_locants(mol, path, atoms, blocked_idx), name)
+        if best_key is None or path_key < best_key:
+            best_key = path_key
             best = name
-    cache[(root_idx, blocked_idx)] = best
+            best_path = path
+    if best:
+        best = _with_substituent_atom_stereo_prefix(mol, best_path, best)
+    cache[cache_key] = best
     return best
+
+
+def _with_substituent_atom_stereo_prefix(mol, path: Sequence[int], name: str) -> str:
+    if not name or _has_locanted_atom_stereo_prefix(name):
+        return name
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+    if not assigned:
+        return name
+    path_atoms = set(path)
+    relevant = [(idx, descriptor) for idx, descriptor in assigned if idx in path_atoms]
+    if not relevant:
+        return name
+    locant_by_atom = {idx: loc for loc, idx in enumerate(path, start=1)}
+    pieces = []
+    for atom_idx, descriptor in relevant:
+        locant = locant_by_atom[atom_idx]
+        pieces.append(f"{locant}{descriptor}")
+    return f"({','.join(pieces)})-{name}"
+
+
+def _has_locanted_atom_stereo_prefix(name: str) -> bool:
+    return bool(re.search(r"\(\d+'?[RS](?:,\d+'?[RS])*\)-", name))
 
 
 def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: int) -> str:
@@ -802,6 +828,8 @@ def rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
             paths.clear()
         if len(path) == best_len:
             paths.append(tuple(path))
+    if not paths and can_be_in_parent_skeleton(mol, root_idx):
+        paths.append((root_idx,))
     cache[cache_key] = tuple(paths)
     return paths
 
@@ -1505,6 +1533,10 @@ def _alkoxycarbonyl_prefix(mol, oxygen_idx: int, carbonyl_idx: int, *, parent_id
         alk = branch_prefix(mol, attached, oxygen_idx) or substituent_from_root(mol, attached, oxygen_idx)
         if not alk:
             return ""
+        if parent_idx is not None and _carbonyl_branch_stereo_context(mol, parent_idx):
+            alpha_stereo = _alpha_ligand_stereo_prefix(mol, attached, alk)
+            if alpha_stereo:
+                alk = alpha_stereo + alk
         retained = _retained_alkoxycarbonyl_prefix(mol, alk, parent_idx=parent_idx, carbonyl_idx=carbonyl_idx)
         if retained:
             return retained

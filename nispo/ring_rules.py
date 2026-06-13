@@ -1633,7 +1633,7 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
     if parent_name == "pyridine" and charge_loc is None:
         return f"{loc}-pyridyl"
     if parent_name == "piperidine" and charge_loc is None and loc != 1:
-        return f"{loc}-piperidyl"
+        return f"piperidin-{loc}-yl"
     retained_n_substituent = _retained_saturated_n_substituent_suffix(parent_name, loc, charge_loc)
     if retained_n_substituent:
         return retained_n_substituent

@@ -460,6 +460,12 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
         "N#C[Se-]",
         "[N-]=[NH2+]",
         "[O-]F",
+        "N#C[N+](=O)[O-]",
+        "N#CS[O-]",
+        "CS[O-]",
+        "CCS[O-]",
+        "[O-]P1CCCC1",
+        "[O-]P1CCCCC1",
     ],
 )
 def test_charged_polyatomic_empty_coverage_fragments_roundtrip_with_opsin(input_smiles):
@@ -1042,6 +1048,64 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
+        "C=CC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
+        "CC(C)=CCC/C(C)=C/C(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
+    ],
+)
+def test_acyl_diphosphate_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_sydnone_urea_amidate_retained_parent_roundtrips_with_opsin():
+    input_smiles = "O=C([N-]c1c[n+](Cc2ccccc2)no1)Nc1cccc(C(F)(F)F)c1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)(C)OC(=O)NC1CCCN(C(=O)Cc2ccccc2)C1",
+        "CN1CCC(NC(=O)OC(C)(C)C)CC1",
+    ],
+)
+def test_acyl_substituted_saturated_ring_carbamates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_cyclic_n_carbamate_carboxymethylidene_parent_roundtrips_with_opsin():
+    input_smiles = "CC(C)(C)OC(=O)N1CCC(=CC(=O)O)CC1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_acylated_piperidine_substituent_uses_opsin_stable_yl_suffix():
+    input_smiles = "C[C@H]1CCCCN1C(=O)Cc1ccccc1"
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

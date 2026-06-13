@@ -15,7 +15,14 @@ _STEREO_MULTIPLIERS = {
 }
 
 
-def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_desc") -> str:
+def apply_stereochemical_prefix(
+    mol,
+    Chem,
+    name: str,
+    *,
+    atom_order: str = "idx_desc",
+    invert_unlocanted_bond_stereo: bool = False,
+) -> str:
     """Prepend OPSIN bracket stereochemistry for assigned input stereo.
 
     NISPO's structural rules usually produce the right connectivity, while
@@ -32,6 +39,8 @@ def apply_stereochemical_prefix(mol, Chem, name: str, *, atom_order: str = "idx_
         return name
 
     bond_descriptors = _bond_stereochemistry(mol, Chem)
+    if invert_unlocanted_bond_stereo:
+        bond_descriptors = _invert_bond_stereo_descriptors(bond_descriptors)
     locanted_bond_descriptors = _locanted_bond_stereo_descriptors_in_name(name)
     if locanted_bond_descriptors:
         bond_descriptors = _remove_represented_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
@@ -62,6 +71,9 @@ def apply_locanted_stereochemical_prefix(
     *,
     atom_order: str = "idx_desc",
     include_unlocanted: bool = True,
+    invert_unlocanted_bond_stereo: bool = False,
+    reverse_descriptor_sequence: bool = False,
+    reverse_atom_descriptor_sequence: bool = False,
 ) -> str:
     """Prepend a locanted stereo prefix when a candidate provides atom locants.
 
@@ -90,13 +102,19 @@ def apply_locanted_stereochemical_prefix(
         locant_by_atom,
         name,
     )
-    pieces = atom_pieces + bond_pieces
-    if not pieces:
+    if invert_unlocanted_bond_stereo:
+        unlocanted_bond_descriptors = _invert_bond_stereo_descriptors(unlocanted_bond_descriptors)
+    if not atom_pieces and not bond_pieces:
         return name
-    locanted = [piece for _sort_key, piece in sorted(pieces)]
-    descriptors = locanted
+    locanted_atoms = [piece for _sort_key, piece in sorted(atom_pieces)]
+    locanted_bonds = [piece for _sort_key, piece in sorted(bond_pieces)]
+    if reverse_atom_descriptor_sequence:
+        locanted_atoms = list(reversed(locanted_atoms))
+    descriptors = locanted_atoms + locanted_bonds
     if include_unlocanted:
         descriptors += unlocanted_atom_descriptors + unlocanted_bond_descriptors
+    if reverse_descriptor_sequence:
+        descriptors = list(reversed(descriptors))
     prefix = ",".join(descriptors)
     return f"({prefix})-{name}"
 
@@ -207,6 +225,10 @@ def _remove_represented_atom_descriptors(descriptors: list[str], represented_des
         except ValueError:
             continue
     return remaining
+
+
+def _invert_bond_stereo_descriptors(descriptors: list[str]) -> list[str]:
+    return [{"E": "Z", "Z": "E"}.get(descriptor, descriptor) for descriptor in descriptors]
 
 
 def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:

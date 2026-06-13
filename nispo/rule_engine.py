@@ -659,12 +659,14 @@ _FUSED_PARENT_ATOM_BONUS_FAMILIES = {
 }
 
 _RENDER_RANK_BEFORE_LENGTH_FAMILIES = {
+    "component-dispiro-parent",
     "component-spiro-parent",
     "functional-generic-bicyclic-parent",
     "fused-retained-parent",
     "generated-fused-parent",
     "generic-bicyclic-parent",
     "kekulized-generic-polycyclic-parent",
+    "poly-component-spiro-parent",
     "retained-topology-replacement-fused-parent",
 }
 

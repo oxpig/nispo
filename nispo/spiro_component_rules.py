@@ -296,12 +296,12 @@ def _component_dispiro_candidates_for_blocks(
                         sort_key=(
                             left.component_rank + center.component_rank + right.component_rank,
                             len(replacement_prefixes),
+                            (left.component_order, center.component_order, right.component_order),
                             (
                                 left.numbering_key,
                                 center.numbering_key,
                                 right.numbering_key,
                             ),
-                            (left.component_order, center.component_order, right.component_order),
                             _locant_key_for_text(name),
                             len(name),
                             name,
@@ -487,8 +487,8 @@ def _component_spiro_candidates_for_split(
                     sort_key=(
                         simple_component.component_rank + poly_component.component_rank,
                         len(parent_prefixes),
-                        (simple_component.numbering_key, poly_component.numbering_key),
                         (simple_component.component_order, poly_component.component_order),
+                        (simple_component.numbering_key, poly_component.numbering_key),
                         _locant_key_for_text(name),
                         len(name),
                         name,
@@ -586,8 +586,8 @@ def _poly_component_spiro_candidates_for_split(
                     sort_key=(
                         left_component.component_rank + right_component.component_rank,
                         len(parent_prefixes),
-                        (left_component.numbering_key, right_component.numbering_key),
                         (left_component.component_order, right_component.component_order),
+                        (left_component.numbering_key, right_component.numbering_key),
                         _locant_key_for_text(name),
                         len(name),
                         name,

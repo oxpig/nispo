@@ -22,6 +22,7 @@ from ..branch_rules import (
     substituent_locants,
     collect_subtree,
 )
+from ..branch.functional_groups import _is_nitrile_carbon
 from ..constants import MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
 from ..formatting import join_prefix_parent as _join_prefix_parent
@@ -59,6 +60,30 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     terminal_charge_name = _name_terminal_linear_hydrocarbon_charge(mol)
     if terminal_charge_name:
         return AcyclicNameRecord(terminal_charge_name)
+
+    terminal_charge_name = _name_terminal_acyclic_carbon_charge(mol)
+    if terminal_charge_name:
+        return AcyclicNameRecord(terminal_charge_name)
+
+    terminal_nitronate_name = _name_terminal_nitronate(mol)
+    if terminal_nitronate_name:
+        return AcyclicNameRecord(terminal_nitronate_name)
+
+    terminal_imine_azanide_name = _name_terminal_imine_azanide(mol)
+    if terminal_imine_azanide_name:
+        return AcyclicNameRecord(terminal_imine_azanide_name)
+
+    alkoxy_azanide_name = _name_alkoxy_azanide(mol)
+    if alkoxy_azanide_name:
+        return AcyclicNameRecord(alkoxy_azanide_name)
+
+    diacyl_azanide_name = _name_terminal_diacyl_azanide(mol)
+    if diacyl_azanide_name:
+        return AcyclicNameRecord(diacyl_azanide_name)
+
+    hydroxy_diphosphonic_name = _name_geminal_hydroxy_diphosphonic_acid(mol)
+    if hydroxy_diphosphonic_name:
+        return AcyclicNameRecord(hydroxy_diphosphonic_name)
 
     terminal_nitrone_name = _name_terminal_nitrone(mol)
     if terminal_nitrone_name:
@@ -121,6 +146,366 @@ def _name_terminal_linear_hydrocarbon_charge(mol) -> str:
     if not parent:
         return ""
     return f"{parent}{'ide' if charge < 0 else 'ylium'}"
+
+
+def _name_terminal_acyclic_carbon_charge(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    carbon_charges = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C" and atom.GetFormalCharge() in {-1, 1}
+    ]
+    if len(carbon_charges) != 1:
+        return ""
+    charge_idx = carbon_charges[0]
+    charge_atom = mol.GetAtomWithIdx(charge_idx)
+    carbon_neighbors = [
+        nbr.GetIdx()
+        for nbr in charge_atom.GetNeighbors()
+        if nbr.GetAtomicNum() > 1 and nbr.GetSymbol() == "C"
+    ]
+    if len(carbon_neighbors) > 1:
+        return ""
+
+    view = _acyclic_graph_view(mol)
+    allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and not atom.IsInRing()
+        and not atom.GetIsotope()
+        and (atom.GetIdx() == charge_idx or not _is_nitrile_carbon(mol, atom.GetIdx()))
+        and (atom.GetFormalCharge() == 0 or atom.GetIdx() == charge_idx)
+    }
+    if charge_idx not in allowed:
+        return ""
+
+    endpoints = [
+        idx
+        for idx in allowed
+        if idx == charge_idx or sum(1 for nidx in view.neighbors[idx] if nidx in allowed) <= 1
+    ]
+    paths: set[tuple[int, ...]] = set()
+    best_len = 0
+    for endpoint in endpoints:
+        if endpoint == charge_idx:
+            continue
+        path = _shortest_path_in_allowed_graph(view, charge_idx, endpoint, allowed)
+        if not path:
+            continue
+        path_len = len(path)
+        if path_len > best_len:
+            best_len = path_len
+            paths.clear()
+        if path_len == best_len:
+            paths.add(tuple(path))
+    if not paths and len(allowed) == 1:
+        paths.add((charge_idx,))
+
+    names: list[str] = []
+    suffix = "ide" if charge_atom.GetFormalCharge() < 0 else "ylium"
+    for path in sorted(paths):
+        name = _name_terminal_carbon_charge_path(mol, path, suffix)
+        if name:
+            names.append(name)
+    return min(names, key=lambda name: (len(name), name)) if names else ""
+
+
+def _name_terminal_carbon_charge_path(mol, path: Sequence[int], suffix: str) -> str:
+    if not path:
+        return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if not parent:
+        return ""
+    prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+    if prefixes is None:
+        return ""
+    charged_parent = f"{parent}-1-{suffix}" if len(path) > 1 else f"{parent}{suffix}"
+    prefix_text = _format_prefixes(prefixes)
+    return _join_prefix_parent(prefix_text, charged_parent) if prefix_text else charged_parent
+
+
+def _name_terminal_nitronate(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    motifs: list[tuple[int, int, tuple[int, int]]] = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 1 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        carbon_idx = None
+        oxido_oxygens = []
+        ok = True
+        for nbr in nitrogen.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(nidx, nbr.GetIdx())
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                if carbon_idx is not None:
+                    ok = False
+                    break
+                carbon_idx = nbr.GetIdx()
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and len([other for other in nbr.GetNeighbors() if other.GetAtomicNum() > 1]) == 1
+            ):
+                oxido_oxygens.append(nbr.GetIdx())
+            else:
+                ok = False
+                break
+        if ok and carbon_idx is not None and len(oxido_oxygens) == 2:
+            motifs.append((nidx, carbon_idx, tuple(sorted(oxido_oxygens))))
+    if len(motifs) != 1:
+        return ""
+    nitrogen_idx, carbon_idx, oxido_oxygens = motifs[0]
+    covered = {nitrogen_idx, *oxido_oxygens}
+    covered.update(collect_subtree(mol, carbon_idx, nitrogen_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    carbon_name = branch_prefix(mol, carbon_idx, nitrogen_idx)
+    return carbon_name + "azaniumdiolate" if carbon_name else ""
+
+
+def _name_terminal_imine_azanide(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    motifs: list[tuple[int, int]] = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 1:
+            continue
+        carbon = mol.GetAtomWithIdx(heavy[0])
+        bond = mol.GetBondBetweenAtoms(nidx, carbon.GetIdx())
+        if (
+            carbon.GetSymbol() == "C"
+            and carbon.GetFormalCharge() == 0
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            motifs.append((nidx, carbon.GetIdx()))
+    if len(motifs) != 1:
+        return ""
+    nitrogen_idx, carbon_idx = motifs[0]
+    covered = {nitrogen_idx}
+    covered.update(collect_subtree(mol, carbon_idx, nitrogen_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    carbon_name = branch_prefix(mol, carbon_idx, nitrogen_idx)
+    return carbon_name + "azanide" if carbon_name else ""
+
+
+def _name_alkoxy_azanide(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    motifs: list[tuple[int, int, int]] = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 1:
+            continue
+        oxygen = mol.GetAtomWithIdx(heavy[0])
+        if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0 or oxygen.IsInRing():
+            continue
+        bond = mol.GetBondBetweenAtoms(nidx, oxygen.GetIdx())
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        carbon_neighbors = [
+            nbr.GetIdx()
+            for nbr in oxygen.GetNeighbors()
+            if nbr.GetIdx() != nidx and nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0
+        ]
+        if len(carbon_neighbors) == 1:
+            motifs.append((nidx, oxygen.GetIdx(), carbon_neighbors[0]))
+    if len(motifs) != 1:
+        return ""
+    nitrogen_idx, oxygen_idx, carbon_idx = motifs[0]
+    covered = {nitrogen_idx, oxygen_idx}
+    covered.update(collect_subtree(mol, carbon_idx, oxygen_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    owner = branch_prefix(mol, carbon_idx, oxygen_idx)
+    return owner + "oxyazanide" if owner else ""
+
+
+def _name_terminal_diacyl_azanide(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    records: list[tuple[int, int, int]] = []
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        oxo_idx = None
+        azanide_idx = None
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                if oxo_idx is not None:
+                    ok = False
+                    break
+                oxo_idx = nbr.GetIdx()
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == -1 and bond.GetBondType() == Chem.BondType.SINGLE:
+                heavy = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]
+                if heavy != [cidx] or azanide_idx is not None:
+                    ok = False
+                    break
+                azanide_idx = nbr.GetIdx()
+            elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                continue
+            else:
+                ok = False
+                break
+        if ok and oxo_idx is not None and azanide_idx is not None:
+            records.append((cidx, oxo_idx, azanide_idx))
+    if len(records) != 2:
+        return ""
+    first, second = records
+    carbon_allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    }
+    path = _shortest_path_in_allowed_graph(_acyclic_graph_view(mol), first[0], second[0], carbon_allowed)
+    if not path or set(path) != carbon_allowed:
+        return ""
+    covered = set(path) | {first[1], first[2], second[1], second[2]}
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    return parent + "edioylbis(azanide)" if parent else ""
+
+
+def _name_geminal_hydroxy_diphosphonic_acid(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    centers = []
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        phosphonic_groups = []
+        hydroxy_idx = None
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if bond is None:
+                continue
+            if nbr.GetSymbol() == "P" and bond.GetBondType() == Chem.BondType.SINGLE:
+                group_atoms = _neutral_phosphonic_acid_group_atoms(mol, nbr.GetIdx(), cidx)
+                if group_atoms:
+                    phosphonic_groups.append((nbr.GetIdx(), group_atoms))
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetTotalNumHs() == 1
+                and len([atom for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]) == 1
+            ):
+                hydroxy_idx = nbr.GetIdx()
+        if len(phosphonic_groups) == 2 and hydroxy_idx is not None:
+            centers.append((cidx, tuple(phosphonic_groups), hydroxy_idx))
+    if len(centers) != 1:
+        return ""
+    center_idx, phosphonic_groups, hydroxy_idx = centers[0]
+    view = _acyclic_graph_view(mol)
+    carbon_allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    }
+    endpoints = [
+        idx
+        for idx in carbon_allowed
+        if idx == center_idx or sum(1 for nidx in view.neighbors[idx] if nidx in carbon_allowed) <= 1
+    ]
+    paths = []
+    best_len = 0
+    for endpoint in endpoints:
+        if endpoint == center_idx:
+            continue
+        path = _shortest_path_in_allowed_graph(view, center_idx, endpoint, carbon_allowed)
+        if not path:
+            continue
+        if len(path) > best_len:
+            best_len = len(path)
+            paths.clear()
+        if len(path) == best_len:
+            paths.append(path)
+    if not paths and carbon_allowed == {center_idx}:
+        paths.append((center_idx,))
+
+    skipped_atoms = {hydroxy_idx}
+    for _pidx, group_atoms in phosphonic_groups:
+        skipped_atoms.update(group_atoms)
+    names = []
+    for path in sorted(set(paths)):
+        prefixes = _path_substituent_prefixes(
+            mol,
+            path,
+            skip_atoms=skipped_atoms,
+            skip_plain_hydrogen=True,
+        )
+        if prefixes is None:
+            continue
+        covered = set(path) | skipped_atoms
+        path_set = set(path)
+        for idx in path:
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+                nidx = nbr.GetIdx()
+                if nidx in path_set or nidx in skipped_atoms:
+                    continue
+                covered.update(collect_subtree(mol, nidx, idx))
+        if covered != set(range(mol.GetNumAtoms())):
+            continue
+        parent = _standalone_saturated_chain_parent(parent_chain_name(mol, path, as_substituent=False))
+        if not parent or not parent.endswith("e"):
+            continue
+        core = f"1-hydroxy-1,1-diphosphono{parent}"
+        prefix_text = _format_prefixes(prefixes)
+        names.append(_join_prefix_parent(prefix_text, core) if prefix_text else core)
+    return min(names, key=lambda name: (len(name), name)) if names else ""
+
+
+def _neutral_phosphonic_acid_group_atoms(mol, phosphorus_idx: int, carbon_idx: int) -> frozenset[int]:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return frozenset()
+    double_oxygen = 0
+    hydroxy_oxygens = []
+    atoms = {phosphorus_idx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if nidx == carbon_idx:
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return frozenset()
+            continue
+        if bond is None or nbr.GetSymbol() != "O" or nbr.GetFormalCharge() != 0:
+            return frozenset()
+        heavy = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]
+        if bond.GetBondType() == Chem.BondType.DOUBLE and len(heavy) == 1:
+            double_oxygen += 1
+            atoms.add(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetTotalNumHs() == 1 and len(heavy) == 1:
+            hydroxy_oxygens.append(nidx)
+            atoms.add(nidx)
+        else:
+            return frozenset()
+    if double_oxygen != 1 or len(hydroxy_oxygens) != 2:
+        return frozenset()
+    return frozenset(atoms)
 
 
 def _name_terminal_nitrone(mol) -> str:

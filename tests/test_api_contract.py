@@ -593,8 +593,29 @@ def test_locanted_diazaindane_lactams_defer_to_roundtripping_parent(input_smiles
     "input_smiles",
     [
         "[CH2-]CCC",
+        "[CH2-]CCCC(C)C",
+        "[CH2-]CCCCC(=O)[O-]",
+        "[CH2-]C(=O)[O-]",
+        "CCCCCC[C-]=O",
+        "CC[C+]=O",
+        "N#C[CH-]N=O",
+        "C=[N+]([O-])[O-]",
+        "CC(C)=[N+]([O-])[O-]",
+        "OCC=[N+]([O-])[O-]",
+        "CO[NH-]",
+        "C=CCO[NH-]",
+        "CC(C)(C)O[NH-]",
+        "[NH-]OC=O",
+        "CC(=O)O[NH-]",
+        "[NH-]C(=O)C([NH-])=O",
+        "[NH-]C(=O)CCCCC([NH-])=O",
+        "C=[N-]",
+        "CC(C)=[N-]",
+        "CC(O)(P(=O)(O)O)P(=O)(O)O",
+        "NCCCC(O)(P(=O)(O)O)P(=O)(O)O",
         "[CH-]=CCC",
         "[CH2+]CCC",
+        "[CH2+]CCCC(C)C",
         "O=C1C=CC(=O)N1",
         "C1CC[IH]C1",
         "C1=CC[IH]C=C1",
@@ -619,6 +640,9 @@ def test_locanted_diazaindane_lactams_defer_to_roundtripping_parent(input_smiles
         "CC[BH2]",
         "O=[N+]([O-])Cl",
         "O=[N+]([O-])F",
+        "CS(=O)([O-])=S",
+        "Cc1ccc(S(=O)([O-])=S)cc1",
+        "c1ccc(S(=O)([O-])=S)cc1",
         "O=S(=O)(F)[N-]S(=O)(=O)F",
         "O=S(=O)(F)[N-]S(=O)(=O)C(F)(F)F",
         "[NH-]S(=O)(=O)C(F)(F)F",
@@ -1977,6 +2001,15 @@ def test_component_spiro_preserves_polycyclic_component_graph_order():
 
 def test_component_spiro_prefers_stable_polycyclic_component_numbering():
     input_smiles = "c1cc2c3c(c1)ncc1ncn(c13)C1(CCC1)CO2"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_pseudoasymmetric_bicyclo_bridgeheads_render_trans_relative_stereo():
+    input_smiles = "C1CC[C@H]2CCCC[C@@H]2C1"
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

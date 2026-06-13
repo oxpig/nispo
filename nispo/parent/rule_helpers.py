@@ -2342,7 +2342,7 @@ def _locanted_stereo_descriptors_in_text(name: str) -> list[str]:
 
 
 def _relative_bicyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str) -> str:
-    """Use OPSIN's relative cis prefix for pseudoasymmetric bicyclo parents."""
+    """Use OPSIN's relative cis/trans prefix for pseudoasymmetric bicyclo parents."""
 
     if "bicyclo[" not in name or "spiro[" in name:
         return ""
@@ -2360,7 +2360,8 @@ def _relative_bicyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str) -
     ]
     if len(centers) != 2:
         return ""
-    return "cis"
+    tags = [mol.GetAtomWithIdx(idx).GetChiralTag() for idx, _descriptor in centers]
+    return "cis" if tags[0] == tags[1] else "trans"
 
 
 def _single_ring_oxo_suffix_name(

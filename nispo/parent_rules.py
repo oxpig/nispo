@@ -3873,6 +3873,11 @@ def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
     for sulfur in mol.GetAtoms():
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
+        record = _sulfonothioate_retained_parent_record(mol, Chem, sulfur.GetIdx())
+        if record and record["covered_atoms"] == set(range(mol.GetNumAtoms())):
+            substituent = record["substituent"]
+            if substituent:
+                names.append(substituent + "sulfonothioate")
         record = _sulfinate_retained_parent_record(mol, Chem, sulfur.GetIdx())
         if not record or record["covered_atoms"] != set(range(mol.GetNumAtoms())):
             continue
@@ -3880,6 +3885,52 @@ def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
         if substituent:
             names.append(substituent + "sulfinate")
     return names
+
+
+def _sulfonothioate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:
+    carbon_neighbors = []
+    double_oxygen = 0
+    terminal_oxido = 0
+    double_sulfur = 0
+    covered_atoms = {sulfur_idx}
+    for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered_atoms.add(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == -1
+            and len(nbr.GetNeighbors()) == 1
+        ):
+            terminal_oxido += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_sulfur += 1
+            covered_atoms.add(nidx)
+            continue
+        return None
+    if len(carbon_neighbors) != 1 or double_oxygen != 1 or terminal_oxido != 1 or double_sulfur != 1:
+        return None
+    carbon_idx = carbon_neighbors[0]
+    substituent = _simple_or_branch_prefix(mol, carbon_idx, sulfur_idx)
+    if not substituent:
+        return None
+    covered_atoms.add(carbon_idx)
+    covered_atoms.update(_collect_component_atoms(mol, carbon_idx, sulfur_idx))
+    return {
+        "substituent": _retained_parent_substituent_alias(substituent),
+        "covered_atoms": covered_atoms,
+    }
 
 
 def _sulfinate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:

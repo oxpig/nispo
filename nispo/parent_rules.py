@@ -1910,9 +1910,15 @@ class PhosphoraneParentRule:
         pidx = phosphorus.GetIdx()
         carbon_names = []
         halo_names = []
+        ylidene_idx = None
         for nbr in phosphorus.GetNeighbors():
             nidx = nbr.GetIdx()
             bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond.GetBondType() == self._Chem.BondType.DOUBLE and nbr.GetSymbol() == "C":
+                if ylidene_idx is not None:
+                    return
+                ylidene_idx = nidx
+                continue
             if bond.GetBondType() != self._Chem.BondType.SINGLE:
                 return
             if nbr.GetSymbol() == "C":
@@ -1924,6 +1930,42 @@ class PhosphoraneParentRule:
                 halo_names.append(HALO[nbr.GetSymbol()])
             else:
                 return
+        if ylidene_idx is not None:
+            if len(carbon_names) + len(halo_names) + phosphorus.GetTotalNumHs() != 3:
+                return
+            if phosphorus.GetTotalNumHs() != 0 or not carbon_names:
+                return
+            ylidene_name = _phosphorane_ylidene_name(mol, self._Chem, ylidene_idx, pidx)
+            parent_name = _phosphorane_parent_name(carbon_names, halo_names)
+            retained_carbonyl_name = _phosphorane_carbonyl_ylide_retained_name(
+                mol,
+                self._Chem,
+                ylidene_idx,
+                pidx,
+                parent_name,
+            )
+            if retained_carbonyl_name:
+                yield NameCandidate(
+                    retained_carbonyl_name,
+                    self.family,
+                    self.priority,
+                    sort_key=(len(retained_carbonyl_name), retained_carbonyl_name),
+                    parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                    source_family="phosphorane:carbonyl-ylide-retained",
+                    estimated_length=len(retained_carbonyl_name),
+                )
+            if ylidene_name and parent_name:
+                name = ylidene_name + parent_name
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    sort_key=(len(name), name),
+                    parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                    source_family="phosphorane:ylidene",
+                    estimated_length=len(name),
+                )
+            return
         if len(carbon_names) + len(halo_names) + phosphorus.GetTotalNumHs() != 5:
             return
         if phosphorus.GetTotalNumHs() != 0 or not carbon_names:
@@ -1956,6 +1998,184 @@ def _phosphorane_parent_name(carbon_names: Sequence[str], halo_names: Sequence[s
             return ""
         parts.append(term)
     return "".join(parts) + "phosphorane" if parts else ""
+
+
+def _phosphorane_carbonyl_ylide_retained_name(mol, Chem, carbon_idx: int, phosphorus_idx: int, parent_name: str) -> str:
+    if not parent_name.endswith("phosphorane"):
+        return ""
+    carbonyl_idx = _single_ylidene_carbonyl_substituent(mol, Chem, carbon_idx, phosphorus_idx)
+    if carbonyl_idx is None:
+        return ""
+    phosphoranylidene = parent_name[: -len("phosphorane")] + "phosphoranylidene"
+    ester_owner = _simple_carbonyl_ester_owner_name(mol, Chem, carbonyl_idx, carbon_idx)
+    if ester_owner:
+        return f"{ester_owner} 2-({phosphoranylidene})acetate"
+    amide_prefix = _weinreb_amide_prefix(mol, Chem, carbonyl_idx, carbon_idx)
+    if amide_prefix:
+        return f"{amide_prefix}-2-({phosphoranylidene})acetamide"
+    return ""
+
+
+def _phosphorane_ylidene_name(mol, Chem, carbon_idx: int, phosphorus_idx: int) -> str:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return ""
+    substituents = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != phosphorus_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(substituents) > 1:
+        return ""
+    if not substituents:
+        return "methylidene"
+    substituent_idx = substituents[0]
+    bond = mol.GetBondBetweenAtoms(carbon_idx, substituent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if _is_simple_acetyl_substituent(mol, Chem, substituent_idx, carbon_idx):
+        return "2-oxopropylidene"
+    if _is_simple_carbonyl_ester_substituent(mol, Chem, substituent_idx, carbon_idx):
+        owner = _simple_carbonyl_ester_owner_name(mol, Chem, substituent_idx, carbon_idx)
+        if owner == "t-butyl":
+            return "tert-butoxycarbonylmethylidene"
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, carbon_idx)
+    if not prefix:
+        return ""
+    prefix = _strip_outer_parentheses(prefix)
+    if not _stable_phosphorane_ylidene_substituent(prefix):
+        return ""
+    return prefix + "methylidene"
+
+
+def _single_ylidene_carbonyl_substituent(mol, Chem, carbon_idx: int, phosphorus_idx: int) -> int | None:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return None
+    substituents = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != phosphorus_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(substituents) != 1:
+        return None
+    substituent_idx = substituents[0]
+    bond = mol.GetBondBetweenAtoms(carbon_idx, substituent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    carbonyl = mol.GetAtomWithIdx(substituent_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0:
+        return None
+    if not any(
+        nbr.GetSymbol() == "O"
+        and (bond := mol.GetBondBetweenAtoms(substituent_idx, nbr.GetIdx())) is not None
+        and bond.GetBondType() == Chem.BondType.DOUBLE
+        for nbr in carbonyl.GetNeighbors()
+    ):
+        return None
+    return substituent_idx
+
+
+def _is_simple_acetyl_substituent(mol, Chem, carbonyl_idx: int, ylidene_idx: int) -> bool:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0:
+        return False
+    double_oxygen_count = 0
+    methyl_count = 0
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == ylidene_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            if nbr.GetDegree() != 1 or nbr.GetFormalCharge() != 0:
+                return False
+            methyl_count += 1
+        else:
+            return False
+    return double_oxygen_count == 1 and methyl_count == 1
+
+
+def _is_simple_carbonyl_ester_substituent(mol, Chem, carbonyl_idx: int, ylidene_idx: int) -> bool:
+    return bool(_simple_carbonyl_ester_owner_name(mol, Chem, carbonyl_idx, ylidene_idx))
+
+
+def _simple_carbonyl_ester_owner_name(mol, Chem, carbonyl_idx: int, ylidene_idx: int) -> str:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0:
+        return ""
+    double_oxygen_count = 0
+    ester_oxygen_idx = None
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == ylidene_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != carbonyl_idx and atom.GetAtomicNum() > 1
+            ]
+            if len(heavy) != 1 or ester_oxygen_idx is not None:
+                return ""
+            ester_oxygen_idx = nidx
+        else:
+            return ""
+    if double_oxygen_count != 1 or ester_oxygen_idx is None:
+        return ""
+    owner = _single_external_substituent_name(mol, ester_oxygen_idx, carbonyl_idx)
+    if not owner or _unstable_retained_functional_parent_substituent(owner):
+        return ""
+    return owner
+
+
+def _weinreb_amide_prefix(mol, Chem, carbonyl_idx: int, ylidene_idx: int) -> str:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0:
+        return ""
+    double_oxygen_count = 0
+    amide_nitrogen_idx = None
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == ylidene_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            if amide_nitrogen_idx is not None:
+                return ""
+            amide_nitrogen_idx = nidx
+        else:
+            return ""
+    if double_oxygen_count != 1 or amide_nitrogen_idx is None:
+        return ""
+    substituents = _external_substituent_names(mol, amide_nitrogen_idx, carbonyl_idx)
+    if substituents is None:
+        return ""
+    if sorted(substituents) == ["methoxy", "methyl"]:
+        return "N-methoxy-N-methyl"
+    prefix = _n_substituent_prefix(substituents)
+    if prefix != "N-methoxy-N-methyl":
+        return ""
+    return prefix
+
+
+def _stable_phosphorane_ylidene_substituent(prefix: str) -> bool:
+    if prefix in {"cyano", "phenyl"}:
+        return True
+    if prefix.endswith("carbonyl"):
+        return True
+    if prefix.endswith("phenyl") and len(prefix) <= 80:
+        return True
+    if re.fullmatch(r"(?:methyl|ethyl|propyl|butyl|pentyl|hexyl)", prefix):
+        return True
+    return False
 
 
 _PHOSPHORANE_COMPLEX_MULTIPLIERS = {
@@ -4029,7 +4249,256 @@ def _phosphite_ester_names(mol, Chem) -> list[str]:
             and terminal_anionic_oxygen in {0, 1, 2}
         ):
             names.append(_phosphite_monoester_name(owner_names[0], terminal_hydroxy_oxygen))
+    names.extend(_mixed_p3_anionic_phosphorus_names(mol, Chem))
+    return sorted(set(names), key=lambda name: (len(name), name))
+
+
+def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for phosphorus in mol.GetAtoms():
+        if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+            continue
+        pidx = phosphorus.GetIdx()
+        terminal_anionic_oxygens = []
+        terminal_anionic_sulfurs = []
+        carbon_ligands = []
+        oxygen_ligands = []
+        sulfur_ligands = []
+        halogen_ligands = []
+        terminal_amino_ligands = []
+        substituted_amino_ligands = []
+        covered = {pidx}
+        ok = True
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(pidx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                ok = False
+                break
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() < 0 and not heavy:
+                terminal_anionic_oxygens.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "S" and nbr.GetFormalCharge() < 0 and not heavy:
+                terminal_anionic_sulfurs.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0:
+                carbon_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and len(heavy) == 1:
+                oxygen_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif nbr.GetSymbol() == "S" and nbr.GetFormalCharge() == 0 and len(heavy) == 1:
+                sulfur_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            elif nbr.GetSymbol() in HALO and nbr.GetFormalCharge() == 0 and not heavy:
+                halogen_ligands.append(nbr.GetSymbol())
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and not heavy:
+                terminal_amino_ligands.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0 and len(heavy) in {1, 2}:
+                substituted_amino_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
+            else:
+                ok = False
+                break
+        if not ok or covered != atom_set:
+            continue
+
+        anionic_oxygen_count = len(terminal_anionic_oxygens)
+        anionic_sulfur_count = len(terminal_anionic_sulfurs)
+        if (
+            anionic_oxygen_count == 2
+            and anionic_sulfur_count == 0
+            and len(carbon_ligands) == 1
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            carbon = _phosphorus_attached_prefix(mol, carbon_ligands[0], pidx)
+            if carbon:
+                if carbon == "cyano":
+                    names.append("cyanophosphite")
+                else:
+                    names.append(carbon + "phosphonite")
+            continue
+
+        if (
+            anionic_oxygen_count == 0
+            and anionic_sulfur_count == 2
+            and not carbon_ligands
+            and not oxygen_ligands
+            and len(sulfur_ligands) == 1
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            sulfur_owner = _single_external_substituent_name(mol, sulfur_ligands[0], pidx)
+            if sulfur_owner and not _unstable_retained_functional_parent_substituent(sulfur_owner):
+                names.append(f"{_parenthesized_if_complex(sulfur_owner)} trithiophosphite")
+            continue
+
+        if (
+            anionic_oxygen_count == 0
+            and anionic_sulfur_count == 1
+            and not carbon_ligands
+            and not oxygen_ligands
+            and len(sulfur_ligands) == 2
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            sulfur_owners = _hetero_ligand_owner_names(mol, sulfur_ligands, pidx)
+            ligand_text = _phosphorus_repeated_ligand_text(sulfur_owners)
+            if ligand_text and not any(_unstable_retained_functional_parent_substituent(name) for name in sulfur_owners):
+                names.append(f"{ligand_text} trithiophosphite")
+            continue
+
+        if anionic_oxygen_count != 1:
+            continue
+        if anionic_sulfur_count != 0:
+            continue
+        if (
+            len(carbon_ligands) == 1
+            and len(oxygen_ligands) == 2
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            oxygen_owners = _hetero_ligand_owner_names(mol, oxygen_ligands, pidx)
+            carbon = _phosphorus_attached_prefix(mol, carbon_ligands[0], pidx)
+            ligand_text = _phosphorus_repeated_ligand_text(oxygen_owners)
+            if ligand_text and carbon and not any(_unstable_retained_functional_parent_substituent(name) for name in oxygen_owners):
+                names.append(f"{ligand_text} {carbon}phosphite")
+            continue
+        if (
+            len(carbon_ligands) == 1
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            carbon = _phosphorus_attached_prefix(mol, carbon_ligands[0], pidx)
+            if oxygen_owner and carbon and not _unstable_retained_functional_parent_substituent(oxygen_owner):
+                names.append(f"{_hetero_ligand_role_text('O', oxygen_owner)} {carbon}phosphonite")
+            continue
+        if (
+            not carbon_ligands
+            and len(oxygen_ligands) == 1
+            and len(sulfur_ligands) == 1
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            sulfur_owner = _single_external_substituent_name(mol, sulfur_ligands[0], pidx)
+            if (
+                oxygen_owner
+                and sulfur_owner
+                and not _unstable_retained_functional_parent_substituent(oxygen_owner)
+                and not _unstable_retained_functional_parent_substituent(sulfur_owner)
+            ):
+                if oxygen_owner == sulfur_owner and _simple_unparenthesized_n_substituent(oxygen_owner):
+                    names.append(f"di{oxygen_owner} thiophosphite")
+                else:
+                    names.append(
+                        f"{_hetero_ligand_role_text('O', oxygen_owner)} "
+                        f"{_hetero_ligand_role_text('S', sulfur_owner)} phosphorothioite"
+                    )
+            continue
+        if (
+            not carbon_ligands
+            and not oxygen_ligands
+            and len(sulfur_ligands) == 2
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            sulfur_owners = _hetero_ligand_owner_names(mol, sulfur_ligands, pidx)
+            ligand_text = _phosphorus_repeated_ligand_text(sulfur_owners)
+            if ligand_text and not any(_unstable_retained_functional_parent_substituent(name) for name in sulfur_owners):
+                names.append(f"{ligand_text} dithiophosphite")
+            continue
+        if (
+            not carbon_ligands
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and len(halogen_ligands) == 1
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            halo = HALO.get(halogen_ligands[0], "")
+            if oxygen_owner and halo and not _unstable_retained_functional_parent_substituent(oxygen_owner):
+                names.append(f"{_parenthesized_if_complex(oxygen_owner)} mono{halo}phosphite")
+            continue
+        if (
+            not carbon_ligands
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and not halogen_ligands
+            and len(terminal_amino_ligands) == 1
+            and not substituted_amino_ligands
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            if oxygen_owner and not _unstable_retained_functional_parent_substituent(oxygen_owner):
+                names.append(f"{_parenthesized_if_complex(oxygen_owner)} phosphoramidite")
+            continue
+        if (
+            not carbon_ligands
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 1
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            amino_prefix = _phosphoramidite_substituted_amino_prefix(mol, substituted_amino_ligands[0], pidx)
+            if (
+                oxygen_owner
+                and amino_prefix
+                and not _unstable_retained_functional_parent_substituent(oxygen_owner)
+            ):
+                names.append(f"{_parenthesized_if_complex(oxygen_owner)} {amino_prefix}phosphoramidite")
     return names
+
+
+def _hetero_ligand_owner_names(mol, ligand_atoms: Sequence[int], phosphorus_idx: int) -> list[str]:
+    names = []
+    for ligand_idx in ligand_atoms:
+        owner = _single_external_substituent_name(mol, ligand_idx, phosphorus_idx)
+        if not owner:
+            return []
+        names.append(owner)
+    return names
+
+
+def _hetero_ligand_role_text(role: str, owner: str) -> str:
+    bare = _strip_outer_parentheses(owner)
+    if _needs_substituent_parentheses(bare):
+        return f"{role}-({bare})"
+    return f"{role}-{bare}"
+
+
+def _phosphoramidite_substituted_amino_prefix(mol, nitrogen_idx: int, phosphorus_idx: int) -> str:
+    substituents = _external_substituent_names(mol, nitrogen_idx, phosphorus_idx)
+    if substituents is None or not substituents or len(substituents) > 2:
+        return ""
+    prefix = _n_substituent_prefix(substituents)
+    if not prefix or _needs_explicit_n_parent_separator(prefix):
+        return ""
+    return prefix
 
 
 def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
@@ -10773,6 +11242,104 @@ class GeneratedSpiroFusedParentRule(GeneratedFusedParentRule):
         )
 
 
+class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
+    """Topology-only generated fused parents for audited high-impact scaffolds.
+
+    The broad generated topology path is intentionally too risky: it changes
+    established retained fused matches.  This rule gives a small set of audited
+    generated scaffolds their own topology render window without disturbing the
+    exact generated-fused render set.
+    """
+
+    family = "high-signal-generated-topology-fused-parent"
+    priority = parent_priority("generated-parent")
+    min_ring_system_ring_count = 2
+
+    def _template_iter(self, ctx) -> Sequence[dict]:
+        return tuple(
+            template
+            for template in ctx.generated_fused_templates
+            if _allow_high_signal_generated_topology_template(template_record_name(template))
+        )
+
+    def _candidate_facts(self, ctx) -> tuple["_GeneratedFusedCandidateFacts", ...]:
+        mol = ctx.mol
+        facts: list[_GeneratedFusedCandidateFacts] = []
+        for template, match in _iter_fused_template_matches(
+            ctx,
+            self._template_iter(ctx),
+            self._Chem,
+            topology_query=True,
+            require_one_ring_system=True,
+            reject_extra_core_bonds=True,
+        ):
+            if not _generated_topology_fused_match_is_hydrogen_compatible(mol, template, match):
+                continue
+            facts.append(
+                _GeneratedFusedCandidateFacts(
+                    template=template,
+                    match=tuple(match),
+                    topology_query=True,
+                    structural_key=_generated_fused_fact_sort_key(template, match, topology_query=True),
+                )
+            )
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += len(facts)
+        return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:16])
+
+    def _render_facts(self, ctx, facts: tuple["_GeneratedFusedCandidateFacts", ...]):
+        mol = ctx.mol
+        yielded_names: set[str] = set()
+        yielded = 0
+        for render_rank, fact in enumerate(facts, start=1):
+            template = fact.template
+            match = fact.match
+            name = _name_fused_core_match(mol, template, match)
+            if not name or name in yielded_names:
+                continue
+            template_name = template_record_name(template)
+            if not _allow_high_signal_generated_topology_candidate(template_name, name):
+                continue
+            if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
+                continue
+            yielded_names.add(name)
+            yielded += 1
+            sort_key = (
+                _generated_topology_fused_candidate_rank(template_name, name),
+                *self._candidate_sort_key(mol, template, match, name),
+            )
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=sort_key,
+                parent_atoms=frozenset(match),
+                stereo_locants=_template_match_stereo_locants(template, match),
+                template_id=id(template),
+                template_name=template_name,
+                source_family=str(template.get("source_family", "")),
+                source_file=str(template.get("source_file", "")),
+                parent_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, match),
+                charge=_polycyclic_parent_charge_evidence(mol, match),
+                estimated_length=len(name),
+                render_rank=render_rank,
+            )
+            if yielded >= _MAX_GENERATED_FUSED_PARENT_CANDIDATES:
+                return
+
+
+_HIGH_SIGNAL_GENERATED_TOPOLOGY_TEMPLATE_NAMES = frozenset(
+    {
+        "pyridazino[1,6-a]pyrimidine",
+        "pyrano[2,3-a]benzene",
+    }
+)
+
+
+def _allow_high_signal_generated_topology_template(template_name: str) -> bool:
+    return template_name in _HIGH_SIGNAL_GENERATED_TOPOLOGY_TEMPLATE_NAMES
+
+
 def _allow_generated_topology_fused_candidate(template_name: str, name: str) -> bool:
     """Allow generated fused templates when exact aromatic matching is too strict.
 
@@ -10783,7 +11350,7 @@ def _allow_generated_topology_fused_candidate(template_name: str, name: str) -> 
     """
 
     if not _allow_generated_topology_template(template_name):
-        return False
+        return _allow_high_signal_generated_topology_candidate(template_name, name)
     if _has_generated_topology_fused_suffix_parent(name):
         return True
     return False
@@ -10791,6 +11358,22 @@ def _allow_generated_topology_fused_candidate(template_name: str, name: str) -> 
 
 def _allow_generated_topology_template(template_name: str) -> bool:
     return template_name.startswith("indeno[")
+
+
+def _allow_high_signal_generated_topology_candidate(template_name: str, name: str) -> bool:
+    if template_name == "pyridazino[1,6-a]pyrimidine":
+        return bool(
+            "pyridazino[1,6-a]pyrimidin" in name
+            and re.search(r"(?:^|-)\d+(?:,\d+)*[a-z]?-(?:oxo|thioxo)-", name)
+        )
+    if template_name == "pyrano[2,3-a]benzene":
+        if "dihydro-pyrido[" in name:
+            return False
+        return bool(
+            "pyrano[2,3-a]benzene" in name
+            and re.search(r"(?:^|-)2(?:[a-z])?-(?:oxo|thioxo)-", name)
+        )
+    return False
 
 
 def _generated_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
@@ -12394,6 +12977,7 @@ def parent_rules(Chem) -> tuple:
     positive_single_ring = PositiveSingleRingParentRule(Chem)
     generated_exact = GeneratedExactParentRule(Chem)
     generated_fused = GeneratedFusedParentRule(Chem)
+    high_signal_generated_topology_fused = HighSignalGeneratedTopologyFusedParentRule(Chem)
     generated_spiro_fused = GeneratedSpiroFusedParentRule(Chem)
     generated_hydro_fused = GeneratedHydroFusedParentRule(Chem)
     generated_partial_hydro = GeneratedPartialHydroFusedParentRule(Chem)
@@ -12680,6 +13264,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("generic-spiro-parent", parent_priority("generic-spiro-parent"), (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),
         RuleSpec("single-ring-parent", parent_priority("single-ring-parent"), (min_ring_count(1),), single_ring.candidates),
         RuleSpec("generated-exact-parent", parent_priority("generated-parent"), (min_ring_count(1), exact_ring_system), generated_exact.candidates),
+        RuleSpec(
+            "high-signal-generated-topology-fused-parent",
+            parent_priority("generated-parent"),
+            (min_ring_system_ring_count(2),),
+            high_signal_generated_topology_fused.candidates,
+        ),
         RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates),
         RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
         RuleSpec("generated-partial-hydro-fused-parent", parent_priority("generated-partial-hydro-parent"), (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),

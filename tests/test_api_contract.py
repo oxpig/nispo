@@ -1038,6 +1038,28 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCCCP([O-])OCCCC",
+        "CCCCOP([O-])SCCCC",
+        "C=COP(N)[O-]",
+        "N#CP([O-])[O-]",
+        "CC[PH]([O-])(OC)OC",
+        "CCSP([O-])SCC",
+        "CCSP([S-])SCC",
+        "[O-]P(Cl)Oc1ccccc1",
+        "CC(C)N(C(C)C)P([O-])OCCC#N",
+    ],
+)
+def test_mixed_p3_anionic_phosphorus_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CP(=O)([O-])[O-]",
         "c1ccccc1P(=O)([O-])[O-]",
         "C#CP(N)(=O)[O-]",
@@ -2074,6 +2096,44 @@ def test_component_spiro_prefers_stable_polycyclic_component_numbering():
 
 def test_pseudoasymmetric_bicyclo_bridgeheads_render_trans_relative_stereo():
     input_smiles = "C1CC[C@H]2CCCC[C@@H]2C1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "N#CC=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "COC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "CCOC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "CC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "C(c1ccccc1)=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "CC(C)(C)OC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+        "CON(C)C(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1",
+    ],
+)
+def test_phosphorane_ylides_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Cc1ccc2c(n1)CCN(c1nn3c(=O)ccnc3cc1C)C2",
+        "Cc1ccc(-c2cnc3c(c2)CN(c2nn4c(=O)cc(C)nc4cc2C)CC3)cc1",
+        "O=c1ccc2ccc(OCCCn3c(=O)cnc4ccccc43)cc2o1",
+        "Cc1ccc2oc(=O)cc(CSc3nc4ccccc4o3)c2c1",
+    ],
+)
+def test_high_signal_generated_topology_fused_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

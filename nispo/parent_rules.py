@@ -9627,6 +9627,8 @@ class FusedParentRule:
         for template, match in _iter_fused_template_matches(
             ctx, self._template_iter(ctx), self._Chem, reject_extra_core_bonds=True
         ):
+            if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
+                continue
             facts.append(
                 _RetainedFusedCandidateFacts(
                     template=template,
@@ -10337,6 +10339,34 @@ def _retained_topology_fused_match_is_hydrogen_compatible(mol, template: dict, m
     if template_record_name(template) in _RETAINED_TOPOLOGY_TAUTOMER_PARENT_NAMES:
         return not _topology_match_has_external_hetero_substitution(mol, template, match)
     return _topology_match_preserves_nonaromatic_template_bonds(mol, template, match)
+
+
+def _exact_retained_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
+    """Reject high-impact fused tautomer aliases with incompatible ring N-H sites."""
+
+    if template.get("source_file") != "high_impact_fused_parent_templates.json":
+        return True
+    template_name = template_record_name(template)
+    if "H" not in template_name and "hydro" not in template_name:
+        return True
+    core = set(match)
+    template_mol = template_record_mol(template)
+    for template_idx, mol_idx in enumerate(match):
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        if template_atom.GetSymbol() not in {"N", "O", "S"}:
+            continue
+        mol_atom = mol.GetAtomWithIdx(mol_idx)
+        if mol_atom.GetSymbol() != template_atom.GetSymbol():
+            return False
+        external_substituted = any(
+            nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1
+            for nbr in mol_atom.GetNeighbors()
+        )
+        if external_substituted and mol_atom.GetTotalNumHs() == 0:
+            continue
+        if int(template_atom.GetTotalNumHs()) != int(mol_atom.GetTotalNumHs()):
+            return False
+    return True
 
 
 def _topology_match_has_external_hetero_substitution(mol, template: dict, match: Sequence[int]) -> bool:

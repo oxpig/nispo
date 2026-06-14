@@ -33,6 +33,7 @@ _SATURATED_HETEROCYCLE_SPECS: tuple[_SaturatedHeterocycleSpec, ...] = (
     _SaturatedHeterocycleSpec(5, (("C", 3), ("N", 2)), "N", "imidazolidine", "N", (1, 3)),
     _SaturatedHeterocycleSpec(5, (("C", 4), ("N", 1)), "N", "pyrrolidine"),
     _SaturatedHeterocycleSpec(5, (("C", 4), ("O", 1)), "O", "oxolane"),
+    _SaturatedHeterocycleSpec(5, (("C", 4), ("S", 1)), "S", "thiolane"),
     _SaturatedHeterocycleSpec(6, (("C", 4), ("O", 2)), "O", "1,3-dioxane", "O", (1, 3)),
     _SaturatedHeterocycleSpec(6, (("C", 4), ("O", 2)), "O", "1,4-dioxane", "O", (1, 4)),
     _SaturatedHeterocycleSpec(6, (("C", 5), ("N", 1)), "N", "piperidine"),
@@ -60,6 +61,7 @@ _SATURATED_SUBSTITUENT_STEMS = {
     "oxepane": "oxepan",
     "thiirane": "thiiran",
     "thietane": "thietan",
+    "thiolane": "thiolan",
     "thiane": "thian",
     "thiepane": "thiepan",
     "thiomorpholine": "thiomorpholin",
@@ -155,7 +157,7 @@ _MEDIUM_AROMATIC_N_RING_PARENT = {
     (9, 3): "triazonine",
     (9, 4): "tetrazonine",
 }
-_MEDIUM_HW_ROOT_BY_SIZE = {8: "ocine", 9: "onine"}
+_HW_ROOT_BY_SIZE = {5: "ole", 6: "ine", 7: "epine", 8: "ocine", 9: "onine"}
 _MEDIUM_HW_SINGLE_STEM = {
     "N": "az",
     "O": "ox",
@@ -306,6 +308,11 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
 
     if n in {8, 9} and (all_aromatic or kekulized_aromatic):
         candidates = _medium_aromatic_heterocycle_candidates(mol, ordered, Counter(symbols))
+        if candidates:
+            return candidates
+
+    if n in _HW_ROOT_BY_SIZE and (all_aromatic or kekulized_aromatic):
+        candidates = _hantzsch_widman_aromatic_heterocycle_candidates(mol, ordered, Counter(symbols))
         if candidates:
             return candidates
 
@@ -817,7 +824,7 @@ def _medium_hantzsch_widman_candidates(
     ordered: Sequence[int],
     counts: Counter[str],
 ) -> list[tuple[str, tuple[int, ...]]]:
-    root = _MEDIUM_HW_ROOT_BY_SIZE.get(len(ordered))
+    root = _HW_ROOT_BY_SIZE.get(len(ordered))
     if not root:
         return []
     hetero_counts = {
@@ -847,6 +854,92 @@ def _medium_hantzsch_widman_candidates(
             name = f"{stem}{root}"
         candidates.append((name, seq))
     return candidates
+
+
+def _hantzsch_widman_aromatic_heterocycle_candidates(
+    mol,
+    ordered: Sequence[int],
+    counts: Counter[str],
+) -> list[tuple[str, tuple[int, ...]]]:
+    root = _HW_ROOT_BY_SIZE.get(len(ordered))
+    if not root:
+        return []
+    allowed = {"C", *_MEDIUM_HW_ANCHOR_ORDER}
+    if any(symbol not in allowed for symbol in counts):
+        return []
+    hetero_counts = {
+        symbol: counts.get(symbol, 0)
+        for symbol in _MEDIUM_HW_ANCHOR_ORDER
+        if counts.get(symbol, 0)
+    }
+    if not hetero_counts:
+        return []
+    if len(ordered) == 5 and hetero_counts.get("P", 0) and not (
+        hetero_counts.get("O", 0) or hetero_counts.get("S", 0)
+    ):
+        return []
+    if sum(hetero_counts.values()) + counts.get("C", 0) != len(ordered):
+        return []
+    stems = _hantzsch_widman_stem_variants(hetero_counts)
+    if not stems:
+        return []
+    anchor = next(symbol for symbol in _MEDIUM_HW_ANCHOR_ORDER if symbol in hetero_counts)
+    locanted = sum(hetero_counts.values()) > 1
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    for seq in _numberings_with_atom_at(ordered, mol, anchor):
+        if locanted:
+            locants = tuple(
+                i + 1
+                for i, idx in enumerate(seq)
+                if mol.GetAtomWithIdx(idx).GetSymbol() in hetero_counts
+            )
+            if not locants:
+                continue
+            prefix = f"{_join_locants(locants)}-"
+        else:
+            prefix = ""
+        for stem in stems:
+            item = (f"{prefix}{stem}{root}", seq)
+            if item in seen:
+                continue
+            seen.add(item)
+            candidates.append(item)
+    return candidates
+
+
+def _hantzsch_widman_stem_variants(hetero_counts: dict[str, int]) -> tuple[str, ...]:
+    primary_parts: list[str] = []
+    symbols = [symbol for symbol in _MEDIUM_HW_ANCHOR_ORDER if hetero_counts.get(symbol, 0)]
+    for index, symbol in enumerate(symbols):
+        count = hetero_counts[symbol]
+        later = set(symbols[index + 1 :])
+        if symbol == "O":
+            base = (
+                "ox"
+                if not later or (later == {"N"} and count == 1 and hetero_counts.get("N", 0) == 1)
+                else "oxa"
+            )
+            primary_parts.append(f"{MULT.get(count, '')}{base}")
+        elif symbol == "S":
+            base = "thia" if "N" in later else "thi"
+            primary_parts.append(f"{MULT.get(count, '')}{base}")
+        elif symbol == "N":
+            base = "az" if index == 0 else ("z" if count == 1 else "az")
+            primary_parts.append(f"{MULT.get(count, '')}{base}")
+        elif symbol == "P":
+            primary_parts.append(f"{MULT.get(count, '')}phosph")
+    variants = ["".join(primary_parts)]
+    for replacement in (
+        variants[0].replace("zphosph", "zaphosph"),
+        variants[0].replace("azphosph", "azaphosph"),
+    ):
+        if replacement != variants[0] and replacement not in variants:
+            variants.append(replacement)
+    legacy = _medium_hw_stem(hetero_counts)
+    if legacy and legacy not in variants:
+        variants.append(legacy)
+    return tuple(variant for variant in variants if variant)
 
 
 def _medium_hw_stem(hetero_counts: dict[str, int]) -> str:
@@ -1398,7 +1491,7 @@ def _has_exocyclic_imino(mol, idx: int, ring_set: set[int]) -> bool:
 
 
 def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw_subs) -> str:
-    lambda_name = _lambda2_ring_parent_name(mol, parent_name, seq)
+    lambda_name = _lambda_ring_parent_name(mol, parent_name, seq)
     if lambda_name:
         parent_name = lambda_name
     multi_positive_name = _multi_positive_n_ring_parent_name(mol, parent_name, seq)
@@ -1558,21 +1651,28 @@ def _aromatic_n_h_cation_parent_name(parent_name: str, atom) -> str:
     return f"{stem}ium"
 
 
-def _lambda2_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
+def _lambda_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
     if "lambda" in parent_name:
         return ""
     locants = []
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
-        if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0:
+        symbol = atom.GetSymbol()
+        valence = int(atom.GetTotalValence())
+        if symbol == "N" and atom.GetFormalCharge() == 0:
+            if atom.GetTotalNumHs() > 0:
+                continue
+            if atom.GetNumRadicalElectrons() or atom.GetExplicitValence() <= 2:
+                locants.append(f"{loc}lambda2")
             continue
-        if atom.GetTotalNumHs() > 0:
+        if symbol == "S" and atom.GetFormalCharge() == 0 and valence in {4, 6}:
+            locants.append(f"{loc}lambda{valence}")
             continue
-        if atom.GetNumRadicalElectrons() or atom.GetExplicitValence() <= 2:
-            locants.append(str(loc))
+        if symbol == "P" and atom.GetFormalCharge() == 0 and valence == 5:
+            locants.append(f"{loc}lambda5")
     if not locants:
         return ""
-    prefix = ",".join(f"{loc}lambda2" for loc in locants)
+    prefix = ",".join(locants)
     return f"{prefix}-{restore_terminal_unsaturation_e(parent_name)}"
 
 

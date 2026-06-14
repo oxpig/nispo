@@ -191,6 +191,16 @@ class SmallInorganicRetainedParentRule:
                 parent_atoms=set(range(atom_count)),
                 sort_key=(len(name), name),
             )
+            return
+        name = _small_lambda_sulfur_parent_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
 
 
 def _small_element_oxide_name(mol, Chem) -> str:
@@ -433,6 +443,88 @@ def _small_sulfur_imide_name(mol, Chem) -> str:
         imino_halo_count=len(imino_halos),
         imino_cyano=bool(imino_cyano_atoms),
     )
+
+
+def _small_lambda_sulfur_parent_name(mol, Chem) -> str:
+    sulfur_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    ]
+    if len(sulfur_atoms) != 1:
+        return ""
+    sulfur = sulfur_atoms[0]
+    sidx = sulfur.GetIdx()
+    double_oxygen = 0
+    double_nitrogen = 0
+    owners = []
+    covered = {sidx}
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_nitrogen += 1
+            if any(nn.GetIdx() != sidx and nn.GetAtomicNum() > 1 for nn in nbr.GetNeighbors()):
+                return ""
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            owner = _simple_or_branch_prefix(mol, nidx, sidx)
+            if not _simple_lambda_sulfur_owner(owner):
+                return ""
+            owners.append(owner)
+            covered.update(_collect_component_atoms(mol, nidx, sidx))
+        else:
+            return ""
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    if len(owners) not in {1, 2}:
+        return ""
+    if double_oxygen + double_nitrogen != 1:
+        return ""
+    valence = int(sulfur.GetTotalValence())
+    if valence not in {4, 6}:
+        return ""
+    owner_prefix = _lambda_sulfur_owner_prefix(owners)
+    if not owner_prefix:
+        return ""
+    if double_oxygen == 1:
+        return f"{owner_prefix}-lambda{valence}-sulfanone"
+    return f"{owner_prefix}-lambda{valence}-sulfanimine"
+
+
+def _simple_lambda_sulfur_owner(name: str) -> bool:
+    if not name:
+        return False
+    return name in {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "isopropyl",
+        "butyl",
+        "isobutyl",
+        "t-butyl",
+        "tert-butyl",
+        "cyclopropyl",
+        "cyclobutyl",
+        "cyclopentyl",
+        "cyclohexyl",
+        "phenyl",
+        "benzyl",
+    }
+
+
+def _lambda_sulfur_owner_prefix(owners: Sequence[str]) -> str:
+    owners = tuple(sorted("tert-butyl" if owner == "t-butyl" else owner for owner in owners))
+    if len(owners) == 1:
+        return owners[0]
+    if owners[0] == owners[1]:
+        return "di" + owners[0]
+    return "".join(owners)
 
 
 def _small_sulfur_imide_n_substituents(mol, Chem, nitrogen_idx: int, sulfur_idx: int) -> tuple[set[int] | None, set[int]]:
@@ -2937,6 +3029,242 @@ def _iodonium_ligand_unit(ligand: str, count: int) -> str:
     return f"bis({ligand})" if multiplier == "di" else f"{multiplier}({ligand})"
 
 
+class ChargedRetainedParentRule:
+    family = "charged-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for name in _charged_retained_parent_names(mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+
+
+def _charged_retained_parent_names(mol, Chem) -> list[str]:
+    names = []
+    names.extend(_oxonium_retained_parent_names(mol, Chem))
+    names.extend(_methylium_retained_parent_names(mol, Chem))
+    names.extend(_cyano_methane_ion_parent_names(mol, Chem))
+    names.extend(_nitrone_azaniumolate_parent_names(mol, Chem))
+    return names
+
+
+def _oxonium_retained_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for oxygen in mol.GetAtoms():
+        if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() <= 0 or oxygen.IsInRing():
+            continue
+        oidx = oxygen.GetIdx()
+        if oxygen.GetTotalNumHs() != 0:
+            continue
+        carbon_neighbors = []
+        for nbr in oxygen.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(oidx, nidx)
+            if (
+                nbr.GetSymbol() != "C"
+                or nbr.GetFormalCharge() != 0
+                or bond is None
+                or bond.GetBondType() != Chem.BondType.SINGLE
+            ):
+                break
+            carbon_neighbors.append(nidx)
+        else:
+            if len(carbon_neighbors) != 3:
+                continue
+            ligand_names, covered = _center_ligand_names_and_coverage(mol, oidx, carbon_neighbors)
+            if covered != atom_set:
+                continue
+            name = _charged_ligand_parent_name(ligand_names, "oxonium")
+            if name:
+                names.append(name)
+    return names
+
+
+def _methylium_retained_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 1 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        carbon_neighbors = []
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                ok = False
+                break
+            carbon_neighbors.append(nidx)
+        if not ok or not 1 <= len(carbon_neighbors) <= 3:
+            continue
+        if len(carbon_neighbors) + carbon.GetTotalNumHs() != 3:
+            continue
+        if all(not _collect_component_has_ring(mol, nidx, cidx) for nidx in carbon_neighbors):
+            continue
+        ligand_names, covered = _center_ligand_names_and_coverage(mol, cidx, carbon_neighbors)
+        if covered != atom_set:
+            continue
+        name = _charged_ligand_parent_name(ligand_names, "methylium")
+        if name:
+            names.append(name)
+    return names
+
+
+def _cyano_methane_ion_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() not in {-1, 1} or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        cyano_carbons = []
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if (
+                nbr.GetSymbol() != "C"
+                or bond is None
+                or bond.GetBondType() != Chem.BondType.SINGLE
+                or not _is_nitrile_carbon(mol, nidx)
+            ):
+                break
+            cyano_carbons.append(nidx)
+        else:
+            if len(cyano_carbons) not in {2, 3}:
+                continue
+            covered = {cidx}
+            for cyano_idx in cyano_carbons:
+                covered.add(cyano_idx)
+                nitrile_n = [
+                    nbr.GetIdx()
+                    for nbr in mol.GetAtomWithIdx(cyano_idx).GetNeighbors()
+                    if nbr.GetIdx() != cidx and nbr.GetSymbol() == "N"
+                ]
+                if len(nitrile_n) != 1:
+                    covered.clear()
+                    break
+                covered.add(nitrile_n[0])
+            if covered != atom_set:
+                continue
+            multiplier = MULT.get(len(cyano_carbons))
+            if not multiplier:
+                continue
+            suffix = "methanide" if carbon.GetFormalCharge() < 0 else "methylium"
+            names.append(f"{multiplier}cyano{suffix}")
+    return names
+
+
+def _nitrone_azaniumolate_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        imine_carbons = []
+        oxido_oxygens = []
+        ok = True
+        for nbr in nitrogen.GetNeighbors():
+            nidx2 = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(nidx, nidx2)
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                imine_carbons.append(nidx2)
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() < 0
+                and not nbr.IsInRing()
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and len([other for other in nbr.GetNeighbors() if other.GetAtomicNum() > 1]) == 1
+            ):
+                oxido_oxygens.append(nidx2)
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(imine_carbons) != 1 or len(oxido_oxygens) != 1:
+            continue
+        carbon_idx = imine_carbons[0]
+        carbon = mol.GetAtomWithIdx(carbon_idx)
+        substituents = [
+            nbr.GetIdx()
+            for nbr in carbon.GetNeighbors()
+            if nbr.GetIdx() != nidx and nbr.GetAtomicNum() > 1
+        ]
+        if carbon.IsInRing() or carbon.GetFormalCharge() != 0 or len(substituents) != 1:
+            continue
+        substituent_idx = substituents[0]
+        if not _collect_component_has_ring(mol, substituent_idx, carbon_idx):
+            continue
+        prefix = _simple_or_branch_prefix(mol, substituent_idx, carbon_idx)
+        if not prefix:
+            continue
+        covered = {nidx, carbon_idx, oxido_oxygens[0]}
+        covered.update(_collect_component_atoms(mol, substituent_idx, carbon_idx))
+        if covered != atom_set:
+            continue
+        bare = _strip_outer_parentheses(prefix)
+        piece = _parenthesized_if_complex(bare)
+        names.append(f"{piece}methylideneazaniumolate")
+    return names
+
+
+def _center_ligand_names_and_coverage(mol, center_idx: int, ligand_atoms: Sequence[int]) -> tuple[list[str], set[int]]:
+    names = []
+    covered = {center_idx}
+    for atom_idx in ligand_atoms:
+        prefix = _simple_or_branch_prefix(mol, atom_idx, center_idx)
+        if not prefix:
+            return [], set()
+        names.append(prefix)
+        covered.update(_collect_component_atoms(mol, atom_idx, center_idx))
+    return names, covered
+
+
+def _collect_component_has_ring(mol, start_idx: int, blocked_idx: int) -> bool:
+    return any(mol.GetAtomWithIdx(idx).IsInRing() for idx in _collect_component_atoms(mol, start_idx, blocked_idx))
+
+
+def _charged_ligand_parent_name(ligands: Sequence[str], parent: str) -> str:
+    if not ligands:
+        return ""
+    counts = Counter(_strip_outer_parentheses(ligand) for ligand in ligands)
+    pieces = []
+    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+        unit = _charged_ligand_unit(ligand, count)
+        if not unit:
+            return ""
+        pieces.append(unit)
+    return "".join(pieces) + parent
+
+
+def _charged_ligand_unit(ligand: str, count: int) -> str:
+    if count == 1:
+        return _parenthesized_if_complex(ligand)
+    multiplier = MULT.get(count)
+    if not multiplier:
+        return ""
+    if _simple_unparenthesized_n_substituent(ligand):
+        return f"{multiplier}{ligand}"
+    return f"bis({ligand})" if multiplier == "di" else f"{multiplier}({ligand})"
+
+
 class PnictogenHydrideParentRule:
     family = "pnictogen-hydride-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3826,7 +4154,7 @@ class SulfonamideRetainedParentRule:
                 continue
             if any(_unstable_retained_functional_parent_substituent(name) for name in nitrogen_substituents):
                 continue
-            name = f"{nitrogen_prefix}-{base}" if _needs_explicit_n_parent_separator(nitrogen_prefix) else nitrogen_prefix + base
+            name = _join_retained_sulfonamide_parent(nitrogen_prefix, base)
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -3838,15 +4166,23 @@ class SulfonamideParentRule:
         self._Chem = Chem
 
     def candidates(self, ctx):
-        for sulfur_idx, nitrogen_idx in _n_substituted_sulfonamide_motifs(ctx.mol, self._Chem):
-            nitrogen_substituents = _external_substituent_names(ctx.mol, nitrogen_idx, sulfur_idx)
+        mol = ctx.mol
+        for sulfur_idx, nitrogen_idx in _n_substituted_sulfonamide_motifs(mol, self._Chem):
+            nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, sulfur_idx)
             if nitrogen_substituents is None or len(nitrogen_substituents) > 2:
                 continue
-            nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
+            nitrogen_prefix = _sulfonamide_n_substituent_prefix(nitrogen_substituents)
             if not nitrogen_prefix:
                 continue
             name = f"{nitrogen_prefix}-sulfonamide"
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                estimated_length=len(name),
+            )
 
 
 class SulfonimidamideParentRule:
@@ -8251,6 +8587,24 @@ def _sulfonimidamide_n_substituent_prefix(left: Sequence[str], right: Sequence[s
     return None
 
 
+def _sulfonamide_n_substituent_prefix(substituents: Sequence[str]) -> str | None:
+    substituents = tuple(_retained_parent_substituent_alias(name) for name in substituents)
+    if len(substituents) > 2:
+        return None
+    if not substituents:
+        return ""
+    if not all(_allowed_sulfonamide_substituent(name) for name in substituents):
+        return None
+    if len(substituents) == 1:
+        return _n_substituent_piece("N", substituents[0])
+    counts = Counter(substituents)
+    if len(counts) == 1:
+        name = next(iter(counts))
+        return _duplicate_n_substituent_piece("N,N", name)
+    first, second = sorted(substituents)
+    return f"{_n_substituent_piece('N', first)}-{_n_substituent_piece('N', second)}"
+
+
 def _same_atom_urea_prefix(locant: str, substituents: Sequence[str]) -> str | None:
     counts = Counter(substituents)
     if len(counts) == 1:
@@ -8368,6 +8722,59 @@ def _allowed_sulfonimidamide_substituent(name: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9,().'\-\[\]\^]+", name))
 
 
+def _allowed_sulfonamide_substituent(name: str) -> bool:
+    if _allowed_n_retained_parent_substituent(name):
+        return True
+    if name in {
+        "boc",
+        "propargyl",
+        "octyl",
+        "dodecyl",
+        "hexadecyl",
+        "trifluoromethyl",
+        "2,2,2-trifluoroethyl",
+    }:
+        return True
+    if len(name) > 190:
+        return False
+    if " " in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,().'\-\[\]\^]+", name):
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfonylaminoamino", "sulfanyl")):
+        return False
+    return any(
+        fragment in name
+        for fragment in (
+            "amino",
+            "benz",
+            "carbonyl",
+            "carboxy",
+            "cyclo",
+            "ethen",
+            "ethyl",
+            "fluoro",
+            "formyl",
+            "hydroxy",
+            "imidazol",
+            "indol",
+            "methyl",
+            "morpholin",
+            "oxo",
+            "phenyl",
+            "piper",
+            "pyraz",
+            "pyrid",
+            "pyrimid",
+            "quin",
+            "thiazol",
+            "thien",
+            "triazin",
+            "triazol",
+        )
+    )
+
+
 def _n_substituent_piece(locant: str, name: str) -> str:
     if _simple_unparenthesized_n_substituent(name):
         return f"{locant}-{name}"
@@ -8448,7 +8855,63 @@ def _sulfonamide_base_name(mol, sulfur_idx: int, substituent_idx: int) -> str:
         return substituent[0] + "-toluenesulfonamid"
     if substituent.endswith("phenyl"):
         return substituent[: -len("phenyl")] + "benzenesulfonamid"
+    generic = _generic_sulfonamide_base_name(substituent)
+    if generic:
+        return generic
     return ""
+
+
+def _generic_sulfonamide_base_name(substituent: str) -> str:
+    if not _allowed_sulfonamide_base_substituent(substituent):
+        return ""
+    return f"{substituent}sulfonamide"
+
+
+def _allowed_sulfonamide_base_substituent(substituent: str) -> bool:
+    if len(substituent) > 90:
+        return False
+    if " " in substituent:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,().'\-\[\]\^]+", substituent):
+        return False
+    if any(fragment in substituent for fragment in ("carbamoyl", "carbonyl", "dioxo", "oxo", "sulfonylaminoamino", "phosph")):
+        return False
+    if not (
+        substituent.endswith("yl")
+        or substituent.endswith("'yl")
+        or "phenyl" in substituent
+        or "naphthalen" in substituent
+    ):
+        return False
+    return any(
+        fragment in substituent
+        for fragment in (
+            "benz",
+            "cyan",
+            "fur",
+            "imidazol",
+            "indazol",
+            "indol",
+            "isooxazol",
+            "methoxy",
+            "naphthalen",
+            "oxazol",
+            "phenyl",
+            "pyraz",
+            "pyrid",
+            "pyrimid",
+            "quin",
+            "thiaz",
+            "thien",
+            "triaz",
+        )
+    )
+
+
+def _join_retained_sulfonamide_parent(prefix: str, base: str) -> str:
+    if not prefix:
+        return base
+    return f"{prefix}-{base}" if _needs_explicit_n_parent_separator(prefix) or base[:1].isdigit() else prefix + base
 
 
 def _sulfonimidamide_base_name(mol, sulfur_idx: int, substituent_idx: int | None) -> str:
@@ -12927,6 +13390,7 @@ def parent_rules(Chem) -> tuple:
     benziodoxole = BenziodoxoleRetainedParentRule(Chem)
     iodane = IodaneParentRule(Chem)
     iodonium = IodoniumParentRule(Chem)
+    charged_retained = ChargedRetainedParentRule(Chem)
     pnictogen_hydride = PnictogenHydrideParentRule(Chem)
     oxido_nitroso_azanium = OxidoNitrosoAzaniumRule(Chem)
     oxo_sulfanium = OxoSulfaniumParentRule(Chem)
@@ -13098,6 +13562,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("benziodoxole-retained-parent", parent_priority("senior-functional-exception"), (), benziodoxole.candidates),
         RuleSpec("iodane-parent", parent_priority("senior-functional-exception"), (), iodane.candidates),
         RuleSpec("iodonium-parent", parent_priority("senior-functional-exception"), (), iodonium.candidates),
+        RuleSpec("charged-retained-parent", parent_priority("senior-functional-exception"), (), charged_retained.candidates),
         RuleSpec("pnictogen-hydride-parent", parent_priority("senior-functional-exception"), (nonring_neutral_pnictogen,), pnictogen_hydride.candidates),
         RuleSpec(
             "oxido-nitroso-azanium-parent",

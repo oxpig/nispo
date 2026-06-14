@@ -260,6 +260,11 @@
     "smiles": "c1cccc2c1C=CCCC2"
   },
   {
+    "locants": {"0": "1", "1": "2", "10": "5", "2": "3", "3": "4", "6": "9", "7": "8", "8": "7", "9": "6"},
+    "name": "6,7,8,9-tetrahydro-5H-benzo[7]annulene",
+    "smiles": "c1cccc2c1CCCCC2"
+  },
+  {
     "locants": {"1": "2", "3": "4", "4": "5", "7": "9", "8": "8", "9": "7", "10": "6"},
     "name": "4,5-dihydrobenzo[d]oxepin-1(2H)-one",
     "smiles": "C1(=O)COCCc2c1cccc2"
@@ -327,5 +332,11 @@
     "name": "carbazole-3-boronate",
     "smiles": "C1=CC(=CC=2C3=CC=CC=C3NC12)B([O-])[O-]",
     "source_subtype": "large-fused-exact-retained"
+  },
+  {
+      "locants": {"2": "3", "3": "2", "4": "1", "5": "8a", "6": "3a", "7": "4", "8": "5", "9": "6", "10": "7", "11": "3'", "12": "2'", "13": "1'", "14": "6'", "15": "5'", "16": "8"},
+    "name": "3-ethyl-4-oxo-spiro[6,8-dihydro-5H-pyrazolo[4,3-c]azepine-7,4'-tetrahydropyran]",
+    "smiles": "C(C)C1=NNC2=C1C(NCC1(CCOCC1)C2)=O",
+    "source_subtype": "high-impact-spiro-lactam"
   }
 ]

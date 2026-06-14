@@ -86,6 +86,24 @@ def test_lambda2_unsaturated_heterocycles_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C1C[SH4]C1",
+        "C1CC[SH4]C1",
+        "C1=CC=[SH3]C=C1",
+        "C1CC[PH3]C1",
+        "C1=CC=[PH2]C=C1",
+    ],
+)
+def test_hypervalent_ring_lambda_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(C)(C)[C@H]1C=CN(c2cccc(N3C=C[C@H](C(C)(C)C)C3)n2)C1",
         "CC(C)[C@H]1COC(c2cccc(C3=N[C@@H](C(C)C)CO3)n2)=N1",
         "O=c1[nH]c(C2C=NON2NCCN2CC=NS2(=O)=O)no1",
@@ -469,6 +487,29 @@ def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_charged_polyatomic_empty_coverage_fragments_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[CH+]C",
+        "C[CH-]C",
+        "C=CO[N-]OC=C",
+        "C[O+](C)C",
+        "CC[O+](CC)CC",
+        "[CH2+]Cc1ccccc1",
+        "c1ccc([C+](c2ccccc2)c2ccccc2)cc1",
+        "N#C[C-](C#N)C#N",
+        "N#C[C+](C#N)C#N",
+        "[O-][NH+]=Cc1ccccc1",
+    ],
+)
+def test_high_impact_charged_retained_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 
@@ -1277,6 +1318,45 @@ def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_small_sulfur_imide_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)(C)OC(=O)N[SH](=O)=O",
+        "CCCCCCCCN[SH](=O)=O",
+        "NCCN[SH](=O)=O",
+        "O=[SH](=O)NC(F)(F)F",
+        "CN(CN)[SH](=O)=O",
+        "Cc1cc(N[SH](=O)=O)no1",
+    ],
+)
+def test_n_substituted_sulfonamide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[SH]=O",
+        "C[SH3]=O",
+        "C[SH2](C)=O",
+        "CC[SH2](=O)CC",
+        "C[SH2](C)=N",
+        "C[SH3]=N",
+        "C[SH2](=O)c1ccccc1",
+    ],
+)
+def test_small_lambda_sulfur_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

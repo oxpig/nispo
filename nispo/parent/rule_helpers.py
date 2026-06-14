@@ -1026,9 +1026,9 @@ def _benzimidazole_external_n_preference(mol, template: dict, match: Sequence[in
     if not external_n_locants:
         return (1,)
     locants_key = tuple(sorted(external_n_locants, key=_locant_sort_key))
-    if locants_key == ("3",):
-        return (0,)
     if locants_key == ("1",):
+        return (0,)
+    if locants_key == ("3",):
         return (2,)
     return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
 

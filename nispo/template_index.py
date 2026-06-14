@@ -142,7 +142,13 @@ def _preferred_template_entries_by_scaffold(entries: list[tuple[dict, dict]], Ch
 
 def _template_alias_preference_key(template: dict) -> tuple:
     name = str(template.get("name", ""))
-    return (len(name), name)
+    return (_template_alias_priority(name), len(name), name)
+
+
+def _template_alias_priority(name: str) -> int:
+    if name == "6,7,8,9-tetrahydro-5H-benzo[7]annulene":
+        return -1
+    return 0
 
 
 def _template_scaffold_key(template: dict, Chem) -> str:

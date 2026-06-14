@@ -3660,12 +3660,12 @@ def _contextual_named_template_pair_parent_bonus(
     if len(item.name) > 280:
         return 0
     if (
-        candidate.family == "skeletal-replacement-fused-parent"
-        and candidate.template_name in {"fluoren", "fluorene"}
+        candidate.family == "fused-retained-parent"
+        and candidate.template_name == "dibenzofuran"
         and _has_contextual_complete_named_fused_template_alternative(
             item,
             prepared,
-            frozenset({"dibenzofuran"}),
+            frozenset({"fluoren", "fluorene"}),
         )
     ):
         return _NAMED_TEMPLATE_PAIR_PARENT_BONUS

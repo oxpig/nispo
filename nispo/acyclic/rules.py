@@ -24,6 +24,7 @@ from ..branch_rules import (
 )
 from ..branch.functional_groups import _is_nitrile_carbon
 from ..constants import MULT, ROOTS
+from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
 from ..formatting import format_prefixes as _format_prefixes
 from ..formatting import join_prefix_parent as _join_prefix_parent
 from ..formatting import preferred_parent_stem as _preferred_parent_stem
@@ -61,6 +62,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     if terminal_charge_name:
         return AcyclicNameRecord(terminal_charge_name)
 
+    internal_charge_name = _name_internal_linear_hydrocarbon_charge(mol)
+    if internal_charge_name:
+        return AcyclicNameRecord(internal_charge_name)
+
     terminal_charge_name = _name_terminal_acyclic_carbon_charge(mol)
     if terminal_charge_name:
         return AcyclicNameRecord(terminal_charge_name)
@@ -72,6 +77,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     terminal_imine_azanide_name = _name_terminal_imine_azanide(mol)
     if terminal_imine_azanide_name:
         return AcyclicNameRecord(terminal_imine_azanide_name)
+
+    dialkoxy_azanide_name = _name_dialkoxy_azanide(mol)
+    if dialkoxy_azanide_name:
+        return AcyclicNameRecord(dialkoxy_azanide_name)
 
     alkoxy_azanide_name = _name_alkoxy_azanide(mol)
     if alkoxy_azanide_name:
@@ -146,6 +155,52 @@ def _name_terminal_linear_hydrocarbon_charge(mol) -> str:
     if not parent:
         return ""
     return f"{parent}{'ide' if charge < 0 else 'ylium'}"
+
+
+def _name_internal_linear_hydrocarbon_charge(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    atoms = tuple(mol.GetAtoms())
+    if not atoms or any(atom.GetSymbol() != "C" for atom in atoms):
+        return ""
+    charged = [
+        atom.GetIdx()
+        for atom in atoms
+        if atom.GetFormalCharge() in {-1, 1}
+    ]
+    if not charged:
+        return ""
+    charges = {mol.GetAtomWithIdx(idx).GetFormalCharge() for idx in charged}
+    if len(charges) != 1:
+        return ""
+    if any(atom.GetFormalCharge() not in {0, next(iter(charges))} for atom in atoms):
+        return ""
+    view = _acyclic_graph_view(mol)
+    if any(len(neighbors) > 2 for neighbors in view.neighbors):
+        return ""
+    endpoints = [idx for idx, neighbors in enumerate(view.neighbors) if len(neighbors) <= 1]
+    if len(endpoints) != 2:
+        return ""
+    path = _shortest_path_in_allowed_graph(view, endpoints[0], endpoints[1], set(range(len(atoms))))
+    if not path or len(path) != len(atoms):
+        return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if not parent:
+        return ""
+    charge = next(iter(charges))
+    locants = [path.index(idx) + 1 for idx in charged]
+    reverse_locants = [len(path) + 1 - loc for loc in locants]
+    if tuple(reverse_locants) < tuple(locants):
+        locants = reverse_locants
+    locants = sorted(locants)
+    suffix = "ide" if charge < 0 else "ylium"
+    if len(locants) == 1:
+        stem = parent[:-1] if parent.endswith("e") else parent
+        return f"{stem}-{locants[0]}-{suffix}"
+    multiplier = MULT.get(len(locants))
+    if charge > 0 or not multiplier:
+        return ""
+    return f"{parent}-{','.join(str(locant) for locant in locants)}-{multiplier}{suffix}"
 
 
 def _name_terminal_acyclic_carbon_charge(mol) -> str:
@@ -299,6 +354,63 @@ def _name_terminal_imine_azanide(mol) -> str:
         return ""
     carbon_name = branch_prefix(mol, carbon_idx, nitrogen_idx)
     return carbon_name + "azanide" if carbon_name else ""
+
+
+def _name_dialkoxy_azanide(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    motifs: list[tuple[int, tuple[int, int]]] = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
+            continue
+        nidx = nitrogen.GetIdx()
+        heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 2:
+            continue
+        oxygens = []
+        for oxygen_idx in heavy:
+            oxygen = mol.GetAtomWithIdx(oxygen_idx)
+            bond = mol.GetBondBetweenAtoms(nidx, oxygen_idx)
+            if (
+                oxygen.GetSymbol() != "O"
+                or oxygen.GetFormalCharge() != 0
+                or oxygen.IsInRing()
+                or bond is None
+                or bond.GetBondType() != Chem.BondType.SINGLE
+            ):
+                break
+            carbon_neighbors = [
+                nbr.GetIdx()
+                for nbr in oxygen.GetNeighbors()
+                if nbr.GetIdx() != nidx and nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0
+            ]
+            if len(carbon_neighbors) != 1:
+                break
+            oxygens.append((oxygen_idx, carbon_neighbors[0]))
+        else:
+            motifs.append((nidx, tuple(oxygens)))
+    if len(motifs) != 1:
+        return ""
+    nitrogen_idx, oxygens = motifs[0]
+    covered = {nitrogen_idx}
+    oxy_names = []
+    for oxygen_idx, carbon_idx in oxygens:
+        covered.add(oxygen_idx)
+        covered.update(collect_subtree(mol, carbon_idx, oxygen_idx))
+        owner = branch_prefix(mol, carbon_idx, oxygen_idx)
+        if not owner:
+            return ""
+        oxy_names.append(_alkyl_to_alkoxy(owner))
+    if covered != set(range(mol.GetNumAtoms())) or not all(oxy_names):
+        return ""
+    counts = {name: oxy_names.count(name) for name in set(oxy_names)}
+    if len(counts) == 1:
+        name = next(iter(counts))
+        if name.startswith("("):
+            return f"bis({name})azanide"
+        return f"di{name}azanide"
+    first, second = sorted(oxy_names)
+    return f"{first}({second})azanide"
 
 
 def _name_alkoxy_azanide(mol) -> str:

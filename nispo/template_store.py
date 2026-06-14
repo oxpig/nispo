@@ -462,7 +462,13 @@ def _preferred_compiled_templates_by_scaffold(
 
 def _compiled_template_alias_preference_key(template: CompiledTemplate) -> tuple:
     name = template.record.name
-    return (len(name), name)
+    return (_compiled_template_alias_priority(name), len(name), name)
+
+
+def _compiled_template_alias_priority(name: str) -> int:
+    if name == "6,7,8,9-tetrahydro-5H-benzo[7]annulene":
+        return -1
+    return 0
 
 
 def _molecule_ring_system_graph_keys(mol, features: dict, Chem) -> set[tuple]:

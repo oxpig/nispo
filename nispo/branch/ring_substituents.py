@@ -709,6 +709,9 @@ def _with_ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int, p
     stereo_prefix = _ring_branch_atom_stereo_prefix(mol, root_idx, blocked_idx)
     if not stereo_prefix:
         return prefix
+    localized = _with_internal_n_ligand_stereo_prefix(prefix, stereo_prefix)
+    if localized:
+        return localized
     if prefix.startswith("(") and prefix.endswith(")"):
         inner = prefix[1:-1]
         if inner:
@@ -718,6 +721,23 @@ def _with_ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int, p
 
 def _has_locanted_atom_stereo_prefix(prefix: str) -> bool:
     return bool(re.search(r"\(\d+'?[RS](?:,\d+'?[RS])*\)-", prefix))
+
+
+def _with_internal_n_ligand_stereo_prefix(prefix: str, stereo_prefix: str) -> str:
+    match = re.fullmatch(r"\d+([RS])", stereo_prefix)
+    if not match:
+        return ""
+    if prefix.startswith("N-(") and prefix.endswith(")carbamoyl"):
+        ligand = prefix[len("N-(") : -len(")carbamoyl")]
+        if not ligand or _has_locanted_atom_stereo_prefix(ligand):
+            return ""
+        return f"N-((1{match.group(1)})-{ligand})carbamoyl"
+    if prefix.startswith("((") and prefix.endswith(")amino)carbonyl"):
+        ligand = prefix[2 : -len(")amino)carbonyl")]
+        if not ligand or _has_locanted_atom_stereo_prefix(ligand):
+            return ""
+        return f"(((1{match.group(1)})-{ligand})amino)carbonyl"
+    return ""
 
 
 def _ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int) -> str:
@@ -827,8 +847,6 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
     if not seq:
         return ""
     seq_set = set(seq)
-    if _has_assigned_bond_stereo(mol, Chem):
-        return ""
     centers = [
         (idx, descriptor)
         for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
@@ -975,6 +993,9 @@ def _fused_ring_substituent_prefix_from_templates(
             if prefix_text is None:
                 continue
             name = _combine_fused_substituent_prefix(prefix_text, suffix)
+            stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
+            if stereo_prefix:
+                name = f"({stereo_prefix})-{name}"
             key = _fused_substituent_candidate_key(template, match, locant, name, generated)
             if best_key is None or (key < best_key if generated else key > best_key):
                 best_key = key
@@ -1052,6 +1073,9 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             if prefix_text is None:
                 continue
             name = _combine_fused_substituent_prefix(prefix_text, suffix)
+            stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
+            if stereo_prefix:
+                name = f"({stereo_prefix})-{name}"
             key = (_generated_fusion_preference(template_record_name(template)), -len(match), locant, name)
             if best_key is None or key < best_key:
                 best_key = key
@@ -1092,6 +1116,31 @@ def _fused_substituent_prefix_text(
                 return None
             prefixes.append((core_loc, prefix))
     return _format_prefixes(prefixes)
+
+
+def _fused_substituent_stereo_prefix(mol, template: dict, match: Sequence[int]) -> str:
+    descriptors = dict(assigned_atom_stereochemistry(mol, Chem, atom_order="idx"))
+    if not descriptors:
+        return ""
+    locants = template_record_locants(template)
+    pieces = []
+    seen = set()
+    for template_idx, mol_idx in enumerate(match):
+        locant = str(locants.get(template_idx, ""))
+        if not locant.isdigit():
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+            continue
+        descriptor = descriptors.get(mol_idx)
+        if descriptor is None:
+            continue
+        text = f"{locant}{descriptor}"
+        if text in seen:
+            continue
+        seen.add(text)
+        pieces.append((int(locant), text))
+    return ",".join(text for _locant, text in sorted(pieces))
 
 
 @lru_cache(maxsize=None)
@@ -1247,7 +1296,7 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
     locant = _candidate_atom_locant(selected.candidate, attachment)
     if not locant:
         return ""
-    prefix = _parent_name_to_substituent_prefix(selected.name, locant)
+    prefix = _parent_name_to_substituent_prefix(selected.output_name or selected.name, locant)
     if len(prefix) > 280:
         return ""
     return prefix

@@ -1536,7 +1536,8 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
             atom = mol.GetAtomWithIdx(mol_idx)
             if locant == "1" and atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0:
                 return "quinuclidin-1-ium"
-    charged_locs = []
+    cation_locs = []
+    cation_suffix = ""
     charged_has_hydrogen = False
     anion_locs = []
     template_mol = template_record_mol(template)
@@ -1551,19 +1552,29 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
             and template_atom.GetFormalCharge() == 0
         ):
             anion_locs.append(int(locant))
-        if locant and locant.isdigit() and atom.GetSymbol() in {"N", "S"} and atom.GetFormalCharge() > 0:
-            charged_locs.append(int(locant))
-            if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0:
+        if locant and locant.isdigit() and atom.GetFormalCharge() > 0:
+            symbol = atom.GetSymbol()
+            if symbol == "C":
+                suffix = "ylium"
+            elif symbol in {"N", "O", "S"}:
+                suffix = "ium"
+            else:
+                continue
+            cation_locs.append(int(locant))
+            if cation_suffix and cation_suffix != suffix:
+                return name
+            cation_suffix = suffix
+            if symbol in {"N", "O"} and atom.GetTotalNumHs() > 0:
                 charged_has_hydrogen = True
-    if len(anion_locs) == 1 and not charged_locs:
+    if len(anion_locs) == 1 and not cation_locs:
         stem = name[:-1] if name.endswith("e") else name
         return f"{stem}-{anion_locs[0]}-ide"
-    if len(charged_locs) == 1:
-        locant = charged_locs[0]
+    if len(cation_locs) == 1:
+        locant = cation_locs[0]
         if not charged_has_hydrogen:
             name = _drop_indicated_hydrogen_prefix(name)
         stem = name[:-1] if name.endswith("e") else name
-        return f"{stem}-{locant}-ium"
+        return f"{stem}-{locant}-{cation_suffix}"
     return name
 
 

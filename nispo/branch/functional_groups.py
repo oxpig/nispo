@@ -666,6 +666,8 @@ def _carbamoyl_substituent_name(
         groups.append(name)
     if not groups:
         return "carbamyl"
+    if len(groups) == 1:
+        return f"(({groups[0]})amino)carbonyl"
     counts = Counter(groups)
     parts = []
     for name in sorted(counts):

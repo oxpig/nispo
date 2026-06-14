@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from itertools import combinations, permutations
+from itertools import combinations, permutations, product
 
 from .branch_rules import branch_prefix
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
@@ -75,12 +75,13 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
             candidates.extend(records)
     seen = set()
     unique = []
-    for name, seq in candidates:
+    for record in candidates:
+        name, seq = record[0], record[1]
         key = (name, seq)
         if key in seen:
             continue
         seen.add(key)
-        unique.append((name, seq))
+        unique.append(record)
     return unique
 
 
@@ -175,11 +176,17 @@ def _bicyclic_parent_sequence_candidates(
     mol, atoms: set[int], graph: dict[int, set[int]]
 ) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
+    orient_remaining_paths = (
+        _ring_multiple_bond_count(mol, atoms) == 0
+        and _has_multi_external_substituted_ring_atom(mol, atoms)
+    )
     for a, b in _bridgehead_pair_candidates(graph, atoms, 3):
         paths = _bridge_paths(graph, atoms, a, b)
         if not paths:
             continue
-        for seq, bracket in _numbering_sequences(paths):
+        for seq, bracket in _polybridge_numbering_sequences(
+            paths, orient_remaining_paths=orient_remaining_paths
+        ):
             parent = _bicyclic_parent(mol, seq, bracket)
             if parent:
                 candidates.append((parent, seq))
@@ -460,7 +467,7 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
     return [(name, seq) for _key, name, seq in candidates]
 
 
-def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
+def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
         return []
@@ -544,12 +551,118 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
                         name,
                     )
-                candidates.append((key, name, tuple(seq)))
+                fragility = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
+                candidates.append((key, name, tuple(seq), fragility))
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
-                    return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
+                    return [
+                        (name, seq, fragility)
+                        for _key, name, seq, fragility in candidates[:candidate_limit]
+                    ]
     candidates.sort(key=lambda item: item[0])
-    return [(name, seq) for _key, name, seq in candidates[:candidate_limit]]
+    return [
+        (name, seq, fragility)
+        for _key, name, seq, fragility in candidates[:candidate_limit]
+    ]
+
+
+def _opsin_bridge_unsaturation_mismatch_count(
+    mol,
+    seq: Sequence[int],
+    bracket: Sequence[int | str],
+) -> int:
+    if not bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")):
+        return 0
+    if len(bracket) < 4:
+        return 0
+    parent_edges = _opsin_oriented_polybridge_edges(bracket)
+    if not parent_edges:
+        return 0
+    mismatches = 0
+    for edge in _multiple_bond_locant_edges(mol, seq):
+        if edge not in parent_edges:
+            mismatches += 1
+    return mismatches
+
+
+def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int], ...]:
+    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    edges = []
+    seen = set()
+    for idx in seq:
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in pos:
+                continue
+            key = tuple(sorted((idx, nidx)))
+            if key in seen:
+                continue
+            seen.add(key)
+            bond = mol.GetBondBetweenAtoms(idx, nidx)
+            if bond.GetBondTypeAsDouble() <= 1.0:
+                continue
+            edges.append(tuple(sorted((pos[idx], pos[nidx]))))
+    return tuple(edges)
+
+
+def _opsin_oriented_polybridge_edges(bracket: Sequence[int | str]) -> frozenset[tuple[int, int]]:
+    parsed = _bridge_sort_key(bracket)
+    if len(parsed) < 3:
+        return frozenset()
+    first, second, third = (parsed[idx][0] for idx in range(3))
+    if min(first, second, third) < 0:
+        return frozenset()
+
+    edges: set[tuple[int, int]] = set()
+    end = first + 2
+    for loc in range(1, end):
+        edges.add((loc, loc + 1))
+
+    next_loc = end + 1
+    previous = end
+    for loc in range(next_loc, next_loc + second):
+        edges.add(tuple(sorted((previous, loc))))
+        previous = loc
+    edges.add(tuple(sorted((previous, 1))))
+    next_loc += second
+
+    previous = 1
+    for loc in range(next_loc, next_loc + third):
+        edges.add(tuple(sorted((previous, loc))))
+        previous = loc
+    edges.add(tuple(sorted((previous, end))))
+    next_loc += third
+
+    zero_bridges = []
+    secondary_bridges = []
+    for length, left, right in parsed[3:]:
+        if length == 0:
+            zero_bridges.append((left, right))
+            continue
+        larger, smaller = max(left, right), min(left, right)
+        secondary_bridges.append((larger, smaller, length))
+    for left, right in zero_bridges:
+        edges.add(tuple(sorted((left, right))))
+
+    remaining = sorted(secondary_bridges, key=lambda item: (-item[0], -item[1], -item[2]))
+    while remaining:
+        progressed = False
+        deferred = []
+        for larger, smaller, length in remaining:
+            if larger > next_loc - 1:
+                deferred.append((larger, smaller, length))
+                continue
+            previous = larger
+            for loc in range(next_loc, next_loc + length):
+                edges.add(tuple(sorted((previous, loc))))
+                previous = loc
+            next_loc += length
+            edges.add(tuple(sorted((previous, smaller))))
+            progressed = True
+        if not progressed:
+            return frozenset(edges)
+        remaining = deferred
+    return frozenset(edges)
 
 
 def _has_stereochemical_evidence(mol, Chem) -> bool:
@@ -593,9 +706,6 @@ def _use_kekulized_blue_book_bridge_selection(
         return False
     if rank < 4 or multiple_bond_count < 5:
         return False
-    if not _has_stereochemical_evidence(mol, Chem):
-        return False
-
     hetero_atoms = 0
     external_attachment_atoms = 0
     for idx in atoms:
@@ -604,6 +714,27 @@ def _use_kekulized_blue_book_bridge_selection(
             hetero_atoms += 1
         if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
             external_attachment_atoms += 1
+
+    if len(atoms) >= 14 and multiple_bond_count * 20 >= len(atoms) * 9:
+        return True
+    if not _has_stereochemical_evidence(mol, Chem):
+        if (
+            rank == 4
+            and 14 <= len(atoms) <= 24
+            and multiple_bond_count >= 5
+            and hetero_atoms >= 4
+            and external_attachment_atoms >= 1
+        ):
+            return True
+        if (
+            rank == 5
+            and 18 <= len(atoms) <= 22
+            and multiple_bond_count >= 7
+            and hetero_atoms >= 2
+            and external_attachment_atoms >= 3
+        ):
+            return True
+        return False
 
     if len(atoms) >= 30 and external_attachment_atoms == 0 and hetero_atoms >= 2:
         return True
@@ -986,19 +1117,33 @@ def _numbering_sequences(paths: Sequence[tuple[int, ...]]) -> list[tuple[tuple[i
 
 
 def _polybridge_numbering_sequences(
-    paths: Sequence[tuple[int, ...]], annotate_zero_bridges: bool = False
+    paths: Sequence[tuple[int, ...]],
+    annotate_zero_bridges: bool = False,
+    orient_remaining_paths: bool = False,
 ) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
     sequences = []
     for oriented_paths in (paths, tuple(tuple(reversed(path)) for path in paths)):
         for ordered in _bridge_path_orderings(oriented_paths):
             first, *remaining = ordered
-            seq = first[:1] + first[1:-1] + first[-1:]
-            for path in remaining:
-                seq += tuple(reversed(path[1:-1]))
-            if len(seq) == len(set(seq)):
-                pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
-                bracket = tuple(_bridge_descriptor(path, pos, annotate_zero_bridges) for path in ordered)
-                sequences.append((seq, bracket))
+            first_seq = first[:1] + first[1:-1] + first[-1:]
+            if orient_remaining_paths:
+                remaining_variants = [
+                    (path[1:-1], tuple(reversed(path[1:-1])))
+                    for path in remaining
+                ]
+            else:
+                remaining_variants = [
+                    (tuple(reversed(path[1:-1])),)
+                    for path in remaining
+                ]
+            for internals in product(*remaining_variants):
+                seq = first_seq
+                for path_internals in internals:
+                    seq += path_internals
+                if len(seq) == len(set(seq)):
+                    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+                    bracket = tuple(_bridge_descriptor(path, pos, annotate_zero_bridges) for path in ordered)
+                    sequences.append((seq, bracket))
     return list(dict.fromkeys(sequences))
 
 
@@ -1504,8 +1649,36 @@ def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: se
         hetero_locants,
         _bridge_unsaturation_preference_key(mol, seq, core_atoms),
         _unsaturation_contiguity_key(mol, seq),
+        _multi_external_substituent_locants_desc(mol, seq, core_atoms),
         _substituent_locants(mol, seq, core_atoms),
     )
+
+
+def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:
+    if _ring_multiple_bond_count(mol, core_atoms):
+        return []
+    locants = []
+    for loc, idx in enumerate(seq, start=1):
+        external_count = sum(
+            1
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
+            if nbr.GetIdx() not in core_atoms and nbr.GetAtomicNum() > 1
+        )
+        if external_count >= 2:
+            locants.append(-loc)
+    return locants
+
+
+def _has_multi_external_substituted_ring_atom(mol, atoms: set[int]) -> bool:
+    for idx in atoms:
+        external_count = sum(
+            1
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
+            if nbr.GetIdx() not in atoms and nbr.GetAtomicNum() > 1
+        )
+        if external_count >= 2:
+            return True
+    return False
 
 
 def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:

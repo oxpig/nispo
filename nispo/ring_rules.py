@@ -155,6 +155,21 @@ _MEDIUM_AROMATIC_N_RING_PARENT = {
     (9, 3): "triazonine",
     (9, 4): "tetrazonine",
 }
+_MEDIUM_HW_ROOT_BY_SIZE = {8: "ocine", 9: "onine"}
+_MEDIUM_HW_SINGLE_STEM = {
+    "N": "az",
+    "O": "ox",
+    "P": "phosph",
+    "S": "thi",
+}
+_MEDIUM_HW_PAIR_STEM = {
+    ("N", "O"): "oxaz",
+    ("N", "S"): "thiaz",
+    ("O", "P"): "oxaphosph",
+    ("O", "S"): "oxathi",
+    ("P", "S"): "thiaphosph",
+}
+_MEDIUM_HW_ANCHOR_ORDER = ("O", "S", "N", "P")
 
 
 def _single_indicated_hydrogen_n(mol, ordered: Sequence[int]) -> int | None:
@@ -783,6 +798,9 @@ def _medium_aromatic_heterocycle_candidates(
         return [("oxonine", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
     if len(ordered) == 9 and counts == Counter({"C": 7, "N": 1, "O": 1}):
         return _medium_oxaaza_candidates(mol, ordered, "1,2-oxazonine")
+    candidates = _medium_hantzsch_widman_candidates(mol, ordered, counts)
+    if candidates:
+        return candidates
     return []
 
 
@@ -792,6 +810,55 @@ def _medium_oxaaza_candidates(mol, ordered: Sequence[int], parent: str) -> list[
         for seq in _numberings_with_atom_at(ordered, mol, "O")
         if _symbol_locants(mol, seq, "N") == [2]
     ]
+
+
+def _medium_hantzsch_widman_candidates(
+    mol,
+    ordered: Sequence[int],
+    counts: Counter[str],
+) -> list[tuple[str, tuple[int, ...]]]:
+    root = _MEDIUM_HW_ROOT_BY_SIZE.get(len(ordered))
+    if not root:
+        return []
+    hetero_counts = {
+        symbol: counts.get(symbol, 0)
+        for symbol in _MEDIUM_HW_ANCHOR_ORDER
+        if counts.get(symbol, 0)
+    }
+    if not hetero_counts or sum(hetero_counts.values()) + counts.get("C", 0) != len(ordered):
+        return []
+    stem = _medium_hw_stem(hetero_counts)
+    if not stem:
+        return []
+    anchor = next(symbol for symbol in _MEDIUM_HW_ANCHOR_ORDER if symbol in hetero_counts)
+    locanted = sum(hetero_counts.values()) > 1
+    candidates: list[tuple[str, tuple[int, ...]]] = []
+    for seq in _numberings_with_atom_at(ordered, mol, anchor):
+        if locanted:
+            locants = tuple(
+                i + 1
+                for i, idx in enumerate(seq)
+                if mol.GetAtomWithIdx(idx).GetSymbol() in hetero_counts
+            )
+            if not locants:
+                continue
+            name = f"{_join_locants(locants)}-{stem}{root}"
+        else:
+            name = f"{stem}{root}"
+        candidates.append((name, seq))
+    return candidates
+
+
+def _medium_hw_stem(hetero_counts: dict[str, int]) -> str:
+    if len(hetero_counts) == 1:
+        symbol, count = next(iter(hetero_counts.items()))
+        stem = _MEDIUM_HW_SINGLE_STEM.get(symbol, "")
+        if not stem:
+            return ""
+        return f"{MULT.get(count, '')}{stem}"
+    if len(hetero_counts) == 2 and all(count == 1 for count in hetero_counts.values()):
+        return _MEDIUM_HW_PAIR_STEM.get(tuple(sorted(hetero_counts)), "")
+    return ""
 
 
 def _unsaturated_heterocycle_suffix_parent_candidates(

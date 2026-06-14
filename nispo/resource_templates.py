@@ -2093,7 +2093,10 @@ def _annotate_opsin_retained_ring_template(Chem, template: dict, smiles: str) ->
         flags.add("radical")
     if any(atom.GetSymbol() in {"U", "Th", "Pu", "Np"} for atom in mol.GetAtoms()):
         flags.add("organometallic")
-    general_parent_safe = template["name"] not in _OPSIN_RETAINED_RING_GENERAL_PARENT_EXCLUSIONS
+    general_parent_safe = bool(template.get("general_parent_safe", True))
+    general_parent_safe = general_parent_safe and (
+        template["name"] not in _OPSIN_RETAINED_RING_GENERAL_PARENT_EXCLUSIONS
+    )
     if not general_parent_safe:
         flags.add("general-parent-unsupported")
     annotated = dict(template)

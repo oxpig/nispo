@@ -745,7 +745,8 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     )
     component_order = 0
     for records, component_kind in record_groups:
-        for raw_name, seq in records:
+        for record in records:
+            raw_name, seq = record[0], record[1]
             if spiro_idx not in seq:
                 component_order += 1
                 continue
@@ -937,7 +938,7 @@ def _component_spiro_orientation_rank(*components: _Component) -> int:
             locant_number = _locant_key(locant)[0]
             if term in {"oxo", "thioxo", "imino"}:
                 suffix_locants.append(locant_number)
-    if len(suffix_locants) == 1:
+    if suffix_locants:
         return min(9, min(suffix_locants))
     return 0
 
@@ -968,6 +969,8 @@ def _strip_leading_replacement_prefixes(name: str) -> tuple[str, list[tuple[str,
 
 
 def _component_parent_text(name: str) -> str:
+    if re.match(r"^\d+(?:,\d+)+-(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?hydro", name):
+        return name
     return re.sub(r"^(\d+(?:,\d+)+)-([A-Za-z])", r"[\1]\2", name)
 
 

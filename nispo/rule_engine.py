@@ -11,10 +11,14 @@ from .candidate_facts import (
     HydrogenEvidence,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
+    OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT,
+    OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
     PrefixCandidate,
     StereoEvidence,
     SuffixCandidate,
 )
+from .candidate_fact_ranker_model import score as _candidate_fact_ranker_score
+from .candidate_fact_switch_gate_model import score as _candidate_fact_switch_gate_score
 from .fragment_rules import (
     FragmentAssemblyRule,
     common_polyatomic_fragment_name,
@@ -33,6 +37,8 @@ from .telemetry import CandidateTelemetry
 
 
 _DEFAULT_MAX_NAME_LENGTH = 260
+_CANDIDATE_FACT_RANKER_MIN_MARGIN = 0.0
+_CANDIDATE_FACT_SWITCH_GATE_THRESHOLD = 0.6
 _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
@@ -61,6 +67,7 @@ class NameCandidate:
     parent_aromatic_atom_count: int = 0
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
+    parent_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
     prefixes: tuple[PrefixCandidate, ...] = ()
@@ -206,6 +213,8 @@ def _prepare_candidates(
                     continue
                 if output_max_length is not None and len(output_name) > output_max_length:
                     continue
+                candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
+                candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -242,6 +251,8 @@ def _prepare_candidates(
                 if output_max_length is not None and len(output_name) > output_max_length:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
+                candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
+                candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -271,8 +282,9 @@ def _select_best_prepared_candidate(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
-    best_name = ""
+    best_item: _PreparedCandidate | None = None
     best_key: tuple | None = None
+    keyed_items: list[tuple[tuple, _PreparedCandidate]] = []
     for item in prepared:
         candidate = item.candidate
         stability_penalty = (
@@ -294,9 +306,12 @@ def _select_best_prepared_candidate(
             _comparable_sort_key(candidate.sort_key),
             item.name,
         )
+        keyed_items.append((candidate_key, item))
         if best_key is None or candidate_key < best_key:
-            best_name = _prepared_output_name(item)
+            best_item = item
             best_key = candidate_key
+    best_item = _candidate_fact_ranked_item(keyed_items, best_item)
+    best_name = _prepared_output_name(best_item) if best_item is not None else ""
     if best_name and telemetry is not None:
         for item in prepared:
             if _prepared_output_name(item) == best_name:
@@ -317,6 +332,168 @@ def _select_best_prepared_candidate(
                 telemetry.selected_safety_reasons.update(candidate_safety_reasons(item.candidate))
                 break
     return best_name
+
+
+def _candidate_fact_ranked_item(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    current: _PreparedCandidate | None,
+) -> _PreparedCandidate | None:
+    if current is None or len(keyed_items) < 2:
+        return current
+    metrics = _candidate_fact_ranker_row_metrics([item for _key, item in keyed_items])
+    try:
+        current_facts = _candidate_fact_ranker_facts(current, metrics)
+        current_score = _candidate_fact_ranker_score(current_facts)
+        best_score = current_score
+        best_key = next(key for key, item in keyed_items if item is current)
+        best_item = current
+        best_facts = current_facts
+        for candidate_key, item in keyed_items:
+            facts = _candidate_fact_ranker_facts(item, metrics)
+            score = _candidate_fact_ranker_score(facts)
+            if score > best_score or (score == best_score and candidate_key < best_key):
+                best_score = score
+                best_key = candidate_key
+                best_item = item
+                best_facts = facts
+    except Exception:
+        return current
+    if (
+        best_item is not current
+        and best_score > current_score + _CANDIDATE_FACT_RANKER_MIN_MARGIN
+        and _candidate_fact_switch_gate_accepts(
+            current_facts,
+            best_facts,
+            current_score,
+            best_score,
+        )
+    ):
+        return best_item
+    return current
+
+
+_CANDIDATE_FACT_SWITCH_NUMERIC_KEYS = (
+    "priority",
+    "render_rank",
+    "parent_atom_count",
+    "ring_system_atom_count",
+    "parent_aromatic_atom_count",
+    "parent_hetero_atom_count",
+    "parent_terminal_hetero_substituent_count",
+    "parent_external_nitrogen_substituent_count",
+    "parent_external_oxygen_substituent_count",
+    "locant_count",
+    "prefix_count",
+    "suffix_count",
+    "parent_atom_delta_max",
+    "parent_atom_delta_min",
+    "locant_delta_max",
+    "priority_delta_min",
+    "candidate_count_in_row",
+)
+
+
+def _candidate_fact_switch_gate_accepts(
+    current_facts: dict[str, object],
+    proposed_facts: dict[str, object],
+    current_score: float,
+    proposed_score: float,
+) -> bool:
+    features = _candidate_fact_switch_features(
+        current_facts,
+        proposed_facts,
+        current_score,
+        proposed_score,
+    )
+    return _candidate_fact_switch_gate_score(features) >= _CANDIDATE_FACT_SWITCH_GATE_THRESHOLD
+
+
+def _candidate_fact_switch_features(
+    current_facts: dict[str, object],
+    proposed_facts: dict[str, object],
+    current_score: float,
+    proposed_score: float,
+) -> dict[str, float]:
+    current_family = str(current_facts["family"])
+    proposed_family = str(proposed_facts["family"])
+    features: dict[str, float] = {
+        f"old_family={current_family}": 1.0,
+        f"new_family={proposed_family}": 1.0,
+        f"pair={current_family}=>{proposed_family}": 1.0,
+        "same_family": float(current_family == proposed_family),
+        f"old_complete={current_facts['complete_graph']}": 1.0,
+        f"new_complete={proposed_facts['complete_graph']}": 1.0,
+        f"old_suffix={current_facts['suffix_kinds']}": 1.0,
+        f"new_suffix={proposed_facts['suffix_kinds']}": 1.0,
+        f"old_charge={current_facts['charge']}": 1.0,
+        f"new_charge={proposed_facts['charge']}": 1.0,
+        f"old_safety={current_facts['safety_reasons']}": 1.0,
+        f"new_safety={proposed_facts['safety_reasons']}": 1.0,
+        "old_score": float(current_score),
+        "new_score": float(proposed_score),
+        "score_margin": float(proposed_score - current_score),
+    }
+    for key in _CANDIDATE_FACT_SWITCH_NUMERIC_KEYS:
+        current_value = float(current_facts.get(key, -1.0))
+        proposed_value = float(proposed_facts.get(key, -1.0))
+        features[f"old_{key}"] = current_value
+        features[f"new_{key}"] = proposed_value
+        features[f"delta_{key}"] = proposed_value - current_value
+    return features
+
+
+def _candidate_fact_ranker_row_metrics(items: list[_PreparedCandidate]) -> dict[str, float]:
+    parent_counts = [float(len(item.candidate.parent_atoms)) for item in items]
+    locant_counts = [float(len(item.candidate.locants)) for item in items]
+    priorities = [float(item.candidate.priority) for item in items]
+    return {
+        "candidate_count_in_row": float(len(items)),
+        "max_parent_atom_count": max(parent_counts, default=-1.0),
+        "min_parent_atom_count": min(parent_counts, default=-1.0),
+        "max_locant_count": max(locant_counts, default=-1.0),
+        "min_priority": min(priorities, default=-1.0),
+    }
+
+
+def _candidate_fact_ranker_facts(
+    item: _PreparedCandidate,
+    metrics: dict[str, float],
+) -> dict[str, object]:
+    candidate = item.candidate
+    parent_atom_count = float(len(candidate.parent_atoms))
+    locant_count = float(len(candidate.locants))
+    priority = float(candidate.priority)
+    return {
+        "family": candidate.family,
+        "producer_family": item.producer_family,
+        "complete_graph": "1" if candidate_has_complete_graph(candidate) else "0",
+        "suffix_kinds": ",".join(sorted({suffix.kind for suffix in candidate.suffixes})),
+        "charge": candidate.charge.formal_charge if candidate.charge is not None else 0,
+        "safety_reasons": ",".join(candidate_safety_reasons(candidate)),
+        "priority": priority,
+        "render_rank": float(candidate.render_rank) if candidate.render_rank is not None else -1.0,
+        "parent_atom_count": parent_atom_count,
+        "ring_system_atom_count": float(len(candidate.ring_system_atoms)),
+        "parent_aromatic_atom_count": float(candidate.parent_aromatic_atom_count),
+        "parent_hetero_atom_count": float(candidate.parent_hetero_atom_count),
+        "parent_terminal_hetero_substituent_count": float(
+            candidate.parent_terminal_hetero_substituent_count
+        ),
+        "parent_external_nitrogen_substituent_count": float(
+            candidate.parent_external_nitrogen_substituent_count
+        ),
+        "parent_external_oxygen_substituent_count": float(
+            candidate.parent_external_oxygen_substituent_count
+        ),
+        "locant_count": locant_count,
+        "prefix_count": float(len(candidate.prefixes)),
+        "suffix_count": float(len(candidate.suffixes)),
+        "parent_atom_delta_max": parent_atom_count - metrics["max_parent_atom_count"],
+        "parent_atom_delta_min": parent_atom_count - metrics["min_parent_atom_count"],
+        "locant_delta_max": locant_count - metrics["max_locant_count"],
+        "priority_delta_min": priority - metrics["min_priority"],
+        "candidate_count_in_row": metrics["candidate_count_in_row"],
+    }
 
 
 def _prepared_output_name(item: _PreparedCandidate) -> str:
@@ -409,6 +586,119 @@ def _has_assigned_stereo(mol, Chem) -> bool:
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return mol_cache_set(mol, "has_assigned_stereo", True)
     return mol_cache_set(mol, "has_assigned_stereo", False)
+
+
+def _with_molecule_stereo_evidence(mol, Chem, candidate: NameCandidate) -> NameCandidate:
+    if candidate.stereo is not None:
+        return candidate
+    if not _has_assigned_stereo(mol, Chem):
+        return candidate
+    atom_descriptors = tuple(
+        (atom.GetIdx(), str(atom.GetChiralTag()))
+        for atom in mol.GetAtoms()
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    )
+    bond_descriptors = tuple(
+        (bond.GetIdx(), str(bond.GetStereo()))
+        for bond in mol.GetBonds()
+        if bond.GetStereo() != Chem.BondStereo.STEREONONE
+    )
+    if not atom_descriptors and not bond_descriptors:
+        return candidate
+    return replace(
+        candidate,
+        stereo=StereoEvidence(
+            atom_descriptors=atom_descriptors,
+            bond_descriptors=bond_descriptors,
+        ),
+    )
+
+
+def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate) -> NameCandidate:
+    if not _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate):
+        return candidate
+    safety = candidate.safety or CandidateSafety()
+    reasons = safety.opsin_fragility_reasons
+    if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in reasons:
+        return candidate
+    return replace(
+        candidate,
+        safety=replace(
+            safety,
+            opsin_fragility_reasons=(*reasons, OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT),
+        ),
+    )
+
+
+def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameCandidate) -> bool:
+    if not candidate.parent_atoms:
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    for parent_idx in parent_atoms:
+        parent = mol.GetAtomWithIdx(parent_idx)
+        for carbonyl in parent.GetNeighbors():
+            carbonyl_idx = carbonyl.GetIdx()
+            if carbonyl_idx in parent_atoms:
+                continue
+            bond = mol.GetBondBetweenAtoms(parent_idx, carbonyl_idx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                continue
+            if _is_external_oxyimino_carbonyl(mol, Chem, carbonyl_idx, blocked_idx=parent_idx):
+                return True
+    return False
+
+
+def _is_external_oxyimino_carbonyl(mol, Chem, carbonyl_idx: int, *, blocked_idx: int) -> bool:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return False
+    double_oxygen_count = 0
+    single_oxygen_idx = None
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == blocked_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            if single_oxygen_idx is not None:
+                return False
+            single_oxygen_idx = nidx
+        elif nbr.GetAtomicNum() > 1:
+            return False
+    if double_oxygen_count != 1 or single_oxygen_idx is None:
+        return False
+    oxygen = mol.GetAtomWithIdx(single_oxygen_idx)
+    if oxygen.GetFormalCharge() != 0 or oxygen.IsInRing() or oxygen.GetIsotope():
+        return False
+    attached = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(attached) != 1:
+        return False
+    nitrogen_idx = attached[0]
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing() or nitrogen.GetIsotope():
+        return False
+    if mol.GetBondBetweenAtoms(single_oxygen_idx, nitrogen_idx).GetBondType() != Chem.BondType.SINGLE:
+        return False
+    imine_carbons = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == single_oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            imine_carbons.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return False
+    if len(imine_carbons) != 1:
+        return False
+    imine_carbon = mol.GetAtomWithIdx(imine_carbons[0])
+    return imine_carbon.GetFormalCharge() == 0 and not imine_carbon.IsInRing()
 
 
 def _candidate_base_key(candidate: NameCandidate) -> tuple:
@@ -591,6 +881,9 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
         penalty += _skeletal_replacement_fused_parent_penalty(name)
     if candidate.family == "kekulized-generic-polycyclic-parent":
         penalty += _kekulized_polycyclic_late_render_rank_penalty(name, candidate)
+        penalty += _kekulized_polycyclic_bridge_unsaturation_penalty(candidate)
+    if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in candidate_safety_reasons(candidate):
+        penalty += 80
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
     return penalty
@@ -602,6 +895,12 @@ def _kekulized_polycyclic_late_render_rank_penalty(name: str, candidate: NameCan
     if "tetraaza" in name:
         return 0
     return max(0, candidate.render_rank - 1) * 4
+
+
+def _kekulized_polycyclic_bridge_unsaturation_penalty(candidate: NameCandidate) -> int:
+    if OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION not in candidate_safety_reasons(candidate):
+        return 0
+    return 180 * max(1, candidate.render_cost - 1)
 
 
 _CONTEXTUAL_GRAPH_PARENT_FAMILIES = {
@@ -657,6 +956,12 @@ _FUSED_PARENT_ATOM_BONUS_FAMILIES = {
     "hydro-fused-retained-parent",
     "retained-topology-replacement-fused-parent",
 }
+_CHARGED_FUSED_PARENT_ALTERNATIVE_FAMILIES = _FUSED_PARENT_ATOM_BONUS_FAMILIES | {
+    "generated-oxido-fused-parent",
+    "oxido-fused-retained-parent",
+    "skeletal-replacement-fused-parent",
+}
+_CHARGED_FUSED_PARENT_FALLBACK_PENALTY = 150
 
 _RENDER_RANK_BEFORE_LENGTH_FAMILIES = {
     "component-dispiro-parent",
@@ -846,7 +1151,59 @@ _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 960
 _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS = 1320
 _HIGH_CONFIDENCE_IMIDAZO45A_FUSED_TEMPLATE_PARENT_BONUS = 640
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_COMPETITOR_STABILITY_MARGIN = 220
+_IMIDAZO45A_GENERATED_ORIENTATION_BONUS_BY_RENDER_RANK = {
+    2: 110,
+    3: 140,
+}
+_IMIDAZO45A_GENERATED_RANK2_PARENT_BONUS = 220
+_BENZOTRIAZOLE_OVER_THIENO23A_PARENT_BONUS = 280
+_QUINO34D_PYRAZOLE_SINGLE_RING_PARENT_BONUS = 220
+_PYRIDO23D_PYRAZOLE_PARENT_BONUS = 260
 _TETRALIN_TO_BENZODIOXANE_TEMPLATE_PAIR_BONUS = 220
+_RETAINED_FUSED_TEMPLATE_PAIR_PARENT_BONUS = 430
+_RETAINED_FUSED_TEMPLATE_PAIR_COMPETITORS = {
+    "1H-benzotriazole": frozenset({"thieno[2,3-a]benzene"}),
+    "2H-benzotriazole": frozenset({"thieno[2,3-a]benzene"}),
+    "purin": frozenset({"imidazo[4,5-d]pyrimidine", "pyrimido[4,5-b]pyrrole"}),
+}
+_ACYCLIC_SKELETON_RING_SYSTEM_PARENT_BONUS = 0
+_ACYCLIC_SKELETON_RING_SYSTEM_BONUS_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
+_ACYCLIC_SKELETON_RING_SYSTEM_COMPETITOR_FAMILIES = frozenset(
+    {
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "positive-single-ring-parent",
+        "single-ring-parent",
+    }
+)
+_ACYCLIC_SKELETON_PROTECTED_PARENT_FAMILIES = frozenset(
+    {
+        "carbodiimide-retained-parent",
+        "exact-retained-parent",
+        "fused-retained-parent",
+        "iodane-parent",
+        "natural-product-topology-parent",
+        "phosphorus-acid-parent",
+        "retained-topology-replacement-fused-parent",
+        "sydnone-retained-parent",
+        "thiooxo-ester-retained-parent",
+        "whole-molecule-retained-parent",
+    }
+)
+_KEKULIZED_POLYCYCLE_CONTEXTUAL_PARENT_BONUS = 130
+_KEKULIZED_POLYCYCLE_CONTEXTUAL_COMPETITOR_FAMILIES = frozenset(
+    {
+        "kekulized-generic-polycyclic-parent",
+        "oxido-fused-retained-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
 _IMIDAZO45A_TEMPLATELESS_COMPETITOR_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
@@ -944,6 +1301,7 @@ def _candidate_selection_broad_graph_parent_penalty(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
 ) -> int:
+    charged_fused_parent_penalty = _contextual_charged_fused_parent_fallback_penalty(item, prepared)
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
         penalty = 0
         if _has_contextual_single_ring_parent_candidate_alternative(item, prepared):
@@ -952,7 +1310,13 @@ def _candidate_selection_broad_graph_parent_penalty(
             penalty = max(penalty, 142)
         if _has_contextual_integrated_ring_parent_alternative(item, prepared):
             penalty = max(penalty, 142)
+        penalty = max(penalty, charged_fused_parent_penalty)
         return penalty
+    if charged_fused_parent_penalty and item.candidate.family in {
+        "single-ring-parent",
+        "positive-single-ring-parent",
+    }:
+        return charged_fused_parent_penalty
     if item.candidate.family not in _BROAD_GRAPH_PARENT_FRAGILE_WINNER_FAMILIES:
         return 0
     if item.candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
@@ -960,7 +1324,42 @@ def _candidate_selection_broad_graph_parent_penalty(
             return 0
     if not _has_contextual_broad_graph_parent_alternative(item, prepared):
         return 0
-    return 70
+    return max(70, charged_fused_parent_penalty)
+
+
+def _contextual_charged_fused_parent_fallback_penalty(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    if item.candidate.family not in (
+        _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES
+        | {"single-ring-parent", "positive-single-ring-parent"}
+    ):
+        return 0
+    item_charged_atoms = _candidate_charged_atom_set(item.candidate)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _CHARGED_FUSED_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        other_charged_atoms = _candidate_charged_atom_set(other_candidate)
+        if not other_charged_atoms or not other_charged_atoms - item_charged_atoms:
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 180:
+            continue
+        if other.stability_penalty > item.stability_penalty + 160:
+            continue
+        return _CHARGED_FUSED_PARENT_FALLBACK_PENALTY
+    return 0
+
+
+def _candidate_charged_atom_set(candidate: NameCandidate) -> set[int]:
+    if candidate.charge is None:
+        return set()
+    return set(candidate.charge.charged_atoms)
 
 
 def _has_contextual_single_ring_parent_candidate_alternative(
@@ -1485,6 +1884,57 @@ def _has_contextual_generated_fused_same_atoms_alternative(
     return False
 
 
+def _has_contextual_low_rank_generated_fused_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
+        "oxido-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    if candidate.template_name in _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 6:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count < max(6, parent_count - 1):
+            continue
+        if other_parent_count > parent_count + 1:
+            continue
+        same_ring = bool(
+            candidate.ring_system_atoms
+            and other_candidate.ring_system_atoms == candidate.ring_system_atoms
+        )
+        parent_overlap = len(candidate.parent_atoms & other_candidate.parent_atoms)
+        if not same_ring and parent_overlap < min(parent_count, other_parent_count, 8):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 3:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_chain_dominant_ring_substituent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -1768,6 +2218,23 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    imidazo45a_generated_orientation_bonus = _contextual_imidazo45a_generated_orientation_bonus(
+        item,
+        prepared,
+    )
+    azole_template_parent_bonus = _contextual_azole_template_parent_bonus(item, prepared)
+    retained_fused_template_pair_parent_bonus = _contextual_retained_fused_template_pair_parent_bonus(
+        item,
+        prepared,
+    )
+    acyclic_skeleton_ring_system_parent_bonus = _contextual_acyclic_skeleton_ring_system_parent_bonus(
+        item,
+        prepared,
+    )
+    kekulized_polycycle_contextual_parent_bonus = _contextual_kekulized_polycycle_parent_bonus(
+        item,
+        prepared,
+    )
     high_impact_exact_retained_parent = _has_contextual_high_impact_exact_retained_parent_alternative(
         item,
         prepared,
@@ -1809,10 +2276,16 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     retained_ester_shortcut = _has_contextual_retained_acid_ester_alternative(item, prepared)
     cyclic_n_carbamate_carboxylate = _has_contextual_complete_cyclic_n_carbamate_alternative(item, prepared)
     acyclic_carbalkoxy_ester = _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(item, prepared)
+    complete_urea_parent = _has_contextual_complete_urea_parent_alternative(item, prepared)
     retained_aryl_urea = _has_contextual_aryl_urea_alternative(item, prepared)
+    complete_sulfonimidamide_parent = _has_contextual_complete_sulfonimidamide_parent_alternative(item, prepared)
     biochem_heterofused_parent = _has_contextual_biochem_heterofused_parent_alternative(item, prepared)
     exocyclic_fused_single_ring = _has_contextual_exocyclic_fused_single_ring_alternative(item, prepared)
     biochem_fused_sibling = _has_contextual_biochem_fused_sibling_alternative(item, prepared)
+    generated_fused_low_rank_parent = _has_contextual_low_rank_generated_fused_parent_alternative(
+        item,
+        prepared,
+    )
     generated_fused_same_atoms = _has_contextual_generated_fused_same_atoms_alternative(item, prepared)
     chain_dominant_ring_substituent = _has_contextual_chain_dominant_ring_substituent_alternative(item, prepared)
     kekulized_polycycle_parent = _has_contextual_kekulized_polycycle_parent_alternative(item, prepared)
@@ -1885,6 +2358,11 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or incomplete_shortcut_graph_parent
         or complete_fused_retained_amide_parent_bonus
         or high_confidence_fused_template_parent_bonus
+        or imidazo45a_generated_orientation_bonus
+        or azole_template_parent_bonus
+        or retained_fused_template_pair_parent_bonus
+        or acyclic_skeleton_ring_system_parent_bonus
+        or kekulized_polycycle_contextual_parent_bonus
         or high_impact_exact_retained_parent
         or named_template_pair_parent_bonus
         or low_confidence_fused_template_parent_penalty
@@ -1901,10 +2379,13 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or retained_ester_shortcut
         or cyclic_n_carbamate_carboxylate
         or acyclic_carbalkoxy_ester
+        or complete_urea_parent
         or retained_aryl_urea
+        or complete_sulfonimidamide_parent
         or biochem_heterofused_parent
         or exocyclic_fused_single_ring
         or biochem_fused_sibling
+        or generated_fused_low_rank_parent
         or generated_fused_same_atoms
         or chain_dominant_ring_substituent
         or kekulized_polycycle_parent
@@ -1927,6 +2408,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS
     if retained_topology_replacement_parent:
         penalty -= 140
+        penalty += 120
     if complete_nitrile_oxide_parent:
         penalty += 180
     has_graph_parent = _has_contextual_graph_parent_alternative(item, prepared)
@@ -2099,6 +2581,16 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= complete_fused_retained_amide_parent_bonus
     if high_confidence_fused_template_parent_bonus:
         penalty -= high_confidence_fused_template_parent_bonus
+    if imidazo45a_generated_orientation_bonus:
+        penalty -= imidazo45a_generated_orientation_bonus
+    if azole_template_parent_bonus:
+        penalty -= azole_template_parent_bonus
+    if retained_fused_template_pair_parent_bonus:
+        penalty -= retained_fused_template_pair_parent_bonus
+    if acyclic_skeleton_ring_system_parent_bonus:
+        penalty -= acyclic_skeleton_ring_system_parent_bonus
+    if kekulized_polycycle_contextual_parent_bonus:
+        penalty -= kekulized_polycycle_contextual_parent_bonus
     if named_template_pair_parent_bonus:
         penalty -= named_template_pair_parent_bonus
     if low_confidence_fused_template_parent_penalty:
@@ -2131,8 +2623,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 1600
     if acyclic_carbalkoxy_ester:
         penalty += 180
+    if complete_urea_parent:
+        penalty += 1500
     if retained_aryl_urea:
         penalty += 90
+    if complete_sulfonimidamide_parent:
+        penalty += 520
     if aza_alias_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=90, max_length=180):
         penalty += 24
     if spiro_penalty and _has_contextual_graph_parent_alternative(item, prepared, max_extra=35):
@@ -2151,6 +2647,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 95
     if biochem_fused_sibling:
         penalty += 90
+    if generated_fused_low_rank_parent:
+        penalty += 120
     if generated_fused_same_atoms:
         penalty += 140
     if chain_dominant_ring_substituent:
@@ -2599,6 +3097,397 @@ def _contextual_high_confidence_fused_template_parent_bonus(
     if candidate.template_name in _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_NAMES:
         return _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS
     return _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS
+
+
+def _contextual_imidazo45a_generated_orientation_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return 0
+    if candidate.template_name != "imidazo[4,5-a]benzene":
+        return 0
+    if candidate.source_family != "generated-fused":
+        return 0
+    if candidate.source_file != "generated_fused_template_index.json":
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if len(candidate.parent_atoms) != 9:
+        return 0
+    if candidate.render_rank not in _IMIDAZO45A_GENERATED_ORIENTATION_BONUS_BY_RENDER_RANK:
+        return 0
+    if candidate.render_rank == 2 and _candidate_has_stereo_evidence(candidate):
+        return 0
+    if len(item.name) > 280:
+        return 0
+    if not _has_lower_rank_same_imidazo45a_generated_orientation(item, prepared):
+        return 0
+    return _IMIDAZO45A_GENERATED_ORIENTATION_BONUS_BY_RENDER_RANK[candidate.render_rank]
+
+
+def _contextual_azole_template_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return 0
+    if len(item.name) > 280:
+        return 0
+    family = candidate.family
+    template_name = candidate.template_name or ""
+    if not (
+        (family == "generated-fused-parent" and template_name in {"imidazo[4,5-a]benzene", "pyrido[2,3-d]pyrazole"})
+        or (family == "fused-retained-parent" and template_name in {"1H-benzotriazole", "2H-benzotriazole"})
+        or family == "single-ring-parent"
+    ):
+        return 0
+    bonus = 0
+    if _has_contextual_imidazo45a_rank2_parent_alternative(item, prepared):
+        bonus += _IMIDAZO45A_GENERATED_RANK2_PARENT_BONUS
+    if _has_contextual_benzotriazole_parent_for_thieno23a(item, prepared):
+        bonus += _BENZOTRIAZOLE_OVER_THIENO23A_PARENT_BONUS
+    if _has_contextual_single_ring_parent_for_quino34d_pyrazole(item, prepared):
+        bonus += _QUINO34D_PYRAZOLE_SINGLE_RING_PARENT_BONUS
+    if _has_contextual_pyrido23d_pyrazole_parent(item, prepared):
+        bonus += _PYRIDO23D_PYRAZOLE_PARENT_BONUS
+    return bonus
+
+
+def _has_contextual_imidazo45a_rank2_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.template_name != "imidazo[4,5-a]benzene":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if candidate.render_rank != 2:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    return _has_lower_rank_same_imidazo45a_generated_orientation(item, prepared)
+
+
+def _has_contextual_benzotriazole_parent_for_thieno23a(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name not in {"1H-benzotriazole", "2H-benzotriazole"}:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 3:
+        return False
+    if len(candidate.parent_atoms) < 9:
+        return False
+    if len(item.name) > 220:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name != "thieno[2,3-a]benzene":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other.stability_penalty > item.stability_penalty + 20:
+            continue
+        return True
+    return False
+
+
+def _contextual_retained_fused_template_pair_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return 0
+    template_name = candidate.template_name or ""
+    competitor_templates = _RETAINED_FUSED_TEMPLATE_PAIR_COMPETITORS.get(template_name)
+    if not competitor_templates:
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 4:
+        return 0
+    if len(item.name) > 260:
+        return 0
+    if template_name == "1H-benzimidazole" and _has_larger_retained_parent_competitor(item, prepared):
+        return 0
+    if template_name == "1H-benzimidazole" and candidate.parent_substituted_hetero_atom_count:
+        return 0
+    parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in competitor_templates:
+            continue
+        if template_name == "1H-benzimidazole" and other_candidate.parent_substituted_hetero_atom_count:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count + 1 < parent_count or other_parent_count > parent_count + 1:
+            continue
+        if len(other.name) > 280:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return _RETAINED_FUSED_TEMPLATE_PAIR_PARENT_BONUS
+    return 0
+
+
+def _has_larger_retained_parent_competitor(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {
+            "fused-retained-parent",
+            "retained-topology-replacement-fused-parent",
+        }:
+            continue
+        if other_candidate.template_name == candidate.template_name:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) <= parent_count + 1:
+            continue
+        if other.stability_penalty > item.stability_penalty + 100:
+            continue
+        return True
+    return False
+
+
+def _contextual_acyclic_skeleton_ring_system_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family not in _ACYCLIC_SKELETON_RING_SYSTEM_BONUS_FAMILIES:
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8:
+        return 0
+    if len(item.name) > 220:
+        return 0
+    if not _has_smaller_ring_system_parent_competitor(item, prepared):
+        return 0
+    if _has_protected_acyclic_skeleton_parent_competitor(item, prepared):
+        return 0
+    return _ACYCLIC_SKELETON_RING_SYSTEM_PARENT_BONUS
+
+
+def _has_smaller_ring_system_parent_competitor(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    parent_count = len(item.candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _ACYCLIC_SKELETON_RING_SYSTEM_COMPETITOR_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if parent_count < len(other_candidate.parent_atoms) + 2:
+            continue
+        if other.stability_penalty > item.stability_penalty + 240:
+            continue
+        return True
+    return False
+
+
+def _has_protected_acyclic_skeleton_parent_competitor(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _ACYCLIC_SKELETON_PROTECTED_PARENT_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _contextual_kekulized_polycycle_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8 or parent_count > 36:
+        return 0
+    if candidate.render_rank is None or candidate.render_rank > 5:
+        return 0
+    if candidate.suffixes:
+        return 0
+    if len(item.name) > 260:
+        return 0
+    for other in prepared:
+        if other is item:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if other_candidate.render_rank is None or candidate.render_rank is None:
+            continue
+        if other_candidate.render_rank >= candidate.render_rank:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if frozenset(other_candidate.parent_atoms) != frozenset(candidate.parent_atoms):
+            continue
+        if other.stability_penalty > item.stability_penalty:
+            continue
+        return 0
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _KEKULIZED_POLYCYCLE_CONTEXTUAL_COMPETITOR_FAMILIES:
+            continue
+        if other_candidate.family == "kekulized-generic-polycyclic-parent":
+            if other_candidate.render_rank is None or other_candidate.render_rank <= candidate.render_rank:
+                continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other.stability_penalty > item.stability_penalty + 160:
+            continue
+        return _KEKULIZED_POLYCYCLE_CONTEXTUAL_PARENT_BONUS
+    return 0
+
+
+def _has_contextual_single_ring_parent_for_quino34d_pyrazole(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if len(item.name) > 190:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name != "quino[3,4-d]pyrazole":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other.stability_penalty > item.stability_penalty + 260:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_pyrido23d_pyrazole_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.template_name != "pyrido[2,3-d]pyrazole":
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 3:
+        return False
+    if len(candidate.parent_atoms) < 9:
+        return False
+    competitor_templates = {
+        "1H-benzimidazole",
+        "imidazo[4,5-a]benzene",
+        "imidazo[4,5-d]pyridine",
+    }
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.template_name not in competitor_templates:
+            continue
+        if other_candidate.family not in {"fused-retained-parent", "generated-fused-parent"}:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other.stability_penalty > item.stability_penalty + 260:
+            continue
+        return True
+    return False
+
+
+def _candidate_has_stereo_evidence(candidate: NameCandidate) -> bool:
+    return bool(
+        candidate.stereo is not None
+        and (candidate.stereo.atom_descriptors or candidate.stereo.bond_descriptors)
+    )
+
+
+def _has_lower_rank_same_imidazo45a_generated_orientation(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    current_rank = candidate.render_rank or 0
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != candidate.family:
+            continue
+        if other_candidate.template_name != candidate.template_name:
+            continue
+        if other_candidate.source_family != candidate.source_family:
+            continue
+        if other_candidate.source_file != candidate.source_file:
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if other_rank < 1 or other_rank >= current_rank:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_high_impact_exact_retained_parent_alternative(
@@ -3356,6 +4245,7 @@ _COMPLETE_RETAINED_SENIOR_PARENT_FAMILIES = frozenset(
         "dithiophosphate-retained-parent",
         "phosphorothioic-triamide-retained-parent",
         "thiooxo-ester-retained-parent",
+        "urea-retained-parent",
     }
 )
 
@@ -3450,6 +4340,80 @@ def _has_contextual_acyclic_carbalkoxy_retained_ester_alternative(
         if not any(term in other.name for term in ("oate", "acrylate", "methacrylate")):
             continue
         if len(other.name) > 170 or len(other.name) - len(item.name) > 110:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+_UREA_FALLBACK_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+    }
+)
+
+_SULFONIMIDAMIDE_FALLBACK_FAMILIES = _UREA_FALLBACK_FAMILIES | frozenset(
+    {
+        "acyclic-parent",
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+    }
+)
+
+
+def _has_contextual_complete_sulfonimidamide_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in _SULFONIMIDAMIDE_FALLBACK_FAMILIES:
+        return False
+    if not candidate_has_complete_graph(item.candidate) or not item.candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "sulfonimidamide-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > 240 or len(other.name) - len(item.name) > 130:
+            continue
+        if other.stability_penalty > item.stability_penalty + 360:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_complete_urea_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    if item.candidate.family not in _UREA_FALLBACK_FAMILIES:
+        return False
+    if "carbamoyl" not in item.name or "amino" not in item.name:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "urea-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > 160 or len(other.name) - len(item.name) > 80:
             continue
         if other.stability_penalty >= item.stability_penalty + 80:
             continue
@@ -5295,11 +6259,22 @@ def _has_retained_carbohydrate_substituent(name: str) -> bool:
     return any(
         fragment in name
         for fragment in (
+            "arabinosyl",
+            "fructosyl",
+            "fucosyl",
+            "galactosyl",
             "glucopyranosyl",
+            "glucosyl",
             "galactopyranosyl",
+            "lactosyl",
+            "maltosyl",
+            "mannosyl",
             "mannopyranosyl",
             "fucopyranosyl",
             "ribofuranosyl",
+            "ribosyl",
+            "xylosyl",
+            "apiosyl",
             "fructofuranosyl",
             "apiofuranosyl",
             "glucosaminyl",

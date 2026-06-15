@@ -568,6 +568,11 @@ def _six_membered_aromatic_candidates(
     if counts == Counter({"N": 6}):
         return [("hexazine", seq) for seq in _ring_numberings(ordered)]
     if counts == Counter({"C": 5, "O": 1}):
+        if any(
+            mol.GetAtomWithIdx(idx).GetSymbol() == "O" and mol.GetAtomWithIdx(idx).GetFormalCharge() > 0
+            for idx in ordered
+        ):
+            return [("pyrylium", seq) for seq in _numberings_with_atom_at(ordered, mol, "O")]
         parent = "pyran" if _ring_has_exocyclic_oxo(mol, ordered) else "2H-pyran"
         return [(parent, seq) for seq in _pyran_numberings(ordered, mol)]
     return []
@@ -694,6 +699,9 @@ def _five_membered_main_group_heterole_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
     pattern_specs = (
+        (Counter({"C": 3, "N": 1, "P": 1}), "phosphazole", ("P", "N", "C", "C", "C")),
+        (Counter({"C": 2, "N": 2, "P": 1}), "diazaphosphole", ("N", "N", "P", "C", "C")),
+        (Counter({"C": 1, "P": 4}), "tetraphosphole", ("P", "P", "P", "P", "C")),
         (Counter({"C": 3, "N": 1, "Si": 1}), "azasilole", ("N", "Si", "C", "C", "C")),
         (Counter({"C": 2, "N": 2, "Si": 1}), "diazasilole", ("N", "N", "Si", "C", "C")),
         (Counter({"C": 1, "N": 3, "Si": 1}), "triazasilole", ("N", "N", "N", "Si", "C")),
@@ -1504,6 +1512,8 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ide"
         if atom.GetFormalCharge() <= 0:
             continue
+        if parent_name == "pyrylium" and atom.GetSymbol() == "O":
+            return parent_name
         if atom.GetSymbol() == "C":
             stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
             return f"{stem}-{loc}-ylium"

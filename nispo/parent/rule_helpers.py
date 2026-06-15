@@ -15,6 +15,7 @@ from ..formatting import join_prefix_parent as _join_prefix_parent
 from ..formatting import preferred_parent_stem as _preferred_parent_stem
 from ..formatting import loc_unsat
 from ..formatting import _multiplied_prefix_unit_name
+from ..benzimidazole_orientation import preferred_benzimidazole_n1_benzenoid_locant_map
 from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
 )
@@ -1033,6 +1034,53 @@ def _benzimidazole_external_n_preference(mol, template: dict, match: Sequence[in
     return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
 
 
+def _generated_benzimidazole_external_n_preference(mol, template: dict, match: Sequence[int]) -> tuple:
+    if not _is_generated_benzimidazole_template(template):
+        return ()
+    external_n_locants = _matched_external_n_locants(mol, template, match)
+    if not external_n_locants:
+        return (1,)
+    locants_key = tuple(sorted(external_n_locants, key=_locant_sort_key))
+    if locants_key == ("3",):
+        return (0,)
+    if locants_key == ("1",):
+        return (2,)
+    return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
+
+
+def _is_generated_benzimidazole_template(template: dict) -> bool:
+    if template.get("source_family") != "generated-fused":
+        return False
+    template_mol = template_record_mol(template)
+    locants = template_record_locants(template)
+    n_locants = {
+        str(locants.get(atom.GetIdx(), ""))
+        for atom in template_mol.GetAtoms()
+        if atom.GetSymbol() == "N"
+    }
+    if n_locants != {"1", "3"}:
+        return False
+    atom_symbols = Counter(atom.GetSymbol() for atom in template_mol.GetAtoms())
+    return atom_symbols["N"] == 2 and atom_symbols["C"] == 7
+
+
+def _matched_external_n_locants(mol, template: dict, match: Sequence[int]) -> list[str]:
+    template_mol = template_record_mol(template)
+    locants = template_record_locants(template)
+    core = set(match)
+    external_n_locants = []
+    for template_idx, mol_idx in enumerate(match):
+        if template_mol.GetAtomWithIdx(template_idx).GetSymbol() != "N":
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if not any(nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            continue
+        locant = locants.get(template_idx, "")
+        if locant:
+            external_n_locants.append(str(locant))
+    return external_n_locants
+
+
 def _benzimidazole_external_carbon_locant_preference(mol, template: dict, match: Sequence[int]) -> tuple:
     if template_record_name(template) != "1H-benzimidazole":
         return ()
@@ -1112,6 +1160,8 @@ def _name_fused_core_match(
         cache[cache_key] = radical_parent_name
         return radical_parent_name
     prefixes = []
+    prefix_records = []
+    template_mol = template_record_mol(template)
     for mol_idx in match:
         template_idx = reverse[mol_idx]
         locant = template_record_locants(template).get(template_idx)
@@ -1126,7 +1176,10 @@ def _name_fused_core_match(
             if not prefix:
                 cache[cache_key] = ""
                 return ""
-            prefixes.append((locant, prefix))
+            prefix_records.append((locant, prefix, template_mol.GetAtomWithIdx(template_idx).GetSymbol()))
+    if prefix_records:
+        locant_map = _benzimidazole_n1_benzenoid_prefix_locant_map(template, prefix_records)
+        prefixes = [(locant_map.get(locant, locant), prefix) for locant, prefix, _symbol in prefix_records]
     if not prefixes:
         result = _join_prefix_parent("", parent_name)
         cache[cache_key] = result
@@ -1164,6 +1217,18 @@ def _name_fused_core_match(
     result = _join_prefix_parent(prefix_text, parent_name)
     cache[cache_key] = result
     return result
+
+
+def _benzimidazole_n1_benzenoid_prefix_locant_map(
+    template: dict,
+    prefix_records: Sequence[tuple[str, str, str]],
+) -> dict[str, str]:
+    if template_record_name(template) != "1H-benzimidazole":
+        return {}
+    if not any(locant == "1" and symbol == "N" for locant, _prefix, symbol in prefix_records):
+        return {}
+    carbon_locants = [locant for locant, _prefix, symbol in prefix_records if symbol != "N"]
+    return preferred_benzimidazole_n1_benzenoid_locant_map(carbon_locants)
 
 
 def _fused_single_external_element_radical_name(
@@ -3392,12 +3457,13 @@ def _needs_substituent_parentheses(name: str) -> bool:
         or "," in name
         or name.startswith("(")
         or (name.endswith("silyl") and name != "silyl")
+        or _is_cyclic_onium_substituent(name)
         or _is_composite_onium_substituent(name)
     )
 
 
 def _needs_repeated_onium_substituent_parentheses(name: str) -> bool:
-    return name.endswith(("ylethynyl", "ylmethyl"))
+    return name.endswith(("ylethynyl", "ylmethyl")) or _is_cyclic_onium_substituent(name)
 
 
 _COMPLEX_MULTIPLIERS = {
@@ -3416,6 +3482,51 @@ def _is_composite_onium_substituent(name: str) -> bool:
         name.startswith(multiplier)
         for count, multiplier in MULT.items()
         if count > 1
+    )
+
+
+def _is_cyclic_onium_substituent(name: str) -> bool:
+    bare = name[1:-1] if name.startswith("(") and name.endswith(")") else name
+    if bare in {"phenyl", "benzyl", "naphthyl"}:
+        return True
+    if bare.startswith(("cyclo", "bicyclo[", "spiro[")) and bare.endswith("yl"):
+        return True
+    cyclic_suffixes = (
+        "phenyl",
+        "benzyl",
+        "naphthyl",
+        "pyridyl",
+        "pyrimidyl",
+        "pyridazinyl",
+        "pyrazinyl",
+        "furyl",
+        "thienyl",
+        "thenyl",
+        "pyrrolyl",
+        "pyrazolyl",
+        "imidazolyl",
+        "triazolyl",
+        "tetrazolyl",
+        "oxazolyl",
+        "isoxazolyl",
+        "thiazolyl",
+        "isothiazolyl",
+        "quinolyl",
+        "isoquinolyl",
+        "indolyl",
+        "indazolyl",
+        "benzimidazolyl",
+        "benzotriazolyl",
+    )
+    if bare.endswith(cyclic_suffixes):
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:pyridin|pyrimidin|pyridazin|pyrazin|furan|thiophen|pyrrol|"
+            r"pyrazol|imidazol|triazol|tetrazol|oxazol|thiazol|quinolin|"
+            r"isoquinolin|indol|indazol|benzimidazol|benzotriazol)-\d+-yl",
+            bare,
+        )
     )
 
 

@@ -176,7 +176,7 @@ def _bicyclic_parent_sequence_candidates(
     mol, atoms: set[int], graph: dict[int, set[int]]
 ) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
-    orient_remaining_paths = (
+    base_orient_remaining_paths = (
         _ring_multiple_bond_count(mol, atoms) == 0
         and _has_multi_external_substituted_ring_atom(mol, atoms)
     )
@@ -184,13 +184,46 @@ def _bicyclic_parent_sequence_candidates(
         paths = _bridge_paths(graph, atoms, a, b)
         if not paths:
             continue
+        alternate_remaining_paths = (
+            _ring_multiple_bond_count(mol, atoms) == 0
+            and _has_tied_hetero_bridge_orientation_choice(mol, paths)
+        )
+        orient_remaining_paths = base_orient_remaining_paths and not alternate_remaining_paths
         for seq, bracket in _polybridge_numbering_sequences(
-            paths, orient_remaining_paths=orient_remaining_paths
+            paths,
+            orient_remaining_paths=orient_remaining_paths,
+            alternate_remaining_paths=alternate_remaining_paths,
         ):
             parent = _bicyclic_parent(mol, seq, bracket)
             if parent:
                 candidates.append((parent, seq))
     return candidates
+
+
+def _has_tied_hetero_bridge_orientation_choice(mol, paths: Sequence[tuple[int, ...]]) -> bool:
+    """Expose OPSIN-compatible tied-bridge orientations for heterobicycles.
+
+    For saturated von Baeyer systems with equal bridge lengths, reversing every
+    non-leading bridge interior is too restrictive.  OPSIN accepts alternative
+    orientations such as ``2,6,7-trioxabicyclo[2.2.2]octane`` that are needed
+    to assign the lowest heteroatom locants.  Only tied bridge groups with
+    multiple internal hetero atoms get the expanded enumeration.
+    """
+
+    by_length: dict[int, list[tuple[int, ...]]] = defaultdict(list)
+    for path in paths:
+        by_length[len(path)].append(path)
+    for group in by_length.values():
+        if len(group) < 2:
+            continue
+        hetero_internal_count = 0
+        for path in group:
+            for atom_idx in path[1:-1]:
+                if mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C":
+                    hetero_internal_count += 1
+        if hetero_internal_count >= 2:
+            return True
+    return False
 
 
 def _spiro_parent_sequence_candidates(
@@ -1120,13 +1153,23 @@ def _polybridge_numbering_sequences(
     paths: Sequence[tuple[int, ...]],
     annotate_zero_bridges: bool = False,
     orient_remaining_paths: bool = False,
+    alternate_remaining_paths: bool = False,
 ) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
     sequences = []
     for oriented_paths in (paths, tuple(tuple(reversed(path)) for path in paths)):
         for ordered in _bridge_path_orderings(oriented_paths):
             first, *remaining = ordered
             first_seq = first[:1] + first[1:-1] + first[-1:]
-            if orient_remaining_paths:
+            if alternate_remaining_paths:
+                remaining_variants = [
+                    (
+                        tuple(reversed(path[1:-1]))
+                        if index % 2 == 0
+                        else path[1:-1],
+                    )
+                    for index, path in enumerate(remaining)
+                ]
+            elif orient_remaining_paths:
                 remaining_variants = [
                     (path[1:-1], tuple(reversed(path[1:-1])))
                     for path in remaining

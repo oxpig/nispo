@@ -4,6 +4,7 @@ import re
 from collections.abc import Sequence
 
 from .branch_rules import branch_prefix
+from .candidate_facts import CandidateSafety, OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION
 from .cycle_utils import ordered_ring
 from .fused_template_families import (
     candidate_generated_fused_templates,
@@ -310,6 +311,8 @@ def _component_dispiro_candidates_for_blocks(
                         stereo_locants=_component_spiro_stereo_locants(locants),
                         parent_atoms=graph_atoms,
                         ring_system_atoms=graph_atoms,
+                        safety=_combined_component_safety(left, center, right),
+                        render_cost=_combined_component_render_cost(left, center, right),
                         render_rank=render_rank,
                     )
                 )
@@ -368,6 +371,8 @@ def _mapped_component_names(
                 component_order=component.component_order,
                 numbering_key=component.numbering_key,
                 covered_external_atoms=covered_external_atoms,
+                safety=component.safety,
+                render_cost=component.render_cost,
             )
         )
     components.sort(
@@ -497,9 +502,66 @@ def _component_spiro_candidates_for_split(
                     stereo_locants=_component_spiro_stereo_locants(locants),
                     parent_atoms=graph_atoms,
                     ring_system_atoms=graph_atoms,
+                    safety=_combined_component_safety(simple_component, poly_component),
+                    render_cost=_combined_component_render_cost(simple_component, poly_component),
                     render_rank=render_rank,
                 )
             )
+            if _prefer_poly_first_component_spiro(poly_component):
+                component_prefixes = []
+                parent_prefixes = []
+                _extend_component_prefix_groups(component_prefixes, parent_prefixes, poly_component.replacement_prefixes)
+                _extend_component_prefix_groups(
+                    component_prefixes,
+                    parent_prefixes,
+                    simple_component.replacement_prefixes,
+                    locant_transform=_prime_locant,
+                )
+                locants = _combined_locants_poly_first(poly_component, poly_to_parent, simple_component, simple_to_parent)
+                substituent_prefixes = _external_substituent_prefixes(
+                    ctx.mol,
+                    ring_system_atoms,
+                    locants,
+                    covered_external_atoms=covered_external_atoms,
+                )
+                if substituent_prefixes is None:
+                    continue
+                substituent_prefixes.extend(component_prefixes)
+                prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
+                spiro_name = (
+                    "spiro["
+                    f"{_component_parent_text(poly_component.parent_name)}-{poly_component.spiro_locant},"
+                    f"{_prime_locant(simple_component.spiro_locant)}-{_component_parent_text(simple_component.parent_name)}"
+                    "]"
+                )
+                if _has_unpromoted_component_replacement(spiro_name):
+                    continue
+                name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+                render_rank = 0
+                graph_atoms = frozenset(ring_system_atoms)
+                candidates.append(
+                    NameCandidate(
+                        name=name,
+                        family="component-spiro-parent",
+                        priority=priority,
+                        sort_key=(
+                            simple_component.component_rank + poly_component.component_rank - 1,
+                            len(parent_prefixes),
+                            (poly_component.component_order, simple_component.component_order),
+                            (poly_component.numbering_key, simple_component.numbering_key),
+                            _locant_key_for_text(name),
+                            len(name),
+                            name,
+                        ),
+                        stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
+                        stereo_locants=_component_spiro_stereo_locants(locants),
+                        parent_atoms=graph_atoms,
+                        ring_system_atoms=graph_atoms,
+                        safety=_combined_component_safety(poly_component, simple_component),
+                        render_cost=_combined_component_render_cost(poly_component, simple_component),
+                        render_rank=render_rank,
+                    )
+                )
     return candidates
 
 
@@ -596,6 +658,8 @@ def _poly_component_spiro_candidates_for_split(
                     stereo_locants=_component_spiro_stereo_locants(locants),
                     parent_atoms=graph_atoms,
                     ring_system_atoms=graph_atoms,
+                    safety=_combined_component_safety(left_component, right_component),
+                    render_cost=_combined_component_render_cost(left_component, right_component),
                     render_rank=render_rank,
                 )
             )
@@ -681,6 +745,8 @@ class _Component:
         covered_external_atoms: frozenset[int] = frozenset(),
         component_order: int = 0,
         numbering_key: tuple = (0, ()),
+        safety: CandidateSafety | None = None,
+        render_cost: int = 1,
     ) -> None:
         self.parent_name = parent_name
         self.spiro_locant = spiro_locant
@@ -691,6 +757,25 @@ class _Component:
         self.covered_external_atoms = covered_external_atoms
         self.component_order = component_order
         self.numbering_key = numbering_key
+        self.safety = safety
+        self.render_cost = render_cost
+
+
+def _combined_component_safety(*components: _Component) -> CandidateSafety | None:
+    reasons: list[str] = []
+    for component in components:
+        if component.safety is None:
+            continue
+        for reason in component.safety.opsin_fragility_reasons:
+            if reason not in reasons:
+                reasons.append(reason)
+    if not reasons:
+        return None
+    return CandidateSafety(opsin_fragility_reasons=tuple(reasons))
+
+
+def _combined_component_render_cost(*components: _Component) -> int:
+    return 1 + sum(max(0, int(component.render_cost) - 1) for component in components)
 
 
 def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
@@ -747,6 +832,7 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     for records, component_kind in record_groups:
         for record in records:
             raw_name, seq = record[0], record[1]
+            bridge_unsaturation_mismatches = int(record[2]) if len(record) > 2 else 0
             if spiro_idx not in seq:
                 component_order += 1
                 continue
@@ -761,6 +847,13 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
                 continue
             seen.add(key)
             component_rank = 3 if re.search(r"(?:^|-)\d*[a-z]*(?:bi|tri|tetra|penta)cyclo\[", parent_name) else 1
+            safety = None
+            render_cost = 1
+            if bridge_unsaturation_mismatches > 0:
+                safety = CandidateSafety(
+                    opsin_fragility_reasons=(OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,),
+                )
+                render_cost = 1 + bridge_unsaturation_mismatches
             components.append(
                 _Component(
                     parent_name=parent_name,
@@ -771,6 +864,8 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
                     component_kind=component_kind,
                     component_order=component_order,
                     numbering_key=_unsaturation_contiguity_key(mol, seq),
+                    safety=safety,
+                    render_cost=render_cost,
                 )
             )
             component_order += 1
@@ -857,6 +952,7 @@ def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -
             components.append(component)
             if len(components) >= 12:
                 break
+    components.extend(_dihydroindene_spiro_components(components, seen))
     components.sort(
         key=lambda item: (
             _fused_component_parent_rank(item.parent_name),
@@ -866,6 +962,36 @@ def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -
         )
     )
     return components[:12]
+
+
+def _dihydroindene_spiro_components(components: Sequence[_Component], seen: set) -> list[_Component]:
+    additions: list[_Component] = []
+    for component in components:
+        if component.parent_name not in {"indan", "indane"}:
+            continue
+        if component.spiro_locant != "2":
+            continue
+        parent_name = "1,3-dihydroindene"
+        key = (parent_name, tuple(component.replacement_prefixes), component.spiro_locant)
+        if key in seen:
+            continue
+        seen.add(key)
+        additions.append(
+            _Component(
+                parent_name=parent_name,
+                spiro_locant=component.spiro_locant,
+                locants=component.locants,
+                replacement_prefixes=component.replacement_prefixes,
+                component_rank=-1,
+                component_kind=component.component_kind,
+                covered_external_atoms=component.covered_external_atoms,
+                component_order=component.component_order,
+                numbering_key=component.numbering_key,
+                safety=component.safety,
+                render_cost=component.render_cost,
+            )
+        )
+    return additions
 
 
 def _component_from_fused_template(
@@ -1011,6 +1137,25 @@ def _combined_locants(
     for sub_idx, locant in poly.locants.items():
         locants[poly_to_parent[sub_idx]] = _prime_locant(locant)
     return locants
+
+
+def _combined_locants_poly_first(
+    poly: _Component,
+    poly_to_parent: dict[int, int],
+    simple: _Component,
+    simple_to_parent: dict[int, int],
+) -> dict[int, str]:
+    locants: dict[int, str] = {}
+    for sub_idx, locant in poly.locants.items():
+        locants[poly_to_parent[sub_idx]] = locant
+    for sub_idx, locant in simple.locants.items():
+        locants[simple_to_parent[sub_idx]] = _prime_locant(locant)
+    return locants
+
+
+def _prefer_poly_first_component_spiro(component: _Component) -> bool:
+    parent = component.parent_name.lower()
+    return parent in {"1,3-dihydroindene", "oxindol", "oxindole"} or parent.endswith("indol-2-one")
 
 
 def _submol_for_atoms(mol, Chem, atoms: set[int]):

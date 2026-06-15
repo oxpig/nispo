@@ -361,6 +361,7 @@ def _candidate_fact_ranked_item(
     if (
         best_item is not current
         and best_score > current_score + _CANDIDATE_FACT_RANKER_MIN_MARGIN
+        and _candidate_fact_ranked_switch_is_safe(current, best_item)
         and _candidate_fact_switch_gate_accepts(
             current_facts,
             best_facts,
@@ -370,6 +371,94 @@ def _candidate_fact_ranked_item(
     ):
         return best_item
     return current
+
+
+_RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES = frozenset(
+    {
+        "spiro-functional-chain-substituent",
+    }
+)
+
+_RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES = frozenset(
+    {
+        "component-spiro-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
+
+def _candidate_fact_ranked_switch_is_safe(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    """Keep learned switches from discarding senior functional coverage.
+
+    The fact ranker is intentionally allowed to prefer graph parents when a
+    correct candidate exists, but a suffixless retained/fused/spiro parent can
+    hide senior functional structure that the deterministic key has already
+    selected.  This guard uses only candidate facts: lower priority, complete
+    graph coverage, candidate family, suffix/charge evidence, and parent size.
+    """
+
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _ranker_preserves_high_signal_topology_parent(current, proposed):
+        return False
+    if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
+        return True
+    if proposed_candidate.family not in _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if proposed_candidate.suffixes or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.priority >= proposed_candidate.priority:
+        return True
+    if len(proposed_candidate.parent_atoms) <= len(current_candidate.parent_atoms):
+        return True
+    return False
+
+
+def _ranker_preserves_high_signal_topology_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "high-signal-generated-topology-fused-parent":
+        return True
+    if proposed_candidate.family == current_candidate.family:
+        return True
+    if proposed_candidate.family not in {
+        "fused-retained-parent",
+        "generated-partial-hydro-fused-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if current_candidate.render_rank not in {None, 1}:
+        return True
+    if current_candidate.charge is not None or current_candidate.suffixes:
+        return True
+    if proposed_candidate.charge is not None or proposed_candidate.suffixes:
+        return True
+    if not proposed_candidate.parent_atoms:
+        return True
+    if len(proposed_candidate.parent_atoms) > len(current_candidate.parent_atoms) + 2:
+        return True
+    return False
 
 
 _CANDIDATE_FACT_SWITCH_NUMERIC_KEYS = (
@@ -421,6 +510,10 @@ def _candidate_fact_switch_features(
         f"new_family={proposed_family}": 1.0,
         f"pair={current_family}=>{proposed_family}": 1.0,
         "same_family": float(current_family == proposed_family),
+        f"old_template={current_facts.get('template_name', '')}": 1.0,
+        f"new_template={proposed_facts.get('template_name', '')}": 1.0,
+        f"template_pair={current_facts.get('template_name', '')}=>{proposed_facts.get('template_name', '')}": 1.0,
+        "same_template": float(current_facts.get("template_name", "") == proposed_facts.get("template_name", "")),
         f"old_complete={current_facts['complete_graph']}": 1.0,
         f"new_complete={proposed_facts['complete_graph']}": 1.0,
         f"old_suffix={current_facts['suffix_kinds']}": 1.0,
@@ -466,6 +559,7 @@ def _candidate_fact_ranker_facts(
     return {
         "family": candidate.family,
         "producer_family": item.producer_family,
+        "template_name": candidate.template_name,
         "complete_graph": "1" if candidate_has_complete_graph(candidate) else "0",
         "suffix_kinds": ",".join(sorted({suffix.kind for suffix in candidate.suffixes})),
         "charge": candidate.charge.formal_charge if candidate.charge is not None else 0,
@@ -881,7 +975,7 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
         penalty += _skeletal_replacement_fused_parent_penalty(name)
     if candidate.family == "kekulized-generic-polycyclic-parent":
         penalty += _kekulized_polycyclic_late_render_rank_penalty(name, candidate)
-        penalty += _kekulized_polycyclic_bridge_unsaturation_penalty(candidate)
+    penalty += _kekulized_polycyclic_bridge_unsaturation_penalty(candidate)
     if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in candidate_safety_reasons(candidate):
         penalty += 80
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
@@ -1149,13 +1243,10 @@ _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
 )
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_BONUS = 960
 _VERY_HIGH_CONFIDENCE_RETAINED_FUSED_TEMPLATE_PARENT_BONUS = 1320
-_HIGH_CONFIDENCE_IMIDAZO45A_FUSED_TEMPLATE_PARENT_BONUS = 640
+_HIGH_CONFIDENCE_IMIDAZO45A_FUSED_TEMPLATE_PARENT_BONUS = 0
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_COMPETITOR_STABILITY_MARGIN = 220
-_IMIDAZO45A_GENERATED_ORIENTATION_BONUS_BY_RENDER_RANK = {
-    2: 110,
-    3: 140,
-}
-_IMIDAZO45A_GENERATED_RANK2_PARENT_BONUS = 220
+_IMIDAZO45A_GENERATED_ORIENTATION_BONUS_BY_RENDER_RANK = {}
+_IMIDAZO45A_GENERATED_RANK2_PARENT_BONUS = 0
 _BENZOTRIAZOLE_OVER_THIENO23A_PARENT_BONUS = 280
 _QUINO34D_PYRAZOLE_SINGLE_RING_PARENT_BONUS = 220
 _PYRIDO23D_PYRAZOLE_PARENT_BONUS = 260

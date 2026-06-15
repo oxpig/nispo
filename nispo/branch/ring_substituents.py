@@ -14,6 +14,7 @@ else:
 from ..constants import ROOTS
 from ..cycle_utils import ordered_ring, ring_system_extends_core
 from ..formatting import format_prefixes as _format_prefixes
+from ..benzimidazole_orientation import preferred_benzimidazole_n1_benzenoid_locant_map
 from ..fused_rules import FUSED_SUBSTITUENT_STEMS
 from ..fused_template_families import (
     candidate_generated_fused_templates as _candidate_generated_fused_templates,
@@ -989,15 +990,39 @@ def _fused_ring_substituent_prefix_from_templates(
             suffix = _fused_substituent_suffix(template_record_name(template), locant)
             if not suffix:
                 continue
-            prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
+            prefix_text = _fused_substituent_prefix_text(
+                mol,
+                template,
+                match,
+                reverse,
+                parent_idx,
+                core_set,
+                attachment_locant=locant,
+            )
             if prefix_text is None:
                 continue
             name = _combine_fused_substituent_prefix(prefix_text, suffix)
             stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
             if stereo_prefix:
                 name = f"({stereo_prefix})-{name}"
-            prefix_locants = _fused_substituent_prefix_locants(mol, template, match, reverse, parent_idx, core_set)
-            key = _fused_substituent_candidate_key(template, match, locant, name, generated, prefix_locants)
+            prefix_locants = _fused_substituent_prefix_locants(
+                mol,
+                template,
+                match,
+                reverse,
+                parent_idx,
+                core_set,
+                attachment_locant=locant,
+            )
+            key = _fused_substituent_candidate_key(
+                mol,
+                template,
+                match,
+                locant,
+                name,
+                generated,
+                prefix_locants,
+            )
             if best_key is None or (key < best_key if generated else key > best_key):
                 best_key = key
                 best = name
@@ -1019,6 +1044,7 @@ _SYSTEMATIC_ONLY_SUBSTITUENT_TEMPLATE_NAMES = frozenset(
 
 
 def _fused_substituent_candidate_key(
+    mol,
     template: dict,
     match: Sequence[int],
     locant: str,
@@ -1029,22 +1055,66 @@ def _fused_substituent_candidate_key(
     template_name = template_record_name(template)
     if generated:
         return (_generated_fusion_preference(template_name), -len(match), locant, name)
+    h_state_key = _retained_fused_substituent_h_state_key(mol, template, match)
     preferred_locant = _PREFERRED_RETAINED_FUSED_SUBSTITUENT_LOCANTS.get(template_name)
     if preferred_locant:
         return (
             len(match),
+            h_state_key,
+            2,
             _preferred_retained_fused_substituent_locant_key(locant, preferred_locant),
+            (0,),
+            (0,),
             name,
         )
     if template_name in _LOW_LOCANT_RETAINED_FUSED_SUBSTITUENT_PARENTS:
         return (
             len(match),
+            h_state_key,
+            1,
             _low_locant_retained_fused_substituent_key(locant),
-            _low_locant_retained_fused_substituent_template_key(template_name),
+            (_low_locant_retained_fused_substituent_template_key(template_name),),
             _low_locant_retained_fused_substituent_prefix_key(prefix_locants),
             name,
         )
-    return (len(match), locant, name)
+    return (
+        len(match),
+        h_state_key,
+        0,
+        _retained_fused_substituent_default_locant_key(locant),
+        (0,),
+        (0,),
+        name,
+    )
+
+
+def _retained_fused_substituent_h_state_key(mol, template: dict, match: Sequence[int]) -> tuple[int, int, int]:
+    template_name = template_record_name(template)
+    if not _retained_fused_lactam_template_needs_h_state_preference(template_name):
+        return (0, 0, 0)
+    matches = 0
+    mismatches = 0
+    template_mol = template_record_mol(template)
+    for template_idx, mol_idx in enumerate(match):
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        if template_atom.GetSymbol() != "N":
+            continue
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if atom.GetSymbol() != "N":
+            continue
+        if template_atom.GetTotalNumHs() == atom.GetTotalNumHs():
+            matches += 1
+        else:
+            mismatches += 1
+    if not matches and not mismatches:
+        return (0, 0, 0)
+    return (1, -mismatches, matches)
+
+
+def _retained_fused_lactam_template_needs_h_state_preference(template_name: str) -> bool:
+    if not re.search(r"(?:^|[,( -])\d+[a-z]?H", template_name):
+        return False
+    return bool(re.search(r"(?:one|thione|dione)\b", template_name))
 
 
 _PREFERRED_RETAINED_FUSED_SUBSTITUENT_LOCANTS = {
@@ -1097,6 +1167,12 @@ def _low_locant_retained_fused_substituent_template_key(template_name: str) -> i
     return 0
 
 
+def _retained_fused_substituent_default_locant_key(locant: str) -> tuple:
+    if locant.isdigit():
+        return (0, int(locant))
+    return (-1, locant)
+
+
 def _locant_sort_key(locant: str) -> tuple[int, str]:
     if locant.isdigit():
         return (int(locant), "")
@@ -1132,14 +1208,30 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
             if not locant or locant.endswith("a"):
                 continue
             suffix = _fused_substituent_suffix(parent_name, locant)
-            prefix_text = _fused_substituent_prefix_text(mol, template, match, reverse, parent_idx, core_set)
+            prefix_text = _fused_substituent_prefix_text(
+                mol,
+                template,
+                match,
+                reverse,
+                parent_idx,
+                core_set,
+                attachment_locant=locant,
+            )
             if prefix_text is None:
                 continue
             name = _combine_fused_substituent_prefix(prefix_text, suffix)
             stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
             if stereo_prefix:
                 name = f"({stereo_prefix})-{name}"
-            prefix_locants = _fused_substituent_prefix_locants(mol, template, match, reverse, parent_idx, core_set)
+            prefix_locants = _fused_substituent_prefix_locants(
+                mol,
+                template,
+                match,
+                reverse,
+                parent_idx,
+                core_set,
+                attachment_locant=locant,
+            )
             key = (
                 _generated_fusion_preference(template_record_name(template)),
                 -len(match),
@@ -1171,8 +1263,12 @@ def _fused_substituent_prefix_text(
     reverse: dict[int, int],
     parent_idx: int,
     core_set: set[int],
+    *,
+    attachment_locant: str = "",
 ) -> str | None:
     prefixes = []
+    prefix_records = []
+    template_mol = template_record_mol(template)
     for mol_idx in match:
         core_loc = template_record_locants(template).get(reverse[mol_idx])
         for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
@@ -1184,7 +1280,14 @@ def _fused_substituent_prefix_text(
             prefix = _simple_or_branch_prefix(mol, nidx, mol_idx)
             if not prefix:
                 return None
-            prefixes.append((core_loc, prefix))
+            prefix_records.append((core_loc, prefix, template_mol.GetAtomWithIdx(reverse[mol_idx]).GetSymbol()))
+    if prefix_records:
+        locant_map = _benzimidazole_n1_substituent_benzenoid_prefix_locant_map(
+            template,
+            attachment_locant,
+            prefix_records,
+        )
+        prefixes = [(locant_map.get(locant, locant), prefix) for locant, prefix, _symbol in prefix_records]
     return _format_prefixes(prefixes)
 
 
@@ -1195,8 +1298,12 @@ def _fused_substituent_prefix_locants(
     reverse: dict[int, int],
     parent_idx: int,
     core_set: set[int],
+    *,
+    attachment_locant: str = "",
 ) -> tuple[str, ...]:
     locants = []
+    records = []
+    template_mol = template_record_mol(template)
     for mol_idx in match:
         core_loc = template_record_locants(template).get(reverse[mol_idx])
         for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
@@ -1204,8 +1311,40 @@ def _fused_substituent_prefix_locants(
             if nidx == parent_idx or nidx in core_set:
                 continue
             if core_loc and not core_loc.endswith("a"):
-                locants.append(core_loc)
+                records.append((core_loc, template_mol.GetAtomWithIdx(reverse[mol_idx]).GetSymbol()))
+    locant_map = _benzimidazole_n1_substituent_benzenoid_locant_map(
+        template,
+        attachment_locant,
+        records,
+    )
+    for core_loc, _symbol in records:
+        locants.append(locant_map.get(core_loc, core_loc))
     return tuple(sorted(locants, key=_locant_sort_key))
+
+
+def _benzimidazole_n1_substituent_benzenoid_prefix_locant_map(
+    template: dict,
+    attachment_locant: str,
+    prefix_records: Sequence[tuple[str, str, str]],
+) -> dict[str, str]:
+    records = [(locant, symbol) for locant, _prefix, symbol in prefix_records]
+    return _benzimidazole_n1_substituent_benzenoid_locant_map(template, attachment_locant, records)
+
+
+def _benzimidazole_n1_substituent_benzenoid_locant_map(
+    template: dict,
+    attachment_locant: str,
+    records: Sequence[tuple[str, str]],
+) -> dict[str, str]:
+    if template_record_name(template) != "1H-benzimidazole":
+        return {}
+    has_fixed_n1 = attachment_locant == "1" or any(
+        locant == "1" and symbol == "N" for locant, symbol in records
+    )
+    if not has_fixed_n1:
+        return {}
+    carbon_locants = [locant for locant, symbol in records if symbol != "N"]
+    return preferred_benzimidazole_n1_benzenoid_locant_map(carbon_locants)
 
 
 def _fused_substituent_stereo_prefix(mol, template: dict, match: Sequence[int]) -> str:

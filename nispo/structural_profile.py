@@ -22,6 +22,7 @@ class StructuralProfile:
     nonring_positive_sulfur_count: int
     nonring_positive_nitrogen_count: int
     nonring_positive_phosphorus_count: int
+    nonring_neutral_nitrogen_count: int
     nonring_neutral_phosphorus_count: int
     nonring_neutral_pnictogen_count: int
     nonring_neutral_group14_count: int
@@ -71,6 +72,10 @@ class StructuralProfile:
         return self.nonring_positive_phosphorus_count > 0
 
     @property
+    def has_nonring_neutral_nitrogen(self) -> bool:
+        return self.nonring_neutral_nitrogen_count > 0
+
+    @property
     def has_nonring_neutral_phosphorus(self) -> bool:
         return self.nonring_neutral_phosphorus_count > 0
 
@@ -111,6 +116,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     nonring_positive_sulfur = 0
     nonring_positive_nitrogen = 0
     nonring_positive_phosphorus = 0
+    nonring_neutral_nitrogen = 0
     nonring_neutral_phosphorus = 0
     nonring_neutral_pnictogen = 0
     nonring_neutral_group14 = 0
@@ -132,6 +138,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         elif symbol == "P" and view.formal_charges[idx] == 0:
             nonring_neutral_phosphorus += 1
             nonring_neutral_pnictogen += 1
+        elif symbol == "N" and view.formal_charges[idx] == 0:
+            nonring_neutral_nitrogen += 1
         elif symbol in {"As", "Sb", "Bi"} and view.formal_charges[idx] == 0:
             nonring_neutral_pnictogen += 1
         elif symbol in {"Si", "Ge", "Sn", "Pb"} and view.formal_charges[idx] == 0:
@@ -203,6 +211,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         nonring_positive_sulfur_count=nonring_positive_sulfur,
         nonring_positive_nitrogen_count=nonring_positive_nitrogen,
         nonring_positive_phosphorus_count=nonring_positive_phosphorus,
+        nonring_neutral_nitrogen_count=nonring_neutral_nitrogen,
         nonring_neutral_phosphorus_count=nonring_neutral_phosphorus,
         nonring_neutral_pnictogen_count=nonring_neutral_pnictogen,
         nonring_neutral_group14_count=nonring_neutral_group14,

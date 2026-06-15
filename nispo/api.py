@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from functools import lru_cache
 
@@ -13,6 +14,9 @@ else:
 from .parent_rules import parent_rules
 from .rule_engine import NamingEngine
 from .telemetry import CandidateTelemetry, telemetry_to_dict
+
+_BATCH_NAME_CACHE_MAX_SIZE = 200_000
+_BATCH_NAME_CACHE: dict[str, str] = {}
 
 
 def smiles_to_iupac(smiles: str) -> str:
@@ -37,19 +41,27 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
     One output is returned for each input. Molecules outside the current rule
     coverage return an empty string so the benchmark can continue.
     """
+    smiles_values = list(smiles_list)
     if Chem is None:
-        return ["" for _ in smiles_list]
+        return ["" for _ in smiles_values]
     engine = _engine()
     names: list[str] = []
-    for smiles in smiles_list:
+    for smiles in smiles_values:
+        cached = _BATCH_NAME_CACHE.get(smiles)
+        if cached is not None:
+            names.append(cached)
+            continue
         try:
             mol = Chem.MolFromSmiles(smiles)
             if mol is None or mol.GetNumAtoms() == 0:
+                _remember_batch_name(smiles, "")
                 names.append("")
                 continue
-            names.append(engine.name(mol))
+            name = engine.name(mol)
         except Exception:
-            names.append("")
+            name = ""
+        _remember_batch_name(smiles, name)
+        names.append(name)
     return names
 
 
@@ -66,6 +78,8 @@ def _smiles_to_iupac_batch_with_telemetry(
 
     smiles_values = list(smiles_list)
     telemetry = CandidateTelemetry(branch_miss_shape_detail=branch_miss_shape_detail)
+    if not branch_miss_shape_detail and not _full_benchmark_telemetry_enabled():
+        return smiles_to_iupac_batch(smiles_values), telemetry_to_dict(telemetry)
     if Chem is None:
         return ["" for _ in smiles_values], telemetry_to_dict(telemetry)
     engine = _engine()
@@ -80,6 +94,17 @@ def _smiles_to_iupac_batch_with_telemetry(
         except Exception:
             names.append("")
     return names, telemetry_to_dict(telemetry)
+
+
+def _full_benchmark_telemetry_enabled() -> bool:
+    value = os.environ.get("NISPO_BENCH_FULL_TELEMETRY", "")
+    return value.strip().lower() in {"1", "true", "yes", "on", "full"}
+
+
+def _remember_batch_name(smiles: str, name: str) -> None:
+    if len(_BATCH_NAME_CACHE) >= _BATCH_NAME_CACHE_MAX_SIZE:
+        _BATCH_NAME_CACHE.clear()
+    _BATCH_NAME_CACHE[smiles] = name
 
 
 def _name_molecule(mol) -> str:

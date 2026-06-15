@@ -119,6 +119,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
         return (
             _azido_prefix(mol, idx, parent_idx)
             or _nitro_prefix(mol, idx, parent_idx)
+            or _sulfinylamino_prefix(mol, idx, parent_idx)
             or _mesylamino_prefix(mol, idx, parent_idx)
             or _ethenylcarbonyl_amino_prefix(mol, idx, parent_idx)
             or _retained_amido_prefix(mol, idx, parent_idx)
@@ -977,6 +978,55 @@ def _ethenylcarbonyl_amino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandi
         parent_idx,
         "ethenylcarbonyl-amino",
     )
+
+
+def _sulfinylamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    sulfur_idx = None
+    oxygen_idx = None
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            sulfur_idx is None
+            and nbr.GetSymbol() == "S"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 2.0
+        ):
+            sulfur_idx = nidx
+        else:
+            return None
+    if sulfur_idx is None:
+        return None
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if (
+            oxygen_idx is None
+            and nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 2.0
+        ):
+            oxygen_idx = nidx
+        else:
+            return None
+    if oxygen_idx is None:
+        return None
+    return _prefix_candidate("sulfinylamino", {idx, sulfur_idx, oxygen_idx}, idx, parent_idx, "sulfinylamino")
 
 
 def _bocamino_prefix_allowed(mol, amino_idx: int, parent_idx: int) -> bool:

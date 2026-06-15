@@ -142,7 +142,33 @@ def _preferred_template_entries_by_scaffold(entries: list[tuple[dict, dict]], Ch
 
 def _template_alias_preference_key(template: dict) -> tuple:
     name = str(template.get("name", ""))
-    return (_template_alias_priority(name), len(name), name)
+    return (_template_alias_source_priority(template), _template_alias_priority(name), len(name), name)
+
+
+def _template_alias_source_priority(template: dict) -> int:
+    if (
+        template.get("source_file") == "high_impact_fused_parent_templates.json"
+        and _high_impact_template_alias_can_replace_legacy(template)
+    ):
+        return -1
+    return 0
+
+
+def _high_impact_template_alias_can_replace_legacy(template: dict) -> bool:
+    name = str(template.get("name", "")).lower()
+    if any(fragment in name for fragment in _HIGH_IMPACT_ALIAS_REPLACEMENT_RISK_FRAGMENTS):
+        return False
+    return True
+
+
+_HIGH_IMPACT_ALIAS_REPLACEMENT_RISK_FRAGMENTS = (
+    "purin",
+    "purine",
+    "pyrazolo",
+    "pyrido",
+    "pyrimido",
+    "pyrimidin",
+)
 
 
 def _template_alias_priority(name: str) -> int:

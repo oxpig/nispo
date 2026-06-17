@@ -3448,7 +3448,7 @@ def _substituted_onium_name(names: Sequence[str], parent: str) -> str:
         if count > 1:
             name = _multiplied_prefix_unit_name(name)
         is_complex = _needs_substituent_parentheses(name)
-        if count > 1 and (is_complex or _needs_repeated_onium_substituent_parentheses(name)):
+        if count > 1 and (is_complex or _needs_repeated_onium_substituent_parentheses(name, count)):
             multiplier = _COMPLEX_MULTIPLIERS.get(count, "")
             term = f"{multiplier}({name})" if multiplier else ""
         else:
@@ -3474,18 +3474,18 @@ def _needs_substituent_parentheses(name: str) -> bool:
     )
 
 
-def _needs_repeated_onium_substituent_parentheses(name: str) -> bool:
+def _needs_repeated_onium_substituent_parentheses(name: str, count: int) -> bool:
     return (
         name.endswith(("ylethynyl", "ylmethyl"))
         or _is_cyclic_onium_substituent(name)
-        or _repeated_onium_ligand_needs_complex_multiplier(name)
+        or _repeated_onium_ligand_needs_complex_multiplier(name, count)
     )
 
 
-def _repeated_onium_ligand_needs_complex_multiplier(name: str) -> bool:
+def _repeated_onium_ligand_needs_complex_multiplier(name: str, count: int) -> bool:
     if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "benzyl"}:
         return False
-    return name.endswith(("methyl", "ethyl", "propyl", "butyl"))
+    return (count == 3 and name == "decyl") or name.endswith(("methyl", "ethyl", "propyl", "butyl"))
 
 
 _COMPLEX_MULTIPLIERS = {

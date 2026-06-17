@@ -2477,6 +2477,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     retained_benzimidazole_parent_bonus = _contextual_retained_benzimidazole_parent_bonus(item, prepared)
+    retained_benzoannulene_with_generated_imidazopyridine = (
+        _has_contextual_generated_imidazopyridine_alternative_for_retained_benzoannulene(item, prepared)
+    )
     acyclic_skeleton_ring_system_parent_bonus = _contextual_acyclic_skeleton_ring_system_parent_bonus(
         item,
         prepared,
@@ -2618,6 +2621,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or azole_template_parent_bonus
         or retained_fused_template_pair_parent_bonus
         or retained_benzimidazole_parent_bonus
+        or retained_benzoannulene_with_generated_imidazopyridine
         or acyclic_skeleton_ring_system_parent_bonus
         or kekulized_polycycle_contextual_parent_bonus
         or high_impact_exact_retained_parent
@@ -2858,6 +2862,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= retained_fused_template_pair_parent_bonus
     if retained_benzimidazole_parent_bonus:
         penalty -= retained_benzimidazole_parent_bonus
+    if retained_benzoannulene_with_generated_imidazopyridine:
+        penalty += 40
     if acyclic_skeleton_ring_system_parent_bonus:
         penalty -= acyclic_skeleton_ring_system_parent_bonus
     if kekulized_polycycle_contextual_parent_bonus:
@@ -3566,6 +3572,59 @@ def _contextual_retained_benzimidazole_parent_bonus(
             continue
         return 320
     return 0
+
+
+_GENERATED_IMIDAZOPYRIDINE_ALTERNATIVE_TEMPLATES = frozenset(
+    {
+        "imidazo[4,5-b]pyridine",
+        "imidazo[4,5-e]pyridine",
+        "pyridino[3,2-d]imidazole",
+        "pyrido[5,6-d]imidazole",
+    }
+)
+
+
+def _has_contextual_generated_imidazopyridine_alternative_for_retained_benzoannulene(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "6,7,8,9-tetrahydro-5H-benzo[7]annulene":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 11:
+        return False
+    if candidate.parent_element_counts != (("C", 11),):
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in _GENERATED_IMIDAZOPYRIDINE_ALTERNATIVE_TEMPLATES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.parent_element_counts != (("C", 6), ("N", 3)):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 4:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 40:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
 
 
 def _has_larger_retained_parent_competitor(

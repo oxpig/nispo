@@ -2287,6 +2287,37 @@ def test_preferred_generated_fused_template_alternatives_roundtrip_with_opsin(in
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCOP([O-])[O-]",
+        "CCCCCCCCCCCCCOP(OCCCCCCCCCCCCC)OP([O-])[O-]",
+        "C#C[PH]([O-])(OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1)OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1",
+    ],
+)
+def test_phosphite_ester_parent_survives_fact_ranker_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCOP(=O)(O)OC[C@H]1O[C@@H](n2cnc3cnc(N)nc32)C[C@@H]1O",
+        "CCCCOP(=O)(O)OC[C@H]1O[C@@H](n2cnc3c(=O)[nH]c(N)nc32)C[C@@H]1O",
+    ],
+)
+def test_purine_nucleotide_phosphate_acyclic_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

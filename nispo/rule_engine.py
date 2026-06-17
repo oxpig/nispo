@@ -65,6 +65,7 @@ class NameCandidate:
     source_family: str = ""
     source_file: str = ""
     ring_system_atoms: frozenset[int] = field(default_factory=frozenset)
+    parent_element_counts: tuple[tuple[str, int], ...] = ()
     parent_aromatic_atom_count: int = 0
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
@@ -216,6 +217,7 @@ def _prepare_candidates(
                     continue
                 candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
                 candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
+                candidate = _with_parent_element_counts(mol, candidate)
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -254,6 +256,7 @@ def _prepare_candidates(
                     continue
                 candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
                 candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
+                candidate = _with_parent_element_counts(mol, candidate)
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -424,6 +427,8 @@ def _candidate_fact_ranked_switch_is_safe(
         current_facts,
         proposed_facts,
     ):
+        return False
+    if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
         return True
@@ -734,6 +739,7 @@ def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
         or candidate.source_family
         or candidate.source_file
         or candidate.ring_system_atoms
+        or candidate.parent_element_counts
         or candidate.prefixes
         or candidate.suffixes
         or candidate.charge is not None
@@ -835,6 +841,19 @@ def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate)
             opsin_fragility_reasons=(*reasons, OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT),
         ),
     )
+
+
+def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
+    if not candidate.parent_atoms:
+        return candidate
+    counts: dict[str, int] = {}
+    for atom_idx in candidate.parent_atoms:
+        symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
+        counts[symbol] = counts.get(symbol, 0) + 1
+    parent_element_counts = tuple(sorted(counts.items()))
+    if candidate.parent_element_counts == parent_element_counts:
+        return candidate
+    return replace(candidate, parent_element_counts=parent_element_counts)
 
 
 def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameCandidate) -> bool:
@@ -945,6 +964,10 @@ def _candidate_is_stable_priority_winner(candidate: NameCandidate, priority: int
 
 def candidate_parent_atoms(candidate: NameCandidate) -> frozenset[int]:
     return candidate.parent_atoms
+
+
+def _candidate_parent_element_count(candidate: NameCandidate, symbol: str) -> int:
+    return dict(candidate.parent_element_counts).get(symbol, 0)
 
 
 def candidate_source_key(candidate: NameCandidate) -> tuple[str, int | None]:
@@ -2401,6 +2424,12 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    incomplete_organophosphorus_with_complete_purine_parent = (
+        _has_contextual_complete_purine_parent_alternative_for_incomplete_organophosphorus(item, prepared)
+    )
+    purine_parent_with_acyclic_phosphorus_parent = (
+        _has_contextual_acyclic_phosphorus_parent_alternative_for_purine_parent(item, prepared)
+    )
     preferred_generated_fused_template = _has_contextual_preferred_generated_fused_template_alternative(
         item,
         prepared,
@@ -2567,6 +2596,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_purine_tautomer_alias
         or retained_purine_generated_parent
         or retained_imidazopyridine_benzazole_parent
+        or incomplete_organophosphorus_with_complete_purine_parent
+        or purine_parent_with_acyclic_phosphorus_parent
         or preferred_generated_fused_template
         or fragile_terminal_azabicyclo_benzimidazole
         or fragile_group14_hetero_ligand
@@ -2780,6 +2811,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if retained_imidazopyridine_benzazole_parent:
         penalty += 45
+    if incomplete_organophosphorus_with_complete_purine_parent:
+        penalty += 90
+    if purine_parent_with_acyclic_phosphorus_parent:
+        penalty += 160
     if preferred_generated_fused_template:
         penalty += 90
     if fragile_terminal_azabicyclo_benzimidazole and _has_contextual_integrated_benzimidazole_carboxamide_alternative(
@@ -5659,6 +5694,26 @@ _GENERATED_PURINE_PARENT_TEMPLATES = frozenset(
     }
 )
 
+_PURINE_LIKE_RETAINED_PARENT_TEMPLATES = frozenset(
+    {
+        "adenin",
+        "guanin",
+        "hypoxanthin",
+        "mercaptopurin",
+        "purin",
+        "xanthin",
+    }
+)
+
+_PURINE_ACYCLIC_PHOSPHORUS_PARENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
+
 
 def _has_contextual_generated_purine_parent_alternative(
     item: _PreparedCandidate,
@@ -5692,6 +5747,85 @@ def _has_contextual_generated_purine_parent_alternative(
         if len(other.name) - len(item.name) > 180:
             continue
         if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_acyclic_phosphorus_parent_alternative_for_purine_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family == "generated-fused-parent":
+        if candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+            return False
+    elif candidate.family == "fused-retained-parent":
+        if candidate.template_name not in _PURINE_LIKE_RETAINED_PARENT_TEMPLATES:
+            return False
+    elif candidate.family == "single-ring-parent":
+        if not _has_contextual_purine_like_fused_parent_candidate(item, prepared):
+            return False
+    else:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if candidate.family == "single-ring-parent":
+        if parent_count > 6:
+            return False
+    elif parent_count < 9 or parent_count > 11:
+        return False
+    if _candidate_parent_element_count(candidate, "P"):
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 4:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _PURINE_ACYCLIC_PHOSPHORUS_PARENT_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count < 12 or other_parent_count > 13 or other_parent_count < parent_count + 2:
+            continue
+        if _candidate_parent_element_count(other_candidate, "P") != 1:
+            continue
+        if _candidate_parent_element_count(other_candidate, "S"):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty > item.stability_penalty + 220:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_purine_like_fused_parent_candidate(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        candidate = other.candidate
+        if candidate.family == "generated-fused-parent":
+            if candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+                continue
+        elif candidate.family == "fused-retained-parent":
+            if candidate.template_name not in _PURINE_LIKE_RETAINED_PARENT_TEMPLATES:
+                continue
+        else:
+            continue
+        if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+            continue
+        if len(candidate.parent_atoms) < 9 or len(candidate.parent_atoms) > 11:
+            continue
+        if _candidate_parent_element_count(candidate, "P"):
             continue
         return True
     return False
@@ -5783,6 +5917,39 @@ def _has_contextual_preferred_generated_fused_template_alternative(
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue
         if len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty > item.stability_penalty + 90:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_complete_purine_parent_alternative_for_incomplete_organophosphorus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "organophosphorus-oxide-parent":
+        return False
+    if candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 80:
             continue
         if other.stability_penalty > item.stability_penalty + 90:
             continue

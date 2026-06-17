@@ -2223,6 +2223,22 @@ def test_high_signal_generated_topology_fused_parents_roundtrip_with_opsin(input
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCOc1ccc(N2C[C@H]3CC(C)(C)[C@@H]2CNC3=O)cc1",
+        "COC(=O)N1CC2C=CC1C(c1ccccc1)C2",
+        "O=C([O-])C(=O)c1ccc([N+](=O)[O-])cc1C1CCN=C2NCCCN21",
+    ],
+)
+def test_compact_functional_bicyclic_parent_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

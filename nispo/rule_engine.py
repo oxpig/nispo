@@ -421,6 +421,8 @@ def _candidate_fact_ranked_switch_is_safe(
     proposed_candidate = proposed.candidate
     if not _ranker_preserves_high_signal_topology_parent(current, proposed):
         return False
+    if not _ranker_preserves_generated_purine_parent(current, proposed):
+        return False
     if not _ranker_preserves_small_generated_fused_orientation(
         current,
         proposed,
@@ -530,6 +532,41 @@ def _ranker_preserves_high_signal_topology_parent(
     if not proposed_candidate.parent_atoms:
         return True
     if len(proposed_candidate.parent_atoms) > len(current_candidate.parent_atoms) + 2:
+        return True
+    return False
+
+
+def _ranker_preserves_generated_purine_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if current_candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+        return True
+    if proposed_candidate.family != "fused-retained-parent":
+        return True
+    if proposed_candidate.template_name != "purin":
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if len(current_candidate.parent_atoms) != 9:
+        return True
+    if proposed_candidate.parent_atoms != current_candidate.parent_atoms:
+        return True
+    if current_candidate.parent_substituted_hetero_atom_count:
+        return True
+    if proposed_candidate.parent_substituted_hetero_atom_count:
+        return True
+    if current_candidate.render_rank is None or current_candidate.render_rank > 2:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
         return True
     return False
 

@@ -2243,6 +2243,7 @@ def test_compact_functional_bicyclic_parent_alternatives_roundtrip_with_opsin(in
     "input_smiles",
     [
         "C[C@](O)(c1nc2c(Cl)nc(Cl)nc2[nH]1)C1CC1",
+        "C[C@@H](Oc1ccc(-c2nc3c(Cl)ncnc3[nH]2)cc1)c1ccccc1",
     ],
 )
 def test_generated_purine_parent_alternatives_roundtrip_with_opsin(input_smiles):

@@ -16,6 +16,7 @@ from .candidate_facts import (
     ChargeEvidence,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
+    OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
     StereoEvidence,
     SuffixCandidate,
@@ -13565,6 +13566,7 @@ class _PolycyclicRecordParentRule:
         for record_order, record in enumerate(ctx.polycyclic_parent_records(self.record_family)):
             name, seq = record[0], record[1]
             bridge_unsaturation_mismatches = int(record[2]) if len(record) > 2 else 0
+            bridge_topology_mismatches = int(record[3]) if len(record) > 3 else 0
             if not self._accept_record(name, seq):
                 continue
             if self._defer_record(ctx, name, seq):
@@ -13573,11 +13575,15 @@ class _PolycyclicRecordParentRule:
                 return
             safety = None
             render_cost = 1
+            fragility_reasons = []
             if bridge_unsaturation_mismatches > 0:
-                safety = CandidateSafety(
-                    opsin_fragility_reasons=(OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,)
-                )
+                fragility_reasons.append(OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION)
                 render_cost += bridge_unsaturation_mismatches
+            if bridge_topology_mismatches > 0:
+                fragility_reasons.append(OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY)
+                render_cost += bridge_topology_mismatches
+            if fragility_reasons:
+                safety = CandidateSafety(opsin_fragility_reasons=tuple(fragility_reasons))
             yield NameCandidate(
                 name=name,
                 family=self.family,

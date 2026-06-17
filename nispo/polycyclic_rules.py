@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from itertools import combinations, permutations, product
 
@@ -314,6 +314,7 @@ def _secondary_bridge_tricyclic_candidate_records(
                 if not name:
                     continue
                 key = (
+                    _opsin_bridge_topology_mismatch_count(mol, seq, bracket),
                     _secondary_bridge_preference_key(
                         bracket,
                         saturated_alicyclic=use_saturated_bridge_selection,
@@ -337,6 +338,7 @@ def _secondary_zero_bridge_tricyclic_candidate_records(
         if not name:
             continue
         key = (
+            _opsin_bridge_topology_mismatch_count(mol, seq, full_bracket),
             _bridge_sort_key(bracket),
             *_polycyclic_numbering_preference_key(mol, seq, atoms),
             name,
@@ -542,6 +544,12 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
         mol,
         atoms,
     )
+    use_reused_lower_endpoint_fragility_order = _use_reused_lower_endpoint_fragility_order(
+        mol,
+        atoms,
+        rank,
+        multiple_bond_count,
+    )
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
@@ -557,13 +565,22 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
                 if not name:
                     continue
+                topology_mismatches = _opsin_bridge_topology_mismatch_count(mol, seq, bracket)
+                reused_lower_bridge_endpoints = (
+                    _reused_lower_secondary_bridge_endpoint_count(bracket)
+                    if use_reused_lower_endpoint_fragility_order
+                    else 0
+                )
+                topology_fragility = topology_mismatches + reused_lower_bridge_endpoints
                 if use_large_hetero_bridge_order:
                     key = (
+                        topology_fragility,
                         _large_hetero_kekulized_bridge_preference_key(mol, seq, atoms, bracket),
                         name,
                     )
                 elif use_stereo_hetero_macrocycle_bridge_order:
                     key = (
+                        topology_fragility,
                         _stereo_hetero_kekulized_macrocycle_bridge_preference_key(
                             mol,
                             seq,
@@ -574,6 +591,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                     )
                 else:
                     key = (
+                        topology_fragility,
                         _secondary_bridge_preference_key(
                             bracket,
                             saturated_alicyclic=(
@@ -584,18 +602,18 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
                         name,
                     )
-                fragility = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
-                candidates.append((key, name, tuple(seq), fragility))
+                unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
+                candidates.append((key, name, tuple(seq), unsaturation_mismatches, topology_fragility))
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
                     return [
-                        (name, seq, fragility)
-                        for _key, name, seq, fragility in candidates[:candidate_limit]
+                        (name, seq, unsaturation_mismatches, topology_fragility)
+                        for _key, name, seq, unsaturation_mismatches, topology_fragility in candidates[:candidate_limit]
                     ]
     candidates.sort(key=lambda item: item[0])
     return [
-        (name, seq, fragility)
-        for _key, name, seq, fragility in candidates[:candidate_limit]
+        (name, seq, unsaturation_mismatches, topology_fragility)
+        for _key, name, seq, unsaturation_mismatches, topology_fragility in candidates[:candidate_limit]
     ]
 
 
@@ -616,6 +634,45 @@ def _opsin_bridge_unsaturation_mismatch_count(
         if edge not in parent_edges:
             mismatches += 1
     return mismatches
+
+
+def _opsin_bridge_topology_mismatch_count(
+    mol,
+    seq: Sequence[int],
+    bracket: Sequence[int | str],
+) -> int:
+    parent_edges = _opsin_oriented_polybridge_edges(bracket)
+    if not parent_edges:
+        return 0
+    actual_edges = _locant_graph_edges(mol, seq)
+    return len(actual_edges - parent_edges) + len(parent_edges - actual_edges)
+
+
+def _reused_lower_secondary_bridge_endpoint_count(bracket: Sequence[int | str]) -> int:
+    lower_endpoint_counts: Counter[int] = Counter()
+    zero_endpoints: set[int] = set()
+    for length, left, right in _bridge_sort_key(bracket)[3:]:
+        if length == 0:
+            zero_endpoints.update((left, right))
+        elif length > 0:
+            lower_endpoint_counts[min(left, right)] += 1
+    reused = sum(max(0, count - 1) for count in lower_endpoint_counts.values())
+    reused += sum(1 for endpoint in zero_endpoints if lower_endpoint_counts.get(endpoint, 0) > 0)
+    return reused
+
+
+def _locant_graph_edges(mol, seq: Sequence[int]) -> frozenset[tuple[int, int]]:
+    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    edges = set()
+    for idx in seq:
+        left = pos[idx]
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            right = pos.get(nidx)
+            if right is None or right <= left:
+                continue
+            edges.add((left, right))
+    return frozenset(edges)
 
 
 def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int], ...]:
@@ -807,6 +864,19 @@ def _use_stereo_hetero_kekulized_macrocycle_bridge_order(
             external_attachment_atoms += 1
 
     return hetero_atoms >= 5 and 1 <= external_attachment_atoms <= 3
+
+
+def _use_reused_lower_endpoint_fragility_order(
+    mol,
+    atoms: set[int],
+    rank: int,
+    multiple_bond_count: int,
+) -> bool:
+    if not bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")):
+        return False
+    if rank < 4 or len(atoms) < 24 or multiple_bond_count < 3:
+        return False
+    return any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in atoms)
 
 
 def _stereo_hetero_kekulized_macrocycle_bridge_preference_key(

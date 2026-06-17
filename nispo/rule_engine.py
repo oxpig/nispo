@@ -12,6 +12,7 @@ from .candidate_facts import (
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT,
+    OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
     PrefixCandidate,
     StereoEvidence,
@@ -992,7 +993,11 @@ def _kekulized_polycyclic_late_render_rank_penalty(name: str, candidate: NameCan
 
 
 def _kekulized_polycyclic_bridge_unsaturation_penalty(candidate: NameCandidate) -> int:
-    if OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION not in candidate_safety_reasons(candidate):
+    safety_reasons = candidate_safety_reasons(candidate)
+    if (
+        OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION not in safety_reasons
+        and OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY not in safety_reasons
+    ):
         return 0
     return 180 * max(1, candidate.render_cost - 1)
 

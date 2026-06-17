@@ -2974,6 +2974,8 @@ def _carbamoyl_n_substituent(prefix: str) -> str:
 
 
 def _format_amide_n_substituent(group: str) -> str:
+    if _already_locanted_amide_n_substituent(group):
+        return group
     bis_match = re.fullmatch(r"bis\((.+)\)", group)
     if bis_match:
         return f"N,N-bis({bis_match.group(1)})"
@@ -2989,6 +2991,10 @@ def _format_amide_n_substituent(group: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9]+", group):
         return f"N-{group}"
     return f"N-({group})"
+
+
+def _already_locanted_amide_n_substituent(group: str) -> bool:
+    return group.startswith(("N-", "N,N-", "N,N'-"))
 
 
 _PYRIDINE_RETAINED_SUFFIX_ALIASES = {

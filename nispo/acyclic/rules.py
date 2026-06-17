@@ -917,14 +917,14 @@ def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> Acyc
             if name:
                 rendered_names.append((oriented, name))
         records = [
-            AcyclicNameRecord(name, _path_stereo_locants(oriented))
+            AcyclicNameRecord(name, _rendered_path_stereo_locants(mol, oriented))
             for oriented, name in rendered_names
         ]
         if records:
             if not prefer_complete_stereo:
                 return min(records, key=lambda record: record.name)
             complete_stereo_names = [
-                AcyclicNameRecord(name, _path_stereo_locants(oriented))
+                AcyclicNameRecord(name, _rendered_path_stereo_locants(mol, oriented))
                 for oriented, name in rendered_names
                 if _complete_path_stereo_prefix(mol, oriented)
             ]
@@ -937,8 +937,40 @@ def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> Acyc
     return AcyclicNameRecord("")
 
 
-def _path_stereo_locants(path: Sequence[int]) -> tuple[tuple[int, str], ...]:
-    return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(path, start=1))
+def _rendered_path_stereo_locants(mol, path: Sequence[int]) -> tuple[tuple[int, str], ...]:
+    carboxy_oriented = _terminal_carboxy_stereo_path(mol, path)
+    if carboxy_oriented is not None:
+        return _path_stereo_locants(carboxy_oriented, start=2)
+    return _path_stereo_locants(path)
+
+
+def _terminal_carboxy_stereo_path(mol, path: Sequence[int]) -> tuple[int, ...] | None:
+    prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+    if prefixes is None or replacement_prefixes(mol, path):
+        return None
+    n = len(path)
+    terminal_groups = [
+        (loc, prefix)
+        for loc, prefix in prefixes
+        if prefix in {"carboxy", "carboxylato", "carbamyl", "formyl"} and loc in {"1", str(n)}
+    ]
+    terminal = [
+        item for item in terminal_groups if item[1] in {"carboxy", "carboxylato"}
+    ] or [item for item in terminal_groups if item[1] == "carbamyl"] or [
+        item for item in terminal_groups if item[1] == "formyl"
+    ]
+    if _diterminal_carboxy_suffix_parent_name(mol, path, prefixes, terminal):
+        return tuple(path)
+    if len(terminal) != 1:
+        return None
+    terminal_loc, _terminal_prefix = terminal[0]
+    if not _terminal_carboxy_suffix_parent_name(mol, path, prefixes):
+        return None
+    return tuple(reversed(path)) if terminal_loc == str(n) else tuple(path)
+
+
+def _path_stereo_locants(path: Sequence[int], *, start: int = 1) -> tuple[tuple[int, str], ...]:
+    return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(path, start=start))
 
 
 def _prefer_complete_acyclic_stereo_path(mol) -> bool:

@@ -423,6 +423,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_generated_purine_parent(current, proposed):
         return False
+    if not _ranker_preserves_retained_benzimidazole_parent(current, proposed):
+        return False
     if not _ranker_preserves_small_generated_fused_orientation(
         current,
         proposed,
@@ -563,6 +565,49 @@ def _ranker_preserves_generated_purine_parent(
     if proposed_candidate.parent_substituted_hetero_atom_count:
         return True
     if current_candidate.render_rank is None or current_candidate.render_rank > 2:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    return False
+
+
+def _ranker_preserves_retained_benzimidazole_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "fused-retained-parent":
+        return True
+    if current_candidate.template_name != "benzimidazole":
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.template_name != "imidazo[4,5-a]benzene":
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.parent_element_counts != (("C", 7), ("N", 2)):
+        return True
+    if len(current_candidate.parent_atoms) != 9:
+        return True
+    if proposed_candidate.parent_atoms != current_candidate.parent_atoms:
+        return True
+    if current_candidate.parent_substituted_hetero_atom_count:
+        return True
+    if proposed_candidate.parent_substituted_hetero_atom_count:
+        return True
+    current_render_rank = current_candidate.render_rank
+    proposed_render_rank = proposed_candidate.render_rank
+    if current_render_rank is None or proposed_render_rank is None:
+        return True
+    if current_render_rank > proposed_render_rank:
+        return True
+    if current_candidate.priority > proposed_candidate.priority:
         return True
     if current_candidate.charge is not None or proposed_candidate.charge is not None:
         return True
@@ -2514,6 +2559,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     retained_benzimidazole_parent_bonus = _contextual_retained_benzimidazole_parent_bonus(item, prepared)
+    pyrazolopyridine_with_retained_benzimidazole = (
+        _has_contextual_retained_benzimidazole_parent_alternative_for_pyrazolopyridine(item, prepared)
+    )
     retained_benzoannulene_with_generated_imidazopyridine = (
         _has_contextual_generated_imidazopyridine_alternative_for_retained_benzoannulene(item, prepared)
     )
@@ -2658,6 +2706,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or azole_template_parent_bonus
         or retained_fused_template_pair_parent_bonus
         or retained_benzimidazole_parent_bonus
+        or pyrazolopyridine_with_retained_benzimidazole
         or retained_benzoannulene_with_generated_imidazopyridine
         or acyclic_skeleton_ring_system_parent_bonus
         or kekulized_polycycle_contextual_parent_bonus
@@ -2899,6 +2948,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= retained_fused_template_pair_parent_bonus
     if retained_benzimidazole_parent_bonus:
         penalty -= retained_benzimidazole_parent_bonus
+    if pyrazolopyridine_with_retained_benzimidazole:
+        penalty += 300
     if retained_benzoannulene_with_generated_imidazopyridine:
         penalty += 40
     if acyclic_skeleton_ring_system_parent_bonus:
@@ -3608,7 +3659,115 @@ def _contextual_retained_benzimidazole_parent_bonus(
         if item.stability_penalty > other.stability_penalty + 260:
             continue
         return 320
+    if _has_contextual_pyrazolopyridine_parent_competitor_for_retained_benzimidazole(item, prepared):
+        return 360
     return 0
+
+
+_BENZIMIDAZOLE_COMPETING_PYRAZOLOPYRIDINE_TEMPLATES = frozenset(
+    {
+        "pyrazolo[3,4-e]pyridine",
+        "pyrazolo[4,3-b]pyridine",
+        "pyridino[2,3-c]pyrazole",
+        "pyridino[3,2-c]pyrazole",
+        "pyrido[2,3-d]pyrazole",
+        "pyrido[3,2-c]pyrazole",
+    }
+)
+
+
+def _has_contextual_pyrazolopyridine_parent_competitor_for_retained_benzimidazole(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "benzimidazole":
+        return False
+    if candidate.parent_element_counts != (("C", 7), ("N", 2)):
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.parent_substituted_hetero_atom_count:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 4:
+        return False
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {"fused-retained-parent", "generated-fused-parent"}:
+            continue
+        if other_candidate.template_name not in _BENZIMIDAZOLE_COMPETING_PYRAZOLOPYRIDINE_TEMPLATES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.parent_substituted_hetero_atom_count == 0:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 6:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(other.name) > 90:
+            continue
+        if item.stability_penalty > other.stability_penalty + 260:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_retained_benzimidazole_parent_alternative_for_pyrazolopyridine(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {"fused-retained-parent", "generated-fused-parent"}:
+        return False
+    if candidate.template_name not in _BENZIMIDAZOLE_COMPETING_PYRAZOLOPYRIDINE_TEMPLATES:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.parent_substituted_hetero_atom_count == 0:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 6:
+        return False
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if other_candidate.template_name != "benzimidazole":
+            continue
+        if other_candidate.parent_element_counts != (("C", 7), ("N", 2)):
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.parent_substituted_hetero_atom_count:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 4:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 260:
+            continue
+        return True
+    return False
 
 
 _GENERATED_IMIDAZOPYRIDINE_ALTERNATIVE_TEMPLATES = frozenset(

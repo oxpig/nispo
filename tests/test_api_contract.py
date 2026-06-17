@@ -1765,6 +1765,7 @@ def test_small_late_single_ring_parent_defers_to_early_six_member_parent(input_s
         "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",
         "NC(=O)c1cccc2[nH]c(-c3ccc(C(=O)N4CCN(c5nc6ccccc6[nH]5)CC4)cc3)nc12",
         "C[C@@H](C(=O)N(C)c1ccc2[nH]c(-c3n[nH]c4c3C[C@@H]3C[C@]3(C)C4)nc2c1)C1CCOCC1",
+        "CCn1cc2[nH]c(=O)c(-c3nc4ccc(N5CCOCC5)cc4[nH]3)c(NC(C)c3cocn3)c2n1",
     ],
 )
 def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):

@@ -1434,6 +1434,14 @@ _EXOCYCLIC_FUSED_PARENT_FAMILIES = {
 }
 
 _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST = frozenset({"1H-benzimidazole"})
+_PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES = frozenset(
+    {
+        "pyrido[2,3-b]pyrrole",
+        "pyrido[3,2-d]pyrrole",
+    }
+)
+_PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_BONUS = 230
+_PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_MAX_ALTERNATIVE_STABILITY = 292
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
     {
         "1,4-benzodioxane",
@@ -1895,6 +1903,66 @@ def _has_contextual_broad_graph_parent_alternative(
         if len(other.name) > 240 or len(other.name) - len(item.name) > 140:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _contextual_pyridopyrrole_acyclic_decomposition_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "acyclic-skeleton-with-ring-substituents":
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if len(candidate.parent_atoms) < 7 or len(candidate.parent_atoms) > 22:
+        return 0
+    if candidate.parent_hetero_atom_count:
+        return 0
+    if candidate.suffixes or candidate.charge is not None:
+        return 0
+    if candidate_safety_reasons(candidate):
+        return 0
+    alternative_stability = item.stability_penalty + _candidate_selection_broad_graph_parent_penalty(
+        item,
+        prepared,
+    )
+    if alternative_stability > _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_MAX_ALTERNATIVE_STABILITY:
+        return 0
+    if not _has_contextual_generated_pyridopyrrole_parent_competitor(item, prepared):
+        return 0
+    return _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_BONUS
+
+
+def _has_contextual_generated_pyridopyrrole_parent_competitor(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES:
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.parent_hetero_atom_count != 2:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 2:
             continue
         return True
     return False
@@ -2569,6 +2637,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    pyridopyrrole_acyclic_decomposition_bonus = _contextual_pyridopyrrole_acyclic_decomposition_bonus(
+        item,
+        prepared,
+    )
     kekulized_polycycle_contextual_parent_bonus = _contextual_kekulized_polycycle_parent_bonus(
         item,
         prepared,
@@ -2709,6 +2781,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or pyrazolopyridine_with_retained_benzimidazole
         or retained_benzoannulene_with_generated_imidazopyridine
         or acyclic_skeleton_ring_system_parent_bonus
+        or pyridopyrrole_acyclic_decomposition_bonus
         or kekulized_polycycle_contextual_parent_bonus
         or high_impact_exact_retained_parent
         or named_template_pair_parent_bonus
@@ -2954,6 +3027,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 40
     if acyclic_skeleton_ring_system_parent_bonus:
         penalty -= acyclic_skeleton_ring_system_parent_bonus
+    if pyridopyrrole_acyclic_decomposition_bonus:
+        penalty -= pyridopyrrole_acyclic_decomposition_bonus
     if kekulized_polycycle_contextual_parent_bonus:
         penalty -= kekulized_polycycle_contextual_parent_bonus
     if named_template_pair_parent_bonus:

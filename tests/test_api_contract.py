@@ -1716,6 +1716,9 @@ def test_ring_parent_charge_and_lambda2_forms_roundtrip(input_smiles):
         "O=C1/C(=C(\\Nc2ccccc2)c2cccs2)c2ccccc2C1c1ccccc1",
         "COc1cccc(-c2ccc(-c3cc4c(cc3Cl)NC(=O)C4=C(O)c3cc(C4CC4)no3)cc2)c1O",
         "CCOC(=O)C1CC2(NC(=O)OCc3ccccc3)C=CC1C1C=CC12",
+        "Cc1cc(NC(=O)C(N)Cc2ccccc2)ccc1-c1ccnc2[nH]ccc12",
+        "CCN(C)S(=O)(=O)Nc1cccc(C(=O)c2c[nH]c3ncc(-c4cocn4)cc23)c1F",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)c2c[nH]c3ncc(-c4ccc(C=O)cc4)cc23)c1F",
     ],
 )
 def test_structured_contextual_parent_selection_roundtrips_with_opsin(input_smiles):

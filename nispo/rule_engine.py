@@ -2401,6 +2401,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    preferred_generated_fused_template = _has_contextual_preferred_generated_fused_template_alternative(
+        item,
+        prepared,
+    )
     fragile_terminal_azabicyclo_benzimidazole = _has_fragile_terminal_azabicyclo_benzimidazole_parent(
         name,
         item.candidate,
@@ -2563,6 +2567,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_purine_tautomer_alias
         or retained_purine_generated_parent
         or retained_imidazopyridine_benzazole_parent
+        or preferred_generated_fused_template
         or fragile_terminal_azabicyclo_benzimidazole
         or fragile_group14_hetero_ligand
         or generic_spiro_parent
@@ -2775,6 +2780,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if retained_imidazopyridine_benzazole_parent:
         penalty += 45
+    if preferred_generated_fused_template:
+        penalty += 90
     if fragile_terminal_azabicyclo_benzimidazole and _has_contextual_integrated_benzimidazole_carboxamide_alternative(
         item,
         prepared,
@@ -5731,6 +5738,53 @@ def _has_contextual_generated_benzazole_parent_alternative(
         if len(other.name) - len(item.name) > 90:
             continue
         if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+_PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES = {
+    "naphtho[8,7-d]imidazole": frozenset({"naphtho[7,8-d]imidazole"}),
+    "pyrazolo[3,4-c]quinoline": frozenset({"quino[4,3-d]pyrazole"}),
+    "pyrazolo[4,3-c]quinoline": frozenset({"quino[3,4-d]pyrazole"}),
+    "pyridazino[6,5-d]imidazole": frozenset({"pyridazino[5,6-d]imidazole"}),
+    "thieno[5,4-d]imidazole": frozenset({"thieno[4,5-d]imidazole"}),
+}
+
+
+def _has_contextual_preferred_generated_fused_template_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    preferred_templates = _PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES.get(candidate.template_name or "")
+    if not preferred_templates:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in preferred_templates:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != len(candidate.parent_atoms):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > max(4, candidate.render_rank):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty > item.stability_penalty + 90:
             continue
         return True
     return False

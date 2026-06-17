@@ -2269,6 +2269,24 @@ def test_generated_benzazole_parent_alternatives_roundtrip_with_opsin(input_smil
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1ccc(-c2cnnc3[nH]cnc23)cc1",
+        "NC(=O)c1cc2nc[nH]c2s1",
+        "NC(=O)c1ccc2ncc3cn[nH]c3c2c1",
+        "NC(=O)c1ccc2ncc3[nH]ncc3c2c1",
+        "CSc1nc2cc(-c3ccc(-c4ccccc4)cc3)c3ccccc3c2[nH]1",
+    ],
+)
+def test_preferred_generated_fused_template_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

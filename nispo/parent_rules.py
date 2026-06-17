@@ -1711,6 +1711,15 @@ class PhosphorusAcidParentRule:
                 parent_atoms=atom_set,
                 sort_key=(len(phosphine_oxide_name), phosphine_oxide_name),
             )
+        phosphine_sulfide_name = _single_center_phosphine_sulfide_name(mol, self._Chem, pidx, atom_set)
+        if phosphine_sulfide_name:
+            yield NameCandidate(
+                phosphine_sulfide_name,
+                self.family,
+                self.priority,
+                parent_atoms=atom_set,
+                sort_key=(len(phosphine_sulfide_name), phosphine_sulfide_name),
+            )
         carbon_neighbors = []
         double_oxygen_count = 0
         hydroxy_count = 0
@@ -2070,6 +2079,57 @@ def _single_center_phosphine_oxide_name(mol, Chem, pidx: int, atom_set: set[int]
     return ligand_text + "phosphine oxide" if ligand_text else ""
 
 
+def _single_center_phosphine_sulfide_name(mol, Chem, pidx: int, atom_set: set[int]) -> str:
+    phosphorus = mol.GetAtomWithIdx(pidx)
+    ligand_names = []
+    ligand_atom_sets = []
+    covered = {pidx}
+    double_sulfur_count = 0
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_sulfur_count += 1
+            covered.add(nidx)
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if nbr.GetSymbol() not in {"C", "N", "O"} or nbr.GetFormalCharge() != 0:
+            return ""
+        if nbr.GetSymbol() == "O":
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != pidx and atom.GetAtomicNum() > 1
+            ]
+            if len(heavy) != 1:
+                return ""
+        ligand = _simple_or_branch_prefix(mol, nidx, pidx)
+        if not ligand:
+            return ""
+        ligand_names.append(_strip_outer_parentheses(ligand))
+        ligand_atoms = _collect_component_atoms(mol, nidx, pidx)
+        ligand_atom_sets.append(frozenset(ligand_atoms))
+        covered.update(ligand_atoms)
+    if double_sulfur_count != 1 or not ligand_names:
+        return ""
+    phosphorus_hydrogens = phosphorus.GetTotalNumHs()
+    if len(ligand_names) + phosphorus_hydrogens != 3:
+        return ""
+    if covered != atom_set:
+        return ""
+    if phosphorus_hydrogens == 0 and not _simple_no_hydrogen_phosphine_sulfide_scope(
+        mol,
+        Chem,
+        ligand_atom_sets,
+    ):
+        return ""
+    ligand_text = _phosphine_oxide_ligand_text(ligand_names)
+    return ligand_text + "phosphine sulfide" if ligand_text else ""
+
+
 def _simple_no_hydrogen_phosphine_oxide_scope(mol, Chem, ligand_atom_sets: Sequence[frozenset[int]]) -> bool:
     if mol.GetNumAtoms() > 18:
         return False
@@ -2085,6 +2145,25 @@ def _simple_no_hydrogen_phosphine_oxide_scope(mol, Chem, ligand_atom_sets: Seque
         if heavy_count > 12:
             return False
         if sum(1 for ring in atom_rings if ring.issubset(ligand_atoms)) > 1:
+            return False
+    return True
+
+
+def _simple_no_hydrogen_phosphine_sulfide_scope(mol, Chem, ligand_atom_sets: Sequence[frozenset[int]]) -> bool:
+    if mol.GetNumAtoms() > 48:
+        return False
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+        return False
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+        return False
+    atom_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings()]
+    for ligand_atoms in ligand_atom_sets:
+        heavy_count = sum(
+            1 for idx in ligand_atoms if mol.GetAtomWithIdx(idx).GetAtomicNum() > 1
+        )
+        if heavy_count > 32:
+            return False
+        if sum(1 for ring in atom_rings if ring.issubset(ligand_atoms)) > 4:
             return False
     return True
 

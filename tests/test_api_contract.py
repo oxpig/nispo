@@ -2290,6 +2290,20 @@ def test_preferred_generated_fused_template_alternatives_roundtrip_with_opsin(in
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Oc1ccc2c(c1)oc1cc(O)ccc12",
+    ],
+)
+def test_oxafluoren_skeletal_replacement_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCOP([O-])[O-]",
         "CCCCCCCCCCCCCOP(OCCCCCCCCCCCCC)OP([O-])[O-]",
         "C#C[PH]([O-])(OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1)OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1",

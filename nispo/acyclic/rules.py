@@ -1777,13 +1777,38 @@ def _name_ylidene_dioxosulfane_path(
 
 
 def _name_thione_path(mol, path: Sequence[int], thione_idx: int, sulfur_idx: int) -> str:
+    suffix = (
+        "thione S-oxide"
+        if _is_thione_s_oxide_sulfur(mol, sulfur_idx, thione_idx)
+        else "thione"
+    )
     return _name_exocyclic_sulfur_suffix_path(
         mol,
         path,
         center_idx=thione_idx,
         sulfur_idx=sulfur_idx,
-        suffix="thione",
+        suffix=suffix,
     )
+
+
+def _is_thione_s_oxide_sulfur(mol, sulfur_idx: int, thione_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(sulfur_idx)
+    if atom.GetSymbol() != "S":
+        return False
+    double_oxygen_count = 0
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if nidx == thione_idx:
+            if bond.GetBondType() != Chem.BondType.DOUBLE:
+                return False
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen_count += 1
+            continue
+        if nbr.GetAtomicNum() > 1:
+            return False
+    return double_oxygen_count == 1
 
 
 def _name_exocyclic_sulfur_suffix_path(

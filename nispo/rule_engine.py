@@ -2397,6 +2397,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_short_fusion_orientation = _has_fragile_short_fusion_orientation_alias(name, item.candidate)
     fragile_purine_tautomer_alias = _has_fragile_purine_tautomer_alias(name, item.candidate)
     retained_purine_generated_parent = _has_contextual_generated_purine_parent_alternative(item, prepared)
+    retained_imidazopyridine_benzazole_parent = _has_contextual_generated_benzazole_parent_alternative(
+        item,
+        prepared,
+    )
     fragile_terminal_azabicyclo_benzimidazole = _has_fragile_terminal_azabicyclo_benzimidazole_parent(
         name,
         item.candidate,
@@ -2558,6 +2562,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_short_fusion_orientation
         or fragile_purine_tautomer_alias
         or retained_purine_generated_parent
+        or retained_imidazopyridine_benzazole_parent
         or fragile_terminal_azabicyclo_benzimidazole
         or fragile_group14_hetero_ligand
         or generic_spiro_parent
@@ -2768,6 +2773,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 48
     if retained_purine_generated_parent:
         penalty += 140
+    if retained_imidazopyridine_benzazole_parent:
+        penalty += 45
     if fragile_terminal_azabicyclo_benzimidazole and _has_contextual_integrated_benzimidazole_carboxamide_alternative(
         item,
         prepared,
@@ -5678,6 +5685,52 @@ def _has_contextual_generated_purine_parent_alternative(
         if len(other.name) - len(item.name) > 180:
             continue
         if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+_GENERATED_BENZAZOLE_PARENT_TEMPLATES = frozenset(
+    {
+        "benzo[1,2-d]oxazole",
+        "benzo[1,2-d]thiazole",
+        "imidazo[4,5-a]benzene",
+    }
+)
+
+
+def _has_contextual_generated_benzazole_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "6,7-dihydro-1H-imidazo[4,5-c]pyridine":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in _GENERATED_BENZAZOLE_PARENT_TEMPLATES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != len(candidate.parent_atoms):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
             continue
         return True
     return False

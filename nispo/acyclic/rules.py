@@ -94,6 +94,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     if hydroxy_diphosphonic_name:
         return AcyclicNameRecord(hydroxy_diphosphonic_name)
 
+    hydroxy_diyl_diphosphonic_name = _name_hydroxy_alkane_diyl_diphosphonic_acid(mol)
+    if hydroxy_diyl_diphosphonic_name:
+        return AcyclicNameRecord(hydroxy_diyl_diphosphonic_name)
+
     terminal_nitrone_name = _name_terminal_nitrone(mol)
     if terminal_nitrone_name:
         return AcyclicNameRecord(terminal_nitrone_name)
@@ -618,6 +622,68 @@ def _neutral_phosphonic_acid_group_atoms(mol, phosphorus_idx: int, carbon_idx: i
     if double_oxygen != 1 or len(hydroxy_oxygens) != 2:
         return frozenset()
     return frozenset(atoms)
+
+
+def _name_hydroxy_alkane_diyl_diphosphonic_acid(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    records = []
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        phosphonic_group = None
+        hydroxy_idx = None
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if bond is None:
+                continue
+            if nbr.GetSymbol() == "P" and bond.GetBondType() == Chem.BondType.SINGLE:
+                group_atoms = _neutral_phosphonic_acid_group_atoms(mol, nbr.GetIdx(), cidx)
+                if not group_atoms or phosphonic_group is not None:
+                    return ""
+                phosphonic_group = (nbr.GetIdx(), group_atoms)
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetTotalNumHs() == 1
+                and len([atom for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]) == 1
+            ):
+                if hydroxy_idx is not None:
+                    return ""
+                hydroxy_idx = nbr.GetIdx()
+        if phosphonic_group is not None:
+            records.append((cidx, phosphonic_group, hydroxy_idx))
+    if len(records) != 2:
+        return ""
+    hydroxy_records = [record for record in records if record[2] is not None]
+    if len(hydroxy_records) != 1:
+        return ""
+    view = _acyclic_graph_view(mol)
+    carbon_allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
+    }
+    first, second = records
+    path = _shortest_path_in_allowed_graph(view, first[0], second[0], carbon_allowed)
+    if not path or len(path) < 2 or set(path) != carbon_allowed:
+        return ""
+    hydroxy_carbon = hydroxy_records[0][0]
+    if path[-1] == hydroxy_carbon:
+        path = tuple(reversed(path))
+    if path[0] != hydroxy_carbon:
+        return ""
+    skipped_atoms = {hydroxy_records[0][2]}
+    for _cidx, (_pidx, group_atoms), _hydroxy_idx in records:
+        skipped_atoms.update(group_atoms)
+    if set(path) | skipped_atoms != set(range(mol.GetNumAtoms())):
+        return ""
+    parent = _standalone_saturated_chain_parent(parent_chain_name(mol, path, as_substituent=False))
+    if not parent or not parent.endswith("e"):
+        return ""
+    return f"1-hydroxy{parent}-1,{len(path)}-diyldiphosphonic acid"
 
 
 def _name_terminal_nitrone(mol) -> str:

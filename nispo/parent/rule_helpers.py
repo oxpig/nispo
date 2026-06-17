@@ -1532,6 +1532,12 @@ def _fused_oxo_suffix_name(
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
         parent = _strip_leading_indicated_hydrogen(parent_name)
+        indicated_locs = tuple(sorted(set(indicated_h_locs), key=_locant_sort_key))
+        if len(indicated_locs) >= 2 and not _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent):
+            locant_text = ",".join(indicated_locs)
+            hydro_prefix = f"{locant_text}-{MULT.get(len(indicated_locs), '')}hydro"
+            name = f"{hydro_prefix}-{oxo_locs[0]}H-{parent}-{oxo_locs[0]}-one"
+            return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
         if _fused_oxo_suffix_parent_uses_unindicated_lactam_grammar(parent):
             name = f"{parent}-{oxo_locs[0]}-one"
         else:

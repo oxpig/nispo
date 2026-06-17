@@ -362,7 +362,7 @@ def _candidate_fact_ranked_item(
     if (
         best_item is not current
         and best_score > current_score + _CANDIDATE_FACT_RANKER_MIN_MARGIN
-        and _candidate_fact_ranked_switch_is_safe(current, best_item)
+        and _candidate_fact_ranked_switch_is_safe(current, best_item, current_facts, best_facts)
         and _candidate_fact_switch_gate_accepts(
             current_facts,
             best_facts,
@@ -402,6 +402,8 @@ _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES = frozenset(
 def _candidate_fact_ranked_switch_is_safe(
     current: _PreparedCandidate,
     proposed: _PreparedCandidate,
+    current_facts: dict[str, object],
+    proposed_facts: dict[str, object],
 ) -> bool:
     """Keep learned switches from discarding senior functional coverage.
 
@@ -416,6 +418,13 @@ def _candidate_fact_ranked_switch_is_safe(
     proposed_candidate = proposed.candidate
     if not _ranker_preserves_high_signal_topology_parent(current, proposed):
         return False
+    if not _ranker_preserves_small_generated_fused_orientation(
+        current,
+        proposed,
+        current_facts,
+        proposed_facts,
+    ):
+        return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
         return True
     if proposed_candidate.family not in _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES:
@@ -427,6 +436,64 @@ def _candidate_fact_ranked_switch_is_safe(
     if current_candidate.priority >= proposed_candidate.priority:
         return True
     if len(proposed_candidate.parent_atoms) <= len(current_candidate.parent_atoms):
+        return True
+    return False
+
+
+def _ranker_preserves_small_generated_fused_orientation(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_facts: dict[str, object],
+    proposed_facts: dict[str, object],
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_family != current_candidate.source_family:
+        return True
+    if current_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if proposed_candidate.source_file != current_candidate.source_file:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_atom_count = len(current_candidate.parent_atoms)
+    if current_parent_atom_count == 0 or current_parent_atom_count != len(proposed_candidate.parent_atoms):
+        return True
+    if current_parent_atom_count > 9:
+        return True
+    if current_candidate.parent_hetero_atom_count > 3:
+        return True
+    if proposed_candidate.parent_hetero_atom_count > 3:
+        return True
+    if current_candidate.priority != proposed_candidate.priority:
+        return True
+    current_render_rank = current_candidate.render_rank
+    proposed_render_rank = proposed_candidate.render_rank
+    if current_render_rank is None or proposed_render_rank is None:
+        return True
+    if proposed_render_rank <= current_render_rank:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    if float(current_facts.get("candidate_count_in_row", 99.0)) > 3.0:
+        return True
+    if float(proposed_facts.get("candidate_count_in_row", 99.0)) > 3.0:
+        return True
+    if float(current_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
+        return True
+    if float(proposed_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
         return True
     return False
 
@@ -549,6 +616,51 @@ def _candidate_fact_ranker_row_metrics(items: list[_PreparedCandidate]) -> dict[
     }
 
 
+def _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "generated-fused-parent"
+        and candidate.source_file == "generated_fused_template_index.json"
+    )
+
+
+def _candidate_fact_ranker_ring_system_atom_count(candidate: NameCandidate) -> float:
+    # Keep the generated-fused ranker input stable; explicit safety gates use
+    # the populated graph counts directly.
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(len(candidate.ring_system_atoms))
+
+
+def _candidate_fact_ranker_parent_aromatic_atom_count(candidate: NameCandidate) -> float:
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(candidate.parent_aromatic_atom_count)
+
+
+def _candidate_fact_ranker_parent_hetero_atom_count(candidate: NameCandidate) -> float:
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(candidate.parent_hetero_atom_count)
+
+
+def _candidate_fact_ranker_parent_terminal_hetero_substituent_count(candidate: NameCandidate) -> float:
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(candidate.parent_terminal_hetero_substituent_count)
+
+
+def _candidate_fact_ranker_parent_external_nitrogen_substituent_count(candidate: NameCandidate) -> float:
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(candidate.parent_external_nitrogen_substituent_count)
+
+
+def _candidate_fact_ranker_parent_external_oxygen_substituent_count(candidate: NameCandidate) -> float:
+    if _candidate_fact_ranker_uses_legacy_generated_fused_graph_facts(candidate):
+        return 0.0
+    return float(candidate.parent_external_oxygen_substituent_count)
+
+
 def _candidate_fact_ranker_facts(
     item: _PreparedCandidate,
     metrics: dict[str, float],
@@ -568,17 +680,17 @@ def _candidate_fact_ranker_facts(
         "priority": priority,
         "render_rank": float(candidate.render_rank) if candidate.render_rank is not None else -1.0,
         "parent_atom_count": parent_atom_count,
-        "ring_system_atom_count": float(len(candidate.ring_system_atoms)),
-        "parent_aromatic_atom_count": float(candidate.parent_aromatic_atom_count),
-        "parent_hetero_atom_count": float(candidate.parent_hetero_atom_count),
-        "parent_terminal_hetero_substituent_count": float(
-            candidate.parent_terminal_hetero_substituent_count
+        "ring_system_atom_count": _candidate_fact_ranker_ring_system_atom_count(candidate),
+        "parent_aromatic_atom_count": _candidate_fact_ranker_parent_aromatic_atom_count(candidate),
+        "parent_hetero_atom_count": _candidate_fact_ranker_parent_hetero_atom_count(candidate),
+        "parent_terminal_hetero_substituent_count": _candidate_fact_ranker_parent_terminal_hetero_substituent_count(
+            candidate,
         ),
-        "parent_external_nitrogen_substituent_count": float(
-            candidate.parent_external_nitrogen_substituent_count
+        "parent_external_nitrogen_substituent_count": _candidate_fact_ranker_parent_external_nitrogen_substituent_count(
+            candidate,
         ),
-        "parent_external_oxygen_substituent_count": float(
-            candidate.parent_external_oxygen_substituent_count
+        "parent_external_oxygen_substituent_count": _candidate_fact_ranker_parent_external_oxygen_substituent_count(
+            candidate,
         ),
         "locant_count": locant_count,
         "prefix_count": float(len(candidate.prefixes)),

@@ -12079,13 +12079,12 @@ class GeneratedFusedParentRule(FusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=sort_key,
-                parent_atoms=frozenset(match),
+                **_fused_parent_graph_fact_kwargs(mol, match),
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_name,
                 source_family=str(template.get("source_family", "")),
                 source_file=str(template.get("source_file", "")),
-                parent_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, match),
                 charge=_polycyclic_parent_charge_evidence(mol, match),
                 estimated_length=len(name),
                 render_rank=render_rank,
@@ -12277,13 +12276,12 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=sort_key,
-                parent_atoms=frozenset(match),
+                **_fused_parent_graph_fact_kwargs(mol, match),
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_name,
                 source_family=str(template.get("source_family", "")),
                 source_file=str(template.get("source_file", "")),
-                parent_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, match),
                 charge=_polycyclic_parent_charge_evidence(mol, match),
                 estimated_length=len(name),
                 render_rank=render_rank,
@@ -12586,6 +12584,33 @@ def _ring_aromatic_atom_count(mol, ring: Sequence[int]) -> int:
 
 def _ring_hetero_atom_count(mol, ring: Sequence[int]) -> int:
     return sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6)
+
+
+def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[str, object]:
+    parent_atom_tuple = tuple(parent_atoms)
+    parent_atom_set = frozenset(parent_atom_tuple)
+    return {
+        "parent_atoms": parent_atom_set,
+        "ring_system_atoms": parent_atom_set,
+        "parent_aromatic_atom_count": _ring_aromatic_atom_count(mol, parent_atom_tuple),
+        "parent_hetero_atom_count": _ring_hetero_atom_count(mol, parent_atom_tuple),
+        "parent_terminal_hetero_substituent_count": _ring_terminal_hetero_substituent_count(
+            mol,
+            parent_atom_tuple,
+        ),
+        "parent_substituted_hetero_atom_count": _parent_substituted_hetero_atom_count(
+            mol,
+            parent_atom_tuple,
+        ),
+        "parent_external_nitrogen_substituent_count": _ring_external_nitrogen_substituent_count(
+            mol,
+            parent_atom_tuple,
+        ),
+        "parent_external_oxygen_substituent_count": _ring_external_oxygen_substituent_count(
+            mol,
+            parent_atom_tuple,
+        ),
+    }
 
 
 def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:

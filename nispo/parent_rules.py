@@ -13924,6 +13924,8 @@ class ExactRetainedParentRule:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
+                        continue
                     family = (
                         "exact-biochemical-retained-parent"
                         if template.get("source_family") == "static-exact-retained"
@@ -13974,6 +13976,8 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
+                        continue
                     family = (
                         "exact-biochemical-retained-parent"
                         if template.get("source_family") == "static-exact-retained"

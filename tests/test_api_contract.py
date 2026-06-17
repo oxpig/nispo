@@ -918,6 +918,8 @@ def test_audit_ranked_parent_alternatives_roundtrip_with_opsin(input_smiles):
         "Cc1nc2[nH]nc(I)c2c(=O)[nH]1",
         "O=c1[nH]c(-c2cnccn2)nc2[nH]ncc12",
         "O=c1ccc2cn[nH]c2[nH]1",
+        "O=c1[nH]cnc2[nH]ncc12",
+        "O=c1[nH]ccc2[nH]cnc12",
     ],
 )
 def test_generated_fused_lactam_multiple_indicated_h_roundtrips_with_opsin(input_smiles):

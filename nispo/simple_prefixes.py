@@ -52,6 +52,7 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
             or _simple_dimethylaminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_bocaminomethyl_prefix(mol, idx, parent_idx, order)
             or _simple_cyanomethyl_prefix(mol, idx, parent_idx, order)
+            or _simple_phosphorylmethyl_prefix(mol, idx, parent_idx, order)
             or _simple_carboxymethyl_prefix(mol, idx, parent_idx, order)
             or _simple_acetenyl_prefix(mol, idx, parent_idx, order)
             or _simple_alkenyl_prefix(mol, idx, parent_idx, order)
@@ -68,6 +69,8 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
         candidate = _simple_oxygen_prefix(mol, atom, idx, parent_idx, order)
     elif symbol == "N":
         candidate = _simple_nitrogen_prefix(mol, atom, idx, parent_idx, order)
+    elif symbol == "P":
+        candidate = _simple_phosphoryl_prefix(mol, idx, parent_idx, order)
     else:
         candidate = None
     candidates = (candidate,) if candidate is not None else ()
@@ -918,6 +921,66 @@ def _terminal_nitrile_atoms(mol, carbon_idx: int, parent_idx: int) -> set[int] |
     if len(nitrogens) != 1:
         return None
     return {carbon_idx, nitrogens[0]}
+
+
+def _simple_phosphorylmethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    phosphoryl = _terminal_phosphoryl_atoms(mol, heavy[0], idx)
+    if phosphoryl is None:
+        return None
+    return _prefix_candidate("phosphorylmethyl", {idx, *phosphoryl}, idx, parent_idx, "phosphorylmethyl")
+
+
+def _simple_phosphoryl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 3.0:
+        return None
+    phosphoryl = _terminal_phosphoryl_atoms(mol, idx, parent_idx)
+    if phosphoryl is None:
+        return None
+    return _prefix_candidate("phosphoryl", set(phosphoryl), idx, parent_idx, "phosphoryl")
+
+
+def _terminal_phosphoryl_atoms(mol, phosphorus_idx: int, parent_idx: int) -> set[int] | None:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing() or phosphorus.GetIsotope():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(phosphorus_idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 3.0:
+        return None
+    double_oxygens = []
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and not nbr.GetIsotope()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 2.0
+            and not any(extra.GetIdx() != phosphorus_idx and extra.GetAtomicNum() > 1 for extra in nbr.GetNeighbors())
+        ):
+            double_oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 1:
+        return None
+    return {phosphorus_idx, double_oxygens[0]}
 
 
 def _simple_carboxymethyl_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

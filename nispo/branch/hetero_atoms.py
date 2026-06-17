@@ -652,7 +652,9 @@ def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequ
         if count > 1 and name.endswith(("sulfonyl", "sulfinyl")):
             multi = {2: "bis", 3: "tris", 4: "tetrakis"}.get(count, MULT.get(count, "") + "kis")
             parts.append(f"{multi}({name})")
-        elif count > 1 and ("-" in name or name.startswith("(")):
+        elif count > 1 and (
+            "-" in name or name.startswith("(") or _repeated_amino_ligand_needs_complex_multiplier(name)
+        ):
             multi = {2: "bis", 3: "tris", 4: "tetrakis"}.get(count, MULT.get(count, "") + "kis")
             parts.append(f"{multi}({name})")
         elif count == 1 and (name.endswith("carbonyl") or name.endswith("sulfonyl")) and len(names) > 1:
@@ -662,6 +664,12 @@ def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequ
         else:
             parts.append((MULT.get(count, "") if count > 1 else "") + name)
     return "".join(parts) + "amino"
+
+
+def _repeated_amino_ligand_needs_complex_multiplier(name: str) -> bool:
+    if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "benzyl"}:
+        return False
+    return name.endswith(("methyl", "ethyl", "propyl", "butyl"))
 
 
 def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, name: str) -> str:

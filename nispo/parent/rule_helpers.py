@@ -3475,7 +3475,17 @@ def _needs_substituent_parentheses(name: str) -> bool:
 
 
 def _needs_repeated_onium_substituent_parentheses(name: str) -> bool:
-    return name.endswith(("ylethynyl", "ylmethyl")) or _is_cyclic_onium_substituent(name)
+    return (
+        name.endswith(("ylethynyl", "ylmethyl"))
+        or _is_cyclic_onium_substituent(name)
+        or _repeated_onium_ligand_needs_complex_multiplier(name)
+    )
+
+
+def _repeated_onium_ligand_needs_complex_multiplier(name: str) -> bool:
+    if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "benzyl"}:
+        return False
+    return name.endswith(("methyl", "ethyl", "propyl", "butyl"))
 
 
 _COMPLEX_MULTIPLIERS = {

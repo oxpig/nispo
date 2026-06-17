@@ -9283,9 +9283,15 @@ def _n_substituent_piece(locant: str, name: str) -> str:
 
 
 def _duplicate_n_substituent_piece(locants: str, name: str) -> str:
-    if _simple_unparenthesized_n_substituent(name):
+    if _simple_unparenthesized_n_substituent(name) and not _repeated_n_substituent_needs_complex_multiplier(name):
         return f"{locants}-di{name}"
     return f"{locants}-bis({_strip_outer_parentheses(name)})"
+
+
+def _repeated_n_substituent_needs_complex_multiplier(name: str) -> bool:
+    if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "benzyl"}:
+        return False
+    return name.endswith(("methyl", "ethyl", "propyl", "butyl"))
 
 
 def _simple_unparenthesized_n_substituent(name: str) -> bool:

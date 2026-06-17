@@ -1318,14 +1318,59 @@ class AzaniumParentRule:
         ):
             return
         names = []
+        covered = {nidx}
         for nbr_idx in neighbors:
             prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
             if not prefix:
                 return
             names.append(prefix)
+            covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
+        if covered != set(range(mol.GetNumAtoms())):
+            return
         name = _azanium_name(names)
         if name:
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            parent_atoms = (
+                set(range(mol.GetNumAtoms()))
+                if _complete_cycloalkyl_azanium_scope(mol, self._Chem, nidx, neighbors)
+                else set()
+            )
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=parent_atoms,
+                sort_key=(len(name), name),
+                estimated_length=len(name),
+            )
+
+
+def _complete_cycloalkyl_azanium_scope(mol, Chem, nitrogen_idx: int, neighbors: Sequence[int]) -> bool:
+    ligand_kinds = [_azanium_hydrocarbon_ligand_kind(mol, Chem, nbr_idx, nitrogen_idx) for nbr_idx in neighbors]
+    return ligand_kinds.count("cycloalkyl") == 1 and all(
+        kind in {"small-alkyl", "cycloalkyl"} for kind in ligand_kinds
+    )
+
+
+def _azanium_hydrocarbon_ligand_kind(mol, Chem, attach_idx: int, nitrogen_idx: int) -> str:
+    component = _collect_component_atoms(mol, attach_idx, nitrogen_idx)
+    if not component or len(component) > 8:
+        return ""
+    if any(
+        mol.GetAtomWithIdx(idx).GetSymbol() != "C" or mol.GetAtomWithIdx(idx).GetFormalCharge() != 0
+        for idx in component
+    ):
+        return ""
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin in component and end in component and bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= component]
+    if not rings:
+        return "small-alkyl" if len(component) <= 4 else ""
+    if len(rings) == 1 and rings[0] == component and 3 <= len(component) <= 8:
+        return "cycloalkyl"
+    return ""
 
 
 class NeutralAmineParentRule:

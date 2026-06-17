@@ -2476,6 +2476,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    retained_benzimidazole_parent_bonus = _contextual_retained_benzimidazole_parent_bonus(item, prepared)
     acyclic_skeleton_ring_system_parent_bonus = _contextual_acyclic_skeleton_ring_system_parent_bonus(
         item,
         prepared,
@@ -2616,6 +2617,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or imidazo45a_generated_orientation_bonus
         or azole_template_parent_bonus
         or retained_fused_template_pair_parent_bonus
+        or retained_benzimidazole_parent_bonus
         or acyclic_skeleton_ring_system_parent_bonus
         or kekulized_polycycle_contextual_parent_bonus
         or high_impact_exact_retained_parent
@@ -2854,6 +2856,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= azole_template_parent_bonus
     if retained_fused_template_pair_parent_bonus:
         penalty -= retained_fused_template_pair_parent_bonus
+    if retained_benzimidazole_parent_bonus:
+        penalty -= retained_benzimidazole_parent_bonus
     if acyclic_skeleton_ring_system_parent_bonus:
         penalty -= acyclic_skeleton_ring_system_parent_bonus
     if kekulized_polycycle_contextual_parent_bonus:
@@ -3516,6 +3520,51 @@ def _contextual_retained_fused_template_pair_parent_bonus(
         if other.stability_penalty > item.stability_penalty + 80:
             continue
         return _RETAINED_FUSED_TEMPLATE_PAIR_PARENT_BONUS
+    return 0
+
+
+def _contextual_retained_benzimidazole_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return 0
+    if candidate.template_name != "benzimidazole":
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if len(candidate.parent_atoms) != 9:
+        return 0
+    if candidate.parent_element_counts != (("C", 7), ("N", 2)):
+        return 0
+    if candidate.parent_substituted_hetero_atom_count:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return 0
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return 0
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name != "imidazo[4,5-a]benzene":
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+            continue
+        if len(other.name) > 280:
+            continue
+        if len(item.name) - len(other.name) > 20:
+            continue
+        if item.stability_penalty > other.stability_penalty + 260:
+            continue
+        return 320
     return 0
 
 

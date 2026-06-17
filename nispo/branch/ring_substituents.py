@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
-from ..constants import ROOTS
+from ..constants import MULT, ROOTS
 from ..cycle_utils import ordered_ring, ring_system_extends_core
 from ..formatting import format_prefixes as _format_prefixes
 from ..benzimidazole_orientation import preferred_benzimidazole_n1_benzenoid_locant_map
@@ -990,7 +990,7 @@ def _fused_ring_substituent_prefix_from_templates(
             suffix = _fused_substituent_suffix(template_record_name(template), locant)
             if not suffix:
                 continue
-            prefix_text = _fused_substituent_prefix_text(
+            prefix_records = _fused_substituent_prefix_records(
                 mol,
                 template,
                 match,
@@ -999,8 +999,17 @@ def _fused_ring_substituent_prefix_from_templates(
                 core_set,
                 attachment_locant=locant,
             )
-            if prefix_text is None:
+            if prefix_records is None:
                 continue
+            prefix_text = _fused_substituent_prefix_text_from_records(prefix_records)
+            hydro_prefix_text = _fused_substituent_oxo_hydro_prefix_text(
+                mol,
+                template,
+                reverse,
+                prefix_records,
+            )
+            if hydro_prefix_text:
+                prefix_text = hydro_prefix_text
             name = _combine_fused_substituent_prefix(prefix_text, suffix)
             stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
             if stereo_prefix:
@@ -1266,7 +1275,30 @@ def _fused_substituent_prefix_text(
     *,
     attachment_locant: str = "",
 ) -> str | None:
-    prefixes = []
+    records = _fused_substituent_prefix_records(
+        mol,
+        template,
+        match,
+        reverse,
+        parent_idx,
+        core_set,
+        attachment_locant=attachment_locant,
+    )
+    if records is None:
+        return None
+    return _fused_substituent_prefix_text_from_records(records)
+
+
+def _fused_substituent_prefix_records(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    reverse: dict[int, int],
+    parent_idx: int,
+    core_set: set[int],
+    *,
+    attachment_locant: str = "",
+) -> tuple[tuple[str, str, str], ...] | None:
     prefix_records = []
     template_mol = template_record_mol(template)
     for mol_idx in match:
@@ -1287,8 +1319,71 @@ def _fused_substituent_prefix_text(
             attachment_locant,
             prefix_records,
         )
-        prefixes = [(locant_map.get(locant, locant), prefix) for locant, prefix, _symbol in prefix_records]
-    return _format_prefixes(prefixes)
+        return tuple((locant_map.get(locant, locant), prefix, symbol) for locant, prefix, symbol in prefix_records)
+    return ()
+
+
+def _fused_substituent_prefix_text_from_records(
+    records: Sequence[tuple[str, str, str]],
+) -> str:
+    return _format_prefixes((locant, prefix) for locant, prefix, _symbol in records)
+
+
+def _fused_substituent_oxo_hydro_prefix_text(
+    mol,
+    template: dict,
+    reverse: dict[int, int],
+    records: Sequence[tuple[str, str, str]],
+) -> str:
+    parent_name = template_record_name(template)
+    if not _template_is_fully_aromatic(template_record_mol(template)):
+        return ""
+    if _fused_substituent_parent_has_hydro_segment(parent_name):
+        return ""
+    chalcogen_records = [
+        (locant, prefix)
+        for locant, prefix, _symbol in records
+        if prefix in {"oxo", "thioxo"} and locant.isdigit()
+    ]
+    if len(chalcogen_records) != 1:
+        return ""
+    h_locs = _fused_substituent_indicated_hydrogen_locants(mol, template, reverse)
+    if not h_locs:
+        return ""
+    chalcogen_loc, chalcogen_prefix = chalcogen_records[0]
+    hydro_locs = tuple(sorted({chalcogen_loc, *h_locs}, key=_locant_sort_key))
+    if len(hydro_locs) < 2:
+        return ""
+    remaining = [
+        (locant, prefix)
+        for locant, prefix, _symbol in records
+        if not (locant == chalcogen_loc and prefix == chalcogen_prefix)
+    ]
+    prefixes = _format_prefixes([*remaining, (chalcogen_loc, chalcogen_prefix)])
+    hydro = f"{','.join(hydro_locs)}-{MULT.get(len(hydro_locs), '')}hydro"
+    return f"{prefixes}-{hydro}" if prefixes else hydro
+
+
+def _fused_substituent_indicated_hydrogen_locants(
+    mol,
+    template: dict,
+    reverse: dict[int, int],
+) -> tuple[str, ...]:
+    h_locs = []
+    for mol_idx, template_idx in reverse.items():
+        atom = mol.GetAtomWithIdx(mol_idx)
+        locant = template_record_locants(template).get(template_idx)
+        if atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 and _is_fused_indicated_h_locant(locant):
+            h_locs.append(locant)
+    return tuple(h_locs)
+
+
+def _is_fused_indicated_h_locant(locant: str | None) -> bool:
+    return bool(locant and re.match(r"\d+[a-z]?$", locant))
+
+
+def _fused_substituent_parent_has_hydro_segment(parent_name: str) -> bool:
+    return bool(re.search(r"(?:^|-)(?:di|tri|tetra|penta|hexa|hepta|octa)?hydro", parent_name))
 
 
 def _fused_substituent_prefix_locants(

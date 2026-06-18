@@ -5816,6 +5816,7 @@ _SULFONIMIDAMIDE_FALLBACK_FAMILIES = _UREA_FALLBACK_FAMILIES | frozenset(
         "functional-generic-bicyclic-parent",
         "generic-bicyclic-parent",
         "kekulized-generic-polycyclic-parent",
+        "skeletal-replacement-fused-parent",
     }
 )
 

@@ -1058,6 +1058,29 @@ def _generated_benzimidazole_external_n_preference(mol, template: dict, match: S
     return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
 
 
+def _generated_indazole_h_locant_fusion_preference(mol, template: dict, match: Sequence[int]) -> tuple:
+    name = template_record_name(template)
+    base_key = _generated_fusion_preference(name)
+    if name not in {"benzo[1,2-c]pyrazole", "benzo[1,2-d]pyrazole"}:
+        return base_key
+    if len(base_key) != 6:
+        return base_key
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    h_locs = sorted(_matched_fused_indicated_hydrogen_locants(mol, template, reverse), key=_locant_sort_key)
+    if len(h_locs) != 1:
+        return base_key
+    preferred_name = ""
+    if h_locs[0] == "1":
+        preferred_name = "benzo[1,2-d]pyrazole"
+    elif h_locs[0] == "2":
+        preferred_name = "benzo[1,2-c]pyrazole"
+    if not preferred_name:
+        return base_key
+    orientation_rank, base_rank, _letter_rank, locants, component_rank, full_name = base_key
+    h_letter_rank = 0 if name == preferred_name else 1
+    return (orientation_rank, base_rank, h_letter_rank, locants, component_rank, full_name)
+
+
 def _is_generated_benzimidazole_template(template: dict) -> bool:
     if template.get("source_family") != "generated-fused":
         return False

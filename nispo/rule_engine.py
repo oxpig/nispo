@@ -486,6 +486,10 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_exocyclic_imino_generated_fused_orientation(current, proposed):
         return False
+    if not _ranker_promotes_only_first_generated_indazole_h_orientation(proposed):
+        return False
+    if not _ranker_preserves_generated_indazole_h_template_order(current, proposed):
+        return False
     if not _ranker_preserves_generated_imidazopyridine_parent(current, proposed, current_key, proposed_key):
         return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
@@ -588,6 +592,65 @@ def _is_guarded_generated_imidazopyridine_parent(candidate: NameCandidate) -> bo
     if candidate_safety_reasons(candidate):
         return False
     return candidate.render_rank is not None and candidate.render_rank <= 2
+
+
+_GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES = frozenset(
+    {
+        "benzo[1,2-c]pyrazole",
+        "benzo[1,2-d]pyrazole",
+    }
+)
+
+
+def _ranker_preserves_generated_indazole_h_template_order(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if current_candidate.template_name not in _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES:
+        return True
+    if proposed_candidate.template_name not in _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES:
+        return True
+    if current_candidate.template_name == proposed_candidate.template_name:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_family != "generated-fused":
+        return True
+    if current_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if proposed_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_atoms = frozenset(current_candidate.parent_atoms)
+    if not current_parent_atoms:
+        return True
+    if current_parent_atoms != frozenset(proposed_candidate.parent_atoms):
+        return True
+    return False
+
+
+def _ranker_promotes_only_first_generated_indazole_h_orientation(proposed: _PreparedCandidate) -> bool:
+    candidate = proposed.candidate
+    if candidate.family != "generated-fused-parent":
+        return True
+    if candidate.template_name not in _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES:
+        return True
+    if candidate.source_family != "generated-fused":
+        return True
+    if candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if not candidate_has_complete_graph(candidate):
+        return True
+    return candidate.render_rank == 1
 
 
 def _ranker_preserves_rank1_retained_fused_parent(
@@ -3224,6 +3287,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    retained_imidazopyridine_with_first_indazole_h_parent = (
+        _has_contextual_first_generated_indazole_h_orientation_alternative(item, prepared)
+    )
     incomplete_organophosphorus_with_complete_purine_parent = (
         _has_contextual_complete_purine_parent_alternative_for_incomplete_organophosphorus(item, prepared)
     )
@@ -3436,6 +3502,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_purine_tautomer_alias
         or retained_purine_generated_parent
         or retained_imidazopyridine_benzazole_parent
+        or retained_imidazopyridine_with_first_indazole_h_parent
         or incomplete_organophosphorus_with_complete_purine_parent
         or purine_parent_with_acyclic_phosphorus_parent
         or preferred_generated_fused_template
@@ -3664,6 +3731,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 140
     if retained_imidazopyridine_benzazole_parent:
         penalty += 45
+    if retained_imidazopyridine_with_first_indazole_h_parent:
+        penalty += 180
     if incomplete_organophosphorus_with_complete_purine_parent:
         penalty += 90
     if purine_parent_with_acyclic_phosphorus_parent:
@@ -7494,6 +7563,49 @@ def _has_contextual_purine_like_fused_parent_candidate(
         if len(candidate.parent_atoms) < 9 or len(candidate.parent_atoms) > 11:
             continue
         if _candidate_parent_element_count(candidate, "P"):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_first_generated_indazole_h_orientation_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "imidazo[1,2-a]pyridine":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name not in _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES:
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if other_candidate.render_rank != 1:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 70:
+            continue
+        if other.stability_penalty > item.stability_penalty + 90:
             continue
         return True
     return False

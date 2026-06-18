@@ -1453,6 +1453,23 @@ def test_formamidine_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CN(C)C=[NH2+]",
+        "[NH2+]=CNCCc1ccccc1",
+        "Cc1cc(Oc2ccccc2)ccc1NC=[NH2+]",
+        "NC(=[NH2+])Nc1ccccc1",
+    ],
+)
+def test_charged_iminium_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COC(=O)c1ccccc1C(=O)N=C=S",
         "Cc1nc(C)c(C(=O)N=C=S)o1",
         "O=C(N=C=S)c1nn(C)c(C)c1",

@@ -3506,6 +3506,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     natural_topology_generic_polycycle = _has_contextual_complete_kekulized_polycycle_alternative(item, prepared)
     neutral_amine_shortcut = _has_contextual_neutral_amine_systematic_alternative(item, prepared)
+    neutral_amine_with_charged_iminium_parent = (
+        _has_contextual_charged_iminium_parent_alternative_for_neutral_amine(item, prepared)
+    )
     incomplete_shortcut_graph_parent = _has_contextual_complete_parent_alternative_for_incomplete_shortcut(
         item,
         prepared,
@@ -3702,6 +3705,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fused_retained_parent_for_generic_spiro
         or natural_topology_generic_polycycle
         or neutral_amine_shortcut
+        or neutral_amine_with_charged_iminium_parent
         or incomplete_shortcut_graph_parent
         or complete_fused_retained_amide_parent_bonus
         or high_confidence_fused_template_parent_bonus
@@ -3948,6 +3952,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if natural_topology_generic_polycycle:
         penalty += 90
     if neutral_amine_shortcut:
+        penalty += 140
+    if neutral_amine_with_charged_iminium_parent:
         penalty += 140
     if incomplete_shortcut_graph_parent:
         penalty += 140
@@ -4264,6 +4270,31 @@ def _has_contextual_neutral_amine_systematic_alternative(
         if len(other.name) > 160 or len(other.name) - len(item.name) > 80:
             continue
         if other.stability_penalty >= item.stability_penalty + 60:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_charged_iminium_parent_alternative_for_neutral_amine(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "neutral-amine-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "charged-iminium-retained-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if other.stability_penalty > item.stability_penalty + 40:
             continue
         return True
     return False

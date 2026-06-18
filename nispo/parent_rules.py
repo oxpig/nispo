@@ -12763,6 +12763,7 @@ def _generated_fused_fact_sort_key(
     template_name = template_record_name(template)
     return (
         1 if topology_query else 0,
+        _generated_fused_exocyclic_imino_orientation_rank(mol, template_name, match),
         _generated_fused_template_anchor_rank(template_name),
         _generated_benzimidazole_external_n_preference(mol, template, match),
         _generated_fusion_preference(template_name),
@@ -12774,6 +12775,40 @@ def _generated_fused_fact_sort_key(
         _template_external_substitution_locant_key(mol, template, match),
         tuple(match),
     )
+
+
+def _generated_fused_exocyclic_imino_orientation_rank(
+    mol,
+    template_name: str,
+    match: Sequence[int],
+) -> int:
+    if len(match) != 9:
+        return 0
+    if _ring_hetero_atom_count(mol, match) != 4:
+        return 0
+    if not _parent_has_exocyclic_imino_nitrogen(mol, match):
+        return 0
+    if re.match(r"^pyrazolo\[[^\]]+\]pyrimidine$", template_name):
+        return 0
+    return 1
+
+
+def _parent_has_exocyclic_imino_nitrogen(mol, parent_atoms: Sequence[int]) -> bool:
+    parent_set = set(parent_atoms)
+    for idx in parent_atoms:
+        atom = mol.GetAtomWithIdx(int(idx))
+        if atom.GetAtomicNum() != 6:
+            continue
+        for neighbor in atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx in parent_set or neighbor.GetAtomicNum() != 7:
+                continue
+            if neighbor.GetFormalCharge() != 0:
+                continue
+            bond = mol.GetBondBetweenAtoms(int(idx), nidx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                return True
+    return False
 
 
 def _template_external_substitution_locant_key(mol, template: dict, match: Sequence[int]) -> tuple:

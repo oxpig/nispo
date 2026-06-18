@@ -1058,9 +1058,29 @@ def _generated_benzimidazole_external_n_preference(mol, template: dict, match: S
     return (1, tuple(_locant_sort_key(locant) for locant in locants_key))
 
 
-def _generated_indazole_h_locant_fusion_preference(mol, template: dict, match: Sequence[int]) -> tuple:
+_GENERATED_FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
+
+
+def _generated_fused_graph_orientation_preference(mol, template: dict, match: Sequence[int]) -> tuple:
     name = template_record_name(template)
     base_key = _generated_fusion_preference(name)
+    indazole_key = _generated_indazole_h_locant_fusion_preference(mol, template, match, base_key)
+    if indazole_key != base_key:
+        return indazole_key
+    graph_orientation_rank = _generated_fused_graph_orientation_rank(mol, name, match)
+    if graph_orientation_rank is None or len(base_key) != 6:
+        return base_key
+    _orientation_rank, base_rank, letter_rank, locants, component_rank, full_name = base_key
+    return (graph_orientation_rank, base_rank, letter_rank, locants, component_rank, full_name)
+
+
+def _generated_indazole_h_locant_fusion_preference(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    base_key: tuple,
+) -> tuple:
+    name = template_record_name(template)
     if name not in {"benzo[1,2-c]pyrazole", "benzo[1,2-d]pyrazole"}:
         return base_key
     if len(base_key) != 6:
@@ -1079,6 +1099,23 @@ def _generated_indazole_h_locant_fusion_preference(mol, template: dict, match: S
     orientation_rank, base_rank, _letter_rank, locants, component_rank, full_name = base_key
     h_letter_rank = 0 if name == preferred_name else 1
     return (orientation_rank, base_rank, h_letter_rank, locants, component_rank, full_name)
+
+
+def _generated_fused_graph_orientation_rank(mol, name: str, match: Sequence[int]) -> int | None:
+    parsed = _GENERATED_FUSION_NAME_RE.match(name)
+    if parsed is None:
+        return None
+    component, _locants, _letter, base = parsed.groups()
+    if _matched_formal_positive_atom_count(mol, match):
+        if component.startswith(("pyridino", "pyrido")) and base == "imidazole":
+            return 0
+        if component.startswith("imidazo") and base == "pyridine":
+            return 1
+    return None
+
+
+def _matched_formal_positive_atom_count(mol, match: Sequence[int]) -> int:
+    return sum(1 for idx in match if mol.GetAtomWithIdx(int(idx)).GetFormalCharge() > 0)
 
 
 def _is_generated_benzimidazole_template(template: dict) -> bool:

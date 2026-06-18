@@ -12594,7 +12594,7 @@ class GeneratedFusedParentRule(FusedParentRule):
     def _candidate_sort_key(self, mol, template: dict, match: Sequence[int], name: str) -> tuple:
         return (
             _generated_benzimidazole_external_n_preference(mol, template, match),
-            _generated_indazole_h_locant_fusion_preference(mol, template, match),
+            _generated_fused_graph_orientation_preference(mol, template, match),
             *_fused_candidate_preference(name),
             -len(match),
             name,
@@ -12766,7 +12766,7 @@ def _generated_fused_fact_sort_key(
         _generated_fused_exocyclic_imino_orientation_rank(mol, template_name, match),
         _generated_fused_template_anchor_rank(template_name),
         _generated_benzimidazole_external_n_preference(mol, template, match),
-        _generated_indazole_h_locant_fusion_preference(mol, template, match),
+        _generated_fused_graph_orientation_preference(mol, template, match),
         _template_source_rank(template),
         _hydrogenated_template_penalty(template_name),
         -len(match),
@@ -15061,7 +15061,7 @@ from .parent.rule_helpers import (
     _benzimidazole_external_n_preference,
     _benzimidazole_external_carbon_locant_preference,
     _generated_benzimidazole_external_n_preference,
-    _generated_indazole_h_locant_fusion_preference,
+    _generated_fused_graph_orientation_preference,
     _benzotriazole_template_h_preference,
     _has_n_oxide_on_match,
     _name_fused_core_match,

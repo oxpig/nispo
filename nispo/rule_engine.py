@@ -488,6 +488,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_promotes_only_first_generated_indazole_h_orientation(proposed):
         return False
+    if not _ranker_promotes_only_first_generated_charged_imidazopyridine_orientation(proposed):
+        return False
     if not _ranker_preserves_generated_indazole_h_template_order(current, proposed):
         return False
     if not _ranker_preserves_generated_imidazopyridine_parent(current, proposed, current_key, proposed_key):
@@ -651,6 +653,26 @@ def _ranker_promotes_only_first_generated_indazole_h_orientation(proposed: _Prep
     if not candidate_has_complete_graph(candidate):
         return True
     return candidate.render_rank == 1
+
+
+def _ranker_promotes_only_first_generated_charged_imidazopyridine_orientation(
+    proposed: _PreparedCandidate,
+) -> bool:
+    candidate = proposed.candidate
+    if candidate.family != "generated-fused-parent":
+        return True
+    if candidate.source_family != "generated-fused":
+        return True
+    if candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if not candidate_has_complete_graph(candidate):
+        return True
+    template_name = candidate.template_name or ""
+    if re.match(r"^imidazo\[[^\]]+\]pyridine$", template_name):
+        if candidate.charge is not None and candidate.charge.formal_charge > 0:
+            return candidate.render_rank == 1
+        return True
+    return True
 
 
 def _ranker_preserves_rank1_retained_fused_parent(

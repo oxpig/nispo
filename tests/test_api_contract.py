@@ -2625,6 +2625,21 @@ def test_exocyclic_imino_pyrazolopyrimidine_orientation_roundtrips_with_opsin(in
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@@](O)(c1ccc(Cl)cc1)[C@H]1C[C@@H](n2cnc3/c(=N\\N)nc[nH]c32)[C@H](O)[C@@H]1O",
+        "CC(=O)N/N=c1/nc[nH]c2c1ncn2[C@@H]1C[C@H]([C@H](O)c2ccc(Cl)cc2)[C@@H](O)[C@H]1O",
+    ],
+)
+def test_exocyclic_imino_imidazopyrimidine_orientation_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Oc1ccc2c(c1)oc1cc(O)ccc12",
     ],
 )

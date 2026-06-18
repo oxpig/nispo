@@ -12788,9 +12788,14 @@ def _generated_fused_exocyclic_imino_orientation_rank(
         return 0
     if not _parent_has_exocyclic_imino_nitrogen(mol, match):
         return 0
-    if re.match(r"^pyrazolo\[[^\]]+\]pyrimidine$", template_name):
+    if (
+        template_name == "imidazo[4,5-d]pyrimidine"
+        or re.match(r"^pyrazolo\[[^\]]+\]pyrimidine$", template_name)
+    ):
         return 0
-    return 1
+    if re.match(r"^(?:pyrimido|pyrimidino)\[[^\]]+\](?:imidazole|pyrazole)$", template_name):
+        return 1
+    return 0
 
 
 def _parent_has_exocyclic_imino_nitrogen(mol, parent_atoms: Sequence[int]) -> bool:

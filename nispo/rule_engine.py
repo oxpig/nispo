@@ -484,6 +484,8 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_facts,
     ):
         return False
+    if not _ranker_preserves_exocyclic_imino_generated_fused_orientation(current, proposed):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -807,6 +809,77 @@ def _ranker_preserves_small_generated_fused_orientation(
     if float(proposed_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
         return True
     return False
+
+
+def _ranker_preserves_exocyclic_imino_generated_fused_orientation(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_family != current_candidate.source_family:
+        return True
+    if current_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if proposed_candidate.source_file != current_candidate.source_file:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.parent_atoms != proposed_candidate.parent_atoms:
+        return True
+    if len(current_candidate.parent_atoms) != 9:
+        return True
+    if current_candidate.parent_hetero_atom_count != 4 or proposed_candidate.parent_hetero_atom_count != 4:
+        return True
+    if (
+        current_candidate.parent_external_nitrogen_substituent_count != 1
+        or proposed_candidate.parent_external_nitrogen_substituent_count != 1
+    ):
+        return True
+    if current_candidate.parent_terminal_hetero_substituent_count:
+        return True
+    if proposed_candidate.parent_terminal_hetero_substituent_count:
+        return True
+    if current_candidate.parent_external_oxygen_substituent_count:
+        return True
+    if proposed_candidate.parent_external_oxygen_substituent_count:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    current_render_rank = current_candidate.render_rank
+    proposed_render_rank = proposed_candidate.render_rank
+    if current_render_rank is None or proposed_render_rank is None:
+        return True
+    if current_render_rank >= proposed_render_rank:
+        return True
+    if not _is_exocyclic_imino_preferred_generated_fused_template(current_candidate.template_name):
+        return True
+    if not _is_exocyclic_imino_disfavored_generated_fused_template(proposed_candidate.template_name):
+        return True
+    return False
+
+
+def _is_exocyclic_imino_preferred_generated_fused_template(template_name: str) -> bool:
+    return template_name == "imidazo[4,5-d]pyrimidine" or re.match(
+        r"^pyrazolo\[[^\]]+\]pyrimidine$",
+        template_name,
+    )
+
+
+def _is_exocyclic_imino_disfavored_generated_fused_template(template_name: str) -> bool:
+    return bool(re.match(r"^(?:pyrimido|pyrimidino)\[[^\]]+\](?:imidazole|pyrazole)$", template_name))
 
 
 def _ranker_preserves_early_kekulized_polycycle_parent(

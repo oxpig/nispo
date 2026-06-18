@@ -409,6 +409,15 @@ _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES = frozenset(
     }
 )
 
+_RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
+
 
 def _candidate_fact_ranked_switch_is_safe(
     current: _PreparedCandidate,
@@ -472,6 +481,8 @@ def _candidate_fact_ranked_switch_is_safe(
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
         return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
+        return False
+    if not _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(current, proposed):
         return False
     if not _ranker_preserves_acyclic_parent_for_generated_fused(current, proposed):
         return False
@@ -1060,12 +1071,7 @@ def _ranker_preserves_acyclic_parent_for_generated_fused(
 ) -> bool:
     current_candidate = current.candidate
     proposed_candidate = proposed.candidate
-    if current_candidate.family not in {
-        "acyclic-skeleton-with-ring-substituents",
-        "chain-dominant-acyclic-skeleton-with-ring-substituents",
-        "functional-acyclic-skeleton-with-ring-substituents",
-        "preferred-acyclic-skeleton-with-ring-substituents",
-    }:
+    if current_candidate.family not in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES:
         return True
     if proposed_candidate.family not in {"generated-fused-parent", "generated-hydro-fused-parent"}:
         return True
@@ -1110,6 +1116,33 @@ def _ranker_preserves_acyclic_parent_for_generated_fused(
     if current_candidate.charge is not None or proposed_candidate.charge is not None:
         return True
     if current.stability_penalty > proposed.stability_penalty + 80:
+        return True
+    return False
+
+
+def _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "single-ring-parent":
+        return True
+    if proposed_candidate.family not in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if proposed_parent_count > current_parent_count + 5:
+        return True
+    if current_candidate.render_rank is not None and current_candidate.render_rank > 3:
+        return True
+    if proposed_candidate.suffixes or proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
         return True
     return False
 

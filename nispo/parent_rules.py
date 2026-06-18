@@ -3754,6 +3754,7 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_cyano_methane_ion_parent_names(mol, Chem))
     names.extend(_nitrone_azaniumolate_parent_names(mol, Chem))
     names.extend(_n_substituted_imine_oxide_retained_parent_names(mol, Chem))
+    names.extend(_hydroxylamine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
 
@@ -4068,6 +4069,142 @@ def _amine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
     if len(oxido_oxygens) != 1 or len(ligand_names) != 3:
         return None
     return {"ligand_names": tuple(ligand_names), "covered_atoms": covered}
+
+
+def _hydroxylamine_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    if _has_explicit_alkene_stereo(mol, Chem):
+        return []
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
+            continue
+        record = _hydroxylamine_oxide_record(mol, Chem, nitrogen.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _hydroxylamine_oxide_name(record["carbon_substituents"], record["hydroxy_count"])
+        if name:
+            names.append(name)
+    return names
+
+
+def _hydroxylamine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
+    oxido_oxygens = []
+    hydroxy_oxygens = []
+    carbon_substituents = []
+    covered = {nitrogen_idx}
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != nitrogen_idx and atom.GetAtomicNum() > 1
+        ]
+        if nbr.GetSymbol() == "O" and not heavy:
+            if nbr.GetFormalCharge() < 0:
+                oxido_oxygens.append(nidx)
+                covered.add(nidx)
+                continue
+            if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() > 0:
+                hydroxy_oxygens.append(nidx)
+                covered.add(nidx)
+                continue
+        if (
+            nbr.GetSymbol() != "C"
+            or nbr.GetFormalCharge() != 0
+            or _has_nonaromatic_multiring_component(mol, nidx, nitrogen_idx)
+        ):
+            return None
+        substituent = _simple_or_branch_prefix(mol, nidx, nitrogen_idx)
+        substituent = _retained_parent_substituent_alias(substituent)
+        if not substituent or not _allowed_hydroxylamine_oxide_substituent(substituent):
+            return None
+        carbon_substituents.append(_strip_outer_parentheses(substituent))
+        covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    hydroxy_count = len(hydroxy_oxygens)
+    carbon_count = len(carbon_substituents)
+    if len(oxido_oxygens) != 1:
+        return None
+    allowed_shape = (
+        (hydroxy_count == 1 and carbon_count == 2 and nitrogen.GetTotalNumHs() == 0)
+        or (hydroxy_count == 2 and carbon_count == 1 and nitrogen.GetTotalNumHs() == 0)
+        or (hydroxy_count == 1 and carbon_count == 1 and nitrogen.GetTotalNumHs() == 1)
+    )
+    if not allowed_shape:
+        return None
+    return {
+        "carbon_substituents": tuple(carbon_substituents),
+        "covered_atoms": covered,
+        "hydroxy_count": hydroxy_count,
+    }
+
+
+def _hydroxylamine_oxide_name(carbon_substituents: Sequence[str], hydroxy_count: int) -> str:
+    if hydroxy_count == 1 and len(carbon_substituents) == 2:
+        n_prefix = _hydroxylamine_oxide_n_substituent_prefix(carbon_substituents)
+        if n_prefix is None:
+            return ""
+        return _join_n_prefix_functional_parent(n_prefix, "hydroxylamine oxide")
+    if hydroxy_count == 2 and len(carbon_substituents) == 1:
+        substituent = carbon_substituents[0]
+        if not _allowed_hydroxylamine_oxide_substituent(substituent):
+            return ""
+        piece = substituent if _simple_unparenthesized_n_substituent(substituent) else f"({substituent})"
+        return f"N,N-dihydroxy{piece}amine oxide"
+    if hydroxy_count == 1 and len(carbon_substituents) == 1:
+        substituent = carbon_substituents[0]
+        if not _allowed_hydroxylamine_oxide_substituent(substituent):
+            return ""
+        piece = substituent if _simple_unparenthesized_n_substituent(substituent) else f"({substituent})"
+        return f"N-hydroxy{piece}amine oxide"
+    return ""
+
+
+def _hydroxylamine_oxide_n_substituent_prefix(substituents: Sequence[str]) -> str | None:
+    counts = Counter(_retained_parent_substituent_alias(name) for name in substituents)
+    pieces = []
+    for name in sorted(counts):
+        if not _allowed_hydroxylamine_oxide_substituent(name):
+            return None
+        count = counts[name]
+        if count == 1:
+            pieces.append(_n_substituent_piece("N", name))
+        elif count == 2:
+            pieces.append(_duplicate_n_substituent_piece("N,N", name))
+        else:
+            return None
+    return "-".join(pieces)
+
+
+def _allowed_hydroxylamine_oxide_substituent(name: str) -> bool:
+    if _simple_n_retained_parent_substituent(name) or _hydroxylamine_oxide_alkyl_substituent(name):
+        return True
+    if len(name) > 56:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "imino")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return any(fragment in name for fragment in ("cyclo", "phenyl", "benzyl"))
+
+
+def _hydroxylamine_oxide_alkyl_substituent(name: str) -> bool:
+    if _simple_linear_alkyl_substituent(name):
+        return True
+    for length, root in ROOTS.items():
+        if name == f"{root}yl":
+            return True
+        if length > 1 and any(name == f"{root}an-{locant}-yl" for locant in range(2, length + 1)):
+            return True
+    return False
 
 
 def _has_explicit_alkene_stereo(mol, Chem) -> bool:

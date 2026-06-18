@@ -666,6 +666,27 @@ def test_primary_amide_oxide_retained_parents_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC[N+]([O-])(O)CC",
+        "CCCCCCCCCCCC[N+]([O-])(O)CCCCCCCCCCCC",
+        "C[N+]([O-])(O)CC",
+        "C[N+]([O-])(O)O",
+        "CC[N+]([O-])(O)O",
+        "CCCCCCCCCCCC(CC)[N+]([O-])(O)O",
+        "CCCCCCCCCCCCCCCCCCCC[N+]([O-])(O)O",
+        "CC[NH+]([O-])O",
+    ],
+)
+def test_hydroxylamine_oxide_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCCCCCC(C)/C=[N+](\\[O-])c1ccccc1",
         "CCCCCCCCCC(C)/C=[N+](/[O-])C1CCCCC1",
         "CCCCCCCCCC(C)/C=[N+](/[O-])C1CCCC1",

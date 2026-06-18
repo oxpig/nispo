@@ -3747,6 +3747,7 @@ class ChargedRetainedParentRule:
 def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names = []
     names.extend(_anionic_amide_retained_parent_names(mol, Chem))
+    names.extend(_amide_oxide_retained_parent_names(mol, Chem))
     names.extend(_sulfur_oxoanion_retained_parent_names(mol, Chem))
     names.extend(_oxonium_retained_parent_names(mol, Chem))
     names.extend(_methylium_retained_parent_names(mol, Chem))
@@ -3755,6 +3756,71 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_n_substituted_imine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _amide_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    names: list[str] = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        double_oxygen = []
+        acyl_carbons = []
+        amide_nitrogens = []
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen.append(nidx)
+            elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                acyl_carbons.append(nidx)
+            elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
+                amide_nitrogens.append(nidx)
+            else:
+                ok = False
+                break
+        if not ok or len(double_oxygen) != 1 or len(acyl_carbons) != 1 or len(amide_nitrogens) != 1:
+            continue
+        nitrogen_idx = amide_nitrogens[0]
+        oxido_idx = _primary_amide_oxide_oxygen(mol, Chem, nitrogen_idx, cidx)
+        if oxido_idx is None:
+            continue
+        acyl_idx = acyl_carbons[0]
+        covered = {cidx, double_oxygen[0], nitrogen_idx, oxido_idx}
+        covered.update(_collect_component_atoms(mol, acyl_idx, cidx))
+        if covered != atom_set:
+            continue
+        for path in _ester_acyl_parent_paths(mol, Chem, cidx, acyl_idx):
+            core = _generic_acyl_functional_parent_path_name(mol, Chem, cidx, path, "amide")
+            if core:
+                names.append(f"{core} oxide")
+    return names
+
+
+def _primary_amide_oxide_oxygen(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> int | None:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 1 or nitrogen.IsInRing():
+        return None
+    heavy_neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+    if len(heavy_neighbors) != 2 or carbonyl_idx not in heavy_neighbors:
+        return None
+    if nitrogen.GetTotalNumHs() != 2:
+        return None
+    oxido_candidates = [idx for idx in heavy_neighbors if idx != carbonyl_idx]
+    if len(oxido_candidates) != 1:
+        return None
+    oxido_idx = oxido_candidates[0]
+    oxido = mol.GetAtomWithIdx(oxido_idx)
+    if oxido.GetSymbol() != "O" or oxido.GetFormalCharge() != -1 or oxido.IsInRing():
+        return None
+    if len([nbr for nbr in oxido.GetNeighbors() if nbr.GetAtomicNum() > 1]) != 1:
+        return None
+    bond = mol.GetBondBetweenAtoms(nitrogen_idx, oxido_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    return oxido_idx
 
 
 def _n_substituted_imine_oxide_retained_parent_names(mol, Chem) -> list[str]:

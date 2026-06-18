@@ -9,6 +9,7 @@ from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import join_locants as _join_locants
 from .formatting import join_prefix_parent as _join_prefix_parent
+from .molecule_cache import mol_cache_dict
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
 from .simple_prefixes import simple_external_prefix
@@ -1000,12 +1001,18 @@ def _secondary_bridge_base_path_sets(
 
 
 def _ring_multiple_bond_count(mol, atoms: set[int]) -> int:
+    cache = mol_cache_dict(mol, "polycyclic_ring_multiple_bond_count")
+    key = frozenset(atoms)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
     count = 0
     for bond in mol.GetBonds():
         left = bond.GetBeginAtomIdx()
         right = bond.GetEndAtomIdx()
         if left in atoms and right in atoms and bond.GetBondTypeAsDouble() > 1.0:
             count += 1
+    cache[key] = count
     return count
 
 
@@ -1126,18 +1133,33 @@ def _bridgehead_pair_candidates(
 def _bridge_paths_with_count(
     graph: dict[int, set[int]], atoms: set[int], a: int, b: int, path_count: int
 ) -> list[tuple[int, ...]]:
-    paths = _simple_paths(graph, a, b, max_paths=12)
+    paths = [
+        (path, frozenset(path[1:-1]), len(path) - 2)
+        for path in _simple_paths(graph, a, b, max_paths=12)
+    ]
+    if len(paths) < path_count:
+        return []
     valid = []
     for selected in combinations(paths, path_count):
-        internals = [set(path[1:-1]) for path in selected]
-        if any(left & right for i, left in enumerate(internals) for right in internals[i + 1 :]):
+        internal_atoms: set[int] = set()
+        has_overlap = False
+        for _path, internals, _length in selected:
+            if internal_atoms & internals:
+                has_overlap = True
+                break
+            internal_atoms.update(internals)
+        if has_overlap:
             continue
-        if set().union(*internals, {a, b}) == atoms:
-            valid.append(selected)
+        covered = set(internal_atoms)
+        covered.update((a, b))
+        if covered == atoms:
+            selected_paths = tuple(item[0] for item in selected)
+            length_key = sorted((item[2] for item in selected), reverse=True)
+            valid.append((length_key, selected_paths))
     if not valid:
         return []
-    valid.sort(key=lambda item: sorted((len(path) - 2 for path in item), reverse=True), reverse=True)
-    return list(valid[0])
+    valid.sort(key=lambda item: item[0], reverse=True)
+    return list(valid[0][1])
 
 
 def _simple_paths(graph: dict[int, set[int]], start: int, end: int, max_paths: int) -> list[tuple[int, ...]]:

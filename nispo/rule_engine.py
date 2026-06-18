@@ -3383,6 +3383,49 @@ def _has_contextual_retained_biochem_fused_alternative(
     return False
 
 
+def _has_contextual_retained_quinuclidin_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family == "fused-retained-parent" and candidate.template_name == "quinuclidin":
+        return False
+    if candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "preferred-generic-bicyclic-parent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if other_candidate.template_name != "quinuclidin":
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) != 8:
+            continue
+        render_rank = other_candidate.render_rank or 0
+        if render_rank < 1 or render_rank > 4:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_complete_nitrile_oxide_parent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -3636,6 +3679,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
+    retained_quinuclidin_parent = _has_contextual_retained_quinuclidin_parent_alternative(item, prepared)
     complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
@@ -3755,6 +3799,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or chain_candidate_has_large_kekulized_alternative
         or large_kekulized_candidate_has_chain_alternative
         or retained_biochem_fused
+        or retained_quinuclidin_parent
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
@@ -4065,6 +4110,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= 370
     if retained_biochem_fused:
         penalty += 80
+    if retained_quinuclidin_parent:
+        penalty += 180
     if small_late_single_ring_parent:
         penalty += 72
     if aromatic_single_ring_parent:

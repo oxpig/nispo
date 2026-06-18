@@ -1530,6 +1530,34 @@ EXACT_BIOCHEMICAL_PARENT_TEMPLATES = (
         "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C=NC=2C(N)=NC=NC12)O)O",
     ),
     (
+        "adenosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C=NC=2C(N)=NC=NC12)O)O",
+    ),
+    (
+        "deoxyadenosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H](C[C@@H](O1)N1C=NC=2C(N)=NC=NC12)O",
+    ),
+    (
+        "guanosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C=NC=2C(=O)NC(N)=NC12)O)O",
+    ),
+    (
+        "deoxyguanosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H](C[C@@H](O1)N1C=NC=2C(=O)NC(N)=NC12)O",
+    ),
+    (
+        "inosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C=NC=2C(O)=NC=NC12)O)O",
+    ),
+    (
+        "deoxyinosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H](C[C@@H](O1)N1C=NC=2C(O)=NC=NC12)O",
+    ),
+    (
+        "xanthosine 5'-tetraphosphate",
+        "P(O)(=O)(OP(=O)(O)OP(=O)(O)OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C=NC=2C(=O)NC(=O)NC12)O)O",
+    ),
+    (
         "5-methylcytidine diphosphate",
         "P(O)(=O)(OP(=O)(O)O)OC[C@@H]1[C@H]([C@H]([C@@H](O1)N1C(=O)N=C(N)C(=C1)C)O)O",
     ),

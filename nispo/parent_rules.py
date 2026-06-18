@@ -6092,6 +6092,42 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
         anionic_oxygen_count = len(terminal_anionic_oxygens)
         anionic_sulfur_count = len(terminal_anionic_sulfurs)
         if (
+            anionic_oxygen_count == 1
+            and anionic_sulfur_count == 0
+            and len(carbon_ligands) == 2
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            carbon_names = [
+                _strip_outer_parentheses(_phosphorus_attached_prefix(mol, ligand_idx, pidx))
+                for ligand_idx in carbon_ligands
+            ]
+            ligand_text = _phosphinite_ligand_text(carbon_names)
+            if ligand_text:
+                names.append(f"{ligand_text}phosphinite")
+            continue
+
+        if (
+            anionic_oxygen_count == 1
+            and anionic_sulfur_count == 0
+            and not carbon_ligands
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            if oxygen_owner and not _unstable_retained_functional_parent_substituent(oxygen_owner):
+                names.append(f"{_parenthesized_if_complex(oxygen_owner)} phosphonite")
+            continue
+
+        if (
             anionic_oxygen_count == 2
             and anionic_sulfur_count == 0
             and len(carbon_ligands) == 1
@@ -6252,6 +6288,17 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
     return names
 
 
+def _phosphinite_ligand_text(names: Sequence[str]) -> str:
+    if len(names) != 2 or any(not name for name in names):
+        return ""
+    first, second = sorted(_strip_outer_parentheses(name) for name in names)
+    if first == second:
+        if _simple_unparenthesized_n_substituent(first):
+            return f"di{first}"
+        return f"bis({first})"
+    return "".join(_parenthesized_if_complex(name) for name in (first, second))
+
+
 def _hetero_ligand_owner_names(mol, ligand_atoms: Sequence[int], phosphorus_idx: int) -> list[str]:
     names = []
     for ligand_idx in ligand_atoms:
@@ -6313,6 +6360,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
         pidx = phosphorus.GetIdx()
         terminal_anionic_oxygens = []
         terminal_double_oxygens = []
+        terminal_double_sulfurs = []
         carbon_single_ligands = []
         carbon_double_ligands = []
         oxygen_ligands = []
@@ -6342,6 +6390,12 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
                 covered.add(nidx)
             elif nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.DOUBLE:
                 terminal_double_oxygens.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "S" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.DOUBLE:
+                if heavy:
+                    ok = False
+                    break
+                terminal_double_sulfurs.append(nidx)
                 covered.add(nidx)
             elif nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.SINGLE:
                 carbon_single_ligands.append(nidx)
@@ -6380,7 +6434,27 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             continue
 
         double_oxygen_count = len(terminal_double_oxygens)
+        double_sulfur_count = len(terminal_double_sulfurs)
         anionic_oxygen_count = len(terminal_anionic_oxygens)
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 2
+            and len(carbon_single_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            if prefix:
+                names.append(prefix + "phosphonothioate")
+            continue
+
+        if double_sulfur_count:
+            continue
+
         if (
             double_oxygen_count == 1
             and anionic_oxygen_count == 2

@@ -1258,6 +1258,9 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles):
         "CCSP([S-])SCC",
         "[O-]P(Cl)Oc1ccccc1",
         "CC(C)N(C(C)C)P([O-])OCCC#N",
+        "CCOP[O-]",
+        "[O-]P(c1ccccc1)c1ccccc1",
+        "Cc1cc(C)c(C(=O)c2ccccc2P([O-])c2ccccc2)c(C)c1",
     ],
 )
 def test_mixed_p3_anionic_phosphorus_parents_roundtrip_with_opsin(input_smiles):
@@ -1297,6 +1300,7 @@ def test_phosphonous_acid_parents_roundtrip_with_opsin(input_smiles):
         "COO[PH](=O)[O-]",
         "C=P([O-])([O-])[O-]",
         "CCCCC(CC)C(c1ccccc1)(c1ccccc1)P(=O)([O-])[O-]",
+        "CP([O-])([O-])=S",
     ],
 )
 def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):

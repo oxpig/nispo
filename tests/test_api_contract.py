@@ -1829,6 +1829,21 @@ def test_large_acyclic_parent_ranker_switches_beat_generated_fused_aliases(input
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=c1occoc2cccc(c2)oc(=O)c2cccc1c2",
+        "CC(C)(C)c1ccc2c(C(C)(C)C)c1Cc1c(C(C)(C)C)ccc(c1C(C)(C)C)OOP(=O)([O-])OO2",
+    ],
+)
+def test_early_kekulized_polycycle_ranker_switches_beat_late_orientations(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C(#Cn1cnc2ccccc21)c1ccccc1",
         "CN(C)N(C)C(=O)c1ccc2nc[nH]c2c1",
         "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",

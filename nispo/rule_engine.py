@@ -431,6 +431,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_acyclic_parent_for_generated_fused(current, proposed):
         return False
+    if not _ranker_preserves_early_kekulized_polycycle_parent(current, proposed):
+        return False
     if not _ranker_preserves_small_generated_fused_orientation(
         current,
         proposed,
@@ -509,6 +511,44 @@ def _ranker_preserves_small_generated_fused_orientation(
     if float(current_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
         return True
     if float(proposed_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
+        return True
+    return False
+
+
+def _ranker_preserves_early_kekulized_polycycle_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "kekulized-generic-polycyclic-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    if current_parent_count < 18 or current_parent_count > 19:
+        return True
+    if len(proposed_candidate.parent_atoms) != current_parent_count:
+        return True
+    if current_candidate.parent_aromatic_atom_count or proposed_candidate.parent_aromatic_atom_count:
+        return True
+    if current_candidate.parent_hetero_atom_count or proposed_candidate.parent_hetero_atom_count:
+        return True
+    current_rank = current_candidate.render_rank or 0
+    proposed_rank = proposed_candidate.render_rank or 0
+    if current_rank < 1 or current_rank > 3:
+        return True
+    if proposed_rank < current_rank + 4:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current.stability_penalty > proposed.stability_penalty + 80:
         return True
     return False
 

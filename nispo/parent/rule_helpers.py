@@ -1280,6 +1280,14 @@ def _name_fused_core_match(
     if suffix_name:
         cache[cache_key] = suffix_name
         return suffix_name
+    suffix_name = (
+        _fused_imine_suffix_name(prefixes, parent_name, indicated_h_locs)
+        if _may_have_fused_imine_suffix(prefixes)
+        else ""
+    )
+    if suffix_name:
+        cache[cache_key] = suffix_name
+        return suffix_name
     prefix_text = _format_prefixes(prefixes)
     if not prefix_text:
         cache[cache_key] = ""
@@ -1642,6 +1650,43 @@ def _fused_thione_suffix_name(
     leading = f"{','.join(f'{loc}H' for loc in leading_h_locs)}-" if leading_h_locs else ""
     name = f"{leading}{parent}-{thioxo_locs[0]}({suffix_h_loc}H)-thione"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _fused_imine_suffix_name(
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
+    imino_locs = sorted(
+        (loc for loc, prefix in prefixes if prefix == "imino" and re.fullmatch(r"\d+[a-z]?", loc)),
+        key=_locant_sort_key,
+    )
+    if (
+        len(imino_locs) != 1
+        or any(prefix in {"oxo", "thioxo"} for _loc, prefix in prefixes)
+        or not indicated_h_locs
+        or _has_fused_hydro_parent_segment(parent_name)
+        or not _fused_imine_suffix_parent_supported(parent_name)
+    ):
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "imino"]
+    prefix_text = _format_prefixes(remaining)
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    leading_h_locs, suffix_h_loc = _fused_oxo_suffix_indicated_h_locants(indicated_h_locs)
+    leading = f"{','.join(f'{loc}H' for loc in leading_h_locs)}-" if leading_h_locs else ""
+    name = f"{leading}{parent}-{imino_locs[0]}({suffix_h_loc}H)-imine"
+    return _join_prefix_parent(prefix_text, name) if prefix_text else name
+
+
+def _fused_imine_suffix_parent_supported(parent_name: str) -> bool:
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    if any(blocked in parent for blocked in ("acenaphthen", "spiro[")):
+        return False
+    return bool(
+        "purin" in parent
+        or "pteridin" in parent
+        or re.search(r"[a-z]+o\[[^\]]+\][a-z]+", parent)
+    )
 
 
 _FUSED_OXO_UNINDICATED_LACTAM_PARENT_STEMS = (
@@ -2736,6 +2781,10 @@ def _may_have_fused_oxo_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
 
 def _may_have_fused_thione_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
     return any(prefix == "thioxo" and loc.isdigit() for loc, prefix in prefixes)
+
+
+def _may_have_fused_imine_suffix(prefixes: Sequence[tuple[str, str]]) -> bool:
+    return any(prefix == "imino" and re.fullmatch(r"\d+[a-z]?", loc) for loc, prefix in prefixes)
 
 
 _SINGLE_RING_ESTER_SUFFIX_OWNERS = {

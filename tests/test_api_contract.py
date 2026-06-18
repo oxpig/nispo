@@ -1799,6 +1799,21 @@ def test_small_functional_single_ring_parent_ranker_switches_remain_available(in
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(C)C[C@H](NC(=O)C(F)(F)F)C(=O)N1C2CCC(C1C(=O)NC(C#N)CC1CCNC1=O)C(F)(F)C2",
+        "Cc1cc2cccc(C(=O)N3[C@@H]4CC[C@H]([C@@H]3C(=O)N[C@H](C#N)C[C@H]3CCNC3=O)C(F)(F)C4)c2[nH]1",
+    ],
+)
+def test_compact_bicyclic_parent_ranker_switches_beat_long_acyclic_decompositions(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C(#Cn1cnc2ccccc21)c1ccccc1",
         "CN(C)N(C)C(=O)c1ccc2nc[nH]c2c1",
         "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",

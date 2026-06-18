@@ -975,24 +975,28 @@ def _secondary_bridge_base_path_sets(
     if not allow_relaxed:
         return []
 
-    paths = _simple_paths(graph, a, b, max_paths=36)
+    paths = [
+        (path, frozenset(path[1:-1]), len(path) - 2)
+        for path in _simple_paths(graph, a, b, max_paths=36)
+    ]
     candidates = []
+    endpoints = {a, b}
     for selected in combinations(paths, 3):
-        internals = [set(path[1:-1]) for path in selected]
-        if any(left & right for i, left in enumerate(internals) for right in internals[i + 1 :]):
+        first, second, third = selected
+        if first[1] & second[1] or first[1] & third[1] or second[1] & third[1]:
             continue
-        covered = set().union(*internals, {a, b})
+        covered = set().union(first[1], second[1], third[1], endpoints)
         if not covered <= atoms:
             continue
-        candidates.append(selected)
-    candidates.sort(
-        key=lambda item: (
-            -len(set().union(*(set(path[1:-1]) for path in item), {a, b})),
-            sorted((len(path) - 2 for path in item), reverse=True),
-            item,
+        selected_paths = (first[0], second[0], third[0])
+        key = (
+            -len(covered),
+            sorted((first[2], second[2], third[2]), reverse=True),
+            selected_paths,
         )
-    )
-    return list(dict.fromkeys(candidates))[:12]
+        candidates.append((key, selected_paths))
+    candidates.sort(key=lambda item: item[0])
+    return [selected for _key, selected in candidates[:12]]
 
 
 def _ring_multiple_bond_count(mol, atoms: set[int]) -> int:

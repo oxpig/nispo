@@ -1442,6 +1442,9 @@ _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES = frozenset(
 )
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_BONUS = 230
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_MAX_ALTERNATIVE_STABILITY = 292
+_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_PENALTY = 100
+_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MIN_LENGTH = 90
+_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MAX_LENGTH = 180
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
     {
         "1,4-benzodioxane",
@@ -2627,6 +2630,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     retained_benzimidazole_parent_bonus = _contextual_retained_benzimidazole_parent_bonus(item, prepared)
+    retained_benzimidazole_with_low_complexity_generated_imidazo45a = (
+        _has_contextual_low_complexity_generated_imidazo45a_alternative_for_retained_benzimidazole(item, prepared)
+    )
     pyrazolopyridine_with_retained_benzimidazole = (
         _has_contextual_retained_benzimidazole_parent_alternative_for_pyrazolopyridine(item, prepared)
     )
@@ -2778,6 +2784,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or azole_template_parent_bonus
         or retained_fused_template_pair_parent_bonus
         or retained_benzimidazole_parent_bonus
+        or retained_benzimidazole_with_low_complexity_generated_imidazo45a
         or pyrazolopyridine_with_retained_benzimidazole
         or retained_benzoannulene_with_generated_imidazopyridine
         or acyclic_skeleton_ring_system_parent_bonus
@@ -3021,6 +3028,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= retained_fused_template_pair_parent_bonus
     if retained_benzimidazole_parent_bonus:
         penalty -= retained_benzimidazole_parent_bonus
+    if retained_benzimidazole_with_low_complexity_generated_imidazo45a:
+        penalty += _BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_PENALTY
     if pyrazolopyridine_with_retained_benzimidazole:
         penalty += 300
     if retained_benzoannulene_with_generated_imidazopyridine:
@@ -3737,6 +3746,69 @@ def _contextual_retained_benzimidazole_parent_bonus(
     if _has_contextual_pyrazolopyridine_parent_competitor_for_retained_benzimidazole(item, prepared):
         return 360
     return 0
+
+
+def _has_contextual_low_complexity_generated_imidazo45a_alternative_for_retained_benzimidazole(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "benzimidazole":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.parent_element_counts != (("C", 7), ("N", 2)):
+        return False
+    if candidate.parent_substituted_hetero_atom_count:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name != "imidazo[4,5-a]benzene":
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.render_rank != 1:
+            continue
+        if other_candidate.parent_hetero_atom_count != 2:
+            continue
+        if other_candidate.parent_terminal_hetero_substituent_count:
+            continue
+        if other_candidate.parent_external_nitrogen_substituent_count:
+            continue
+        if other_candidate.parent_external_oxygen_substituent_count:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if not (
+            _BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MIN_LENGTH
+            < len(other.name)
+            <= _BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MAX_LENGTH
+        ):
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
 
 
 _BENZIMIDAZOLE_COMPETING_PYRAZOLOPYRIDINE_TEMPLATES = frozenset(

@@ -1782,6 +1782,22 @@ def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1cccc2[nH]c(C(=O)N3CCc4ncccc4[C@H]3C)nc12",
+        "Cc1cccc2[nH]c(C(=O)N3CCc4ncccc4[C@@H]3C)nc12",
+        "Cc1cccc2[nH]c(-c3cncc(C(=O)N(C)[C@@H](C)C4CC4)c3)nc12",
+    ],
+)
+def test_benzimidazole_low_complexity_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[B]c1cccc2cc3ccccc3cc12",
         "[N]c1ccc2ccc3cccc4ccc1c2c34",
         "[Si]c1cccc2nc3ccccc3cc12",

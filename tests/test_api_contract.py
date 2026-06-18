@@ -1435,6 +1435,25 @@ def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCOP(=O)(O)Oc1ccccc1",
+        "COP(=O)(O)O",
+        "COP(=O)(O)OC",
+        "CO[PH](=O)O",
+        "COP(C)(=O)O",
+        "COP(C)(=O)[O-]",
+    ],
+)
+def test_phosphate_ester_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
         "C=CC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
         "CC(C)=CCC/C(C)=C/C(=O)OP(=O)([O-])OP(=O)([O-])[O-]",

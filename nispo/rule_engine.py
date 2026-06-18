@@ -7162,6 +7162,7 @@ _COMPLETE_RETAINED_SENIOR_PARENT_FAMILIES = frozenset(
     {
         "cyclic-n-carbamate-carboxylate-retained-parent",
         "dithiophosphate-retained-parent",
+        "phosphate-ester-retained-parent",
         "phosphorothioic-triamide-retained-parent",
         "thiooxo-ester-retained-parent",
         "urea-retained-parent",

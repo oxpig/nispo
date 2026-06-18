@@ -519,6 +519,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_exocyclic_imino_generated_fused_orientation(current, proposed):
         return False
+    if not _ranker_preserves_terminal_hetero_generated_fused_parent(current, proposed):
+        return False
     if not _ranker_preserves_generated_fused_same_parent_orientation(current, proposed):
         return False
     if not _ranker_promotes_only_first_generated_indazole_h_orientation(proposed):
@@ -1268,6 +1270,60 @@ def _ranker_preserves_exocyclic_imino_generated_fused_orientation(
     if not _is_exocyclic_imino_preferred_generated_fused_template(current_candidate.template_name):
         return True
     if not _is_exocyclic_imino_disfavored_generated_fused_template(proposed_candidate.template_name):
+        return True
+    return False
+
+
+def _ranker_preserves_terminal_hetero_generated_fused_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_family != current_candidate.source_family:
+        return True
+    if current_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if proposed_candidate.source_file != current_candidate.source_file:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    if current_parent_count < 8 or current_parent_count != len(proposed_candidate.parent_atoms):
+        return True
+    if not current_candidate.ring_system_atoms or not proposed_candidate.ring_system_atoms:
+        return True
+    if len(current_candidate.ring_system_atoms) != current_parent_count:
+        return True
+    if len(proposed_candidate.ring_system_atoms) != current_parent_count:
+        return True
+    if current_candidate.parent_aromatic_atom_count != current_parent_count:
+        return True
+    if proposed_candidate.parent_aromatic_atom_count != current_parent_count:
+        return True
+    if current_candidate.parent_hetero_atom_count < 2:
+        return True
+    if proposed_candidate.parent_hetero_atom_count != current_candidate.parent_hetero_atom_count:
+        return True
+    current_rank = current_candidate.render_rank or 0
+    proposed_rank = proposed_candidate.render_rank or 0
+    if current_rank < 1 or proposed_rank <= current_rank:
+        return True
+    if current_candidate.parent_terminal_hetero_substituent_count <= proposed_candidate.parent_terminal_hetero_substituent_count:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
         return True
     return False
 
@@ -3414,6 +3470,75 @@ def _has_contextual_generated_fused_same_atoms_alternative(
     return False
 
 
+def _has_contextual_generated_heterofused_parent_alternative_for_retained_fragment(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {"fused-retained-parent", "hydro-fused-retained-parent"}:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.ring_system_atoms:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8 or parent_count > 12:
+        return False
+    min_generated_parent_count = parent_count - 1
+    if candidate.source_family == "arylGroups:ring:biochemical":
+        min_generated_parent_count = parent_count - 2
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.parent_atoms == candidate.parent_atoms:
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count < min_generated_parent_count or other_parent_count > parent_count + 1:
+            continue
+        if not other_candidate.ring_system_atoms:
+            continue
+        if len(other_candidate.ring_system_atoms) != other_parent_count:
+            continue
+        if other_candidate.parent_aromatic_atom_count != other_parent_count:
+            continue
+        if other_candidate.parent_hetero_atom_count < 2:
+            continue
+        if (
+            other_candidate.parent_terminal_hetero_substituent_count
+            <= candidate.parent_terminal_hetero_substituent_count
+        ):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 4:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 45:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_low_rank_generated_fused_parent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -4117,6 +4242,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         prepared,
     )
     generated_fused_same_atoms = _has_contextual_generated_fused_same_atoms_alternative(item, prepared)
+    generated_heterofused_parent_for_retained_fragment = (
+        _has_contextual_generated_heterofused_parent_alternative_for_retained_fragment(item, prepared)
+    )
     chain_dominant_ring_substituent = _has_contextual_chain_dominant_ring_substituent_alternative(item, prepared)
     kekulized_polycycle_parent = _has_contextual_kekulized_polycycle_parent_alternative(item, prepared)
     chain_candidate_has_large_kekulized_alternative = (
@@ -4261,6 +4389,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or biochem_fused_sibling
         or generated_fused_low_rank_parent
         or generated_fused_same_atoms
+        or generated_heterofused_parent_for_retained_fragment
         or chain_dominant_ring_substituent
         or kekulized_polycycle_parent
         or chain_candidate_has_large_kekulized_alternative
@@ -4572,6 +4701,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 120
     if generated_fused_same_atoms:
         penalty += 140
+    if generated_heterofused_parent_for_retained_fragment:
+        penalty += 180
     if chain_dominant_ring_substituent:
         penalty += 150
     if kekulized_polycycle_parent:

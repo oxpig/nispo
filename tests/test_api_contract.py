@@ -2262,6 +2262,35 @@ def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "N#Cc1c(C2CC2)[nH]c2c(-c3nc4cc(C5CCNCC5)ccc4[nH]3)c(=O)[nH]cc12",
+        "N#Cc1c[nH]c2c(-c3nc4c(OCC(F)F)c(C5CCNCC5)ccc4[nH]3)c(=O)[nH]cc12",
+        "CN1CCC(c2ccc3[nH]c(-c4c(=O)[nH]cc5c(C#N)c[nH]c45)nc3c2OCC(F)F)CC1",
+        "N#Cc1c(C2CC2)[nH]c2c(-c3nc4c(OCC(F)F)c(C5CCNCC5)ccc4[nH]3)c(=O)[nH]cc12",
+    ],
+)
+def test_retained_benzimidazole_fragments_defer_to_generated_heterofused_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_same_parent_generated_benzimidazole_alias_does_not_displace_retained_parent():
+    input_smiles = (
+        "COc1cc2nc(-c3cccc(Cl)c3-c3ccc(C(=O)N[C@H](c4ccccc4)C4CC4)cc3C(=O)O)"
+        "[nH]c2cc1F"
+    )
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "OC(=CC1=Nc2cc(N3CCOCC3)ccc2C2=NCCN12)c1ccc2[nH]cnc2c1",
         "COCC(=O)c1ccc2[nH]c([C@H](COC(C)(C)C(F)(F)F)NC(=O)OC(C)(C)C)nc2c1",
         "CC(C)CC(N)c1ccc2[nH]c([C@@H](NC(=O)c3ccnn3C)C3CCC(F)(F)CC3)nc2c1",

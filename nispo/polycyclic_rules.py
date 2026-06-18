@@ -338,7 +338,7 @@ def _secondary_zero_bridge_tricyclic_candidate_records(
         if not name:
             continue
         key = (
-            _opsin_bridge_topology_mismatch_count(mol, seq, full_bracket),
+            _opsin_bridge_topology_mismatch_count(mol, seq, bracket),
             _bridge_sort_key(bracket),
             *_polycyclic_numbering_preference_key(mol, seq, atoms),
             name,

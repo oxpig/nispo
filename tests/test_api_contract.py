@@ -9,7 +9,9 @@ import pytest
 from rdkit import Chem
 
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
-from nispo.api import _smiles_to_iupac_batch_with_telemetry
+from nispo.api import _engine, _smiles_to_iupac_batch_with_telemetry
+from nispo.naming_context import MoleculeContext
+from nispo.rule_engine import _prepare_candidates
 
 
 def test_public_api_single_and_batch_contract():
@@ -789,6 +791,31 @@ def test_boron_anion_ring_parents_roundtrip_with_opsin(input_smiles):
 
 def test_bridge_lactam_parent_roundtrips_with_opsin():
     input_smiles = "O=C1CC2CC2N1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "N=C1C=C2C(=O)NCC1C1=C2CNC1=O",
+        "O=c1oc(=O)c2ccc1c1ccccc21",
+    ],
+)
+def test_zero_bridge_tricyclic_parent_records_prepare_candidates(input_smiles):
+    mol = Chem.MolFromSmiles(input_smiles)
+    assert mol is not None
+
+    prepared = _prepare_candidates(mol, Chem, MoleculeContext(mol, Chem), _engine()._rules)
+
+    assert any(item.candidate.family == "kekulized-generic-polycyclic-parent" for item in prepared)
+
+
+def test_fact_switch_gate_preserves_roundtripping_fused_azole_parent():
+    input_smiles = "c1cc(-c2n[nH]c3cccnc23)c2nn[nH]c2c1"
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

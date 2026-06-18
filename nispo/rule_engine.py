@@ -349,7 +349,8 @@ def _candidate_fact_ranked_item(
         current_facts = _candidate_fact_ranker_facts(current, metrics)
         current_score = _candidate_fact_ranker_score(current_facts)
         best_score = current_score
-        best_key = next(key for key, item in keyed_items if item is current)
+        current_key = next(key for key, item in keyed_items if item is current)
+        best_key = current_key
         best_item = current
         best_facts = current_facts
         for candidate_key, item in keyed_items:
@@ -365,7 +366,14 @@ def _candidate_fact_ranked_item(
     if (
         best_item is not current
         and best_score > current_score + _CANDIDATE_FACT_RANKER_MIN_MARGIN
-        and _candidate_fact_ranked_switch_is_safe(current, best_item, current_facts, best_facts)
+        and _candidate_fact_ranked_switch_is_safe(
+            current,
+            best_item,
+            current_facts,
+            best_facts,
+            current_key,
+            best_key,
+        )
         and _candidate_fact_switch_gate_accepts(
             current_facts,
             best_facts,
@@ -407,6 +415,8 @@ def _candidate_fact_ranked_switch_is_safe(
     proposed: _PreparedCandidate,
     current_facts: dict[str, object],
     proposed_facts: dict[str, object],
+    current_key: tuple,
+    proposed_key: tuple,
 ) -> bool:
     """Keep learned switches from discarding senior functional coverage.
 
@@ -426,6 +436,15 @@ def _candidate_fact_ranked_switch_is_safe(
     if not _ranker_preserves_retained_benzimidazole_parent(current, proposed):
         return False
     if not _ranker_preserves_early_retained_benzimidazole_parent(current, proposed):
+        return False
+    if not _ranker_preserves_rank1_retained_fused_parent(current, proposed):
+        return False
+    if not _ranker_preserves_systematic_candidate_over_penalized_retained_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
         return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
         return False
@@ -493,6 +512,72 @@ def _ranker_preserves_early_retained_benzimidazole_parent(
         proposed_candidate.parent_terminal_hetero_substituent_count < 1
         and proposed_candidate.parent_substituted_hetero_atom_count < 1
     ):
+        return True
+    return False
+
+
+def _ranker_preserves_rank1_retained_fused_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "fused-retained-parent":
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_render_rank = current_candidate.render_rank
+    proposed_render_rank = proposed_candidate.render_rank
+    if current_render_rank != 1:
+        return True
+    if proposed_render_rank is None or proposed_render_rank <= current_render_rank:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 9:
+        return True
+    if proposed_parent_count > current_parent_count:
+        return True
+    if proposed_candidate.parent_hetero_atom_count < 2:
+        return True
+    if current.stability_penalty > proposed.stability_penalty + 80:
+        return True
+    return False
+
+
+def _ranker_preserves_systematic_candidate_over_penalized_retained_shortcut(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family not in _CONTEXTUAL_SYSTEMATIC_ALTERNATIVE_FAMILIES:
+        return True
+    if proposed_candidate.family not in {"amino-acid-retained-parent", "whole-molecule-retained-parent"}:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if proposed_candidate.suffixes or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.charge is not None:
+        return True
+    if proposed_candidate.priority >= current_candidate.priority:
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty < current_penalty + 100:
         return True
     return False
 

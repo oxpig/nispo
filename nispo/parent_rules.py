@@ -5375,6 +5375,13 @@ def _phosphoramidite_substituted_amino_prefix(mol, nitrogen_idx: int, phosphorus
     substituents = _external_substituent_names(mol, nitrogen_idx, phosphorus_idx)
     if substituents is None or not substituents or len(substituents) > 2:
         return ""
+    substituents = [_retained_parent_substituent_alias(name) for name in substituents]
+    if (
+        len(substituents) == 2
+        and substituents[0] == substituents[1]
+        and _simple_unparenthesized_n_substituent(substituents[0])
+    ):
+        return f"di{substituents[0]}"
     prefix = _n_substituent_prefix(substituents)
     if not prefix or _needs_explicit_n_parent_separator(prefix):
         return ""

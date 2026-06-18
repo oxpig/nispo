@@ -603,7 +603,10 @@ def _ranker_preserves_compact_bicyclic_parent(
 ) -> bool:
     current_candidate = current.candidate
     proposed_candidate = proposed.candidate
-    if current_candidate.family != "generic-bicyclic-parent":
+    if current_candidate.family not in {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+    }:
         return True
     if proposed_candidate.family not in {
         "acyclic-skeleton-with-ring-substituents",

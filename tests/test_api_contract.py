@@ -1800,6 +1800,7 @@ def test_small_functional_single_ring_parent_ranker_switches_remain_available(in
     "input_smiles",
     [
         "CC(C)C[C@H](NC(=O)C(F)(F)F)C(=O)N1C2CCC(C1C(=O)NC(C#N)CC1CCNC1=O)C(F)(F)C2",
+        "CC(C)C[C@@H](NC(=O)C(F)(F)F)C(=O)N1[C@@H]2CC[C@H]([C@@H]1C(=O)N[C@H](C#N)C[C@H]1CCNC1=O)C(F)(F)C2",
         "Cc1cc2cccc(C(=O)N3[C@@H]4CC[C@H]([C@@H]3C(=O)N[C@H](C#N)C[C@H]3CCNC3=O)C(F)(F)C4)c2[nH]1",
     ],
 )

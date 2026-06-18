@@ -446,6 +446,8 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_large_fused_parent_over_single_ring_decomposition(current, proposed):
+        return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
         return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
@@ -578,6 +580,51 @@ def _ranker_preserves_systematic_candidate_over_penalized_retained_shortcut(
     current_penalty = int(current_key[0]) if current_key else current.stability_penalty
     proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
     if proposed_penalty < current_penalty + 100:
+        return True
+    return False
+
+
+def _ranker_preserves_large_fused_parent_over_single_ring_decomposition(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family not in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        return True
+    if proposed_candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 9:
+        return True
+    if proposed_parent_count > 6:
+        return True
+    if current_parent_count < proposed_parent_count + 5:
+        return True
+    current_render_rank = current_candidate.render_rank
+    if current_render_rank is None or current_render_rank > 3:
+        return True
+    if len(current.name) > 180:
+        return True
+    if current.stability_penalty > proposed.stability_penalty + 80:
         return True
     return False
 

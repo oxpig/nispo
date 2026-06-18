@@ -4083,6 +4083,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     fragile_component_fused_alias = _has_fragile_component_fused_alias(name, item.candidate)
     fragile_short_fusion_orientation = _has_fragile_short_fusion_orientation_alias(name, item.candidate)
     fragile_purine_tautomer_alias = _has_fragile_purine_tautomer_alias(name, item.candidate)
+    retained_purine_chalcogen_tautomer_parent = (
+        _has_contextual_purin_parent_alternative_for_chalcogen_retained_purine_alias(item, prepared)
+    )
     retained_purine_generated_parent = _has_contextual_generated_purine_parent_alternative(item, prepared)
     retained_imidazopyridine_benzazole_parent = _has_contextual_generated_benzazole_parent_alternative(
         item,
@@ -4330,6 +4333,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_component_fused_alias
         or fragile_short_fusion_orientation
         or fragile_purine_tautomer_alias
+        or retained_purine_chalcogen_tautomer_parent
         or retained_purine_generated_parent
         or retained_imidazopyridine_benzazole_parent
         or retained_imidazopyridine_with_first_indazole_h_parent
@@ -4566,6 +4570,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item, prepared, max_extra=35, max_length=120
     ):
         penalty += 48
+    if retained_purine_chalcogen_tautomer_parent:
+        penalty += 560
     if retained_purine_generated_parent:
         penalty += 140
     if retained_imidazopyridine_benzazole_parent:
@@ -8351,6 +8357,59 @@ _PURINE_LIKE_RETAINED_PARENT_TEMPLATES = frozenset(
         "xanthin",
     }
 )
+
+_CHALCOGEN_RETAINED_PURINE_ALIAS_TEMPLATES = frozenset(
+    {
+        "guanin",
+        "hypoxanthin",
+        "isoguanin",
+        "xanthin",
+    }
+)
+
+
+def _has_contextual_purin_parent_alternative_for_chalcogen_retained_purine_alias(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name not in _CHALCOGEN_RETAINED_PURINE_ALIAS_TEMPLATES:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) <= 9 or len(candidate.parent_atoms) > 12:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if other_candidate.template_name != "purin":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 9:
+            continue
+        if not other_candidate.parent_atoms.issubset(candidate.parent_atoms):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 4:
+            continue
+        if other_candidate.charge is not None:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty > item.stability_penalty + 560:
+            continue
+        return True
+    return False
+
 
 def _has_contextual_external_dinitrogen_generated_fused_alternative(
     item: _PreparedCandidate,

@@ -2403,6 +2403,20 @@ def test_purine_retained_parent_tautomer_aliases_roundtrip_with_opsin(input_smil
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Nc1nc2[nH]cnc2c(=O)[nH]1",
+    ],
+)
+def test_chalcogen_purine_alias_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCn1ccc(S(N)(=O)=NC(=O)Nc2c3c(nc4c2CCC42CC2)CCC3)n1",
         "O=C(Cn1c2c(c(=O)n3nc(Br)nc13)C1(CCNCC1)CC2)Nc1ccc(C(F)(F)F)cc1Cl",
         "O=C(Cn1c2c(c(=O)n3nc(-c4ccccc4)c(F)c13)C1(CC2)CCN(C(=O)c2ncccc2O)CC1)Nc1ccc(C(F)(F)F)cc1Cl",

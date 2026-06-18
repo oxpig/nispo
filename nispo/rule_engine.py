@@ -462,6 +462,8 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_rank1_hetero_generated_fused_parent_over_acyclic_skeleton(current, proposed):
+        return False
     if not _ranker_preserves_substituent_ring_parent_over_compact_chalcogen_suffix(
         current,
         proposed,
@@ -789,6 +791,40 @@ def _ranker_preserves_generated_fused_parent_over_penalized_retained_shortcut(
     if proposed_penalty < current_penalty + 180:
         return True
     if len(current.name) > 260 or len(current.name) - len(proposed.name) > 150:
+        return True
+    return False
+
+
+def _ranker_preserves_rank1_hetero_generated_fused_parent_over_acyclic_skeleton(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family not in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.render_rank != 1:
+        return True
+    if len(current_candidate.parent_atoms) < 9:
+        return True
+    if len(proposed_candidate.parent_atoms) > len(current_candidate.parent_atoms) + 12:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    current_charge = current_candidate.charge.formal_charge if current_candidate.charge is not None else 0
+    if current_charge == 0 and current_candidate.parent_hetero_atom_count != 3:
         return True
     return False
 

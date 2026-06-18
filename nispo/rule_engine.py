@@ -460,6 +460,13 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_charged_ring_skeleton_parent_over_single_ring_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_large_fused_parent_over_single_ring_decomposition(current, proposed):
         return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
@@ -670,6 +677,31 @@ def _ranker_preserves_substituent_ring_parent_over_compact_chalcogen_suffix(
     if proposed_penalty < current_penalty + 80:
         return True
     if len(current.name) > 200 or len(current.name) - len(proposed.name) > 120:
+        return True
+    return False
+
+
+def _ranker_preserves_charged_ring_skeleton_parent_over_single_ring_shortcut(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "charged-ring-acyclic-skeleton-with-ring-substituents":
+        return True
+    if proposed_candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return True
+    if not _is_simple_charged_aromatic_single_ring_parent(proposed_candidate):
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty < current_penalty + 80:
+        return True
+    if len(current.name) > 180 or len(current.name) - len(proposed.name) > 90:
         return True
     return False
 
@@ -3129,6 +3161,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     compact_chalcogen_suffix_substituent_ring_parent = (
         _has_contextual_substituent_ring_parent_alternative_for_compact_chalcogen_suffix_parent(item, prepared)
     )
+    charged_ring_skeleton_parent = _has_contextual_charged_ring_skeleton_parent_alternative(item, prepared)
     incomplete_senior_hydride_shortcut = _has_contextual_complete_parent_alternative_for_incomplete_senior_hydride_shortcut(
         item,
         prepared,
@@ -3251,6 +3284,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or comparable_complete_fused_parent
         or large_fused_single_ring_suffix_parent
         or compact_chalcogen_suffix_substituent_ring_parent
+        or charged_ring_skeleton_parent
         or incomplete_senior_hydride_shortcut
         or benzotriazole_retained_anchor
         or retained_shortcut
@@ -3512,6 +3546,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 180
     if compact_chalcogen_suffix_substituent_ring_parent:
         penalty += 128
+    if charged_ring_skeleton_parent:
+        penalty += 115
     if incomplete_senior_hydride_shortcut:
         penalty += 150
     if benzotriazole_retained_anchor:
@@ -5175,6 +5211,54 @@ def _is_compact_osn_chalcogen_suffix_parent(candidate: NameCandidate) -> bool:
     ):
         return False
     return candidate.parent_terminal_hetero_substituent_count >= 1
+
+
+def _has_contextual_charged_ring_skeleton_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not _is_simple_charged_aromatic_single_ring_parent(candidate):
+        return False
+    if len(item.name) > 70:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "charged-ring-acyclic-skeleton-with-ring-substituents":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _is_simple_charged_aromatic_single_ring_parent(candidate: NameCandidate) -> bool:
+    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return False
+    if candidate.charge is None or not candidate.charge.charged_atoms:
+        return False
+    if candidate.suffixes:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 5 or parent_count > 6:
+        return False
+    if candidate.parent_aromatic_atom_count != parent_count:
+        return False
+    if (
+        candidate.parent_terminal_hetero_substituent_count
+        or candidate.parent_external_nitrogen_substituent_count
+        or candidate.parent_external_oxygen_substituent_count
+    ):
+        return False
+    return True
 
 
 def _has_complete_non_acyclic_parent_alternative(

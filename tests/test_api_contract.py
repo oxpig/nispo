@@ -172,6 +172,23 @@ def test_positive_single_ring_cn_heterocycles_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1cc[o+]cc1",
+        "CCc1c[nH+]c[nH]1",
+        "O=C(O)n1c[nH+]nn1",
+        "N#CC(C#N)c1cccc[o+]1",
+    ],
+)
+def test_charged_aromatic_ring_skeleton_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=c1c[n+](-c2ccccc2)[n-]o1",
         "C[n+]1[n-]oc(=O)c1",
     ],

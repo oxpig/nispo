@@ -1785,6 +1785,20 @@ class PhosphorusAcidParentRule:
                 hydroxy_count += 1
             else:
                 return
+        if (
+            len(carbon_neighbors) == 1
+            and double_oxygen_count == 0
+            and hydroxy_count == 2
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _simple_or_branch_prefix(mol, carbon_neighbors[0], pidx)
+            if not prefix:
+                return
+            if _needs_substituent_parentheses(prefix):
+                prefix = f"({prefix})"
+            name = prefix + "phosphonous acid"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            return
         if len(carbon_neighbors) != 1 or double_oxygen_count != 1:
             return
         implicit_hydrogens = phosphorus.GetTotalNumHs()
@@ -5419,6 +5433,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
         carbon_double_ligands = []
         oxygen_ligands = []
         terminal_amino_ligands = []
+        substituted_amino_ligands = []
         covered = {pidx}
         ok = True
         for nbr in phosphorus.GetNeighbors():
@@ -5466,6 +5481,14 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             ):
                 terminal_amino_ligands.append(nidx)
                 covered.add(nidx)
+            elif (
+                nbr.GetSymbol() == "N"
+                and nbr.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.SINGLE
+                and len(heavy) in {1, 2}
+            ):
+                substituted_amino_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
             else:
                 ok = False
                 break
@@ -5481,6 +5504,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and not carbon_double_ligands
             and not oxygen_ligands
             and not terminal_amino_ligands
+            and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
         ):
             prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
@@ -5495,6 +5519,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(terminal_amino_ligands) == 1
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
         ):
             prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
@@ -5505,10 +5530,27 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
         if (
             double_oxygen_count == 1
             and anionic_oxygen_count == 1
+            and not carbon_single_ligands
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 1
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            substituents = _external_substituent_names(mol, substituted_amino_ligands[0], pidx)
+            prefix = _n_substituent_prefix(substituents or ())
+            if prefix is not None:
+                names.append(prefix + "phosphonamidate")
+            continue
+
+        if (
+            double_oxygen_count == 1
+            and anionic_oxygen_count == 1
             and len(oxygen_ligands) == 1
             and not carbon_single_ligands
             and not carbon_double_ligands
             and not terminal_amino_ligands
+            and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 1
         ):
             owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
@@ -5523,6 +5565,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and not carbon_single_ligands
             and not oxygen_ligands
             and not terminal_amino_ligands
+            and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
         ):
             prefix = _phosphorus_attached_prefix(mol, carbon_double_ligands[0], pidx)
@@ -5864,6 +5907,16 @@ def _phosphorothioic_triamide_record_name(record: dict) -> str:
     substituents_available = all(nitrogen["substituents_available"] for nitrogen in nitrogens)
     if substituents_available and all(charge < 0 for charge in charges) and all(not nitrogen["substituents"] for nitrogen in nitrogens):
         return "thiophosphoryltriamide"
+    substituted_anions = [nitrogen for nitrogen in nitrogens if nitrogen["substituents"]]
+    if (
+        substituents_available
+        and all(charge < 0 for charge in charges)
+        and len(substituted_anions) == 1
+        and len(substituted_anions[0]["substituents"]) == 1
+    ):
+        prefix = _n_substituent_prefix(substituted_anions[0]["substituents"])
+        if prefix is not None:
+            return prefix + "thiophosphoryltriamide"
     if any(charge != 0 for charge in charges):
         return ""
     substituted = [nitrogen for nitrogen in nitrogens if nitrogen["substituents"]]

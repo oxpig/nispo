@@ -1180,9 +1180,28 @@ def test_mixed_p3_anionic_phosphorus_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CP(O)O",
+        "CCP(O)O",
+        "c1ccccc1P(O)O",
+        "C1CC1P(O)O",
+    ],
+)
+def test_phosphonous_acid_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CP(=O)([O-])[O-]",
         "c1ccccc1P(=O)([O-])[O-]",
         "C#CP(N)(=O)[O-]",
+        "CN(C)[PH](=O)[O-]",
+        "CCN[PH](=O)[O-]",
         "COP(=O)[O-]",
         "COO[PH](=O)[O-]",
         "C=P([O-])([O-])[O-]",
@@ -1349,6 +1368,8 @@ def test_thiooxo_ester_retained_parents_roundtrip_with_opsin(input_smiles):
     [
         "NP(N)(N)=S",
         "[NH-]P([NH-])([NH-])=S",
+        "C[N-]P([NH-])([NH-])=S",
+        "CCCC[N-]P([NH-])([NH-])=S",
         "CCCCNP(N)(N)=S",
         "CCN(CC)P(N)(N)=S",
         "S=P(N1CC1)(N1CC1)N1CC1",

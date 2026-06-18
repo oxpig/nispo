@@ -933,13 +933,29 @@ def _ranker_preserves_acyclic_parent_for_generated_fused(
         "preferred-acyclic-skeleton-with-ring-substituents",
     }:
         return True
-    if proposed_candidate.family != "generated-fused-parent":
+    if proposed_candidate.family not in {"generated-fused-parent", "generated-hydro-fused-parent"}:
         return True
     if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
         return True
     if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
         return True
     proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if proposed_candidate.family == "generated-hydro-fused-parent":
+        if proposed_candidate.template_name not in _RANKER_ACYCLIC_GENERATED_HYDRO_FUSED_TEMPLATES:
+            return True
+        if proposed_parent_count != 10:
+            return True
+        if len(current_candidate.parent_atoms) < proposed_parent_count + 3:
+            return True
+        if current_candidate.suffixes or proposed_candidate.suffixes:
+            return True
+        if current_candidate.charge is not None or proposed_candidate.charge is not None:
+            return True
+        if current.stability_penalty > proposed.stability_penalty + 80:
+            return True
+        if len(current.name) > 180 or len(current.name) - len(proposed.name) > 40:
+            return True
+        return False
     if proposed_parent_count != 9:
         return True
     if proposed_candidate.parent_aromatic_atom_count != proposed_parent_count:
@@ -2117,6 +2133,28 @@ _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
 )
 _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_PENALTY = 180
 _LOW_CONFIDENCE_RETAINED_TOPOLOGY_PARENT_PENALTY = 430
+_GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_FAMILIES = (
+    _ACYCLIC_SKELETON_PARENT_FAMILIES
+    | {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "kekulized-generic-polycyclic-parent",
+    }
+)
+_GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_PENALTY = 180
+_LOW_CONFIDENCE_INDAN_TOPOLOGY_TEMPLATELESS_PARENT_PENALTY = 180
+_PARTIAL_HYDRO_DEMOTION_HYDRO_QUINOLINE_TEMPLATES = frozenset(
+    {
+        "1,2,3,4-tetrahydroquinoline",
+    }
+)
+_RANKER_ACYCLIC_GENERATED_HYDRO_FUSED_TEMPLATES = frozenset(
+    {
+        "pyrido[2,3-a]benzene",
+        "pyrido[3,2-b]benzene",
+    }
+)
 _NAMED_TEMPLATE_PAIR_PARENT_BONUS = 260
 
 
@@ -3226,6 +3264,13 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     low_confidence_retained_topology_parent_penalty = (
         _contextual_low_confidence_retained_topology_parent_penalty(item, prepared)
     )
+    generated_partial_hydro_templateless_parent = (
+        _has_contextual_templateless_parent_alternative_for_generated_partial_hydro(item, prepared)
+    )
+    low_confidence_indan_topology_parent = _has_contextual_low_confidence_indan_topology_parent(
+        item,
+        prepared,
+    )
     broad_incomplete_shortcut_graph_parent = (
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
@@ -3369,6 +3414,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or named_template_pair_parent_bonus
         or low_confidence_fused_template_parent_penalty
         or low_confidence_retained_topology_parent_penalty
+        or generated_partial_hydro_templateless_parent
+        or low_confidence_indan_topology_parent
         or broad_incomplete_shortcut_graph_parent
         or strict_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
@@ -3626,6 +3673,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += low_confidence_fused_template_parent_penalty
     if low_confidence_retained_topology_parent_penalty:
         penalty += low_confidence_retained_topology_parent_penalty
+    if generated_partial_hydro_templateless_parent:
+        penalty += _GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_PENALTY
+    if low_confidence_indan_topology_parent:
+        penalty += _LOW_CONFIDENCE_INDAN_TOPOLOGY_TEMPLATELESS_PARENT_PENALTY
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
     if strict_incomplete_shortcut_graph_parent:
@@ -5049,6 +5100,146 @@ def _contextual_low_confidence_retained_topology_parent_penalty(
     ):
         return 0
     return _LOW_CONFIDENCE_RETAINED_TOPOLOGY_PARENT_PENALTY
+
+
+def _has_contextual_templateless_parent_alternative_for_generated_partial_hydro(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-partial-hydro-fused-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if not candidate.template_name:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 4:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8:
+        return False
+    return _has_contextual_low_broad_templateless_parent_alternative(
+        item,
+        prepared,
+        max_length=280,
+        max_extra=170,
+        max_stability_extra=240,
+    )
+
+
+def _has_contextual_low_confidence_indan_topology_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if candidate.template_name != "indan":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 1:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if len(candidate.parent_atoms) < 8:
+        return False
+    return _has_contextual_low_broad_templateless_parent_alternative(
+        item,
+        prepared,
+        max_length=280,
+        max_extra=170,
+        max_stability_extra=240,
+    )
+
+
+def _has_contextual_low_broad_templateless_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+    *,
+    max_length: int,
+    max_extra: int,
+    max_stability_extra: int,
+) -> bool:
+    if _has_contextual_low_broad_templateless_parent_demotion_blocker(item, prepared):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.template_name:
+            continue
+        if other_candidate.family not in _GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) < 4:
+            continue
+        if other_candidate.charge is not None:
+            continue
+        if other_candidate.suffixes:
+            continue
+        if other_candidate.render_rank is not None and other_candidate.render_rank > 4:
+            continue
+        if _candidate_selection_broad_graph_parent_penalty(other, prepared) >= 100:
+            continue
+        if other.stability_penalty > item.stability_penalty + max_stability_extra:
+            continue
+        if len(other.name) > max_length:
+            continue
+        if len(other.name) - len(item.name) > max_extra:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_low_broad_templateless_parent_demotion_blocker(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {
+        "generated-partial-hydro-fused-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.charge is not None or other_candidate.suffixes:
+            continue
+        if (
+            other_candidate.family == "skeletal-replacement-fused-parent"
+            and other_candidate.template_name in _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES
+        ):
+            if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+                continue
+            if len(other.name) > len(item.name) + 10:
+                continue
+            if other.stability_penalty > item.stability_penalty + 60:
+                continue
+            return True
+        if (
+            other_candidate.family == "fused-retained-parent"
+            and other_candidate.template_name in _PARTIAL_HYDRO_DEMOTION_HYDRO_QUINOLINE_TEMPLATES
+        ):
+            if other_candidate.render_rank is not None and other_candidate.render_rank > 1:
+                continue
+            if len(other.name) > len(item.name) + 20:
+                continue
+            if other.stability_penalty > item.stability_penalty + 60:
+                continue
+            return True
+    return False
 
 
 def _has_contextual_template_less_family_alternative_for_low_confidence_template(

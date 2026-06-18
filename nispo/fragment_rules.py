@@ -1473,6 +1473,8 @@ def _pseudohalide_name(mol, Chem) -> str:
         return "azide" if any(atom.GetDegree() == 2 for atom in mol.GetAtoms()) else ""
     if counts == {"C": 1, "N": 1, "O": 1}:
         if _has_bond(mol, Chem, "C", "N", Chem.BondType.TRIPLE):
+            if _is_fulminate_anion(mol, Chem):
+                return "fulminate"
             return "cyanate"
         if _has_bond(mol, Chem, "C", "N", Chem.BondType.DOUBLE) and _has_bond(
             mol, Chem, "C", "O", Chem.BondType.DOUBLE
@@ -1493,6 +1495,36 @@ def _pseudohalide_name(mol, Chem) -> str:
         ):
             return "isoselenocyanate"
     return ""
+
+
+def _is_fulminate_anion(mol, Chem) -> bool:
+    if _total_charge(mol) != -1:
+        return False
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() >= 0:
+            continue
+        cidx = carbon.GetIdx()
+        for nitrogen in carbon.GetNeighbors():
+            nidx = nitrogen.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if (
+                nitrogen.GetSymbol() != "N"
+                or nitrogen.GetFormalCharge() <= 0
+                or bond is None
+                or bond.GetBondType() != Chem.BondType.TRIPLE
+            ):
+                continue
+            terminal_oxygens = [
+                neighbor
+                for neighbor in nitrogen.GetNeighbors()
+                if neighbor.GetIdx() != cidx
+                and neighbor.GetSymbol() == "O"
+                and neighbor.GetFormalCharge() < 0
+                and len(neighbor.GetNeighbors()) == 1
+            ]
+            if len(terminal_oxygens) == 1:
+                return True
+    return False
 
 
 def _trifluoromethanesulfonate_name(mol, Chem) -> str:

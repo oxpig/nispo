@@ -453,6 +453,8 @@ def test_retained_shortcuts_defer_to_roundtripping_systematic_alternatives(input
         "O=C[O-]",
         "O=CO",
         "O=C([O-])C(F)(F)F",
+        "N#C[O-]",
+        "[C-]#[N+][O-]",
         "[O-]P([O-])([O-])=S",
         "[O-]P([O-])(=S)[S-]",
         "NO",

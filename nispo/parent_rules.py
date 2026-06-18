@@ -2726,6 +2726,66 @@ class OxazinoneRetainedParentRule:
         )
 
 
+class OxiraneDioneRetainedParentRule:
+    family = "oxirane-dione-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        name = _oxirane_dione_name(ctx.mol, self._Chem)
+        if not name:
+            return
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=set(range(ctx.mol.GetNumAtoms())),
+            sort_key=(len(name), name),
+        )
+
+
+def _oxirane_dione_name(mol, Chem) -> str:
+    atom_set = set(range(mol.GetNumAtoms()))
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = set(ring)
+        if len(ring) != 3:
+            continue
+        ring_symbols = sorted(mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring)
+        if ring_symbols != ["C", "C", "O"]:
+            continue
+        covered = set(ring)
+        ok = True
+        for ring_idx in ring:
+            atom = mol.GetAtomWithIdx(ring_idx)
+            if atom.GetSymbol() == "O":
+                continue
+            double_oxygens = []
+            for nbr in atom.GetNeighbors():
+                nidx = nbr.GetIdx()
+                bond = mol.GetBondBetweenAtoms(ring_idx, nidx)
+                if nidx in ring_set:
+                    continue
+                if (
+                    nbr.GetSymbol() == "O"
+                    and bond is not None
+                    and bond.GetBondType() == Chem.BondType.DOUBLE
+                    and not nbr.IsInRing()
+                ):
+                    double_oxygens.append(nidx)
+                elif nbr.GetAtomicNum() > 1:
+                    ok = False
+                    break
+            if not ok or len(double_oxygens) != 1:
+                ok = False
+                break
+            covered.update(double_oxygens)
+        if ok and covered == atom_set:
+            return "oxirane-2,3-dione"
+    return ""
+
+
 class AzidobenzylideneCyclohexanoneRetainedParentRule:
     family = "azidobenzylidene-cyclohexanone-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -3177,6 +3237,8 @@ class BenziodoxoleRetainedParentRule:
             "O=C1O[I](OC(=O)[#6])(OC(=O)[#6])(OC(=O)[#6])c2ccccc21"
         )
         self._lactone = Chem.MolFromSmarts("O=C1O[I]([#6])c2ccccc21")
+        self._hydride_lactone = Chem.MolFromSmarts("O=C1O[IH]c2ccccc21")
+        self._halo_lactone = Chem.MolFromSmarts("O=C1O[I]([F,Cl,Br,I])c2ccccc21")
         self._geminal = Chem.MolFromSmarts("[#6]C1([#6])O[I]([#6])c2ccccc21")
         self._iodoxy_lactone = Chem.MolFromSmarts("O=C1O[I](=O)(O)c2ccccc21")
         self._hydride = Chem.MolFromSmarts("c1ccc2c(c1)CO[I]2")
@@ -3188,6 +3250,8 @@ class BenziodoxoleRetainedParentRule:
             (self._triacyloxy_lactone, _benziodoxole_triacyloxy_lactone_name),
             (self._iodoxy_lactone, _benziodoxole_iodoxy_lactone_name),
             (self._lactone, _benziodoxole_lactone_name),
+            (self._hydride_lactone, _benziodoxole_hydride_lactone_name),
+            (self._halo_lactone, _benziodoxole_halo_lactone_name),
             (self._geminal, _benziodoxole_geminal_name),
             (self._hydride, _benziodoxole_hydride_name),
         ):
@@ -3243,6 +3307,46 @@ def _benziodoxole_lactone_name(mol, Chem, match: Sequence[int]) -> str:
     if not prefix:
         return ""
     return f"1-{_parenthesized_if_complex(_strip_outer_parentheses(prefix))}-1,2-benziodoxol-3-one"
+
+
+def _benziodoxole_hydride_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    if set(match) != set(range(mol.GetNumAtoms())):
+        return ""
+    iodine_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if (
+            atom.GetSymbol() == "I"
+            and atom.IsInRing()
+            and atom.GetFormalCharge() == 0
+            and atom.GetTotalNumHs() == 1
+        )
+    ]
+    if len(iodine_atoms) != 1:
+        return ""
+    return "3,2-benziodoxol-3-one"
+
+
+def _benziodoxole_halo_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    if set(match) != set(range(mol.GetNumAtoms())):
+        return ""
+    iodine_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "I" and atom.IsInRing() and atom.GetFormalCharge() == 0
+    ]
+    if len(iodine_atoms) != 1:
+        return ""
+    iodine_idx = iodine_atoms[0].GetIdx()
+    halogen_neighbors = [
+        nbr
+        for nbr in mol.GetAtomWithIdx(iodine_idx).GetNeighbors()
+        if nbr.GetSymbol() in HALO and not nbr.IsInRing()
+    ]
+    if len(halogen_neighbors) != 1:
+        return ""
+    halo = HALO[halogen_neighbors[0].GetSymbol()]
+    return f"1-{halo}-1,2-benziodoxol-3-one"
 
 
 def _benziodoxole_geminal_name(mol, Chem, match: Sequence[int]) -> str:
@@ -14304,6 +14408,7 @@ def parent_rules(Chem) -> tuple:
     aminophosphane = AminophosphaneParentRule(Chem)
     dithiazole = DithiazoleRetainedParentRule(Chem)
     oxazinone = OxazinoneRetainedParentRule(Chem)
+    oxirane_dione = OxiraneDioneRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
     bis_diethylaminobenzylidene_cyclopentanone = BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule(Chem)
     cyclopropane_triylidene_nitrile = CyclopropaneTriylideneNitrileRetainedParentRule(Chem)
@@ -14454,6 +14559,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),
         RuleSpec("dithiazole-retained-parent", parent_priority("senior-functional-exception"), (), dithiazole.candidates),
         RuleSpec("oxazinone-retained-parent", parent_priority("senior-functional-exception"), (), oxazinone.candidates),
+        RuleSpec("oxirane-dione-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), oxirane_dione.candidates),
         RuleSpec(
             "azidobenzylidene-cyclohexanone-retained-parent",
             parent_priority("senior-functional-exception"),

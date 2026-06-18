@@ -812,6 +812,23 @@ def test_standalone_carbohydrate_retained_stems_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=c1oc1=O",
+        "O=C1O[IH]c2ccccc21",
+        "O=C1OI(Cl)c2ccccc21",
+        "O=C1OI(Br)c2ccccc21",
+    ],
+)
+def test_small_retained_oxirane_and_benziodoxolone_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "ClI(c1ccccc1)c1ccccc1",
         "Cc1ccc(I(Cl)c2ccccc2)cc1",
         "CC(C)(C)c1ccc(I(Cl)c2ccccc2)cc1",

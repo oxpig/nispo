@@ -11280,10 +11280,19 @@ def _retained_fused_render_set(
     facts: tuple[_RetainedFusedCandidateFacts, ...],
 ) -> tuple[_RetainedFusedCandidateFacts, ...]:
     if len(facts) <= _RETAINED_FUSED_RENDER_SET_SIZE:
-        if any(template_record_name(fact.template) == "1H-benzimidazole" for fact in facts):
+        if any(_retained_benzimidazole_h_fact_is_meaningful(fact) for fact in facts):
             return tuple(sorted(facts, key=lambda fact: fact.structural_key))
         return facts
     return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_FUSED_RENDER_SET_SIZE])
+
+
+def _retained_benzimidazole_h_fact_is_meaningful(fact: _RetainedFusedCandidateFacts) -> bool:
+    template_name = template_record_name(fact.template)
+    if template_name == "1H-benzimidazole":
+        return True
+    if template_name != "benzimidazole" or len(fact.structural_key) < 7:
+        return False
+    return fact.structural_key[6] != (2,)
 
 
 class RetainedRingScaffoldParentRule:

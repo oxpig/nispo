@@ -425,6 +425,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_retained_benzimidazole_parent(current, proposed):
         return False
+    if not _ranker_preserves_early_retained_benzimidazole_parent(current, proposed):
+        return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
         return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
@@ -453,6 +455,44 @@ def _candidate_fact_ranked_switch_is_safe(
     if current_candidate.priority >= proposed_candidate.priority:
         return True
     if len(proposed_candidate.parent_atoms) <= len(current_candidate.parent_atoms):
+        return True
+    return False
+
+
+def _ranker_preserves_early_retained_benzimidazole_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "fused-retained-parent":
+        return True
+    if current_candidate.template_name != "benzimidazole":
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_render_rank = current_candidate.render_rank
+    proposed_render_rank = proposed_candidate.render_rank
+    if current_render_rank is None or current_render_rank > 2:
+        return True
+    if proposed_render_rank is None or proposed_render_rank <= current_render_rank:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if len(current_candidate.parent_atoms) != 9 or len(proposed_candidate.parent_atoms) != 9:
+        return True
+    if proposed_candidate.parent_hetero_atom_count < 3:
+        return True
+    if (
+        proposed_candidate.parent_terminal_hetero_substituent_count < 1
+        and proposed_candidate.parent_substituted_hetero_atom_count < 1
+    ):
         return True
     return False
 

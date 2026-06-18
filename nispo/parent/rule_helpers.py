@@ -997,10 +997,20 @@ def _benzimidazole_orientation_preference(name: str) -> tuple:
 
 
 def _benzimidazole_template_h_preference(mol, template: dict, match: Sequence[int], name: str) -> tuple:
-    if "benzimidazole" not in name and template_record_name(template) != "1H-benzimidazole":
+    template_name = template_record_name(template)
+    if (
+        "benzimidazole" not in name
+        and "benzimidazol" not in name
+        and template_name not in {"benzimidazole", "1H-benzimidazole"}
+    ):
         return ()
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     h_locs = sorted(_matched_fused_indicated_hydrogen_locants(mol, template, reverse), key=_locant_sort_key)
+    if template_name == "benzimidazole":
+        if h_locs == ["3"]:
+            return (0,)
+        if h_locs == ["1"]:
+            return (1,)
     if h_locs == ["1"]:
         return (0,)
     if h_locs:

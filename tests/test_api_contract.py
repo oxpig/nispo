@@ -1851,6 +1851,10 @@ def test_early_kekulized_polycycle_ranker_switches_beat_late_orientations(input_
         "NC(=O)c1cccc2[nH]c(-c3ccc(C(=O)N4CCN(c5nc6ccccc6[nH]5)CC4)cc3)nc12",
         "C[C@@H](C(=O)N(C)c1ccc2[nH]c(-c3n[nH]c4c3C[C@@H]3C[C@]3(C)C4)nc2c1)C1CCOCC1",
         "CCn1cc2[nH]c(=O)c(-c3nc4ccc(N5CCOCC5)cc4[nH]3)c(NC(C)c3cocn3)c2n1",
+        "O=C(O)c1ccc2[nH]c(-c3cccc(O)c3)nc2c1",
+        "Cn1nccc1C(=O)NC(c1nc2c(F)cccc2[nH]1)C1CCCCCCC1",
+        "CCC(Nc1c(-c2nc3ccc(N4CCOCC4)cc3[nH]2)c(=O)[nH]c2cn(C)nc12)c1ncccn1",
+        "Cc1cc2nc(C(=O)NCCCn3cnc4ccccc43)c(=O)n(C[C@H](O)[C@H](O)[C@H](O)CO)c2cc1C",
     ],
 )
 def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):

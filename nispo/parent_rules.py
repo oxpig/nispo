@@ -3379,24 +3379,60 @@ def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:
         if not 1 <= len(heavy_neighbors) <= 2:
             continue
         substituents = []
+        hetero_substituents = []
         covered = {nidx}
         for nbr in heavy_neighbors:
             nbr_idx = nbr.GetIdx()
             bond = mol.GetBondBetweenAtoms(nidx, nbr_idx)
-            if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
                 break
             prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
             if not prefix:
                 break
-            substituents.append(_retained_parent_substituent_alias(prefix))
+            if nbr.GetSymbol() == "C":
+                substituents.append(_retained_parent_substituent_alias(prefix))
+            elif nbr.GetSymbol() in {"O", "S"}:
+                hetero_substituents.append(_retained_parent_substituent_alias(prefix))
+            else:
+                break
             covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
         else:
             if covered != atom_set:
                 continue
-            name = _anionic_amide_parent_name(substituents)
+            if hetero_substituents:
+                name = _hetero_substituted_anionic_amide_parent_name(substituents, hetero_substituents)
+            else:
+                name = _anionic_amide_parent_name(substituents)
             if name:
                 names.append(name)
     return names
+
+
+def _hetero_substituted_anionic_amide_parent_name(
+    carbon_substituents: Sequence[str],
+    hetero_substituents: Sequence[str],
+) -> str:
+    if len(carbon_substituents) != 1 or len(hetero_substituents) != 1:
+        return ""
+    carbon = carbon_substituents[0]
+    hetero = hetero_substituents[0]
+    if not _allowed_n_retained_parent_substituent(carbon):
+        return ""
+    if not _stable_anionic_amide_hetero_substituent(hetero):
+        return ""
+    return f"{carbon} {hetero}amide"
+
+
+def _stable_anionic_amide_hetero_substituent(name: str) -> bool:
+    if len(name) > 72:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return name.endswith(("oxy", "sulfanyl"))
 
 
 def _anionic_amide_parent_name(substituents: Sequence[str]) -> str:

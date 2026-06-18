@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from bisect import insort
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from functools import lru_cache
@@ -4745,6 +4745,27 @@ class NitrileOxideRetainedParentRule:
             )
 
 
+class FormamidineRetainedParentRule:
+    family = "formamidine-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+    requires_imino_skeleton_signal = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_count = mol.GetNumAtoms()
+        for name in _formamidine_parent_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+
+
 class GuanidineRetainedParentRule:
     family = "guanidine-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -4781,6 +4802,107 @@ class GuanidineRetainedParentRule:
                     priority=self.priority,
                     sort_key=(-template_record_mol(template).GetNumAtoms(), len(name), name),
                 )
+
+
+def _formamidine_parent_names(mol, Chem) -> list[str]:
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if (
+            carbon.GetSymbol() != "C"
+            or carbon.IsInRing()
+            or carbon.GetFormalCharge() != 0
+            or carbon.GetTotalNumHs() != 1
+        ):
+            continue
+        cidx = carbon.GetIdx()
+        single_nitrogens = []
+        imino_nitrogens = []
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_nitrogens.append(nbr.GetIdx())
+            elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                imino_nitrogens.append(nbr.GetIdx())
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(single_nitrogens) != 1 or len(imino_nitrogens) != 1:
+            continue
+        record = _formamidine_parent_record(mol, single_nitrogens[0], imino_nitrogens[0], cidx)
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        n_prefix = _n_substituent_prefix(record["single_substituents"])
+        if not n_prefix:
+            continue
+        imino = _parenthesized_if_complex(record["imino_substituent"])
+        names.append(f"N'-{imino}-{n_prefix}formamidine")
+    return names
+
+
+def _formamidine_parent_record(mol, single_nidx: int, imino_nidx: int, carbon_idx: int) -> dict | None:
+    single_nitrogen = mol.GetAtomWithIdx(single_nidx)
+    imino_nitrogen = mol.GetAtomWithIdx(imino_nidx)
+    if (
+        single_nitrogen.GetFormalCharge() != 0
+        or imino_nitrogen.GetFormalCharge() != 0
+        or single_nitrogen.IsInRing()
+        or imino_nitrogen.IsInRing()
+    ):
+        return None
+    covered = {carbon_idx, single_nidx, imino_nidx}
+    single_substituents = []
+    for nbr in single_nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbon_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(single_nidx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondTypeAsDouble() != 1.0:
+            return None
+        prefix = _simple_or_branch_prefix(mol, nidx, single_nidx)
+        if not prefix or _unstable_retained_functional_parent_substituent(prefix):
+            return None
+        single_substituents.append(_strip_outer_parentheses(prefix))
+        covered.update(_collect_component_atoms(mol, nidx, single_nidx))
+    imino_substituents = []
+    for nbr in imino_nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbon_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(imino_nidx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondTypeAsDouble() != 1.0:
+            return None
+        prefix = _simple_or_branch_prefix(mol, nidx, imino_nidx)
+        if not prefix or _unstable_retained_functional_parent_substituent(prefix):
+            return None
+        component_atoms = _collect_component_atoms(mol, nidx, imino_nidx)
+        if _component_has_nonaromatic_carbon_nitrogen_double_bond(mol, component_atoms):
+            return None
+        imino_substituents.append(_strip_outer_parentheses(prefix))
+        covered.update(component_atoms)
+    if len(single_substituents) != 2 or len(imino_substituents) != 1:
+        return None
+    return {
+        "single_substituents": tuple(single_substituents),
+        "imino_substituent": imino_substituents[0],
+        "covered_atoms": covered,
+    }
+
+
+def _component_has_nonaromatic_carbon_nitrogen_double_bond(mol, atoms: Collection[int]) -> bool:
+    atom_set = set(atoms)
+    for bond in mol.GetBonds():
+        if bond.GetBondTypeAsDouble() != 2.0 or bond.GetIsAromatic():
+            continue
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin not in atom_set or end not in atom_set:
+            continue
+        symbols = {mol.GetAtomWithIdx(begin).GetSymbol(), mol.GetAtomWithIdx(end).GetSymbol()}
+        if symbols == {"C", "N"}:
+            return True
+    return False
 
 
 def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
@@ -15272,6 +15394,7 @@ def parent_rules(Chem) -> tuple:
     nitrile_oxide = NitrileOxideRetainedParentRule(Chem)
     isocyanate = IsocyanateRetainedParentRule(Chem)
     carbodiimide = CarbodiimideRetainedParentRule(Chem)
+    formamidine = FormamidineRetainedParentRule(Chem)
     guanidine = GuanidineRetainedParentRule(Chem)
     sulfonohydrazide = SulfonohydrazideRetainedParentRule(Chem)
     acyl_hydrazide = AcylHydrazideRetainedParentRule(Chem)
@@ -15459,6 +15582,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("nitrile-oxide-retained-parent", parent_priority("senior-functional-exception"), (), nitrile_oxide.candidates),
         RuleSpec("isocyanate-retained-parent", parent_priority("senior-functional-exception"), (acyclic,), isocyanate.candidates),
         RuleSpec("carbodiimide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), carbodiimide.candidates),
+        RuleSpec("formamidine-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), formamidine.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("acyl-hydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), acyl_hydrazide.candidates),

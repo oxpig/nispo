@@ -499,6 +499,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_exocyclic_imino_generated_fused_orientation(current, proposed):
         return False
+    if not _ranker_preserves_generated_fused_same_parent_orientation(current, proposed):
+        return False
     if not _ranker_promotes_only_first_generated_indazole_h_orientation(proposed):
         return False
     if not _ranker_promotes_only_first_generated_charged_imidazopyridine_orientation(proposed):
@@ -1048,6 +1050,41 @@ def _ranker_preserves_exocyclic_imino_generated_fused_orientation(
     if not _is_exocyclic_imino_preferred_generated_fused_template(current_candidate.template_name):
         return True
     if not _is_exocyclic_imino_disfavored_generated_fused_template(proposed_candidate.template_name):
+        return True
+    return False
+
+
+def _ranker_preserves_generated_fused_same_parent_orientation(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if current_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_family != current_candidate.source_family:
+        return True
+    if current_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if proposed_candidate.source_file != current_candidate.source_file:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.parent_atoms != proposed_candidate.parent_atoms:
+        return True
+    if len(current_candidate.parent_atoms) < 9:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
         return True
     return False
 

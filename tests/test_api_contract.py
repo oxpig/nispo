@@ -184,6 +184,22 @@ def test_generated_hydro_pyrido45d_imidazole_parent_roundtrips_with_opsin(input_
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
+        "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
+        "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",
+    ],
+)
+def test_retained_benzocyclobutene_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C1=C[NH2+]N=C1",
         "C1C[NH2+]N1",
         "C1=NCC[NH2+]1",

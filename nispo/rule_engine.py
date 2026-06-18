@@ -543,6 +543,13 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_retained_benzocyclobutene_parent(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_generated_hydro_pyrido45d_imidazole_parent(
         current,
         proposed,
@@ -735,6 +742,49 @@ def _is_guarded_retained_azabicyclo320_heptane_parent(candidate: NameCandidate) 
         return False
     render_rank = candidate.render_rank or 0
     return 1 <= render_rank <= 2
+
+
+def _ranker_preserves_retained_benzocyclobutene_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_guarded_retained_benzocyclobutene_parent(current_candidate):
+        return True
+    if (
+        proposed_candidate.family == current_candidate.family
+        and proposed_candidate.template_name == current_candidate.template_name
+    ):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if current_penalty >= proposed_penalty:
+        return True
+    return False
+
+
+def _is_guarded_retained_benzocyclobutene_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "benzocyclobutene":
+        return False
+    if candidate.source_family != "simpleGroups:simpleGroup:simpleGroup":
+        return False
+    if candidate.source_file != "simpleGroups.xml":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 8:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    render_rank = candidate.render_rank or 0
+    return 1 <= render_rank <= 4
 
 
 def _ranker_preserves_generated_hydro_pyrido45d_imidazole_parent(
@@ -2335,6 +2385,18 @@ _GENERATED_HYDRO_PYRIDO45D_IMIDAZOLE_SIBLING_TEMPLATES = frozenset(
     }
 )
 
+_RETAINED_BENZOCYCLOBUTENE_ALTERNATIVE_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
+    "fused-retained-parent",
+    "generated-fused-parent",
+    "generated-spiro-fused-parent",
+    "generic-bicyclic-parent",
+    "generic-spiro-parent",
+    "retained-amide-parent",
+    "single-ring-parent",
+    "skeletal-replacement-fused-parent",
+    "sulfonimidamide-parent",
+}
+
 _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
     "charged-ring-acyclic-skeleton-with-ring-substituents",
 }
@@ -3718,6 +3780,33 @@ def _has_contextual_retained_azabicyclo320_heptane_parent_alternative(
     return False
 
 
+def _has_contextual_retained_benzocyclobutene_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if _is_guarded_retained_benzocyclobutene_parent(candidate):
+        return False
+    if candidate.family not in _RETAINED_BENZOCYCLOBUTENE_ALTERNATIVE_FAMILIES:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_guarded_retained_benzocyclobutene_parent(other_candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 120:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 220:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_generated_hydro_pyrido45d_imidazole_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -4046,6 +4135,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    retained_benzocyclobutene_parent = _has_contextual_retained_benzocyclobutene_parent_alternative(
+        item,
+        prepared,
+    )
     generated_hydro_pyrido45d_imidazole_parent = _has_contextual_generated_hydro_pyrido45d_imidazole_alternative(
         item,
         prepared,
@@ -4173,6 +4266,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or preferred_compact_bicyclic_parent
         or generated_hydro_pyridino_imidazole_parent
         or retained_azabicyclo320_heptane_parent
+        or retained_benzocyclobutene_parent
         or generated_hydro_pyrido45d_imidazole_parent
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
@@ -4492,6 +4586,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 100
     if retained_azabicyclo320_heptane_parent:
         penalty += 150
+    if retained_benzocyclobutene_parent:
+        penalty += 260
     if generated_hydro_pyrido45d_imidazole_parent:
         penalty += 300
     if small_late_single_ring_parent:

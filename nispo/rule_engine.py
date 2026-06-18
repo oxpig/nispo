@@ -446,6 +446,13 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_generated_fused_parent_over_penalized_retained_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_large_fused_parent_over_single_ring_decomposition(current, proposed):
         return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
@@ -580,6 +587,47 @@ def _ranker_preserves_systematic_candidate_over_penalized_retained_shortcut(
     current_penalty = int(current_key[0]) if current_key else current.stability_penalty
     proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
     if proposed_penalty < current_penalty + 100:
+        return True
+    return False
+
+
+def _ranker_preserves_generated_fused_parent_over_penalized_retained_shortcut(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generated-fused-parent":
+        return True
+    if proposed_candidate.family not in {
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
+        "oxido-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 8:
+        return True
+    if proposed_parent_count < current_parent_count - 1 or proposed_parent_count > current_parent_count + 2:
+        return True
+    current_render_rank = current_candidate.render_rank
+    if current_render_rank is None or current_render_rank > 3:
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty < current_penalty + 180:
+        return True
+    if len(current.name) > 260 or len(current.name) - len(proposed.name) > 150:
         return True
     return False
 

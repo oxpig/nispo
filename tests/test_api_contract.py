@@ -832,6 +832,15 @@ def test_fact_switch_gate_preserves_large_generated_fused_parent():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_fact_switch_gate_preserves_generated_fused_parent_against_retained_shortcut():
+    input_smiles = "CSc1ncc2cc(-c3ccc4ncn(C)c4c3)c(=O)[nH]c2n1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

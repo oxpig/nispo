@@ -1719,6 +1719,9 @@ def test_ring_parent_charge_and_lambda2_forms_roundtrip(input_smiles):
         "Cc1cc(NC(=O)C(N)Cc2ccccc2)ccc1-c1ccnc2[nH]ccc12",
         "CCN(C)S(=O)(=O)Nc1cccc(C(=O)c2c[nH]c3ncc(-c4cocn4)cc23)c1F",
         "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)c2c[nH]c3ncc(-c4ccc(C=O)cc4)cc23)c1F",
+        "C=CC(=O)Nc1cnc2c(c1)c(C#Cc1sc3ccccc3c1C)cn2C",
+        "C=CC(=O)Nc1cnc2c(c1)c(C#Cc1cc3cc(Cl)ccc3s1)cn2C",
+        "C=CC(=O)Nc1cnc2c(c1)c(C#Cc1cc3cc(C(F)(F)F)ccc3s1)cn2C",
     ],
 )
 def test_structured_contextual_parent_selection_roundtrips_with_opsin(input_smiles):
@@ -1782,9 +1785,9 @@ def test_benzimidazole_template_orientation_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
-        "Cc1cccc2[nH]c(C(=O)N3CCc4ncccc4[C@H]3C)nc12",
-        "Cc1cccc2[nH]c(C(=O)N3CCc4ncccc4[C@@H]3C)nc12",
-        "Cc1cccc2[nH]c(-c3cncc(C(=O)N(C)[C@@H](C)C4CC4)c3)nc12",
+        "OC(=CC1=Nc2cc(N3CCOCC3)ccc2C2=NCCN12)c1ccc2[nH]cnc2c1",
+        "COCC(=O)c1ccc2[nH]c([C@H](COC(C)(C)C(F)(F)F)NC(=O)OC(C)(C)C)nc2c1",
+        "CC(C)CC(N)c1ccc2[nH]c([C@@H](NC(=O)c3ccnn3C)C3CCC(F)(F)CC3)nc2c1",
     ],
 )
 def test_benzimidazole_low_complexity_alternatives_roundtrip_with_opsin(input_smiles):

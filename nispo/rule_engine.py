@@ -1443,8 +1443,8 @@ _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES = frozenset(
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_BONUS = 230
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_MAX_ALTERNATIVE_STABILITY = 292
 _BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_PENALTY = 100
-_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MIN_LENGTH = 90
-_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MAX_LENGTH = 180
+_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MIN_LENGTH = 130
+_BENZIMIDAZOLE_GENERATED_IMIDAZO45A_REPLACEMENT_MAX_LENGTH = 170
 _HIGH_CONFIDENCE_FUSED_TEMPLATE_PARENT_NAMES = frozenset(
     {
         "1,4-benzodioxane",
@@ -1960,6 +1960,14 @@ def _has_contextual_generated_pyridopyrrole_parent_competitor(
         if len(other_candidate.parent_atoms) != 9:
             continue
         if other_candidate.parent_hetero_atom_count != 2:
+            continue
+        if other_candidate.parent_external_oxygen_substituent_count:
+            continue
+        if (
+            other_candidate.parent_external_nitrogen_substituent_count
+            and other_candidate.parent_substituted_hetero_atom_count
+            and not other_candidate.parent_terminal_hetero_substituent_count
+        ):
             continue
         if other_candidate.suffixes or other_candidate.charge is not None:
             continue

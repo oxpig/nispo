@@ -1277,6 +1277,7 @@ def _ranker_preserves_compact_bicyclic_parent(
     if current_candidate.family not in {
         "functional-generic-bicyclic-parent",
         "generic-bicyclic-parent",
+        "preferred-generic-bicyclic-parent",
     }:
         return True
     if proposed_candidate.family not in {
@@ -1294,7 +1295,9 @@ def _ranker_preserves_compact_bicyclic_parent(
     proposed_parent_count = len(proposed_candidate.parent_atoms)
     if current_parent_count < 6 or current_parent_count > 9:
         return True
-    if len(current_candidate.locants) < 3:
+    compact_saturated_bicyclic_parent = current_parent_count == 6 and current_candidate.parent_aromatic_atom_count == 0
+    minimum_locant_count = 2 if compact_saturated_bicyclic_parent else 3
+    if len(current_candidate.locants) < minimum_locant_count:
         return True
     if proposed_parent_count < current_parent_count + 5:
         return True
@@ -3426,6 +3429,41 @@ def _has_contextual_retained_quinuclidin_parent_alternative(
     return False
 
 
+def _has_contextual_preferred_compact_bicyclic_parent_alternative_for_acyclic_decomposition(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) < 10:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "preferred-generic-bicyclic-parent":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 6:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 170:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 100:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_complete_nitrile_oxide_parent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -3680,6 +3718,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     retained_biochem_fused = _has_contextual_retained_biochem_fused_alternative(item, prepared)
     retained_quinuclidin_parent = _has_contextual_retained_quinuclidin_parent_alternative(item, prepared)
+    preferred_compact_bicyclic_parent = (
+        _has_contextual_preferred_compact_bicyclic_parent_alternative_for_acyclic_decomposition(item, prepared)
+    )
     complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
@@ -3800,6 +3841,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or large_kekulized_candidate_has_chain_alternative
         or retained_biochem_fused
         or retained_quinuclidin_parent
+        or preferred_compact_bicyclic_parent
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
@@ -4111,6 +4153,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if retained_biochem_fused:
         penalty += 80
     if retained_quinuclidin_parent:
+        penalty += 180
+    if preferred_compact_bicyclic_parent:
         penalty += 180
     if small_late_single_ring_parent:
         penalty += 72

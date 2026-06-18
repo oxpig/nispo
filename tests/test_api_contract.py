@@ -2110,6 +2110,8 @@ def test_small_functional_single_ring_parent_ranker_switches_remain_available(in
         "CC(C)C[C@H](NC(=O)C(F)(F)F)C(=O)N1C2CCC(C1C(=O)NC(C#N)CC1CCNC1=O)C(F)(F)C2",
         "CC(C)C[C@@H](NC(=O)C(F)(F)F)C(=O)N1[C@@H]2CC[C@H]([C@@H]1C(=O)N[C@H](C#N)C[C@H]1CCNC1=O)C(F)(F)C2",
         "Cc1cc2cccc(C(=O)N3[C@@H]4CC[C@H]([C@@H]3C(=O)N[C@H](C#N)C[C@H]3CCNC3=O)C(F)(F)C4)c2[nH]1",
+        "CCOCOc1cc(C(F)(F)F)cc(C)c1-c1ccc2cn(CC34CNC(=O)C3C4)nc2n1",
+        "C[C@H](c1cnc(N2C[C@H]3C[C@H]3C2=O)nc1)n1cc(C(=O)N[C@H]2C[C@@H](c3cc(Cl)ccc3C#N)C2)c(C#N)n1",
     ],
 )
 def test_compact_bicyclic_parent_ranker_switches_beat_long_acyclic_decompositions(input_smiles):

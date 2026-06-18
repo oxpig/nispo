@@ -2095,6 +2095,18 @@ _LOW_CONFIDENCE_FUSED_TEMPLATE_TO_TEMPLATELESS_FAMILIES = {
     "pyrimido[4,5-a]benzene": frozenset({"acyclic-skeleton-with-ring-substituents"}),
     "pyrrolo[2,1-f]as-triazine": frozenset({"single-ring-parent"}),
 }
+_LOW_CONFIDENCE_RETAINED_TOPOLOGY_TEMPLATE_TO_TEMPLATELESS_FAMILIES = {
+    "acenaphthen": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "anthranil": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "benzoxepane": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "coumaron": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "coumarone": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "fluoren": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "indane": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "naphthalin": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "phenanthren": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+    "tetralin": _ACYCLIC_SKELETON_PARENT_FAMILIES,
+}
 _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
     {
         "fused-retained-parent",
@@ -2104,6 +2116,7 @@ _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_FAMILIES = frozenset(
     }
 )
 _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_PENALTY = 180
+_LOW_CONFIDENCE_RETAINED_TOPOLOGY_PARENT_PENALTY = 430
 _NAMED_TEMPLATE_PAIR_PARENT_BONUS = 260
 
 
@@ -3210,6 +3223,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    low_confidence_retained_topology_parent_penalty = (
+        _contextual_low_confidence_retained_topology_parent_penalty(item, prepared)
+    )
     broad_incomplete_shortcut_graph_parent = (
         _has_contextual_broad_complete_parent_alternative_for_incomplete_shortcut(item, prepared)
     )
@@ -3352,6 +3368,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or high_impact_exact_retained_parent
         or named_template_pair_parent_bonus
         or low_confidence_fused_template_parent_penalty
+        or low_confidence_retained_topology_parent_penalty
         or broad_incomplete_shortcut_graph_parent
         or strict_incomplete_shortcut_graph_parent
         or hydro_fused_systematic_parent
@@ -3607,6 +3624,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= named_template_pair_parent_bonus
     if low_confidence_fused_template_parent_penalty:
         penalty += low_confidence_fused_template_parent_penalty
+    if low_confidence_retained_topology_parent_penalty:
+        penalty += low_confidence_retained_topology_parent_penalty
     if broad_incomplete_shortcut_graph_parent:
         penalty += 125
     if strict_incomplete_shortcut_graph_parent:
@@ -4102,6 +4121,8 @@ def _contextual_high_confidence_fused_template_parent_bonus(
             or _has_contextual_large_acyclic_parent_for_retained_topology_template(item, prepared)
         )
     ):
+        return 0
+    if _contextual_low_confidence_retained_topology_parent_penalty(item, prepared):
         return 0
     competitor_families = None
     if candidate.template_name == "imidazo[4,5-a]benzene":
@@ -5003,6 +5024,31 @@ def _contextual_low_confidence_fused_template_parent_penalty(
     ):
         return 0
     return _LOW_CONFIDENCE_FUSED_TEMPLATE_PARENT_PENALTY
+
+
+def _contextual_low_confidence_retained_topology_parent_penalty(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return 0
+    alternative_families = _LOW_CONFIDENCE_RETAINED_TOPOLOGY_TEMPLATE_TO_TEMPLATELESS_FAMILIES.get(
+        candidate.template_name
+    )
+    if not alternative_families:
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return 0
+    if not _has_contextual_template_less_family_alternative_for_low_confidence_template(
+        item,
+        prepared,
+        alternative_families,
+    ):
+        return 0
+    return _LOW_CONFIDENCE_RETAINED_TOPOLOGY_PARENT_PENALTY
 
 
 def _has_contextual_template_less_family_alternative_for_low_confidence_template(

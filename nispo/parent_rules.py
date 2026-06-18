@@ -3832,7 +3832,7 @@ def _n_substituted_imine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | No
         return None
     imine_bond = mol.GetBondBetweenAtoms(nitrogen_idx, imine_idx)
     stereo = _bond_stereo_descriptor(Chem, imine_bond)
-    if not stereo or _has_explicit_alkene_stereo_except(mol, Chem, imine_bond.GetIdx()):
+    if not stereo or _has_nonaromatic_carbon_double_bond_except(mol, Chem, imine_bond.GetIdx()):
         return None
     path = _terminal_imine_oxide_parent_path(mol, Chem, imine_idx, nitrogen_idx)
     if not path:
@@ -3871,11 +3871,13 @@ def _bond_stereo_descriptor(Chem, bond) -> str:
     return ""
 
 
-def _has_explicit_alkene_stereo_except(mol, Chem, allowed_bond_idx: int) -> bool:
+def _has_nonaromatic_carbon_double_bond_except(mol, Chem, allowed_bond_idx: int) -> bool:
     return any(
         bond.GetIdx() != allowed_bond_idx
         and bond.GetBondType() == Chem.BondType.DOUBLE
-        and bond.GetStereo() not in {Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY}
+        and not bond.GetIsAromatic()
+        and mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetSymbol() == "C"
+        and mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetSymbol() == "C"
         for bond in mol.GetBonds()
     )
 
@@ -11238,12 +11240,16 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
+            source_family = ""
+            if _has_isothiocyanate_motif(mol, ctx.Chem):
+                source_family = "acyclic-isothiocyanate-imino-thione"
             yield NameCandidate(
                 name,
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
                 parent_atoms=_nonring_heavy_atom_indices(mol),
+                source_family=source_family,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )

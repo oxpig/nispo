@@ -571,6 +571,7 @@ def test_tertiary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
         "CCCCCCCCCC(C)/C=[N+](/[O-])C1CCCC1",
         "Cc1cc(CC(C)C)ccc1CC/C=[N+](/[O-])C1CCCCC1",
         "Cc1cc(CC(C)C)ccc1CC/C=[N+](\\[O-])C1CCC1",
+        "CC(=CCC/C=[N+](/[O-])C1CCCCC1)CCCC(C)(C)O",
     ],
 )
 def test_n_substituted_imine_oxide_parents_roundtrip_with_opsin(input_smiles):
@@ -1423,6 +1424,22 @@ def test_alpha_keto_carboxylate_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_carbodiimide_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "COC(=O)c1ccccc1C(=O)N=C=S",
+        "Cc1nc(C)c(C(=O)N=C=S)o1",
+        "O=C(N=C=S)c1nn(C)c(C)c1",
+    ],
+)
+def test_acyl_isothiocyanate_imino_thione_candidates_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

@@ -46,6 +46,7 @@ _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
+_ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
 
 
 @dataclass(frozen=True, slots=True)
@@ -2031,7 +2032,10 @@ def _has_unstable_benzoanthracene_candidate(name: str) -> bool:
 
 
 def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) -> int:
-    penalty = _opsin_stability_penalty(name)
+    if candidate.source_family == _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE:
+        penalty = 0
+    else:
+        penalty = _opsin_stability_penalty(name)
     if candidate.family == "skeletal-replacement-fused-parent":
         penalty += _skeletal_replacement_fused_parent_penalty(name)
     if candidate.family == "kekulized-generic-polycyclic-parent":
@@ -2503,6 +2507,8 @@ def _candidate_selection_broad_graph_parent_penalty(
     prepared: list[_PreparedCandidate],
 ) -> int:
     if item.candidate.source_family == "acyclic-carbohydrate-retained":
+        return 0
+    if item.candidate.source_family == _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE:
         return 0
     charged_fused_parent_penalty = _contextual_charged_fused_parent_fallback_penalty(item, prepared)
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:

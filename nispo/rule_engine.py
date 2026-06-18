@@ -6202,6 +6202,16 @@ def _contextual_named_template_pair_parent_bonus(
     ):
         return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
     if (
+        candidate.family == "fused-retained-parent"
+        and candidate.template_name == "6,7-dihydro-5H-cyclopenta[b]pyridine"
+        and _has_contextual_complete_named_fused_template_alternative(
+            item,
+            prepared,
+            frozenset({"5H-cyclopenta[b]pyridine"}),
+        )
+    ):
+        return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
+    if (
         candidate.family == "retained-topology-replacement-fused-parent"
         and candidate.source_family == "opsin-retained-ring-cml"
         and candidate.template_name == "tetralin"
@@ -8543,9 +8553,17 @@ def _has_contextual_generated_benzazole_parent_alternative(
 
 
 _PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES = {
+    "imidazo[4,5-c]quinoline": frozenset({"quino[4,3-d]imidazole"}),
     "naphtho[8,7-d]imidazole": frozenset({"naphtho[7,8-d]imidazole"}),
+    "pyrazolo[3,4-b]pyrazine": frozenset({"pyrazino[2,3-c]pyrazole"}),
     "pyrazolo[3,4-c]quinoline": frozenset({"quino[4,3-d]pyrazole"}),
+    "pyrazolo[3,4-c]isoquinoline": frozenset({"isoquino[4,3-d]pyrazole"}),
+    "pyrazolo[3,4-c]pyridazine": frozenset({"pyridazino[3,4-c]pyrazole"}),
+    "pyrazolo[3,4-d]pyridazine": frozenset({"pyridazino[4,5-c]pyrazole"}),
+    "pyrazolo[4,3-b]pyrazine": frozenset({"pyrazino[2,3-c]pyrazole"}),
     "pyrazolo[4,3-c]quinoline": frozenset({"quino[3,4-d]pyrazole"}),
+    "pyrazolo[4,3-d]pyridazine": frozenset({"pyridazino[4,5-c]pyrazole"}),
+    "pyrazolo[4,3-e]pyridazine": frozenset({"pyridazino[3,4-c]pyrazole"}),
     "pyridazino[6,5-d]imidazole": frozenset({"pyridazino[5,6-d]imidazole"}),
     "thieno[5,4-d]imidazole": frozenset({"thieno[4,5-d]imidazole"}),
 }
@@ -8560,6 +8578,11 @@ def _has_contextual_preferred_generated_fused_template_alternative(
         return False
     preferred_templates = _PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES.get(candidate.template_name or "")
     if not preferred_templates:
+        return False
+    if (
+        candidate.template_name in {"pyrazolo[3,4-b]pyrazine", "pyrazolo[4,3-b]pyrazine"}
+        and candidate.parent_external_nitrogen_substituent_count
+    ):
         return False
     if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
         return False

@@ -140,9 +140,25 @@ def test_thienopyrazole_generated_fused_parent_roundtrips_with_opsin(input_smile
         "CON(C)C(=O)c1cc(F)c(F)c2[nH]ncc12",
         "[O-][n+]1cc(Br)c2cn[nH]c2c1",
         "Nc1n[nH]c2nc3ccccc3nc12",
+        "Nc1[nH]nc2nnccc12",
+        "COc1nnc(C)c2c(C)[nH]nc12",
+        "O=S(=O)(Oc1ccc2cnc3[nH]ncc3c2c1)C(F)(F)F",
+        "Cn1cc(-c2ccc3cnc4[nH]ncc4c3c2)cn1",
+        "Nc1nc2cc(-c3cc[nH]n3)ccc2c2nc(C3CCNC3)[nH]c12",
+        "CCOCOc1cc(C(F)(F)F)cc(C)c1-c1cnc2c[nH]nc2n1",
+        "CC1(NC(=O)OC(C)(C)C)CCN(c2nc3[nH]nc(-c4cccc(Cl)c4Cl)c3nc2C(N)=O)CC1",
     ],
 )
 def test_generated_pyrazole_fused_orientation_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_retained_hydro_fused_template_pair_roundtrips_with_opsin():
+    input_smiles = "Cc1cc(C#C[C@]2(O)CCc3cccnc32)cc(-c2ncc3ccnc(N)c3n2)c1"
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

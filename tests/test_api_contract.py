@@ -1814,6 +1814,21 @@ def test_compact_bicyclic_parent_ranker_switches_beat_long_acyclic_decomposition
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)n2ccc3cc(-c4ccc(N5CCNCC5)cc4)cnc32)c1F",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)c2c[nH]c3ncc(-c4ccc(OC5CCNCC5)cc4)cc23)c1F",
+    ],
+)
+def test_large_acyclic_parent_ranker_switches_beat_generated_fused_aliases(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C(#Cn1cnc2ccccc21)c1ccccc1",
         "CN(C)N(C)C(=O)c1ccc2nc[nH]c2c1",
         "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",

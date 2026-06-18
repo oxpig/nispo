@@ -429,6 +429,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
         return False
+    if not _ranker_preserves_acyclic_parent_for_generated_fused(current, proposed):
+        return False
     if not _ranker_preserves_small_generated_fused_orientation(
         current,
         proposed,
@@ -507,6 +509,50 @@ def _ranker_preserves_small_generated_fused_orientation(
     if float(current_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
         return True
     if float(proposed_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
+        return True
+    return False
+
+
+def _ranker_preserves_acyclic_parent_for_generated_fused(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family not in {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }:
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if proposed_parent_count != 9:
+        return True
+    if proposed_candidate.parent_aromatic_atom_count != proposed_parent_count:
+        return True
+    if proposed_candidate.parent_hetero_atom_count != 2:
+        return True
+    if proposed_candidate.parent_external_oxygen_substituent_count:
+        return True
+    if proposed_candidate.parent_external_nitrogen_substituent_count:
+        return True
+    proposed_rank = proposed_candidate.render_rank or 0
+    if proposed_rank < 2 or proposed_rank > 4:
+        return True
+    if len(current_candidate.parent_atoms) < proposed_parent_count + 3:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current.stability_penalty > proposed.stability_penalty + 80:
         return True
     return False
 

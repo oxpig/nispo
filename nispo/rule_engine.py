@@ -4282,6 +4282,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    earlier_external_hetero_single_ring_parent = (
+        _has_contextual_earlier_external_hetero_single_ring_parent_alternative(item, prepared)
+    )
     single_ring_stereo_prefix_parent = _has_contextual_stereo_prefix_free_ring_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -4405,6 +4408,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
         or earlier_aromatic_single_ring_parent
+        or earlier_external_hetero_single_ring_parent
         or single_ring_stereo_prefix_parent
         or aza_alias_penalty
         or spiro_penalty
@@ -4740,6 +4744,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 72
     if earlier_aromatic_single_ring_parent:
         penalty += 128
+    if earlier_external_hetero_single_ring_parent:
+        penalty += 90
     if single_ring_stereo_prefix_parent:
         penalty += 150
     return penalty
@@ -7058,6 +7064,58 @@ def _has_contextual_earlier_aromatic_single_ring_parent_alternative(
             continue
         other_rank = other_candidate.render_rank or 0
         if other_rank < 1 or other_rank >= current_rank:
+            continue
+        if other.stability_penalty > item.stability_penalty + 50:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_earlier_external_hetero_single_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count:
+        return False
+    if (
+        candidate.parent_external_nitrogen_substituent_count
+        or candidate.parent_external_oxygen_substituent_count
+    ):
+        return False
+    current_rank = candidate.render_rank or 0
+    if current_rank <= 1:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 5 or parent_count > 6:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if len(other_candidate.parent_atoms) != parent_count:
+            continue
+        if not (
+            other_candidate.parent_external_nitrogen_substituent_count
+            or other_candidate.parent_external_oxygen_substituent_count
+        ):
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if other_rank < 1 or other_rank >= current_rank:
+            continue
+        if len(other.name) > 260 or len(other.name) - len(item.name) > 100:
             continue
         if other.stability_penalty > item.stability_penalty + 50:
             continue

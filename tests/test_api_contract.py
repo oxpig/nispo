@@ -1766,6 +1766,39 @@ def test_small_late_single_ring_parent_defers_to_early_six_member_parent(input_s
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@@H](Oc1ccccc(=O)c1O)C1CC1",
+        "COc1ccc([C@@H]2CN([C@H]3CC[C@H](OC)CC3)C[C@@H]2F)cc1",
+        "NC(=O)c1ccc(OC[C@H]2CC[C@H](C(=O)N3OCC[C@H]3c3cnccn3)CC2)nc1",
+        "COC(=O)N1CCC[C@H](c2cccc(O)n2)[C@@H]1CO[C@H]1CC[C@@H](c2ccccc2)CC1",
+    ],
+)
+def test_late_nonaromatic_single_ring_parent_defers_to_earlier_aromatic_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C(/C=C/c1ccccc1NC(=O)C(c1ccccc1)C1CCCC1)NO",
+        "Cc1ncc(C)c(N[C@@H](C)c2ccc(C(=O)O/N=C(\\N)C3CC3)cc2)n1",
+        "CC(C)[C@H](NC(=O)OC(C)(C)C)C(=O)N[C@@H](C)C(=O)Nc1ccc(COC(=O)N(C)[C@@H]2C[C@@H]2COC(=O)Oc2ccc([N+](=O)[O-])cc2)cc1",
+    ],
+)
+def test_small_functional_single_ring_parent_ranker_switches_remain_available(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C(#Cn1cnc2ccccc21)c1ccccc1",
         "CN(C)N(C)C(=O)c1ccc2nc[nH]c2c1",
         "CN(C(=O)c1ccc2nc[nH]c2c1)c1ccccc1",

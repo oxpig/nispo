@@ -425,6 +425,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_retained_benzimidazole_parent(current, proposed):
         return False
+    if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
+        return False
     if not _ranker_preserves_small_generated_fused_orientation(
         current,
         proposed,
@@ -503,6 +505,47 @@ def _ranker_preserves_small_generated_fused_orientation(
     if float(current_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
         return True
     if float(proposed_facts.get("parent_atom_delta_min", -1.0)) != 0.0:
+        return True
+    return False
+
+
+def _ranker_preserves_earlier_aromatic_single_ring_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "single-ring-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 6:
+        return True
+    if current_candidate.parent_aromatic_atom_count != current_parent_count:
+        return True
+    if proposed_candidate.parent_aromatic_atom_count:
+        return True
+    if proposed_candidate.parent_hetero_atom_count:
+        return True
+    if proposed_candidate.parent_terminal_hetero_substituent_count:
+        return True
+    current_rank = current_candidate.render_rank or 0
+    proposed_rank = proposed_candidate.render_rank or 0
+    if current_rank < 1 or proposed_rank <= current_rank:
+        return True
+    if proposed_parent_count == 5:
+        return True
+    if proposed_parent_count >= 6 and current_parent_count < proposed_parent_count:
+        return True
+    if proposed_parent_count < 5 and current_parent_count < 7:
+        return True
+    if current.stability_penalty > proposed.stability_penalty + 50:
         return True
     return False
 
@@ -2724,6 +2767,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
+    earlier_aromatic_single_ring_parent = _has_contextual_earlier_aromatic_single_ring_parent_alternative(
+        item,
+        prepared,
+    )
     single_ring_stereo_prefix_parent = _has_contextual_stereo_prefix_free_ring_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
@@ -2830,6 +2877,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
+        or earlier_aromatic_single_ring_parent
         or single_ring_stereo_prefix_parent
         or aza_alias_penalty
         or spiro_penalty
@@ -3122,6 +3170,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 72
     if aromatic_single_ring_parent:
         penalty += 72
+    if earlier_aromatic_single_ring_parent:
+        penalty += 128
     if single_ring_stereo_prefix_parent:
         penalty += 150
     return penalty
@@ -4931,6 +4981,53 @@ def _has_contextual_aromatic_single_ring_parent_alternative(
         if len(other.name) > 180 or len(other.name) - len(item.name) > 55:
             continue
         if other.stability_penalty > item.stability_penalty + 40:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_earlier_aromatic_single_ring_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.parent_hetero_atom_count:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count:
+        return False
+    current_rank = candidate.render_rank or 0
+    if current_rank <= 1:
+        return False
+    current_parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count < 6:
+            continue
+        if other_candidate.parent_aromatic_atom_count != other_parent_count:
+            continue
+        if current_parent_count == 5:
+            continue
+        if current_parent_count >= 6 and other_parent_count < current_parent_count:
+            continue
+        if current_parent_count < 5 and other_parent_count < 7:
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if other_rank < 1 or other_rank >= current_rank:
+            continue
+        if other.stability_penalty > item.stability_penalty + 50:
             continue
         return True
     return False

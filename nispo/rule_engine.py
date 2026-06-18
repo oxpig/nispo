@@ -1955,7 +1955,6 @@ _RETAINED_FUSED_TEMPLATE_PAIR_PARENT_BONUS = 430
 _RETAINED_FUSED_TEMPLATE_PAIR_COMPETITORS = {
     "1H-benzotriazole": frozenset({"thieno[2,3-a]benzene"}),
     "2H-benzotriazole": frozenset({"thieno[2,3-a]benzene"}),
-    "purin": frozenset({"imidazo[4,5-d]pyrimidine", "pyrimido[4,5-b]pyrrole"}),
 }
 _ACYCLIC_SKELETON_RING_SYSTEM_PARENT_BONUS = 0
 _ACYCLIC_SKELETON_RING_SYSTEM_BONUS_FAMILIES = frozenset(

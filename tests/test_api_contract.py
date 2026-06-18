@@ -2561,6 +2561,21 @@ def test_generated_purine_parent_alternatives_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1cccc(-c2nc(-c3n[nH]c4ccncc34)c3nc[nH]c3n2)n1",
+        "CO[C@H](C)CN(CCCCc1ccc2c(n1)NCCC2)CC[C@H](Nc1ncnc2[nH]cnc12)C(=O)O",
+    ],
+)
+def test_generated_purine_orientation_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc2oc(C3=NCCc4[nH]cnc43)nc2c1",
         "c1ccc2sc(C3=NCCc4[nH]cnc43)nc2c1",
         "c1ccc2[nH]c(C3=NCCc4[nH]cnc43)nc2c1",

@@ -3248,6 +3248,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     complete_sulfonimidamide_parent = _has_contextual_complete_sulfonimidamide_parent_alternative(item, prepared)
     biochem_heterofused_parent = _has_contextual_biochem_heterofused_parent_alternative(item, prepared)
     exocyclic_fused_single_ring = _has_contextual_exocyclic_fused_single_ring_alternative(item, prepared)
+    external_dinitrogen_generated_fused = _has_contextual_external_dinitrogen_generated_fused_alternative(
+        item,
+        prepared,
+    )
     biochem_fused_sibling = _has_contextual_biochem_fused_sibling_alternative(item, prepared)
     generated_fused_low_rank_parent = _has_contextual_low_rank_generated_fused_parent_alternative(
         item,
@@ -3368,6 +3372,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or complete_sulfonimidamide_parent
         or biochem_heterofused_parent
         or exocyclic_fused_single_ring
+        or external_dinitrogen_generated_fused
         or biochem_fused_sibling
         or generated_fused_low_rank_parent
         or generated_fused_same_atoms
@@ -3656,6 +3661,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 120
     if exocyclic_fused_single_ring:
         penalty += 95
+    if external_dinitrogen_generated_fused:
+        penalty += 150
     if biochem_fused_sibling:
         penalty += 90
     if generated_fused_low_rank_parent:
@@ -6877,6 +6884,49 @@ _PURINE_LIKE_RETAINED_PARENT_TEMPLATES = frozenset(
         "xanthin",
     }
 )
+
+def _has_contextual_external_dinitrogen_generated_fused_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8 or parent_count > 13:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count < 2:
+        return False
+    if candidate.parent_external_oxygen_substituent_count:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate.safety is not None and candidate.safety.reasons:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 5:
+        return False
+    alternative_families = _ACYCLIC_SKELETON_PARENT_FAMILIES | {"single-ring-parent"}
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in alternative_families:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.suffixes and other_candidate.family != "single-ring-parent":
+            continue
+        if other_candidate.charge is not None:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 130:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 90:
+            continue
+        return True
+    return False
+
 
 _PURINE_ACYCLIC_PHOSPHORUS_PARENT_FAMILIES = frozenset(
     {

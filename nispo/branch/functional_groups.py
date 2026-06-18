@@ -694,9 +694,8 @@ def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    if cache_key in cache:
+        return cache[cache_key]
     if mol.GetAtomWithIdx(root_idx).GetSymbol() == "C":
         direct = _carbonyl_substituent_prefix(mol, root_idx, blocked_idx)
         if direct:

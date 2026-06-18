@@ -1211,9 +1211,8 @@ def _name_fused_core_match(
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    if cache_key in cache:
+        return cache[cache_key]
     core_set = set(match)
     if ring_system_extends_core(mol, core_set):
         cache[cache_key] = ""

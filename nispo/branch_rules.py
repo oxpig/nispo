@@ -110,8 +110,8 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    cached = cache.get(key)
-    if cached is not None:
+    if key in cache:
+        cached = cache[key]
         if telemetry is not None:
             telemetry.branch_prefix_cache_hits += 1
             telemetry.branch_prefix_cache_hits_by_rule[active_rule_family] += 1

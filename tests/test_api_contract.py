@@ -1569,6 +1569,21 @@ def test_cyclic_nitroimine_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1ccc(-c2ccc[o+]c2-c2ccccc2)cc1",
+        "c1ccc(-c2cccc(-c3ccccc3)[o+]2)cc1",
+    ],
+)
+def test_intrinsic_pyrylium_ring_charge_not_duplicated(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CN(C(=N[N+](=O)[O-])N)C",
         "CNC(=N[N+](=O)[O-])NC[C@H]1CCOC1",
         "CNC(=N[N+](=O)[O-])NCc1cnc(Cl)s1",

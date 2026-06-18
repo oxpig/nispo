@@ -1908,6 +1908,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
         and _is_single_ring_indicated_h_chalcogen_suffix_full_form(best_name)
     ):
         best_name = _opsin_parseable_retained_parent_name(best_name)
+    best_name = _drop_redundant_intrinsic_single_ring_charge_locant(mol, best_seq, best_name)
     return [
         RingNameRecord(
             best_name,
@@ -1917,6 +1918,23 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             _single_ring_suffix_graph_class(mol, best_seq, best_suffix_kind),
         )
     ]
+
+
+def _drop_redundant_intrinsic_single_ring_charge_locant(mol, seq: Sequence[int], name: str) -> str:
+    if not seq or "ium" not in name:
+        return name
+    locants = {idx: str(pos) for pos, idx in enumerate(seq, start=1)}
+    for idx in seq:
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetFormalCharge() <= 0:
+            continue
+        locant = locants[idx]
+        if atom.GetSymbol() == "O":
+            name = name.replace(f"pyrylium-{locant}-ium", "pyrylium")
+        elif atom.GetSymbol() == "S":
+            for parent in ("thiopyrylium", "thiopyranium", "thiophenium"):
+                name = name.replace(f"{parent}-{locant}-ium", parent)
+    return name
 
 
 def _single_ring_suffix_graph_class(mol, seq: Sequence[int], suffix_kind: str) -> str:

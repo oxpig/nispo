@@ -13051,7 +13051,7 @@ class SingleRingParentRule:
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
-                    charge=_single_ring_charge_evidence(mol, ring),
+                    charge=_single_ring_charge_evidence(mol, ring, record.name),
                     estimated_length=len(record.name),
                     render_rank=render_rank,
                 )
@@ -13117,7 +13117,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
-                    charge=_single_ring_charge_evidence(mol, ring),
+                    charge=_single_ring_charge_evidence(mol, ring, record.name),
                     estimated_length=len(record.name),
                     render_rank=1,
                 )
@@ -13281,7 +13281,7 @@ def _ring_external_oxygen_substituent_count(mol, ring: Sequence[int]) -> int:
     return count
 
 
-def _single_ring_charge_evidence(mol, ring: Sequence[int]) -> ChargeEvidence | None:
+def _single_ring_charge_evidence(mol, ring: Sequence[int], name: str) -> ChargeEvidence | None:
     charged_atoms = tuple(
         idx
         for idx in sorted(ring)
@@ -13289,11 +13289,26 @@ def _single_ring_charge_evidence(mol, ring: Sequence[int]) -> ChargeEvidence | N
     )
     if not charged_atoms:
         return None
+    if _single_ring_name_already_represents_charge(mol, charged_atoms, name):
+        return None
     formal_charge = sum(mol.GetAtomWithIdx(idx).GetFormalCharge() for idx in charged_atoms)
     return ChargeEvidence(
         formal_charge=formal_charge,
         charged_atoms=charged_atoms,
     )
+
+
+def _single_ring_name_already_represents_charge(mol, charged_atoms: Sequence[int], name: str) -> bool:
+    if len(charged_atoms) != 1:
+        return False
+    atom = mol.GetAtomWithIdx(charged_atoms[0])
+    if atom.GetFormalCharge() <= 0:
+        return False
+    if atom.GetSymbol() == "O" and "pyrylium" in name:
+        return True
+    if atom.GetSymbol() == "S" and re.search(r"(?:thiopyrylium|thiopyranium|thiophenium)", name):
+        return True
+    return False
 
 
 def _unfused_assembly_monocycle_parent_rings(ctx) -> tuple[tuple[int, ...], ...]:

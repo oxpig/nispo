@@ -548,6 +548,24 @@ def test_two_substituent_nitrone_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[N+](C)([O-])C1CCCCC1",
+        "C[N+](C)([O-])c1cccc2ccccc12",
+        "CC[N+]([O-])(CC)C1=CCCCCCC1",
+        "CCCCCCCCCCCCC(CCCCCCCCC)[N+](C)(C)[O-]",
+        "C=C(C)[C@@H]1CC[C@](C)(O)[C@@H]([N+](C)(C)[O-])C1",
+    ],
+)
+def test_tertiary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O[N-]C",
         "O[N-]c1ccccc1",
         "S[N-]c1ccccc1",

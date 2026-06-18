@@ -3747,7 +3747,99 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_methylium_retained_parent_names(mol, Chem))
     names.extend(_cyano_methane_ion_parent_names(mol, Chem))
     names.extend(_nitrone_azaniumolate_parent_names(mol, Chem))
+    names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _amine_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    if _has_explicit_alkene_stereo(mol, Chem):
+        return []
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
+            continue
+        record = _amine_oxide_record(mol, Chem, nitrogen.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _amine_oxide_ligand_text(record["ligand_names"])
+        if name:
+            names.append(name)
+    return names
+
+
+def _amine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
+    oxido_oxygens = []
+    ligand_names = []
+    covered = {nitrogen_idx}
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if bond is None:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != nitrogen_idx and atom.GetAtomicNum() > 1
+        ]
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() < 0
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and not heavy
+        ):
+            oxido_oxygens.append(nidx)
+            covered.add(nidx)
+            continue
+        if (
+            nbr.GetSymbol() != "C"
+            or nbr.GetFormalCharge() != 0
+            or bond.GetBondType() != Chem.BondType.SINGLE
+            or _has_nonaromatic_multiring_component(mol, nidx, nitrogen_idx)
+        ):
+            return None
+        ligand = _simple_or_branch_prefix(mol, nidx, nitrogen_idx)
+        if not ligand or _unstable_retained_functional_parent_substituent(ligand):
+            return None
+        ligand_names.append(_strip_outer_parentheses(ligand))
+        covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    if len(oxido_oxygens) != 1 or len(ligand_names) != 3:
+        return None
+    return {"ligand_names": tuple(ligand_names), "covered_atoms": covered}
+
+
+def _has_explicit_alkene_stereo(mol, Chem) -> bool:
+    return any(
+        bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo() not in {Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY}
+        for bond in mol.GetBonds()
+    )
+
+
+def _has_nonaromatic_multiring_component(mol, start_idx: int, blocked_idx: int) -> bool:
+    atoms = _collect_component_atoms(mol, start_idx, blocked_idx)
+    rings = [ring for ring in mol.GetRingInfo().AtomRings() if any(idx in atoms for idx in ring)]
+    if len(rings) <= 1:
+        return False
+    return any(not mol.GetAtomWithIdx(idx).GetIsAromatic() for ring in rings for idx in ring)
+
+
+def _amine_oxide_ligand_text(ligand_names: Sequence[str]) -> str:
+    counts = Counter(ligand_names)
+    pieces = []
+    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+        bare = _strip_outer_parentheses(ligand)
+        if count == 1:
+            pieces.append(_parenthesized_if_complex(bare))
+            continue
+        multiplier = MULT.get(count)
+        if not multiplier:
+            return ""
+        if _needs_substituent_parentheses(bare):
+            pieces.append(f"bis({bare})" if count == 2 else f"{multiplier}({bare})")
+        else:
+            pieces.append(multiplier + bare)
+    return "".join(pieces) + "amine oxide" if pieces else ""
 
 
 def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:

@@ -2387,10 +2387,12 @@ _GENERATED_HYDRO_PYRIDO45D_IMIDAZOLE_SIBLING_TEMPLATES = frozenset(
 
 _RETAINED_BENZOCYCLOBUTENE_ALTERNATIVE_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
     "fused-retained-parent",
+    "functional-generic-bicyclic-parent",
     "generated-fused-parent",
     "generated-spiro-fused-parent",
     "generic-bicyclic-parent",
     "generic-spiro-parent",
+    "preferred-generic-bicyclic-parent",
     "retained-amide-parent",
     "single-ring-parent",
     "skeletal-replacement-fused-parent",
@@ -3789,7 +3791,9 @@ def _has_contextual_retained_benzocyclobutene_parent_alternative(
         return False
     if candidate.family not in _RETAINED_BENZOCYCLOBUTENE_ALTERNATIVE_FAMILIES:
         return False
-    if candidate.suffixes or candidate.charge is not None:
+    if candidate.charge is not None:
+        return False
+    if candidate.suffixes and candidate.family != "single-ring-parent":
         return False
     if candidate_safety_reasons(candidate):
         return False
@@ -4587,7 +4591,16 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     if retained_azabicyclo320_heptane_parent:
         penalty += 150
     if retained_benzocyclobutene_parent:
-        penalty += 260
+        if item.candidate.family == "sulfonimidamide-parent":
+            penalty += 660
+        elif item.candidate.family in {
+            "functional-generic-bicyclic-parent",
+            "generic-bicyclic-parent",
+            "preferred-generic-bicyclic-parent",
+        }:
+            penalty += 340
+        else:
+            penalty += 260
     if generated_hydro_pyrido45d_imidazole_parent:
         penalty += 300
     if small_late_single_ring_parent:

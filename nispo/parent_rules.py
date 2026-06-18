@@ -100,6 +100,18 @@ _RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE = 32
 _RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE = 2
 _MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES = 16
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
+_PENTITOL_RETAINED_NAMES = {
+    ("R", "s", "S"): "ribitol",
+    ("S", "s", "R"): "ribitol",
+    ("R", "r", "S"): "xylitol",
+    ("S", "r", "R"): "xylitol",
+}
+_PENTARIC_RETAINED_NAMES = {
+    ("S", "r", "R"): ("ribaric acid", "riboarate"),
+    ("R", "r", "S"): ("ribaric acid", "riboarate"),
+    ("S", "s", "R"): ("xylaric acid", "xylarate"),
+    ("R", "s", "S"): ("xylaric acid", "xylarate"),
+}
 
 
 def _parenthesized_if_complex(name: str) -> str:
@@ -110,6 +122,147 @@ def _parenthesized_if_complex(name: str) -> str:
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+
+
+def _acyclic_carbohydrate_retained_name(mol, Chem) -> str:
+    if any(atom.GetAtomicNum() not in {6, 8} for atom in mol.GetAtoms()):
+        return ""
+    path = _linear_carbon_chain_path(mol, Chem)
+    if len(path) != 5:
+        return ""
+    stereo_key = _carbon_path_stereo_key(mol, Chem, path)
+    if len(stereo_key) != 3:
+        return ""
+    if _is_pentitol_graph(mol, Chem, path):
+        return _PENTITOL_RETAINED_NAMES.get(stereo_key, "")
+    terminal_charges = (
+        _terminal_carboxyl_group_charge(mol, Chem, path[0], path[1]),
+        _terminal_carboxyl_group_charge(mol, Chem, path[-1], path[-2]),
+    )
+    if None in terminal_charges:
+        return ""
+    if not all(_carbon_has_single_hydroxy_substituent(mol, Chem, atom_idx, set(path)) for atom_idx in path[1:-1]):
+        return ""
+    names = _PENTARIC_RETAINED_NAMES.get(stereo_key)
+    if names is None:
+        return ""
+    if terminal_charges == (0, 0):
+        return names[0]
+    if terminal_charges == (-1, -1):
+        return names[1]
+    return ""
+
+
+def _acyclic_carbohydrate_retained_stereo_locants(mol, Chem) -> tuple[tuple[int, str], ...]:
+    path = _linear_carbon_chain_path(mol, Chem)
+    return tuple((int(atom_idx), str(position)) for position, atom_idx in enumerate(path, start=1))
+
+
+def _linear_carbon_chain_path(mol, Chem) -> tuple[int, ...]:
+    carbon_atoms = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6]
+    if len(carbon_atoms) < 2:
+        return ()
+    carbon_set = set(carbon_atoms)
+    neighbors: dict[int, list[int]] = {idx: [] for idx in carbon_atoms}
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        if begin.GetAtomicNum() != 6 or end.GetAtomicNum() != 6:
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return ()
+        begin_idx = begin.GetIdx()
+        end_idx = end.GetIdx()
+        neighbors[begin_idx].append(end_idx)
+        neighbors[end_idx].append(begin_idx)
+    if any(len(linked) > 2 for linked in neighbors.values()):
+        return ()
+    endpoints = sorted(idx for idx, linked in neighbors.items() if len(linked) == 1)
+    if len(endpoints) != 2:
+        return ()
+    path = [endpoints[0]]
+    previous = None
+    current = endpoints[0]
+    while current != endpoints[1]:
+        next_atoms = [idx for idx in neighbors[current] if idx != previous]
+        if len(next_atoms) != 1:
+            return ()
+        previous, current = current, next_atoms[0]
+        path.append(current)
+        if len(path) > len(carbon_atoms):
+            return ()
+    return tuple(path) if set(path) == carbon_set else ()
+
+
+def _carbon_path_stereo_key(mol, Chem, path: Sequence[int]) -> tuple[str, ...]:
+    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+    centers = {
+        int(atom_idx): str(descriptor)
+        for atom_idx, descriptor in Chem.FindMolChiralCenters(
+            mol,
+            includeUnassigned=False,
+            useLegacyImplementation=False,
+        )
+        if descriptor in {"R", "S", "r", "s"}
+    }
+    return tuple(centers.get(atom_idx, "") for atom_idx in path[1:-1])
+
+
+def _is_pentitol_graph(mol, Chem, path: Sequence[int]) -> bool:
+    parent_atoms = set(path)
+    for atom_idx in path:
+        if not _carbon_has_single_hydroxy_substituent(mol, Chem, atom_idx, parent_atoms):
+            return False
+    return True
+
+
+def _carbon_has_single_hydroxy_substituent(mol, Chem, atom_idx: int, parent_atoms: set[int]) -> bool:
+    oxygen_count = 0
+    for neighbor in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+        neighbor_idx = neighbor.GetIdx()
+        if neighbor_idx in parent_atoms:
+            continue
+        bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+        if (
+            neighbor.GetAtomicNum() != 8
+            or neighbor.GetFormalCharge() != 0
+            or bond is None
+            or bond.GetBondType() != Chem.BondType.SINGLE
+            or any(
+                other.GetIdx() != atom_idx and other.GetAtomicNum() > 1
+                for other in neighbor.GetNeighbors()
+            )
+        ):
+            return False
+        oxygen_count += 1
+    return oxygen_count == 1
+
+
+def _terminal_carboxyl_group_charge(mol, Chem, carbon_idx: int, chain_neighbor_idx: int) -> int | None:
+    atom = mol.GetAtomWithIdx(carbon_idx)
+    double_oxygen_count = 0
+    single_oxygen_charges = []
+    for neighbor in atom.GetNeighbors():
+        neighbor_idx = neighbor.GetIdx()
+        if neighbor_idx == chain_neighbor_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, neighbor_idx)
+        if neighbor.GetAtomicNum() != 8 or bond is None:
+            return None
+        if any(
+            other.GetIdx() != carbon_idx and other.GetAtomicNum() > 1
+            for other in neighbor.GetNeighbors()
+        ):
+            return None
+        if bond.GetBondType() == Chem.BondType.DOUBLE and neighbor.GetFormalCharge() == 0:
+            double_oxygen_count += 1
+        elif bond.GetBondType() == Chem.BondType.SINGLE and neighbor.GetFormalCharge() in {0, -1}:
+            single_oxygen_charges.append(neighbor.GetFormalCharge())
+        else:
+            return None
+    if double_oxygen_count != 1 or len(single_oxygen_charges) != 1:
+        return None
+    return single_oxygen_charges[0]
 
 
 class AcyclicParentRule:
@@ -130,6 +283,32 @@ class AcyclicParentRule:
                 self.priority,
                 parent_atoms=_heavy_atom_indices(mol),
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                estimated_length=len(name),
+            )
+
+
+class AcyclicCarbohydrateRetainedParentRule:
+    family = "whole-molecule-retained-parent"
+    priority = parent_priority("acyclic-parent")
+    acyclic_only = True
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        if mol.GetRingInfo().NumRings() != 0:
+            return
+        name = _acyclic_carbohydrate_retained_name(mol, self._Chem)
+        if name:
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_heavy_atom_indices(mol),
+                stereo_locants=_acyclic_carbohydrate_retained_stereo_locants(mol, self._Chem),
+                source_family="acyclic-carbohydrate-retained",
                 estimated_length=len(name),
             )
 
@@ -14659,6 +14838,7 @@ def parent_rules(Chem) -> tuple:
     biphenyl = BiphenylParentRule(Chem)
     diphenylbenzene = DiphenylbenzeneParentRule(Chem)
     acene = AceneParentRule(Chem)
+    acyclic_carbohydrate_retained = AcyclicCarbohydrateRetainedParentRule(Chem)
     acyclic_parent = AcyclicParentRule()
     imino_functional_acyclic = IminoFunctionalAcyclicSkeletonRule()
     conjugated_carbonyl_acyclic = ConjugatedCarbonylAcyclicSkeletonRule()
@@ -14849,6 +15029,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("biphenyl-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(2),), biphenyl.candidates),
         RuleSpec("diphenylbenzene-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(3),), diphenylbenzene.candidates),
         RuleSpec("acene-retained-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_count(5),), acene.candidates),
+        RuleSpec(
+            "acyclic-carbohydrate-retained-parent",
+            parent_priority("acyclic-parent"),
+            (acyclic,),
+            acyclic_carbohydrate_retained.candidates,
+        ),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",

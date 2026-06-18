@@ -450,6 +450,11 @@ def _candidate_fact_ranked_switch_is_safe(
 
     current_candidate = current.candidate
     proposed_candidate = proposed.candidate
+    if (
+        current_candidate.source_family == "acyclic-carbohydrate-retained"
+        and proposed_candidate.family == "acyclic-parent"
+    ):
+        return False
     if not _ranker_preserves_high_signal_topology_parent(current, proposed):
         return False
     if not _ranker_preserves_generated_purine_parent(current, proposed):
@@ -2497,6 +2502,8 @@ def _candidate_selection_broad_graph_parent_penalty(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
 ) -> int:
+    if item.candidate.source_family == "acyclic-carbohydrate-retained":
+        return 0
     charged_fused_parent_penalty = _contextual_charged_fused_parent_fallback_penalty(item, prepared)
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
         penalty = 0
@@ -3396,6 +3403,8 @@ def _has_contextual_complete_nitrile_oxide_parent_alternative(
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
+    if item.candidate.source_family == "acyclic-carbohydrate-retained":
+        return 0
     name = item.name
     retained_lactone_topology = _has_contextual_retained_lactone_topology_candidate(item, prepared)
     retained_cyclic_anhydride_topology = _has_contextual_retained_cyclic_anhydride_topology_candidate(
@@ -8219,6 +8228,8 @@ def _unstable_component_spiro_alias_penalty(name: str, candidate: NameCandidate)
 def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     bonus = _locanted_multicenter_stereo_bonus(name, candidate)
     bonus += _structured_stereo_parent_bonus(candidate)
+    if candidate.source_family == "acyclic-carbohydrate-retained":
+        bonus += 16
     if candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
         bonus += _charged_single_ring_parent_bonus(candidate)
         bonus += _single_ring_suffix_parent_bonus(candidate)
@@ -8609,6 +8620,9 @@ def _finalize_candidate_name(
     """
 
     name = candidate.name
+    if candidate.source_family == "acyclic-carbohydrate-retained":
+        name = _apply_uniform_isotope_label(mol, name)
+        return name if len(name) <= max_length else ""
     structured_stereo_applied = False
     if candidate.stereo_prefix and not name.startswith("("):
         name = f"({candidate.stereo_prefix})-{name}"

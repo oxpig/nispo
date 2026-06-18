@@ -486,6 +486,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_exocyclic_imino_generated_fused_orientation(current, proposed):
         return False
+    if not _ranker_preserves_generated_imidazopyridine_parent(current, proposed, current_key, proposed_key):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -539,6 +541,53 @@ def _ranker_preserves_early_retained_benzimidazole_parent(
     ):
         return True
     return False
+
+
+def _ranker_preserves_generated_imidazopyridine_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_guarded_generated_imidazopyridine_parent(current_candidate):
+        return True
+    if proposed_candidate.family == current_candidate.family and (
+        proposed_candidate.template_name in _GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS_TEMPLATES
+    ):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if current_penalty >= proposed_penalty:
+        return True
+    return False
+
+
+def _is_guarded_generated_imidazopyridine_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.template_name not in _GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS_TEMPLATES:
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.parent_hetero_atom_count != 3:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count > 1:
+        return False
+    if candidate.parent_external_oxygen_substituent_count:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return candidate.render_rank is not None and candidate.render_rank <= 2
 
 
 def _ranker_preserves_rank1_retained_fused_parent(
@@ -3222,6 +3271,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    imidazopyridine_generated_fused_parent_bonus = _contextual_generated_imidazopyridine_parent_bonus(
+        item,
+        prepared,
+    )
     azole_template_parent_bonus = _contextual_azole_template_parent_bonus(item, prepared)
     retained_fused_template_pair_parent_bonus = _contextual_retained_fused_template_pair_parent_bonus(
         item,
@@ -3401,6 +3454,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or complete_fused_retained_amide_parent_bonus
         or high_confidence_fused_template_parent_bonus
         or imidazo45a_generated_orientation_bonus
+        or imidazopyridine_generated_fused_parent_bonus
         or azole_template_parent_bonus
         or retained_fused_template_pair_parent_bonus
         or retained_benzimidazole_parent_bonus
@@ -3649,6 +3703,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty -= high_confidence_fused_template_parent_bonus
     if imidazo45a_generated_orientation_bonus:
         penalty -= imidazo45a_generated_orientation_bonus
+    if imidazopyridine_generated_fused_parent_bonus:
+        penalty -= imidazopyridine_generated_fused_parent_bonus
     if azole_template_parent_bonus:
         penalty -= azole_template_parent_bonus
     if retained_fused_template_pair_parent_bonus:
@@ -4568,6 +4624,157 @@ _GENERATED_IMIDAZOPYRIDINE_ALTERNATIVE_TEMPLATES = frozenset(
         "pyrido[5,6-d]imidazole",
     }
 )
+
+
+_GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS_TEMPLATES = frozenset(
+    {
+        "imidazo[4,5-b]pyridine",
+        "imidazo[4,5-e]pyridine",
+    }
+)
+
+_GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS = 220
+
+
+def _contextual_generated_imidazopyridine_parent_bonus(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> int:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return 0
+    if candidate.template_name not in _GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS_TEMPLATES:
+        return 0
+    if candidate.source_family != "generated-fused":
+        return 0
+    if candidate.source_file != "generated_fused_template_index.json":
+        return 0
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return 0
+    if len(candidate.parent_atoms) != 9:
+        return 0
+    if candidate.parent_hetero_atom_count != 3:
+        return 0
+    if candidate.parent_external_nitrogen_substituent_count > 1:
+        return 0
+    if candidate.parent_external_oxygen_substituent_count:
+        return 0
+    if candidate.suffixes or candidate.charge is not None:
+        return 0
+    if candidate_safety_reasons(candidate):
+        return 0
+    if candidate.render_rank is None or candidate.render_rank > 2:
+        return 0
+    if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return 0
+    if _has_contextual_chain_dominant_acyclic_parent_alternative(item, prepared):
+        return 0
+    if _has_contextual_complete_senior_sulfonamide_parent_alternative(item, prepared):
+        return 0
+    if _has_contextual_ring_oxo_suffix_parent_alternative(item, prepared):
+        return 0
+    if not _has_contextual_imidazopyridine_parent_competitor(item, prepared):
+        return 0
+    return _GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS
+
+
+def _has_contextual_imidazopyridine_parent_competitor(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if (
+            other_candidate.family == candidate.family
+            and other_candidate.template_name in _GENERATED_IMIDAZOPYRIDINE_PARENT_BONUS_TEMPLATES
+        ):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if other.stability_penalty > item.stability_penalty + 220:
+            continue
+        if len(other.name) - len(item.name) > 120:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_chain_dominant_acyclic_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 140:
+            continue
+        if other.stability_penalty > item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_complete_senior_sulfonamide_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    item_parent_count = len(item.candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in {"sulfonamide-parent", "sulfonamide-retained-parent"}:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) <= item_parent_count:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 120:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        return True
+    return False
+
+
+def _has_contextual_ring_oxo_suffix_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not other_candidate.suffixes:
+            continue
+        if not any(suffix.kind == "ring_oxo_suffix" for suffix in other_candidate.suffixes):
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 120:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        return True
+    return False
 
 
 def _has_contextual_generated_imidazopyridine_alternative_for_retained_benzoannulene(

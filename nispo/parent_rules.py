@@ -14216,17 +14216,27 @@ class GeneratedOxidoFusedParentRule(OxidoFusedParentRule):
                 continue
             name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
             if name:
+                template_name = template_record_name(template)
                 yield NameCandidate(
                     name=name,
                     family=self.family,
                     priority=self.priority,
                     sort_key=(
-                        _generated_fusion_preference(template_record_name(template)),
+                        _generated_oxido_fused_template_preference(template_name),
+                        _generated_fusion_preference(template_name),
                         _substituent_locant_tuple(name),
                         -len(match),
                         name,
                     ),
                 )
+
+
+def _generated_oxido_fused_template_preference(template_name: str) -> int:
+    if re.match(r"^(?:pyrido|pyridino)\[[^\]]+\]imidazole$", template_name):
+        return 0
+    if re.match(r"^imidazo\[[^\]]+\]pyridine$", template_name):
+        return 2
+    return 1
 
 
 class _PolycyclicRecordParentRule:

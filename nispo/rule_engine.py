@@ -536,6 +536,13 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_retained_azabicyclo320_heptane_parent(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -678,6 +685,49 @@ def _is_guarded_generated_hydro_pyridino_imidazole_parent(candidate: NameCandida
     if candidate_safety_reasons(candidate):
         return False
     return True
+
+
+def _ranker_preserves_retained_azabicyclo320_heptane_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_guarded_retained_azabicyclo320_heptane_parent(current_candidate):
+        return True
+    if (
+        proposed_candidate.family == current_candidate.family
+        and proposed_candidate.template_name == current_candidate.template_name
+    ):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if current_penalty >= proposed_penalty:
+        return True
+    return False
+
+
+def _is_guarded_retained_azabicyclo320_heptane_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if candidate.template_name != "1-azabicyclo[3.2.0]heptane":
+        return False
+    if candidate.source_family != "static-retained":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 7:
+        return False
+    if candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    render_rank = candidate.render_rank or 0
+    return 1 <= render_rank <= 2
 
 
 _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES = frozenset(
@@ -2198,6 +2248,24 @@ _ACYCLIC_SKELETON_PARENT_FAMILIES = {
     "preferred-acyclic-skeleton-with-ring-substituents",
 }
 
+_RETAINED_AZABICYCLO320_HEPTANE_ALTERNATIVE_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
+    "carbamate-retained-parent",
+    "functional-generic-bicyclic-parent",
+    "generic-bicyclic-parent",
+    "kekulized-generic-polycyclic-parent",
+    "preferred-generic-bicyclic-parent",
+    "single-ring-parent",
+}
+
+_RETAINED_AZABICYCLO320_HEPTANE_SAME_PARENT_FAMILIES = frozenset(
+    {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "preferred-generic-bicyclic-parent",
+    }
+)
+
 _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
     "charged-ring-acyclic-skeleton-with-ring-substituents",
 }
@@ -3548,6 +3616,39 @@ def _has_contextual_generated_hydro_pyridino_imidazole_alternative(
     return False
 
 
+def _has_contextual_retained_azabicyclo320_heptane_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if _is_guarded_retained_azabicyclo320_heptane_parent(candidate):
+        return False
+    if candidate.family not in _RETAINED_AZABICYCLO320_HEPTANE_ALTERNATIVE_FAMILIES:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_guarded_retained_azabicyclo320_heptane_parent(other_candidate):
+            continue
+        if candidate.parent_atoms:
+            candidate_parent_atoms = set(candidate.parent_atoms)
+            other_parent_atoms = set(other_candidate.parent_atoms)
+            if candidate.family in _RETAINED_AZABICYCLO320_HEPTANE_SAME_PARENT_FAMILIES:
+                if candidate_parent_atoms != other_parent_atoms:
+                    continue
+            elif len(candidate_parent_atoms & other_parent_atoms) < 5:
+                continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 170:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 160:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_complete_nitrile_oxide_parent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -3809,6 +3910,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    retained_azabicyclo320_heptane_parent = _has_contextual_retained_azabicyclo320_heptane_parent_alternative(
+        item,
+        prepared,
+    )
     complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
@@ -3931,6 +4036,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or retained_quinuclidin_parent
         or preferred_compact_bicyclic_parent
         or generated_hydro_pyridino_imidazole_parent
+        or retained_azabicyclo320_heptane_parent
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
@@ -4247,6 +4353,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 180
     if generated_hydro_pyridino_imidazole_parent:
         penalty += 100
+    if retained_azabicyclo320_heptane_parent:
+        penalty += 150
     if small_late_single_ring_parent:
         penalty += 72
     if aromatic_single_ring_parent:

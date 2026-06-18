@@ -2157,6 +2157,22 @@ def test_retained_quinuclidin_parent_beats_generic_bicyclic_aliases(input_smiles
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC1(C)CN2C(=O)CC2S1",
+        "CC(=O)/C=C1/C(=O)N2[C@@H]1SC(C)(C)[C@@H]2C(=O)OC(c1ccccc1)c1ccccc1",
+        "CC1(COC(=O)NNC(=O)c2ccc(O)c(O)c2)C(C(=O)OC(c2ccccc2)c2ccccc2)N2C(=O)CC2S1(=O)=O",
+    ],
+)
+def test_retained_azabicyclo320_heptane_parent_beats_decompositions(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)n2ccc3cc(-c4ccc(N5CCNCC5)cc4)cnc32)c1F",
         "CCN(C)S(=O)(=O)Nc1ccc(F)c(C(=O)c2c[nH]c3ncc(-c4ccc(OC5CCNCC5)cc4)cc23)c1F",
     ],

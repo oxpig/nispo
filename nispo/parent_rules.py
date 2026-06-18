@@ -2794,6 +2794,105 @@ class BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule:
             return
 
 
+class CyclopropaneTriylideneNitrileRetainedParentRule:
+    family = "cyclopropane-triylidene-nitrile-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        name = _cyclopropane_triylidene_nitrile_name(ctx.mol, self._Chem)
+        if not name:
+            return
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            parent_atoms=set(range(ctx.mol.GetNumAtoms())),
+            sort_key=(len(name), name),
+        )
+
+
+def _cyclopropane_triylidene_nitrile_name(mol, Chem) -> str:
+    atom_set = set(range(mol.GetNumAtoms()))
+    for ring in mol.GetRingInfo().AtomRings():
+        ring_set = set(ring)
+        if len(ring) != 3:
+            continue
+        if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in ring):
+            continue
+        if any(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
+            continue
+        records = []
+        covered = set(ring)
+        ok = True
+        for ring_idx in ring:
+            exocyclic = []
+            for nbr in mol.GetAtomWithIdx(ring_idx).GetNeighbors():
+                nidx = nbr.GetIdx()
+                bond = mol.GetBondBetweenAtoms(ring_idx, nidx)
+                if nidx in ring_set:
+                    continue
+                if (
+                    nbr.GetSymbol() == "C"
+                    and nbr.GetFormalCharge() == 0
+                    and bond is not None
+                    and bond.GetBondType() == Chem.BondType.DOUBLE
+                ):
+                    exocyclic.append(nidx)
+                elif nbr.GetAtomicNum() > 1:
+                    ok = False
+                    break
+            if not ok or len(exocyclic) != 1:
+                ok = False
+                break
+            exo_idx = exocyclic[0]
+            substituents = [
+                nbr.GetIdx()
+                for nbr in mol.GetAtomWithIdx(exo_idx).GetNeighbors()
+                if nbr.GetIdx() != ring_idx and nbr.GetAtomicNum() > 1
+            ]
+            if len(substituents) != 2:
+                ok = False
+                break
+            prefixes = []
+            covered.add(exo_idx)
+            for substituent_idx in substituents:
+                prefix = _simple_or_branch_prefix(mol, substituent_idx, exo_idx)
+                if not prefix:
+                    ok = False
+                    break
+                prefixes.append(_strip_outer_parentheses(prefix))
+                covered.update(_collect_component_atoms(mol, substituent_idx, exo_idx))
+            if not ok or prefixes.count("cyano") != 1:
+                ok = False
+                break
+            other = next(prefix for prefix in prefixes if prefix != "cyano")
+            if not _stable_cyclopropane_triylidene_substituent(other):
+                ok = False
+                break
+            records.append(other)
+        if not ok or covered != atom_set or len(records) != 3:
+            continue
+        counts = Counter(records)
+        if len(counts) != 1:
+            continue
+        substituent = next(iter(counts))
+        return f"1,2,3-tri[(cyano)({substituent})methylene]cyclopropane"
+    return ""
+
+
+def _stable_cyclopropane_triylidene_substituent(name: str) -> bool:
+    if len(name) > 96:
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,()'\-]+", name))
+
+
 class OrganicPeroxideRetainedParentRule:
     family = "organic-peroxide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -14207,6 +14306,7 @@ def parent_rules(Chem) -> tuple:
     oxazinone = OxazinoneRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
     bis_diethylaminobenzylidene_cyclopentanone = BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule(Chem)
+    cyclopropane_triylidene_nitrile = CyclopropaneTriylideneNitrileRetainedParentRule(Chem)
     organic_peroxide = OrganicPeroxideRetainedParentRule(Chem)
     phosphorylcholine = PhosphorylCholineRetainedParentRule(Chem)
     azinobis_benzothiazoline = AzinobisBenzothiazolineRetainedParentRule(Chem)
@@ -14365,6 +14465,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             bis_diethylaminobenzylidene_cyclopentanone.candidates,
+        ),
+        RuleSpec(
+            "cyclopropane-triylidene-nitrile-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (min_ring_count(1),),
+            cyclopropane_triylidene_nitrile.candidates,
         ),
         RuleSpec(
             "organic-peroxide-retained-parent",

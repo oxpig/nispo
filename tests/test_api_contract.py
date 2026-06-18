@@ -1710,6 +1710,21 @@ def test_exocyclic_ring_alkene_substituents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "N#CC(=C1C(=C(C#N)c2c(F)c(F)c(C#N)c(F)c2F)C1=C(C#N)c1c(F)c(F)c(C#N)c(F)c1F)c1c(F)c(F)c(C#N)c(F)c1F",
+        "N#CC(=C1C(=C(C#N)c2c(F)c(F)c(F)c(F)c2F)C1=C(C#N)c1c(F)c(F)c(F)c(F)c1F)c1c(F)c(F)c(F)c(F)c1F",
+    ],
+)
+def test_cyclopropane_triylidene_nitrile_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C1CC[C@H]2[C@H]3Cc4ccccc4[C@@]2(CCN3)C1",
         "O=C1CCCc2ccccc2N1",
     ],

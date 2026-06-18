@@ -566,6 +566,24 @@ def test_tertiary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCCCCCCC(C)/C=[N+](\\[O-])c1ccccc1",
+        "CCCCCCCCCC(C)/C=[N+](/[O-])C1CCCCC1",
+        "CCCCCCCCCC(C)/C=[N+](/[O-])C1CCCC1",
+        "Cc1cc(CC(C)C)ccc1CC/C=[N+](/[O-])C1CCCCC1",
+        "Cc1cc(CC(C)C)ccc1CC/C=[N+](\\[O-])C1CCC1",
+    ],
+)
+def test_n_substituted_imine_oxide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O[N-]C",
         "O[N-]c1ccccc1",
         "S[N-]c1ccccc1",

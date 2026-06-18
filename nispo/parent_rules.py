@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from itertools import combinations
 from functools import lru_cache
 
-from .branch_rules import branch_prefix
+from .acyclic.rules import (
+    _bond_key,
+    _path_substituent_prefixes,
+    _standalone_saturated_chain_parent,
+)
+from .branch_rules import branch_prefix, parent_chain_name
 from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
 from .candidate_facts import (
@@ -3747,8 +3752,197 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_methylium_retained_parent_names(mol, Chem))
     names.extend(_cyano_methane_ion_parent_names(mol, Chem))
     names.extend(_nitrone_azaniumolate_parent_names(mol, Chem))
+    names.extend(_n_substituted_imine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _n_substituted_imine_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    if assigned_atom_stereochemistry(mol, Chem):
+        return []
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
+            continue
+        record = _n_substituted_imine_oxide_record(mol, Chem, nitrogen.GetIdx())
+        if not record or record["covered_atoms"] != atom_set:
+            continue
+        name = _n_substituted_imine_oxide_name(mol, record)
+        if name:
+            names.append(name)
+    return names
+
+
+def _n_substituted_imine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
+    imine_carbons = []
+    oxido_oxygens = []
+    n_substituents = []
+    covered = {nitrogen_idx}
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
+        if bond is None:
+            return None
+        heavy = [
+            atom.GetIdx()
+            for atom in nbr.GetNeighbors()
+            if atom.GetIdx() != nitrogen_idx and atom.GetAtomicNum() > 1
+        ]
+        if (
+            nbr.GetSymbol() == "C"
+            and nbr.GetFormalCharge() == 0
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            imine_carbons.append(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() < 0
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and not heavy
+        ):
+            oxido_oxygens.append(nidx)
+            covered.add(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "C"
+            and nbr.GetFormalCharge() == 0
+            and bond.GetBondType() == Chem.BondType.SINGLE
+        ):
+            substituent = _simple_or_branch_prefix(mol, nidx, nitrogen_idx)
+            if not substituent or _unstable_retained_functional_parent_substituent(substituent):
+                return None
+            n_substituents.append(_strip_outer_parentheses(substituent))
+            covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+            continue
+        return None
+    if len(imine_carbons) != 1 or len(oxido_oxygens) != 1 or len(n_substituents) != 1:
+        return None
+    imine_idx = imine_carbons[0]
+    imine = mol.GetAtomWithIdx(imine_idx)
+    if imine.IsInRing() or imine.GetFormalCharge() != 0:
+        return None
+    carbon_neighbors = [
+        nbr.GetIdx()
+        for nbr in imine.GetNeighbors()
+        if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(carbon_neighbors) != 1:
+        return None
+    imine_bond = mol.GetBondBetweenAtoms(nitrogen_idx, imine_idx)
+    stereo = _bond_stereo_descriptor(Chem, imine_bond)
+    if not stereo or _has_explicit_alkene_stereo_except(mol, Chem, imine_bond.GetIdx()):
+        return None
+    path = _terminal_imine_oxide_parent_path(mol, Chem, imine_idx, nitrogen_idx)
+    if not path:
+        return None
+    prefixes = _path_substituent_prefixes(
+        mol,
+        path,
+        skip_bonds={_bond_key(nitrogen_idx, imine_idx)},
+        skip_plain_hydrogen=True,
+    )
+    if prefixes is None:
+        return None
+    path_set = set(path)
+    covered.update(path_set)
+    for atom_idx in path:
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in path_set or nidx == nitrogen_idx or nbr.GetAtomicNum() <= 1:
+                continue
+            covered.update(_collect_component_atoms(mol, nidx, atom_idx))
+    return {
+        "path": tuple(path),
+        "prefixes": tuple(prefixes),
+        "n_substituent": n_substituents[0],
+        "stereo": stereo,
+        "covered_atoms": covered,
+    }
+
+
+def _bond_stereo_descriptor(Chem, bond) -> str:
+    stereo = bond.GetStereo()
+    if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
+        return "E"
+    if stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
+        return "Z"
+    return ""
+
+
+def _has_explicit_alkene_stereo_except(mol, Chem, allowed_bond_idx: int) -> bool:
+    return any(
+        bond.GetIdx() != allowed_bond_idx
+        and bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo() not in {Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY}
+        for bond in mol.GetBonds()
+    )
+
+
+def _terminal_imine_oxide_parent_path(mol, Chem, imine_idx: int, nitrogen_idx: int) -> tuple[int, ...]:
+    allowed = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "C"
+        and atom.GetFormalCharge() == 0
+        and not atom.IsInRing()
+        and not atom.GetIsotope()
+    }
+    if imine_idx not in allowed:
+        return ()
+    adjacency = {
+        idx: tuple(
+            nbr.GetIdx()
+            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
+            if nbr.GetIdx() in allowed
+            and nbr.GetIdx() != nitrogen_idx
+            and mol.GetBondBetweenAtoms(idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+        )
+        for idx in allowed
+    }
+    endpoints = [
+        idx
+        for idx in allowed
+        if idx == imine_idx or sum(1 for nidx in adjacency[idx] if nidx in allowed) <= 1
+    ]
+    paths = []
+    best_len = 0
+    for endpoint in endpoints:
+        path = _shortest_carbon_path(adjacency, imine_idx, endpoint)
+        if not path:
+            continue
+        if len(path) > best_len:
+            paths.clear()
+            best_len = len(path)
+        if len(path) == best_len:
+            paths.append(path)
+    return sorted(set(paths), key=lambda path: (-len(path), path))[0] if paths else ()
+
+
+def _shortest_carbon_path(adjacency: dict[int, tuple[int, ...]], start: int, end: int) -> tuple[int, ...]:
+    queue = [(start, (start,))]
+    seen = {start}
+    for current, path in queue:
+        if current == end:
+            return path
+        for neighbor in adjacency[current]:
+            if neighbor in seen:
+                continue
+            seen.add(neighbor)
+            queue.append((neighbor, (*path, neighbor)))
+    return ()
+
+
+def _n_substituted_imine_oxide_name(mol, record: dict) -> str:
+    parent = parent_chain_name(mol, record["path"], as_substituent=False)
+    if not parent:
+        return ""
+    parent = _standalone_saturated_chain_parent(parent)
+    prefixes = [("N", record["n_substituent"]), *record["prefixes"]]
+    prefix_text = _format_prefixes(prefixes)
+    name = _join_prefix_parent(prefix_text, f"{parent}-1-imine oxide")
+    return f"({record['stereo']})-{name}"
 
 
 def _amine_oxide_retained_parent_names(mol, Chem) -> list[str]:

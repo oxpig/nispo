@@ -4289,6 +4289,14 @@ class GuanidineRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
+        for name in _nitroguanidine_parent_names(mol, self._Chem):
+            yield NameCandidate(
+                name=name,
+                family=self.family,
+                priority=self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=set(range(mol.GetNumAtoms())),
+            )
         if mol.GetRingInfo().NumRings() != 0:
             return
         for template in _guanidine_parent_templates(self._Chem):
@@ -4306,6 +4314,141 @@ class GuanidineRetainedParentRule:
                     priority=self.priority,
                     sort_key=(-template_record_mol(template).GetNumAtoms(), len(name), name),
                 )
+
+
+def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
+    names = []
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+        return names
+    atom_set = set(range(mol.GetNumAtoms()))
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.IsInRing() or carbon.GetFormalCharge() != 0:
+            continue
+        cidx = carbon.GetIdx()
+        nitrogen_neighbors = [
+            nbr.GetIdx()
+            for nbr in carbon.GetNeighbors()
+            if nbr.GetSymbol() == "N" and mol.GetBondBetweenAtoms(cidx, nbr.GetIdx()) is not None
+        ]
+        if len(nitrogen_neighbors) != 3:
+            continue
+        imino_nitro = []
+        single_nitrogens = []
+        covered = {cidx}
+        for nidx in nitrogen_neighbors:
+            nitrogen = mol.GetAtomWithIdx(nidx)
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if bond.GetBondType() == Chem.BondType.DOUBLE:
+                nitro_atoms = _nitroguanidine_imino_nitro_atoms(mol, Chem, nidx, cidx)
+                if nitro_atoms:
+                    imino_nitro.append((nidx, nitro_atoms))
+            elif bond.GetBondType() == Chem.BondType.SINGLE and nitrogen.GetFormalCharge() == 0:
+                single_nitrogens.append(nidx)
+        if len(imino_nitro) != 1 or len(single_nitrogens) != 2:
+            continue
+        imino_idx, nitro_atoms = imino_nitro[0]
+        covered.add(imino_idx)
+        covered.update(nitro_atoms)
+        records = []
+        ok = True
+        for nidx in single_nitrogens:
+            substituents = _external_substituent_names(mol, nidx, cidx)
+            if substituents is None or len(substituents) > 2:
+                ok = False
+                break
+            substituents = tuple(sorted(_retained_parent_substituent_alias(name) for name in substituents))
+            if not all(_stable_nitroguanidine_substituent(name) for name in substituents):
+                ok = False
+                break
+            covered.add(nidx)
+            for nbr in mol.GetAtomWithIdx(nidx).GetNeighbors():
+                nbr_idx = nbr.GetIdx()
+                if nbr_idx == cidx or nbr.GetAtomicNum() <= 1:
+                    continue
+                covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
+            records.append(substituents)
+        if not ok or covered != atom_set:
+            continue
+        name = _nitroguanidine_parent_name(records)
+        if name:
+            names.append(name)
+    return names
+
+
+def _nitroguanidine_imino_nitro_atoms(mol, Chem, imino_nidx: int, carbon_idx: int) -> set[int]:
+    nitro_neighbors = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(imino_nidx).GetNeighbors()
+        if nbr.GetIdx() != carbon_idx
+        and nbr.GetSymbol() == "N"
+        and nbr.GetFormalCharge() > 0
+        and mol.GetBondBetweenAtoms(imino_nidx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(nitro_neighbors) != 1:
+        return set()
+    nitro_idx = nitro_neighbors[0]
+    oxygen_neighbors = []
+    for nbr in mol.GetAtomWithIdx(nitro_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == imino_nidx:
+            continue
+        bond = mol.GetBondBetweenAtoms(nitro_idx, nidx)
+        if nbr.GetSymbol() != "O" or bond is None:
+            return set()
+        if bond.GetBondType() == Chem.BondType.DOUBLE or (
+            bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0
+        ):
+            oxygen_neighbors.append(nidx)
+        else:
+            return set()
+    if len(oxygen_neighbors) != 2:
+        return set()
+    return {nitro_idx, *oxygen_neighbors}
+
+
+def _nitroguanidine_parent_name(records: Sequence[tuple[str, ...]]) -> str:
+    substituted = [record for record in records if record]
+    if not substituted:
+        return "2-nitroguanidine"
+    pieces = []
+    if len(substituted) == 1:
+        piece = _nitroguanidine_substituent_piece("1", substituted[0])
+        if not piece:
+            return ""
+        pieces.append(piece)
+    else:
+        for locant, substituents in zip(("1", "3"), sorted(substituted), strict=True):
+            piece = _nitroguanidine_substituent_piece(locant, substituents)
+            if not piece:
+                return ""
+            pieces.append(piece)
+    return "-".join((*pieces, "2-nitroguanidine"))
+
+
+def _nitroguanidine_substituent_piece(locant: str, substituents: Sequence[str]) -> str:
+    if len(substituents) == 1:
+        return _n_substituent_piece(locant, substituents[0])
+    if len(substituents) == 2 and substituents[0] == substituents[1]:
+        return _duplicate_n_substituent_piece(f"{locant},{locant}", substituents[0])
+    if len(substituents) == 2:
+        return "-".join(_n_substituent_piece(locant, name) for name in substituents)
+    return ""
+
+
+def _stable_nitroguanidine_substituent(name: str) -> bool:
+    if len(name) > 96:
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    if _allowed_n_retained_parent_substituent(name):
+        return True
+    if name.endswith("methyl") and any(stem in name for stem in ("furyl", "oxolan", "pyrid", "thiazol")):
+        return True
+    return name.endswith(("amino", "methylideneamino", "ylideneamino"))
 
 
 class SulfonohydrazideRetainedParentRule:
@@ -14616,7 +14759,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("nitrile-oxide-retained-parent", parent_priority("senior-functional-exception"), (), nitrile_oxide.candidates),
         RuleSpec("isocyanate-retained-parent", parent_priority("senior-functional-exception"), (acyclic,), isocyanate.candidates),
         RuleSpec("carbodiimide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), carbodiimide.candidates),
-        RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (acyclic, imino_skeleton_signal), guanidine.candidates),
+        RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("acyl-hydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), acyl_hydrazide.candidates),
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),

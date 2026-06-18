@@ -529,6 +529,13 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_generated_imidazopyridine_parent(current, proposed, current_key, proposed_key):
         return False
+    if not _ranker_preserves_generated_hydro_pyridino_imidazole_parent(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -629,6 +636,48 @@ def _is_guarded_generated_imidazopyridine_parent(candidate: NameCandidate) -> bo
     if candidate_safety_reasons(candidate):
         return False
     return candidate.render_rank is not None and candidate.render_rank <= 2
+
+
+def _ranker_preserves_generated_hydro_pyridino_imidazole_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_guarded_generated_hydro_pyridino_imidazole_parent(current_candidate):
+        return True
+    if (
+        proposed_candidate.family == current_candidate.family
+        and proposed_candidate.template_name == current_candidate.template_name
+    ):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if current_penalty >= proposed_penalty:
+        return True
+    return False
+
+
+def _is_guarded_generated_hydro_pyridino_imidazole_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "generated-hydro-fused-parent":
+        return False
+    if candidate.template_name != "pyridino[4,3-d]imidazole":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
 
 
 _GENERATED_INDAZOLE_H_ORIENTATION_TEMPLATES = frozenset(
@@ -3464,6 +3513,41 @@ def _has_contextual_preferred_compact_bicyclic_parent_alternative_for_acyclic_de
     return False
 
 
+def _has_contextual_generated_hydro_pyridino_imidazole_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.template_name != "imidazo[4,5-c]pyridine":
+        return False
+    if candidate.family not in {
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+    }:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_guarded_generated_hydro_pyridino_imidazole_parent(other_candidate):
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH or len(other.name) - len(item.name) > 60:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
 def _has_contextual_complete_nitrile_oxide_parent_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -3721,6 +3805,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     preferred_compact_bicyclic_parent = (
         _has_contextual_preferred_compact_bicyclic_parent_alternative_for_acyclic_decomposition(item, prepared)
     )
+    generated_hydro_pyridino_imidazole_parent = _has_contextual_generated_hydro_pyridino_imidazole_alternative(
+        item,
+        prepared,
+    )
     complete_nitrile_oxide_parent = _has_contextual_complete_nitrile_oxide_parent_alternative(item, prepared)
     small_late_single_ring_parent = _has_contextual_early_six_member_single_ring_parent_alternative(item, prepared)
     aromatic_single_ring_parent = _has_contextual_aromatic_single_ring_parent_alternative(item, prepared)
@@ -3842,6 +3930,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or retained_biochem_fused
         or retained_quinuclidin_parent
         or preferred_compact_bicyclic_parent
+        or generated_hydro_pyridino_imidazole_parent
         or complete_nitrile_oxide_parent
         or small_late_single_ring_parent
         or aromatic_single_ring_parent
@@ -4156,6 +4245,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 180
     if preferred_compact_bicyclic_parent:
         penalty += 180
+    if generated_hydro_pyridino_imidazole_parent:
+        penalty += 100
     if small_late_single_ring_parent:
         penalty += 72
     if aromatic_single_ring_parent:

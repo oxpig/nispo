@@ -3663,22 +3663,57 @@ def _nitrone_azaniumolate_parent_names(mol, Chem) -> list[str]:
             for nbr in carbon.GetNeighbors()
             if nbr.GetIdx() != nidx and nbr.GetAtomicNum() > 1
         ]
-        if carbon.IsInRing() or carbon.GetFormalCharge() != 0 or len(substituents) != 1:
+        if carbon.IsInRing() or carbon.GetFormalCharge() != 0:
             continue
-        substituent_idx = substituents[0]
-        if not _collect_component_has_ring(mol, substituent_idx, carbon_idx):
+        if len(substituents) == 1:
+            substituent_idx = substituents[0]
+            if not _collect_component_has_ring(mol, substituent_idx, carbon_idx):
+                continue
+            prefix = _simple_or_branch_prefix(mol, substituent_idx, carbon_idx)
+            if not prefix:
+                continue
+            covered = {nidx, carbon_idx, oxido_oxygens[0]}
+            covered.update(_collect_component_atoms(mol, substituent_idx, carbon_idx))
+            if covered != atom_set:
+                continue
+            bare = _strip_outer_parentheses(prefix)
+            piece = _parenthesized_if_complex(bare)
+            names.append(f"{piece}methylideneazaniumolate")
             continue
-        prefix = _simple_or_branch_prefix(mol, substituent_idx, carbon_idx)
-        if not prefix:
-            continue
-        covered = {nidx, carbon_idx, oxido_oxygens[0]}
-        covered.update(_collect_component_atoms(mol, substituent_idx, carbon_idx))
-        if covered != atom_set:
-            continue
-        bare = _strip_outer_parentheses(prefix)
-        piece = _parenthesized_if_complex(bare)
-        names.append(f"{piece}methylideneazaniumolate")
+        if len(substituents) == 2:
+            prefixes = []
+            covered = {nidx, carbon_idx, oxido_oxygens[0]}
+            for substituent_idx in substituents:
+                prefix = _simple_or_branch_prefix(mol, substituent_idx, carbon_idx)
+                if not prefix:
+                    prefixes.clear()
+                    break
+                prefixes.append(_strip_outer_parentheses(prefix))
+                covered.update(_collect_component_atoms(mol, substituent_idx, carbon_idx))
+            if not prefixes or covered != atom_set:
+                continue
+            ligand_text = _nitrone_ligand_text(prefixes)
+            if ligand_text:
+                names.append(f"{ligand_text} nitrone")
     return names
+
+
+def _nitrone_ligand_text(prefixes: Sequence[str]) -> str:
+    counts = Counter(prefixes)
+    pieces = []
+    for prefix, count in sorted(counts.items(), key=lambda item: item[0]):
+        if count == 1:
+            pieces.append(prefix)
+            continue
+        multiplier = MULT.get(count)
+        if not multiplier:
+            return ""
+        if _needs_substituent_parentheses(prefix):
+            bare = _strip_outer_parentheses(prefix)
+            pieces.append(f"bis({bare})" if count == 2 else f"{multiplier}({bare})")
+        else:
+            pieces.append(multiplier + prefix)
+    return " ".join(pieces)
 
 
 def _center_ligand_names_and_coverage(mol, center_idx: int, ligand_atoms: Sequence[int]) -> tuple[list[str], set[int]]:

@@ -1458,6 +1458,25 @@ def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCOP([O-])(=S)[S-]",
+        "CCOP(=S)([S-])OCC",
+        "CCOP(N)([O-])=S",
+        "COP(=S)(Cl)Cl",
+        "Cc1ccc(OP(=S)([S-])Oc2cccc(C)c2)cc1",
+        "O=c1ccn([C@H]2C[C@H](OP(O)(=S)S)[C@@H](CO)O2)c(=O)[nH]1",
+    ],
+)
+def test_o_substituted_phosphorothioate_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "N=S(=O)=O",
         "N=S=O",
         "N=[SH2]=O",

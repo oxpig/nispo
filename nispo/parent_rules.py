@@ -6305,7 +6305,10 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
     double_oxygen = 0
     terminal_oxido = 0
     terminal_hydroxy = 0
+    terminal_sulfido = 0
+    terminal_sulfanyl = 0
     terminal_amino = 0
+    halogen_ligands = []
     owner_names = []
     covered_atoms = {center_idx}
     for nbr in center.GetNeighbors():
@@ -6317,8 +6320,39 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
             double_sulfur += 1
             covered_atoms.add(nidx)
             continue
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != center_idx and atom.GetAtomicNum() > 1
+            ]
+            if heavy:
+                return None
+            if nbr.GetFormalCharge() < 0:
+                terminal_sulfido += 1
+            elif nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                terminal_sulfanyl += 1
+            else:
+                return None
+            covered_atoms.add(nidx)
+            continue
         if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
             double_oxygen += 1
+            covered_atoms.add(nidx)
+            continue
+        if (
+            nbr.GetSymbol() in HALO
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == 0
+        ):
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != center_idx and atom.GetAtomicNum() > 1
+            ]
+            if heavy:
+                return None
+            halogen_ligands.append(nbr.GetSymbol())
             covered_atoms.add(nidx)
             continue
         if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
@@ -6363,7 +6397,10 @@ def _thiooxo_ester_center_record(mol, Chem, center_idx: int) -> dict | None:
         "double_oxygen": double_oxygen,
         "terminal_oxido": terminal_oxido,
         "terminal_hydroxy": terminal_hydroxy,
+        "terminal_sulfido": terminal_sulfido,
+        "terminal_sulfanyl": terminal_sulfanyl,
         "terminal_amino": terminal_amino,
+        "halogen_ligands": tuple(sorted(halogen_ligands)),
         "owner_names": tuple(owner_names),
         "covered_atoms": covered_atoms,
     }
@@ -6377,12 +6414,49 @@ def _thiooxo_ester_record_name(record: dict) -> str:
     double_oxygen = record["double_oxygen"]
     terminal_oxido = record["terminal_oxido"]
     terminal_hydroxy = record["terminal_hydroxy"]
+    terminal_sulfido = record["terminal_sulfido"]
+    terminal_sulfanyl = record["terminal_sulfanyl"]
     terminal_amino = record["terminal_amino"]
+    halogen_ligands = record["halogen_ligands"]
     center_hydrogens = record["center_hydrogens"]
     single_oxygen_count = len(owner_names) + terminal_oxido + terminal_hydroxy
     if center_symbol == "P":
         if double_oxygen != 0:
             return ""
+        if (
+            center_hydrogens == 0
+            and terminal_sulfido == 0
+            and terminal_sulfanyl == 0
+            and not halogen_ligands
+        ):
+            if terminal_amino == 1 and terminal_oxido == 1 and terminal_hydroxy == 0 and owner_names:
+                return _thiooxo_ester_name(owner_names, 0, "phosphoramidothioate")
+        if center_hydrogens == 0 and terminal_amino == 0 and not halogen_ligands:
+            if terminal_sulfido == 1 and terminal_sulfanyl == 0:
+                if terminal_oxido == 1 and terminal_hydroxy == 0 and len(owner_names) == 1:
+                    return _thiooxo_ester_name(owner_names, 0, "phosphorodithioate")
+                if terminal_oxido == 0 and terminal_hydroxy == 0 and len(owner_names) == 2:
+                    return _thiooxo_ester_name(owner_names, 0, "phosphorodithioate")
+            if (
+                terminal_sulfido == 0
+                and terminal_sulfanyl == 1
+                and terminal_oxido == 0
+                and terminal_hydroxy == 1
+                and len(owner_names) == 1
+            ):
+                return _thiooxo_ester_name(owner_names, 0, "phosphorodithioic acid")
+        if (
+            center_hydrogens == 0
+            and terminal_amino == 0
+            and terminal_oxido == 0
+            and terminal_hydroxy == 0
+            and terminal_sulfido == 0
+            and terminal_sulfanyl == 0
+            and len(owner_names) == 1
+        ):
+            halogen_parent = _phosphorodihalidothioate_parent(halogen_ligands)
+            if halogen_parent:
+                return _thiooxo_ester_name(owner_names, 0, halogen_parent)
         if not owner_names and center_hydrogens == 0:
             if terminal_amino == 0:
                 if terminal_oxido == 3 and terminal_hydroxy == 0:
@@ -6401,6 +6475,8 @@ def _thiooxo_ester_record_name(record: dict) -> str:
         return ""
     if center_symbol != "S":
         return ""
+    if terminal_sulfido or terminal_sulfanyl or halogen_ligands:
+        return ""
     if terminal_amino != 0:
         return ""
     if double_oxygen == 0 and center_hydrogens == 1 and terminal_oxido == 0 and terminal_hydroxy == 0 and len(owner_names) == 1:
@@ -6412,6 +6488,19 @@ def _thiooxo_ester_record_name(record: dict) -> str:
     if center_hydrogens == 0 and single_oxygen_count == 2:
         return _thiooxo_ester_name(owner_names, terminal_hydroxy, "thiosulfate")
     return ""
+
+
+def _phosphorodihalidothioate_parent(halogen_ligands: Sequence[str]) -> str:
+    if len(halogen_ligands) != 2 or halogen_ligands[0] != halogen_ligands[1]:
+        return ""
+    roots = {
+        "F": "fluorido",
+        "Cl": "chlorido",
+        "Br": "bromido",
+        "I": "iodido",
+    }
+    root = roots.get(halogen_ligands[0], "")
+    return f"phosphorodi{root}thioate" if root else ""
 
 
 def _thiooxo_ester_name(owner_names: Sequence[str], hydrogen_count: int, parent: str) -> str:

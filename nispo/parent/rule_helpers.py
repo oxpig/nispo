@@ -27,6 +27,7 @@ from ..ring_rules import (
 )
 from ..simple_prefixes import simple_external_prefix
 from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
+from ..substituent_resource_rules import resource_substituent_match as _resource_substituent_match
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
 _OPSIN_PARSEABLE_RETAINED_PARENT_ALIASES = {
@@ -1848,6 +1849,7 @@ class RingNameRecord:
     locant_seq: tuple[int, ...]
     suffix_kind: str = ""
     suffix_graph_class: str = ""
+    retained_carbohydrate_substituent_count: int = 0
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
@@ -1871,6 +1873,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
     ring_set = set(ordered)
     external_subs: list[tuple[int, int, str]] = []
     raw_subs = []
+    retained_carbohydrate_substituent_count = 0
     for ring_idx in ordered:
         atom = mol.GetAtomWithIdx(ring_idx)
         for nbr in atom.GetNeighbors():
@@ -1882,6 +1885,8 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 return []
             external_subs.append((ring_idx, nidx, prefix))
             raw_subs.append((ring_idx, prefix))
+            if _is_retained_carbohydrate_substituent(mol, nidx, ring_idx, Chem):
+                retained_carbohydrate_substituent_count += 1
 
     best_key = None
     best_name = ""
@@ -2020,8 +2025,38 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             tuple(best_seq),
             best_suffix_kind,
             _single_ring_suffix_graph_class(mol, best_seq, best_suffix_kind),
+            retained_carbohydrate_substituent_count,
         )
     ]
+
+
+def _is_retained_carbohydrate_substituent(mol, substituent_idx: int, parent_idx: int, Chem) -> bool:
+    template = _resource_substituent_match(mol, substituent_idx, parent_idx, Chem)
+    if _is_retained_carbohydrate_substituent_template(template):
+        return True
+    substituent_atom = mol.GetAtomWithIdx(substituent_idx)
+    if substituent_atom.GetAtomicNum() not in {7, 8, 16}:
+        return False
+    if substituent_atom.GetFormalCharge() != 0:
+        return False
+    for neighbor in substituent_atom.GetNeighbors():
+        neighbor_idx = neighbor.GetIdx()
+        if neighbor_idx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(substituent_idx, neighbor_idx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        template = _resource_substituent_match(mol, neighbor_idx, substituent_idx, Chem)
+        if _is_retained_carbohydrate_substituent_template(template):
+            return True
+    return False
+
+
+def _is_retained_carbohydrate_substituent_template(template: dict | None) -> bool:
+    if not template or template.get("source_file") != "carbohydrates.xml":
+        return False
+    name = template_record_name(template)
+    return name.endswith(("pyranosyl", "furanosyl", "osyl", "aminyl", "muramyl", "neuraminyl"))
 
 
 def _drop_redundant_intrinsic_single_ring_charge_locant(mol, seq: Sequence[int], name: str) -> str:

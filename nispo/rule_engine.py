@@ -47,6 +47,7 @@ _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
+_SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE = "single-ring:retained-carbohydrate-substituent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -4022,6 +4023,49 @@ def _has_contextual_complete_nitrile_oxide_parent_alternative(
     return False
 
 
+def _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if candidate.source_family == _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.parent_aromatic_atom_count or candidate.parent_hetero_atom_count != 1:
+        return False
+    if candidate.parent_external_oxygen_substituent_count < 1:
+        return False
+    if len(candidate.parent_atoms) not in {5, 6} or len(candidate.stereo_locants) < 2:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if other_candidate.source_family != _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.parent_atoms == candidate.parent_atoms:
+            continue
+        if other_candidate.parent_aromatic_atom_count or other_candidate.parent_hetero_atom_count != 1:
+            continue
+        if other_candidate.parent_external_oxygen_substituent_count < 1:
+            continue
+        if len(other_candidate.parent_atoms) not in {5, 6} or len(other_candidate.stereo_locants) < 2:
+            continue
+        if item.stability_penalty > other.stability_penalty + 100:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH or len(item.name) - len(other.name) > 180:
+            continue
+        return True
+    return False
+
+
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
@@ -4289,6 +4333,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         _has_contextual_earlier_external_hetero_single_ring_parent_alternative(item, prepared)
     )
     single_ring_stereo_prefix_parent = _has_contextual_stereo_prefix_free_ring_alternative(item, prepared)
+    retained_carbohydrate_substituent_expanded_single_ring = (
+        _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared)
+    )
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if not (
@@ -4414,6 +4461,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or earlier_aromatic_single_ring_parent
         or earlier_external_hetero_single_ring_parent
         or single_ring_stereo_prefix_parent
+        or retained_carbohydrate_substituent_expanded_single_ring
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -4754,6 +4802,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 90
     if single_ring_stereo_prefix_parent:
         penalty += 150
+    if retained_carbohydrate_substituent_expanded_single_ring:
+        penalty -= 240
     return penalty
 
 
@@ -4761,6 +4811,8 @@ def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: li
     bonus = 0
     if _has_contextual_larger_single_ring_parent_alternative(item, prepared):
         bonus += 40
+    if _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared):
+        bonus += 90
     return bonus
 
 

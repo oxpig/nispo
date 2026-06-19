@@ -14709,12 +14709,18 @@ class SingleRingParentRule:
         for render_rank, ring_fact in enumerate(ring_facts, start=1):
             ring = ring_fact.ring
             for record in _named_ring_instance_records(mol, tuple(ring), self._Chem):
+                source_family = (
+                    "single-ring:retained-carbohydrate-substituent"
+                    if record.retained_carbohydrate_substituent_count
+                    else ""
+                )
                 yield NameCandidate(
                     name=record.name,
                     family=self.family,
                     priority=candidate_priority,
                     sort_key=_single_ring_candidate_sort_key(record.name),
                     stereo_prefix=record.stereo_prefix,
+                    source_family=source_family,
                     parent_atoms=frozenset(ring),
                     parent_aromatic_atom_count=_ring_aromatic_atom_count(mol, ring),
                     parent_hetero_atom_count=_ring_hetero_atom_count(mol, ring),

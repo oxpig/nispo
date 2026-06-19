@@ -1101,6 +1101,45 @@ class MethylenebisDithiocarbamateRetainedParentRule:
             )
 
 
+class DithiocarbamateRetainedParentRule:
+    family = "dithiocarbamate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_set = set(range(mol.GetNumAtoms()))
+        for nitrogen in mol.GetAtoms():
+            nidx = nitrogen.GetIdx()
+            if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+                continue
+            carbonyl_neighbors = []
+            for nbr in nitrogen.GetNeighbors():
+                nbrid = nbr.GetIdx()
+                bond = mol.GetBondBetweenAtoms(nidx, nbrid)
+                if nbr.GetSymbol() == "C" and bond is not None and bond.GetBondType() == self._Chem.BondType.SINGLE:
+                    carbonyl_neighbors.append(nbrid)
+            for carbon_idx in carbonyl_neighbors:
+                record = _dithiocarbamate_carbon_record(mol, self._Chem, carbon_idx, nidx)
+                if record is None:
+                    continue
+                name_and_atoms = _dithiocarbamate_name_and_atoms(mol, nidx, carbon_idx, record)
+                if name_and_atoms is None:
+                    continue
+                name, covered = name_and_atoms
+                if covered != atom_set:
+                    continue
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=atom_set,
+                    sort_key=(len(name), name),
+                )
+
+
 class HexamethylenediamideRetainedParentRule:
     family = "hexamethylenediamide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -8606,6 +8645,36 @@ def _dithiocarbamate_unit_name_and_atoms(mol, Chem, nitrogen_idx: int, methylene
     return None
 
 
+def _dithiocarbamate_name_and_atoms(
+    mol,
+    nitrogen_idx: int,
+    carbon_idx: int,
+    record: dict,
+) -> tuple[str, set[int]] | None:
+    n_substituents = _external_substituent_names(mol, nitrogen_idx, carbon_idx)
+    if not n_substituents:
+        return None
+    n_prefix = _n_substituent_prefix(n_substituents)
+    if not n_prefix:
+        return None
+    s_owner = _simple_or_branch_prefix(mol, record["single_sulfur_owner"], record["single_sulfur"])
+    if not s_owner or _unstable_retained_functional_parent_substituent(s_owner):
+        return None
+    name = f"{_hetero_ligand_role_text('S', s_owner)}-{n_prefix}dithiocarbamate"
+    covered = {
+        nitrogen_idx,
+        carbon_idx,
+        record["double_sulfur"],
+        record["single_sulfur"],
+    }
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx != carbon_idx and nbr.GetAtomicNum() > 1:
+            covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    covered.update(_collect_component_atoms(mol, record["single_sulfur_owner"], record["single_sulfur"]))
+    return name, covered
+
+
 def _dithiocarbamate_carbon_record(mol, Chem, carbon_idx: int, nitrogen_idx: int) -> dict | None:
     carbon = mol.GetAtomWithIdx(carbon_idx)
     if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
@@ -15904,6 +15973,7 @@ def parent_rules(Chem) -> tuple:
     sulfanium = SulfaniumParentRule(Chem)
     bis_sulfonium_sulfide = BisSulfoniumSulfideRetainedParentRule(Chem)
     methylenebis_dithiocarbamate = MethylenebisDithiocarbamateRetainedParentRule(Chem)
+    dithiocarbamate = DithiocarbamateRetainedParentRule(Chem)
     hexamethylenediamide = HexamethylenediamideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
     sydnone = SydnoneRetainedParentRule(Chem)
@@ -16033,6 +16103,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             methylenebis_dithiocarbamate.candidates,
+        ),
+        RuleSpec(
+            "dithiocarbamate-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            dithiocarbamate.candidates,
         ),
         RuleSpec(
             "hexamethylenediamide-retained-parent",

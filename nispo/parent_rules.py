@@ -1001,7 +1001,11 @@ class SulfaniumParentRule:
         implicit_hydrogens = sulfur.GetTotalNumHs()
         if len(neighbors) + implicit_hydrogens != 3 or len(neighbors) not in {2, 3}:
             return
-        if any(mol.GetAtomWithIdx(nidx).GetSymbol() not in {"C", "S"} for nidx in neighbors):
+        if any(
+            mol.GetAtomWithIdx(nidx).GetSymbol() not in {"C", "N", "O", "F", "Cl", "Br", "I", "S"}
+            or mol.GetAtomWithIdx(nidx).GetFormalCharge() != 0
+            for nidx in neighbors
+        ):
             return
         if any(
             mol.GetBondBetweenAtoms(sidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
@@ -1010,6 +1014,11 @@ class SulfaniumParentRule:
             return
         names = []
         for nidx in neighbors:
+            if (
+                mol.GetAtomWithIdx(nidx).GetSymbol() in {"N", "O"}
+                and _sulfanium_ligand_component_has_nitrile(mol, nidx, sidx)
+            ):
+                return
             prefix = _simple_or_branch_prefix(mol, nidx, sidx)
             if not prefix:
                 return
@@ -1017,6 +1026,11 @@ class SulfaniumParentRule:
         name = _sulfanium_name(names)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _sulfanium_ligand_component_has_nitrile(mol, ligand_idx: int, sulfur_idx: int) -> bool:
+    component = _collect_component_atoms(mol, ligand_idx, sulfur_idx)
+    return any(_is_nitrile_carbon(mol, atom_idx) for atom_idx in component)
 
 
 class BisSulfoniumSulfideRetainedParentRule:

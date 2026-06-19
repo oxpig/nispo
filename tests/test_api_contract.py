@@ -3137,6 +3137,21 @@ def test_standard_nucleoside_tetraphosphate_templates_roundtrip_with_opsin(input
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Cc1cc(=O)oc2cc(OCC(O)CO)ccc12",
+        "[NH-]OCC(O)CO",
+    ],
+)
+def test_polyhydroxy_alkyl_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -168,6 +168,12 @@ def _safe_substituted_alkoxy_stem(stem: str) -> bool:
         "phenoxy",
         "methoxy",
         "ethoxy",
+        "hydroxy",
+        "dihydroxy",
+        "trihydroxy",
+        "tetrahydroxy",
+        "pentahydroxy",
+        "hexahydroxy",
         "trifluoromethyl",
         "difluoromethyl",
     )

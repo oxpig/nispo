@@ -802,6 +802,7 @@ def _terminal_carboxymethyl_prefix(mol, carbonyl_idx: int, methylene_idx: int, p
 
 def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     chain = []
+    group_terms: list[tuple[int, str]] = []
     previous = parent_idx
     current = idx
     while len(chain) < 24:
@@ -814,6 +815,7 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
         if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
             return ""
         chain.append(current)
+        locant = len(chain)
         next_carbons = []
         terminal_groups = []
         for nbr in atom.GetNeighbors():
@@ -827,20 +829,35 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
                 next_carbons.append(nidx)
             else:
                 return ""
+        for group_idx in terminal_groups:
+            term = _terminal_functional_group_term(mol, group_idx, current)
+            if not term:
+                return ""
+            group_terms.append((locant, term))
         if terminal_groups and not next_carbons:
-            if len(terminal_groups) != 1:
-                return ""
-            term = _terminal_functional_group_term(mol, terminal_groups[0], current)
             root = ROOTS.get(len(chain))
-            if not term or not root:
+            if not root:
                 return ""
-            if "-" in term or "(" in term or ")" in term:
-                term = f"({term})"
-            return f"{len(chain)}-{term}{root}yl"
+            return _functionalized_alkyl_name(root, group_terms, terminal_locant=locant)
         if len(next_carbons) != 1:
             return ""
         previous, current = current, next_carbons[0]
     return ""
+
+
+def _functionalized_alkyl_name(root: str, group_terms: Sequence[tuple[int, str]], *, terminal_locant: int) -> str:
+    if not group_terms:
+        return ""
+    if len(group_terms) == 1 and group_terms[0][0] == terminal_locant:
+        locant, term = group_terms[0]
+        if "-" in term or "(" in term or ")" in term:
+            term = f"({term})"
+        return f"{locant}-{term}{root}yl"
+    terms = {term for _, term in group_terms}
+    if terms != {"hydroxy"}:
+        return ""
+    prefix = _locanted_multiplier_prefix([str(locant) for locant, _term in group_terms], "hydroxy")
+    return f"{prefix}{root}yl" if prefix else ""
 
 
 def _terminal_functional_group_term(mol, group_idx: int, chain_idx: int) -> str:

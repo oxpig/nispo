@@ -1226,6 +1226,26 @@ _RANKER_COMPACT_FUSED_SHORTCUT_FAMILIES = frozenset(
     }
 )
 
+_RANKER_SENIOR_FUNCTIONAL_COMPLETE_PARENT_FAMILIES = frozenset(
+    {
+        "dithiazole-retained-parent",
+        "phosphorus-acid-parent",
+        "small-inorganic-retained-parent",
+        "sulfonamide-parent",
+    }
+)
+
+_RANKER_SENIOR_FUNCTIONAL_SHORTCUT_FAMILIES = (
+    _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES
+    | _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES
+    | frozenset(
+        {
+            "neutral-amine-parent",
+            "single-ring-parent",
+        }
+    )
+)
+
 
 def _candidate_fact_ranked_switch_is_safe(
     current: _PreparedCandidate,
@@ -1325,7 +1345,16 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
         return False
+    if not _ranker_preserves_generic_bicyclic_parent_over_generated_fused_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(current, proposed):
+        return False
+    if not _ranker_preserves_complete_senior_functional_parent(current, proposed):
         return False
     if not _ranker_preserves_acyclic_parent_for_generated_fused(current, proposed):
         return False
@@ -2470,6 +2499,27 @@ def _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(
     return False
 
 
+def _ranker_preserves_complete_senior_functional_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family not in _RANKER_SENIOR_FUNCTIONAL_COMPLETE_PARENT_FAMILIES:
+        return True
+    if proposed_candidate.family not in _RANKER_SENIOR_FUNCTIONAL_SHORTCUT_FAMILIES:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    if proposed_candidate.suffixes or proposed_candidate.charge is not None:
+        return True
+    return False
+
+
 def _ranker_preserves_compact_bicyclic_parent(
     current: _PreparedCandidate,
     proposed: _PreparedCandidate,
@@ -2511,6 +2561,63 @@ def _ranker_preserves_compact_bicyclic_parent(
     if current_candidate.charge is not None or proposed_candidate.charge is not None:
         return True
     if current.stability_penalty > proposed.stability_penalty + 80:
+        return True
+    return False
+
+
+def _ranker_preserves_generic_bicyclic_parent_over_generated_fused_shortcut(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "generic-bicyclic-parent":
+        return True
+    if proposed_candidate.family != "generated-fused-parent":
+        return True
+    if current_candidate.source_family != "bicyclic":
+        return True
+    if current_candidate.template_name or current_candidate.source_file:
+        return True
+    if proposed_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 8 or current_parent_count > 10:
+        return True
+    if len(current_candidate.locants) < 3:
+        return True
+    if current_candidate.render_rank != 1:
+        return True
+    if current_candidate.suffixes or current_candidate.charge is not None:
+        return True
+    if proposed_candidate.suffixes or proposed_candidate.charge is not None:
+        return True
+    if proposed_candidate.render_rank != 1:
+        return True
+    if proposed_parent_count < current_parent_count or proposed_parent_count > current_parent_count + 2:
+        return True
+    if proposed_candidate.parent_aromatic_atom_count != proposed_parent_count:
+        return True
+    if proposed_candidate.parent_hetero_atom_count > 2:
+        return True
+    if proposed_candidate.parent_external_oxygen_substituent_count:
+        return True
+    if proposed_candidate.parent_external_nitrogen_substituent_count > 1:
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty < current_penalty + 40:
         return True
     return False
 

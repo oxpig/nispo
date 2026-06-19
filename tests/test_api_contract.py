@@ -3599,6 +3599,37 @@ def test_polyhydroxy_alkyl_branches_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=[SH](=O)Nc1ccc(-c2ccc3cn[nH]c3c2)cc1",
+        "CCc1c(O[PH2]=O)cccc1-c1cc(O)ccc1O",
+        "O=C(Nc1nc(=O)ss1)C1CC1",
+    ],
+)
+def test_ranker_preserves_senior_functional_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"C[C@]12CCC[C@H](C/C(=C\c3cnc(-c4cc5ccncc5cc4O)cn3)[C@@H]1F)N2",
+        "Cn1ncc2cc(N3C[C@H]4CN(C(=O)N5CCS(=O)(=O)CC5)C[C@@H]3C(C)(C)C4)ccc21",
+    ],
+)
+def test_ranker_preserves_generic_bicyclic_parent_over_generated_fused_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

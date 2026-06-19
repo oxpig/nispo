@@ -436,6 +436,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
             keyed_items,
             selected_item,
@@ -738,6 +745,14 @@ _KEKULIZED_SINGLE_RING_PARENT_PROFILE_COUNTS = frozenset(
     }
 )
 
+_LOW_CONFIDENCE_GENERATED_FUSED_TO_KEKULIZED_FAMILIES = frozenset(
+    {
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
 
 def _kekulized_polycyclic_alternative_for_single_ring_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
@@ -806,6 +821,64 @@ def _kekulized_single_ring_parent_profile_is_supported(
     if candidate.parent_element_counts == (("C", 7), ("N", 2)):
         return len(name) <= 110
     return False
+
+
+def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _LOW_CONFIDENCE_GENERATED_FUSED_TO_KEKULIZED_FAMILIES:
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_atom_count = len(selected_candidate.parent_atoms)
+    if selected_parent_atom_count < 9 or selected_parent_atom_count > 14:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if selected_candidate.render_rank is not None and selected_candidate.render_rank > 2:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if candidate.source_family != "kekulized":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if candidate.render_rank != 1:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_atom_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(

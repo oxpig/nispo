@@ -488,6 +488,13 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_single_ring_parent_over_external_nitrogen_generated_fused(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_rank1_hetero_generated_fused_parent_over_acyclic_skeleton(current, proposed):
         return False
     if not _ranker_preserves_substituent_ring_parent_over_compact_chalcogen_suffix(
@@ -1028,6 +1035,31 @@ def _ranker_preserves_generated_fused_parent_over_penalized_retained_shortcut(
     if proposed_penalty < current_penalty + 180:
         return True
     if len(current.name) > 260 or len(current.name) - len(proposed.name) > 150:
+        return True
+    return False
+
+
+def _ranker_preserves_single_ring_parent_over_external_nitrogen_generated_fused(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "single-ring-parent":
+        return True
+    if not _is_external_nitrogen_generated_fused_shortcut_candidate(proposed_candidate):
+        return True
+    if not _is_clean_aromatic_single_ring_parent_candidate(current_candidate):
+        return True
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty <= current_penalty:
+        return True
+    if len(current.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return True
+    if len(current.name) - len(proposed.name) > 90:
         return True
     return False
 
@@ -4380,6 +4412,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         item,
         prepared,
     )
+    external_nitrogen_generated_fused_single_ring = (
+        _has_contextual_external_nitrogen_generated_fused_single_ring_alternative(item, prepared)
+    )
     biochem_fused_sibling = _has_contextual_biochem_fused_sibling_alternative(item, prepared)
     generated_fused_low_rank_parent = _has_contextual_low_rank_generated_fused_parent_alternative(
         item,
@@ -4539,6 +4574,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or biochem_heterofused_parent
         or exocyclic_fused_single_ring
         or external_dinitrogen_generated_fused
+        or external_nitrogen_generated_fused_single_ring
         or biochem_fused_sibling
         or generated_fused_low_rank_parent
         or generated_fused_same_atoms
@@ -4856,6 +4892,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 95
     if external_dinitrogen_generated_fused:
         penalty += 150
+    if external_nitrogen_generated_fused_single_ring:
+        penalty += 120
     if biochem_fused_sibling:
         penalty += 90
     if generated_fused_low_rank_parent:
@@ -8756,6 +8794,78 @@ def _has_contextual_external_dinitrogen_generated_fused_alternative(
             continue
         return True
     return False
+
+
+def _has_contextual_external_nitrogen_generated_fused_single_ring_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not _is_external_nitrogen_generated_fused_shortcut_candidate(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_clean_aromatic_single_ring_parent_candidate(other_candidate):
+            continue
+        if len(other.name) > 80:
+            continue
+        if len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty > item.stability_penalty + 90:
+            continue
+        return True
+    return False
+
+
+def _is_external_nitrogen_generated_fused_shortcut_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 9 or parent_count > 14:
+        return False
+    if candidate.parent_aromatic_atom_count != parent_count:
+        return False
+    if candidate.parent_hetero_atom_count > 2:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count != 1:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count > 1:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate.safety is not None and candidate.safety.reasons:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 2:
+        return False
+    return True
+
+
+def _is_clean_aromatic_single_ring_parent_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 6:
+        return False
+    if candidate.parent_aromatic_atom_count != 6:
+        return False
+    if candidate.parent_hetero_atom_count > 2:
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate.safety is not None and candidate.safety.reasons:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 3:
+        return False
+    return True
 
 
 _PURINE_ACYCLIC_PHOSPHORUS_PARENT_FAMILIES = frozenset(

@@ -133,7 +133,9 @@ def _generated_exact_parent_sort_key(template: dict) -> tuple:
     name = template_record_name(template)
     base = _fusion_base_name(name)
     base_rank = 0 if base in _BICYCLIC_FUSION_BASES else 1
-    return (base_rank, len(name), template.get("source_family", ""), name)
+    if base == "imidazole":
+        return (base_rank, len(name), template.get("source_family", ""), name)
+    return (_generated_fusion_preference(name), base_rank, len(name), template.get("source_family", ""), name)
 
 
 def _single_ring_candidate_sort_key(name: str) -> tuple:

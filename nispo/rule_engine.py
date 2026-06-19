@@ -4813,7 +4813,45 @@ def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: li
         bonus += 40
     if _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared):
         bonus += 90
+    if _has_contextual_preferred_generated_exact_orientation(item, prepared):
+        bonus += 24
     return bonus
+
+
+def _has_contextual_preferred_generated_exact_orientation(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-exact-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if not candidate.sort_key or not isinstance(candidate.sort_key[0], tuple):
+        return False
+    preference = candidate.sort_key[0]
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-exact-parent":
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if not other_candidate.sort_key or not isinstance(other_candidate.sort_key[0], tuple):
+            continue
+        if preference >= other_candidate.sort_key[0]:
+            continue
+        if item.stability_penalty > other.stability_penalty + 40:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH or len(item.name) - len(other.name) > 6:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_stereo_prefix_free_ring_alternative(

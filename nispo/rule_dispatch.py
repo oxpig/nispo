@@ -87,6 +87,61 @@ def functional_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal
 
 
+def dithiocarbonate_signal(ctx) -> bool:
+    mol = ctx.mol
+    Chem = ctx.Chem
+    for carbon in mol.GetAtoms():
+        cidx = carbon.GetIdx()
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        has_terminal_thioxo = False
+        has_oxygen_owner = False
+        sulfur_owner_count = 0
+        terminal_sulfido_count = 0
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if bond is None:
+                continue
+            if (
+                nbr.GetSymbol() == "S"
+                and bond.GetBondType() == Chem.BondType.DOUBLE
+                and nbr.GetFormalCharge() == 0
+                and _heavy_degree_excluding(nbr, cidx) == 0
+            ):
+                has_terminal_thioxo = True
+            elif (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and _heavy_degree_excluding(nbr, cidx) == 1
+            ):
+                has_oxygen_owner = True
+            elif (
+                nbr.GetSymbol() == "S"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() <= 0
+            ):
+                heavy_degree = _heavy_degree_excluding(nbr, cidx)
+                if heavy_degree == 1:
+                    sulfur_owner_count += 1
+                elif heavy_degree == 0 and nbr.GetFormalCharge() < 0:
+                    terminal_sulfido_count += 1
+        if has_terminal_thioxo and (
+            (has_oxygen_owner and sulfur_owner_count >= 1)
+            or (not has_oxygen_owner and sulfur_owner_count >= 1 and terminal_sulfido_count >= 1)
+        ):
+            return True
+    return False
+
+
+def _heavy_degree_excluding(atom, excluded_idx: int) -> int:
+    return sum(
+        1
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != excluded_idx and nbr.GetAtomicNum() > 1
+    )
+
+
 def exact_functional_retained_signal(ctx) -> bool:
     return (
         ctx.profile.has_functional_skeleton_signal

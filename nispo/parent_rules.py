@@ -62,6 +62,7 @@ from .rule_dispatch import (
     charged_ring_atom,
     component_spiro_topology,
     conjugated_carbonyl_diene_signal,
+    dithiocarbonate_signal,
     exact_functional_retained_signal,
     exact_ring_system,
     functional_skeleton_signal,
@@ -16451,7 +16452,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "dithiocarbonate-retained-parent",
             parent_priority("senior-functional-exception"),
-            (),
+            (dithiocarbonate_signal,),
             dithiocarbonate.candidates,
         ),
         RuleSpec(

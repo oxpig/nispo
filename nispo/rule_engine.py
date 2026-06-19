@@ -372,6 +372,7 @@ def _candidate_fact_ranked_item(
                 best_facts = facts
     except Exception:
         return current
+    selected_item = current
     if (
         best_item is not current
         and best_score > current_score + _CANDIDATE_FACT_RANKER_MIN_MARGIN
@@ -390,8 +391,60 @@ def _candidate_fact_ranked_item(
             best_score,
         )
     ):
-        return best_item
-    return current
+        selected_item = best_item
+    return _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
+        keyed_items,
+        selected_item,
+    ) or selected_item
+
+
+def _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-partial-hydro-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if not selected_candidate.template_name:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if len(selected_candidate.parent_atoms) < 8:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if candidate.template_name:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if len(candidate.parent_atoms) < 4:
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 170:
+            continue
+        if candidate_key[0] > selected_key[0]:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES = frozenset(
@@ -519,6 +572,13 @@ def _candidate_fact_ranked_switch_is_safe(
     ):
         return False
     if not _ranker_preserves_charged_single_ring_parent_over_neutral_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
+    if not _ranker_preserves_single_ring_parent_over_low_confidence_generated_partial_hydro(
         current,
         proposed,
         current_key,
@@ -1217,6 +1277,52 @@ def _is_exact_retained_charge_distribution_shortcut(candidate: NameCandidate) ->
     return candidate.parent_abs_formal_charge_sum > candidate.template_abs_formal_charge_sum
 
 
+def _ranker_preserves_single_ring_parent_over_low_confidence_generated_partial_hydro(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "single-ring-parent":
+        return True
+    if proposed_candidate.family != "generated-partial-hydro-fused-parent":
+        return True
+    if proposed_candidate.source_family != "generated-fused":
+        return True
+    if proposed_candidate.source_file != "generated_fused_template_index.json":
+        return True
+    if not proposed_candidate.template_name:
+        return True
+    if current_candidate.template_name:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if len(current_candidate.parent_atoms) < 4:
+        return True
+    if len(proposed_candidate.parent_atoms) < 8:
+        return True
+    if len(proposed_candidate.parent_atoms) < len(current_candidate.parent_atoms):
+        return True
+    proposed_render_rank = proposed_candidate.render_rank
+    if proposed_render_rank is None or proposed_render_rank > 4:
+        return True
+    if len(current.name) > 280:
+        return True
+    if len(current.name) - len(proposed.name) > 170:
+        return True
+    if proposed_key <= current_key:
+        return True
+    return False
+
+
 def _ranker_preserves_large_fused_parent_over_single_ring_decomposition(
     current: _PreparedCandidate,
     proposed: _PreparedCandidate,
@@ -1618,6 +1724,8 @@ def _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(
     current_parent_count = len(current_candidate.parent_atoms)
     proposed_parent_count = len(proposed_candidate.parent_atoms)
     if proposed_parent_count > current_parent_count + 5:
+        return True
+    if current_candidate.suffixes and proposed_parent_count >= current_parent_count + 5:
         return True
     if current_candidate.render_rank is not None and current_candidate.render_rank > 3:
         return True
@@ -2958,6 +3066,7 @@ _GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_FAMILIES = (
         "generic-bicyclic-parent",
         "generic-spiro-parent",
         "kekulized-generic-polycyclic-parent",
+        "single-ring-parent",
     }
 )
 _GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_PENALTY = 180

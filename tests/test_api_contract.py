@@ -407,6 +407,26 @@ def test_low_confidence_generated_fused_parent_defers_to_kekulized_roundtrip(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@H](Nc1ncnc2[nH]cnc12)C1=Cc2cccc(Cl)c2CN1c1ccccc1",
+        "CCC(Nc1ncnc2[nH]cnc12)[C@@H]1N=c2cccc(F)c2=CN1c1ccccc1",
+        "C[C@@H](Oc1ccc(-c2nc3c(C4=CCN(C(=O)OC(C)(C)C)CC4)ncnc3[nH]2)c(F)c1)c1ccccc1",
+        "COc1ccc(C(OC[C@H]2O[C@@H](n3c(=O)[nH]c4c(=O)[nH]cnc43)C[C@H]2O)(c2ccccc2)c2ccc(OC)cc2)cc1",
+        "O=C1CCC(n2nnc3cccc(N4CCC(CN5CCC(CCNc6ncnc7[nH]cnc67)CC5)CC4)c3c2=O)C(=O)N1",
+    ],
+)
+def test_single_ring_parent_defers_to_generated_purine_fused_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C1c2[nH]cnc2NC(=C=S)N1Cc1ccccc1C1CCC(F)CN1",
         "O=C1c2[nH]cnc2NC(=C=S)N1Cc1ccc(Cl)cc1C1COCCN1",
         "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2C2CCCN2)c2cc[nH]c21",

@@ -78,6 +78,8 @@ class NameCandidate:
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
     parent_indicated_hydrogen_locants: tuple[str, ...] = ()
+    molecule_formal_charge_atom_count: int = 0
+    molecule_abs_formal_charge_sum: int = 0
     parent_formal_charge_atom_count: int = 0
     parent_abs_formal_charge_sum: int = 0
     template_formal_charge_atom_count: int = 0
@@ -430,6 +432,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _kekulized_polycyclic_alternative_for_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _generated_purine_fused_alternative_for_single_ring_choice(
             keyed_items,
             selected_item,
         )
@@ -821,6 +830,76 @@ def _kekulized_single_ring_parent_profile_is_supported(
     if candidate.parent_element_counts == (("C", 7), ("N", 2)):
         return len(name) <= 110
     return False
+
+
+def _generated_purine_fused_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_atom_count = len(selected_candidate.parent_atoms)
+    if selected_parent_atom_count not in {5, 6}:
+        return None
+    if selected_parent_atom_count == 5 and selected_candidate.parent_terminal_hetero_substituent_count < 2:
+        return None
+    if selected_candidate.charge is not None:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if selected_candidate.render_rank is not None and selected_candidate.render_rank > 2:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 2:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 9:
+            continue
+        if candidate.parent_aromatic_atom_count != 9 or candidate.parent_hetero_atom_count != 4:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count > 1:
+            continue
+        if candidate.parent_external_oxygen_substituent_count:
+            continue
+        if candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 160:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
@@ -2999,8 +3078,11 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
             if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
                 external_unsaturated_bond_count += 1
     parent_element_counts = tuple(sorted(counts.items()))
+    molecule_formal_charge_atom_count, molecule_abs_formal_charge_sum = _molecule_charge_counts(mol)
     if (
         candidate.parent_element_counts == parent_element_counts
+        and candidate.molecule_formal_charge_atom_count == molecule_formal_charge_atom_count
+        and candidate.molecule_abs_formal_charge_sum == molecule_abs_formal_charge_sum
         and candidate.parent_formal_charge_atom_count == formal_charge_atom_count
         and candidate.parent_abs_formal_charge_sum == abs_formal_charge_sum
         and candidate.parent_external_unsaturated_bond_count == external_unsaturated_bond_count
@@ -3009,9 +3091,29 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
     return replace(
         candidate,
         parent_element_counts=parent_element_counts,
+        molecule_formal_charge_atom_count=molecule_formal_charge_atom_count,
+        molecule_abs_formal_charge_sum=molecule_abs_formal_charge_sum,
         parent_formal_charge_atom_count=formal_charge_atom_count,
         parent_abs_formal_charge_sum=abs_formal_charge_sum,
         parent_external_unsaturated_bond_count=external_unsaturated_bond_count,
+    )
+
+
+def _molecule_charge_counts(mol) -> tuple[int, int]:
+    cached = mol_cache_get(mol, "molecule_charge_counts")
+    if cached is not None:
+        return cached
+    formal_charge_atom_count = 0
+    abs_formal_charge_sum = 0
+    for atom in mol.GetAtoms():
+        formal_charge = atom.GetFormalCharge()
+        if formal_charge:
+            formal_charge_atom_count += 1
+            abs_formal_charge_sum += abs(formal_charge)
+    return mol_cache_set(
+        mol,
+        "molecule_charge_counts",
+        (formal_charge_atom_count, abs_formal_charge_sum),
     )
 
 

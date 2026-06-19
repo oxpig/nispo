@@ -6089,15 +6089,12 @@ class BetaDicarbonylParentRule:
 class OxoCarboxylateRetainedParentRule:
     family = "oxo-carboxylate-retained-parent"
     priority = parent_priority("senior-functional-exception")
-    acyclic_only = True
 
     def __init__(self, Chem):
         self._Chem = Chem
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() != 0:
-            return
         seen = set()
         for name, stereo_locants in _oxo_carboxylate_parent_records(mol, self._Chem):
             if name in seen:
@@ -16575,7 +16572,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
         RuleSpec("retained-amide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_amide.candidates),
         RuleSpec("beta-dicarbonyl-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), beta_dicarbonyl.candidates),
-        RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (acyclic, functional_skeleton_signal), oxo_carboxylate.candidates),
+        RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), oxo_carboxylate.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec(

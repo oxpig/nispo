@@ -1944,6 +1944,10 @@ def test_small_element_oxide_retained_parents_roundtrip_with_opsin(input_smiles)
         "CC(C)C(=O)C(=O)[O-]",
         "CC(CC(=O)C(=O)[O-])C",
         "O=C([O-])CCC(=O)C(=O)[O-]",
+        "O=C([O-])C(=O)CCc1ccccc1O",
+        "O=C([O-])C(=O)c1cc2ccccc2oc1=O",
+        "O=C([O-])C(=O)CC/C=C/c1ccc(O)c(O)c1",
+        "O=C([O-])C(=O)/C=C(\\O)c1ccon1",
     ],
 )
 def test_alpha_keto_carboxylate_parents_roundtrip_with_opsin(input_smiles):

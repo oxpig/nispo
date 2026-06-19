@@ -3559,6 +3559,8 @@ def test_oxafluoren_skeletal_replacement_alternatives_roundtrip_with_opsin(input
         "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCOP([O-])[O-]",
         "CCCCCCCCCCCCCOP(OCCCCCCCCCCCCC)OP([O-])[O-]",
         "C#C[PH]([O-])(OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1)OCc1ccc(-c2cccc([N+](=O)[O-])c2[N+](=O)[O-])cc1",
+        "CN(C)c1ccc(OP([O-])[O-])cc1",
+        "CC1(C)c2ccccc2OP(OP([O-])[O-])Oc2ccccc21",
     ],
 )
 def test_phosphite_ester_parent_survives_fact_ranker_roundtrip_with_opsin(input_smiles):

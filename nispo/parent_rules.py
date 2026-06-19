@@ -2092,8 +2092,16 @@ class PhosphiteEsterParentRule:
         self._Chem = Chem
 
     def candidates(self, ctx):
+        atom_set = frozenset(range(ctx.mol.GetNumAtoms()))
         for name in _phosphite_ester_names(ctx.mol, self._Chem):
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=atom_set,
+                sort_key=(len(name), name),
+                estimated_length=len(name),
+            )
 
 
 class ChargedOrganophosphorusOxoParentRule:

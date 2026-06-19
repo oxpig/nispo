@@ -274,6 +274,7 @@ def test_positive_single_ring_cn_heterocycles_roundtrip_with_opsin(input_smiles)
         "Cc1cc[o+]cc1",
         "CCc1c[nH+]c[nH]1",
         "O=C(O)n1c[nH+]nn1",
+        "O=C([O-])c1ccc[nH+]c1",
         "N#CC(C#N)c1cccc[o+]1",
     ],
 )

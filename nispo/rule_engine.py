@@ -77,6 +77,10 @@ class NameCandidate:
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
     parent_indicated_hydrogen_locants: tuple[str, ...] = ()
+    parent_formal_charge_atom_count: int = 0
+    parent_abs_formal_charge_sum: int = 0
+    template_formal_charge_atom_count: int = 0
+    template_abs_formal_charge_sum: int = 0
     prefixes: tuple[PrefixCandidate, ...] = ()
     suffixes: tuple[SuffixCandidate, ...] = ()
     charge: ChargeEvidence | None = None
@@ -1178,11 +1182,21 @@ def _ranker_preserves_charged_single_ring_parent_over_neutral_shortcut(
         return True
     if current_candidate.charge is None or not current_candidate.charge.charged_atoms:
         return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if _is_exact_retained_charge_distribution_shortcut(proposed_candidate):
+        if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+            return True
+        if not current_candidate.parent_atoms.issubset(proposed_candidate.parent_atoms):
+            return True
+        if len(current_candidate.parent_atoms) < 5 or len(current_candidate.parent_atoms) > 6:
+            return True
+        if len(current.name) > 180 or len(current.name) - len(proposed.name) > 90:
+            return True
+        return proposed_key <= current_key
     if proposed_candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
         return True
     if proposed_candidate.charge is not None:
-        return True
-    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
         return True
     if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
         return True
@@ -1191,6 +1205,16 @@ def _ranker_preserves_charged_single_ring_parent_over_neutral_shortcut(
     if len(current.name) > 180 or len(current.name) - len(proposed.name) > 90:
         return True
     return proposed_key <= current_key
+
+
+def _is_exact_retained_charge_distribution_shortcut(candidate: NameCandidate) -> bool:
+    if candidate.family != "exact-functional-retained-parent":
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    return candidate.parent_abs_formal_charge_sum > candidate.template_abs_formal_charge_sum
 
 
 def _ranker_preserves_large_fused_parent_over_single_ring_decomposition(
@@ -2208,13 +2232,29 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
     if not candidate.parent_atoms:
         return candidate
     counts: dict[str, int] = {}
+    formal_charge_atom_count = 0
+    abs_formal_charge_sum = 0
     for atom_idx in candidate.parent_atoms:
-        symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
+        atom = mol.GetAtomWithIdx(atom_idx)
+        symbol = atom.GetSymbol()
         counts[symbol] = counts.get(symbol, 0) + 1
+        formal_charge = atom.GetFormalCharge()
+        if formal_charge:
+            formal_charge_atom_count += 1
+            abs_formal_charge_sum += abs(formal_charge)
     parent_element_counts = tuple(sorted(counts.items()))
-    if candidate.parent_element_counts == parent_element_counts:
+    if (
+        candidate.parent_element_counts == parent_element_counts
+        and candidate.parent_formal_charge_atom_count == formal_charge_atom_count
+        and candidate.parent_abs_formal_charge_sum == abs_formal_charge_sum
+    ):
         return candidate
-    return replace(candidate, parent_element_counts=parent_element_counts)
+    return replace(
+        candidate,
+        parent_element_counts=parent_element_counts,
+        parent_formal_charge_atom_count=formal_charge_atom_count,
+        parent_abs_formal_charge_sum=abs_formal_charge_sum,
+    )
 
 
 def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameCandidate) -> bool:
@@ -7039,15 +7079,17 @@ def _has_contextual_charged_single_ring_parent_alternative(
     prepared: list[_PreparedCandidate],
 ) -> bool:
     candidate = item.candidate
-    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
-        return False
-    if candidate.charge is not None or candidate.suffixes:
-        return False
-    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
-        return False
-    current_parent_count = len(candidate.parent_atoms)
-    if current_parent_count < 3 or current_parent_count > 8:
-        return False
+    charge_distribution_shortcut = _is_exact_retained_charge_distribution_shortcut(candidate)
+    if not charge_distribution_shortcut:
+        if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+            return False
+        if candidate.charge is not None or candidate.suffixes:
+            return False
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            return False
+        current_parent_count = len(candidate.parent_atoms)
+        if current_parent_count < 3 or current_parent_count > 8:
+            return False
     for other in prepared:
         if other is item or other.name == item.name:
             continue
@@ -7060,8 +7102,14 @@ def _has_contextual_charged_single_ring_parent_alternative(
             continue
         if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
             continue
-        if len(other_candidate.parent_atoms) != current_parent_count:
-            continue
+        if charge_distribution_shortcut:
+            if len(other_candidate.parent_atoms) < 5 or len(other_candidate.parent_atoms) > 6:
+                continue
+            if not other_candidate.parent_atoms.issubset(candidate.parent_atoms):
+                continue
+        else:
+            if len(other_candidate.parent_atoms) != current_parent_count:
+                continue
         if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
             continue
         if other.stability_penalty > item.stability_penalty + 80:

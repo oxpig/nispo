@@ -13159,6 +13159,20 @@ def _formal_charge(mol) -> int:
     return mol_cache_set(mol, "formal_charge", sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
 
 
+def _formal_charge_atom_count(mol) -> int:
+    cached = mol_cache_get(mol, "formal_charge_atom_count")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "formal_charge_atom_count", sum(1 for atom in mol.GetAtoms() if atom.GetFormalCharge()))
+
+
+def _abs_formal_charge_sum(mol) -> int:
+    cached = mol_cache_get(mol, "abs_formal_charge_sum")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "abs_formal_charge_sum", sum(abs(atom.GetFormalCharge()) for atom in mol.GetAtoms()))
+
+
 _STANDALONE_RETAINED_ACID_STEM_EXCEPTIONS = {
     "psic",
 }
@@ -16195,6 +16209,8 @@ class ExactRetainedParentRule:
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
                         source_file=str(template.get("source_file", "")),
+                        template_formal_charge_atom_count=_formal_charge_atom_count(template_record_mol(template)),
+                        template_abs_formal_charge_sum=_abs_formal_charge_sum(template_record_mol(template)),
                         estimated_length=len(name),
                     )
 
@@ -16247,6 +16263,8 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
                         source_file=str(template.get("source_file", "")),
+                        template_formal_charge_atom_count=_formal_charge_atom_count(template_record_mol(template)),
+                        template_abs_formal_charge_sum=_abs_formal_charge_sum(template_record_mol(template)),
                         estimated_length=len(name),
                     )
 

@@ -35,7 +35,9 @@ def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]
     return candidates
 
 
-def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
+def kekulized_polycyclic_parent_candidate_records(
+    mol, Chem, *, limit: int | None = None
+) -> list[tuple[str, tuple[int, ...]]]:
     """Late generic fallback for fused systems not covered by retained parents.
 
     OPSIN accepts many replacement-style bicyclo/tricyclo names with explicit
@@ -50,7 +52,23 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
         kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
     except Exception:
         kekulized = mol
-    candidates = []
+    if limit is not None and limit <= 0:
+        return []
+    seen = set()
+    unique = []
+
+    def add_unique(records) -> bool:
+        for record in records:
+            name, seq = record[0], record[1]
+            key = (name, seq)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(record)
+            if limit is not None and len(unique) >= limit:
+                return True
+        return False
+
     for ring_system in _ring_systems(kekulized, Chem):
         graph = _ring_system_graph(kekulized, Chem, ring_system)
         if not graph:
@@ -73,16 +91,8 @@ def kekulized_polycyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, 
         else:
             continue
         for records in record_sets:
-            candidates.extend(records)
-    seen = set()
-    unique = []
-    for record in candidates:
-        name, seq = record[0], record[1]
-        key = (name, seq)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(record)
+            if add_unique(records):
+                return unique
     return unique
 
 

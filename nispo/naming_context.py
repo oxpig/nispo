@@ -31,6 +31,7 @@ from .molecule_cache import mol_cache_set
 
 _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
 _GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT = 16
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 20
 
 
 @dataclass(slots=True)
@@ -232,7 +233,13 @@ class MoleculeContext:
         elif family == "spiro":
             records = tuple(spiro_parent_candidate_records(self.mol, self.Chem))
         elif family == "kekulized":
-            records = tuple(kekulized_polycyclic_parent_candidate_records(self.mol, self.Chem))
+            records = tuple(
+                kekulized_polycyclic_parent_candidate_records(
+                    self.mol,
+                    self.Chem,
+                    limit=_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT,
+                )
+            )
         else:
             records = ()
         self.cache.polycyclic_records[family] = records

@@ -414,7 +414,14 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _chromane_topology_replacement_alternative_for_nonchromane_choice(
+    selected_item = (
+        _chromane_topology_replacement_alternative_for_nonchromane_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
         keyed_items,
         selected_item,
     ) or selected_item
@@ -639,6 +646,62 @@ def _chromane_topology_replacement_alternative_for_nonchromane_choice(
         if len(item.name) - len(selected.name) > 80:
             continue
         if candidate_key[0] > selected_key[0] + 120:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "fused-retained-parent":
+        return None
+    if selected_candidate.source_family != "opsin-retained-ring-cml":
+        return None
+    if selected_candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if (
+        selected_candidate.parent_element_counts == (("C", 10), ("O", 1))
+        and not selected_candidate.parent_external_unsaturated_bond_count
+    ):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-skeleton-with-ring-substituents":
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) < 5:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.parent_abs_formal_charge_sum > 1:
+            continue
+        if len(item.name) > 220:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

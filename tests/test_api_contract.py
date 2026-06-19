@@ -332,6 +332,42 @@ def test_chromanone_like_retained_parent_stays_on_opsin_parseable_template(input
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C1OC(=C(c2ccncc2)C(F)(F)F)c2ccccc21",
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(Oc2ccc3ncc(OC4CCNCC4)nc3c2)c1C#N",
+        "CCC(=O)O[C@@H](OP(=O)(N[C@@H](Cc1ccccc1)C(=O)OC(C)C)OC[C@@]1(COC)C(=O)[C@H]2CCN1[C@H](C)C2)C(C)C",
+        "CCOC(=O)/C=C1\\CCOc2cc(Cl)ccc21",
+    ],
+)
+def test_opsin_retained_fused_parent_defers_to_complete_acyclic_skeleton_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "[N-]=[N+]=NCCOCCOCCOCCNC(=O)CC[C@H](NC(=O)c1ccc(NCc2cnc3nc(N)[nH]c(=O)c3n2)cc1)C(=O)O",
+        "CC[C@H](CC=O)Oc1cc(Nc2cc(C)[nH]n2)nc(NC2C3CC4CC2CC(O)(C4)C3)n1",
+    ],
+)
+def test_opsin_retained_fused_parent_keeps_fragile_correct_retained_controls(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",

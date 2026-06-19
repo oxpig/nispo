@@ -72,6 +72,7 @@ class NameCandidate:
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
     parent_terminal_chalcogen_double_bond_count: int = 0
+    parent_external_unsaturated_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_acyl_nitrogen_substituent_count: int = 0
@@ -392,10 +393,92 @@ def _candidate_fact_ranked_item(
         )
     ):
         selected_item = best_item
-    return _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
+    selected_item = (
+        _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _adamantane_retained_parent_alternative_for_templateless_choice(
         keyed_items,
         selected_item,
     ) or selected_item
+
+
+_ADAMANTANE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "carbamate-retained-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "kekulized-generic-polycyclic-parent",
+        "single-ring-parent",
+    }
+)
+_ADAMANTANE_RETAINED_PARENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }
+)
+_ADAMANTANE_RETAINED_SOURCE_FAMILIES = frozenset(
+    {
+        "opsin-retained-ring-cml",
+        "static-retained",
+    }
+)
+
+
+def _adamantane_retained_parent_alternative_for_templateless_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.template_name:
+        return None
+    if selected_candidate.family not in _ADAMANTANE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _ADAMANTANE_RETAINED_PARENT_FAMILIES:
+            continue
+        if candidate.template_name != "adamantane":
+            continue
+        if candidate.source_family not in _ADAMANTANE_RETAINED_SOURCE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 10:
+            continue
+        if candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate.suffixes:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 6:
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 130:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
@@ -2342,6 +2425,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
     counts: dict[str, int] = {}
     formal_charge_atom_count = 0
     abs_formal_charge_sum = 0
+    external_unsaturated_bond_count = 0
     for atom_idx in candidate.parent_atoms:
         atom = mol.GetAtomWithIdx(atom_idx)
         symbol = atom.GetSymbol()
@@ -2350,11 +2434,19 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         if formal_charge:
             formal_charge_atom_count += 1
             abs_formal_charge_sum += abs(formal_charge)
+        for neighbor in atom.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            if neighbor_idx in candidate.parent_atoms:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+            if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
+                external_unsaturated_bond_count += 1
     parent_element_counts = tuple(sorted(counts.items()))
     if (
         candidate.parent_element_counts == parent_element_counts
         and candidate.parent_formal_charge_atom_count == formal_charge_atom_count
         and candidate.parent_abs_formal_charge_sum == abs_formal_charge_sum
+        and candidate.parent_external_unsaturated_bond_count == external_unsaturated_bond_count
     ):
         return candidate
     return replace(
@@ -2362,6 +2454,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         parent_element_counts=parent_element_counts,
         parent_formal_charge_atom_count=formal_charge_atom_count,
         parent_abs_formal_charge_sum=abs_formal_charge_sum,
+        parent_external_unsaturated_bond_count=external_unsaturated_bond_count,
     )
 
 

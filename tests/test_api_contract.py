@@ -176,6 +176,41 @@ def test_generated_pyrazole_fused_orientation_roundtrips_with_opsin(input_smiles
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCc1cccc(CC)c1NCC(O)Cc1n[nH]c(=O)[nH]1",
+        "O=C(Nc1cc(Cl)c(Oc2ccc3ncn(C4CC4)c3c2)c(Cl)c1)c1noc(=O)[nH]1",
+        "CC(C)(C)c1ccccc1NCC(O)Cc1n[nH]c(=S)[nH]1",
+    ],
+)
+def test_terminal_azole_chalcogen_suffix_parent_roundtrips_with_opsin(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=c1oc(-c2ccc(F)cc2)ns1",
+        "CCn1c(COCc2ccccc2)nn(-c2cc3c(cc2F)c(=O)oc(=O)n3C(C)C)c1=O",
+    ],
+)
+def test_terminal_azole_chalcogen_suffix_parent_keeps_guarded_controls(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_retained_hydro_fused_template_pair_roundtrips_with_opsin():
     input_smiles = "Cc1cc(C#C[C@]2(O)CCc3cccnc32)cc(-c2ncc3ccnc(N)c3n2)c1"
     generated_name = smiles_to_iupac(input_smiles)

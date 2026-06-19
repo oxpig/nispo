@@ -459,6 +459,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return _alternate_bicyclic_orientation_for_rank1_choice(
         keyed_items,
         selected_item,
@@ -10218,6 +10225,45 @@ _PYRAZOLO_PYRAZINE_GENERATED_TEMPLATES = frozenset(
 )
 
 
+_TERMINAL_AZOLE_CHALCOGEN_SUFFIX_KINDS = frozenset(
+    {
+        "ring_oxo_suffix",
+        "ring_thione_suffix",
+    }
+)
+
+
+_PROTECTED_SENIOR_RETAINED_PARENT_FAMILIES = frozenset(
+    {
+        "carbamate-retained-parent",
+        "charged-urea-amidate-retained-parent",
+        "dithiazole-retained-parent",
+        "formamidine-retained-parent",
+        "organophosphorus-oxide-parent",
+        "phosphate-ester-retained-parent",
+        "retained-amide-parent",
+        "sulfonamide-parent",
+        "sulfonamide-retained-parent",
+    }
+)
+
+
+_PROTECTED_TERMINAL_AZOLE_RETAINED_FUSED_PARENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+    }
+)
+
+
+_PROTECTED_TERMINAL_AZOLE_RETAINED_FUSED_TEMPLATE_NAMES = frozenset(
+    {
+        "benzo[d][1,3]oxazin-4-one",
+        "isatoic anhydride",
+    }
+)
+
+
 def _has_contextual_preferred_generated_fused_template_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -10259,6 +10305,104 @@ def _has_contextual_preferred_generated_fused_template_alternative(
             continue
         return True
     return False
+
+
+def _has_contextual_terminal_azole_chalcogen_suffix_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 5:
+        return False
+    if dict(candidate.parent_element_counts).get("S", 0):
+        return False
+    if candidate.parent_aromatic_atom_count != 5:
+        return False
+    if candidate.parent_hetero_atom_count < 3:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count != 1:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count:
+        return False
+    if candidate.charge is not None:
+        return False
+    if len(candidate.suffixes) != 1:
+        return False
+    if candidate.suffixes[0].kind not in _TERMINAL_AZOLE_CHALCOGEN_SUFFIX_KINDS:
+        return False
+    render_rank = candidate.render_rank or 0
+    if render_rank < 1 or render_rank > 3:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if len(item.name) > 260:
+        return False
+    has_competing_parent = False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family in _PROTECTED_SENIOR_RETAINED_PARENT_FAMILIES:
+            if (
+                candidate_has_complete_graph(other_candidate)
+                and not candidate_safety_reasons(other_candidate)
+                and len(other.name) <= len(item.name) + 100
+            ):
+                return False
+        if other_candidate.family in _PROTECTED_TERMINAL_AZOLE_RETAINED_FUSED_PARENT_FAMILIES:
+            if (
+                other_candidate.template_name in _PROTECTED_TERMINAL_AZOLE_RETAINED_FUSED_TEMPLATE_NAMES
+                and candidate_has_complete_graph(other_candidate)
+                and not candidate_safety_reasons(other_candidate)
+                and len(other.name) <= len(item.name) + 160
+                and other.stability_penalty <= item.stability_penalty + 500
+            ):
+                return False
+        if other_candidate.suffixes:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.family in _PROTECTED_SENIOR_RETAINED_PARENT_FAMILIES:
+            continue
+        if len(other.name) > len(item.name) + 120:
+            continue
+        if other.stability_penalty > item.stability_penalty + 320:
+            continue
+        has_competing_parent = True
+    return has_competing_parent
+
+
+def _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.suffixes:
+        return None
+    if selected_candidate.family in _PROTECTED_SENIOR_RETAINED_PARENT_FAMILIES:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    prepared = [item for _key, item in keyed_items]
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        if not _has_contextual_terminal_azole_chalcogen_suffix_parent(item, prepared):
+            continue
+        if len(item.name) - len(selected.name) > 90:
+            continue
+        if candidate_key[0] > selected_key[0] + 340:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _is_contextual_terminal_heterocarbon_pyrazolopyrazine_parent(

@@ -2,18 +2,27 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import json
 
 from .acyclic_rules import AcyclicNameRecord, name_acyclic_record
-from .fused_template_families import candidate_generated_fused_templates
+from .fused_template_families import (
+    candidate_generated_fused_templates,
+    generated_template_key,
+    _generated_templates_for_key,
+)
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
     kekulized_polycyclic_parent_candidate_records,
     spiro_parent_candidate_records,
 )
 from .structural_profile import StructuralProfile, structural_profile
-from .template_access import template_record_mol
+from .template_access import template_record_mol, template_record_name
 from .template_index import molecule_features
-from .template_index import ring_systems_for_mol
+from .template_index import (
+    ring_system_feature_key,
+    ring_system_with_graph_signatures,
+    ring_systems_for_mol,
+)
 from .template_store import TemplateStore, template_store
 from .ring_topology import RingSystemTopology, ring_system_topologies
 from .telemetry import CandidateTelemetry
@@ -21,6 +30,7 @@ from .molecule_cache import mol_cache_set
 
 
 _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
+_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT = 16
 
 
 @dataclass(slots=True)
@@ -231,10 +241,16 @@ class MoleculeContext:
     @property
     def generated_fused_templates(self) -> tuple[dict, ...]:
         if self._generated_fused_templates is None:
-            self._generated_fused_templates = candidate_generated_fused_templates(
+            narrow = candidate_generated_fused_templates(
                 self.mol,
                 self.Chem,
                 features=self.features,
+            )
+            self._generated_fused_templates = _supplement_generated_fused_templates_by_ring_graph(
+                self.mol,
+                self.Chem,
+                self.features,
+                narrow,
             )
             if not self._generated_fused_templates:
                 self._generated_fused_templates = candidate_generated_fused_templates(
@@ -244,6 +260,54 @@ class MoleculeContext:
                     graph_filter=False,
                 )
         return self._generated_fused_templates
+
+
+def _supplement_generated_fused_templates_by_ring_graph(
+    mol,
+    Chem,
+    features: dict,
+    templates: tuple[dict, ...],
+) -> tuple[dict, ...]:
+    """Add same-topology generated fused aliases missing from element graph keys."""
+
+    supplements = []
+    seen: set[tuple[str, str]] = {
+        (
+            template_record_name(template),
+            Chem.MolToSmiles(template_record_mol(template), canonical=True),
+        )
+        for template in templates
+    }
+    for system in features["ring_systems"]:
+        key = json.dumps(ring_system_feature_key(system), separators=(",", ":"))
+        system = ring_system_with_graph_signatures(mol, system, Chem)
+        graph_key = system.get("graph_signature", "")
+        if not graph_key:
+            continue
+        for template in _generated_templates_for_key(key, graph_key, "", False, Chem):
+            if _template_ring_hetero_atom_count(template) < 2:
+                continue
+            marker = (
+                template_record_name(template),
+                Chem.MolToSmiles(template_record_mol(template), canonical=True),
+            )
+            if marker in seen:
+                continue
+            seen.add(marker)
+            supplements.append(template)
+    if supplements:
+        supplements = sorted(supplements, key=generated_template_key)[
+            :_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
+        ]
+    return tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
+
+
+def _template_ring_hetero_atom_count(template: dict) -> int:
+    return sum(
+        1
+        for atom in template_record_mol(template).GetAtoms()
+        if atom.IsInRing() and atom.GetAtomicNum() not in {1, 6}
+    )
 
 
 def _template_collection_label(templates: tuple[dict, ...]) -> str:

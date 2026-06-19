@@ -137,6 +137,22 @@ def test_thienopyrazole_generated_fused_parent_roundtrips_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Nc1ncnc2c1ncn2[C@@H]1O[C@H](COP(=O)(O)OS(=O)(=O)O)[C@@H](O)[C@H]1O",
+        "CC(C)N(C)Cc1cc2c(-c3ccc4[nH]nc(N)c4c3)ccnc2[nH]1",
+        "[N-]=[N+]=NC(COCCOCCOCCOCCOCCOCCC(N)=O)Cc1ccc(COc2nc(N)nc3[nH]cnc23)cc1",
+    ],
+)
+def test_generated_fused_graph_supplement_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CON(C)C(=O)c1cc(F)c(F)c2[nH]ncc12",
         "[O-][n+]1cc(Br)c2cn[nH]c2c1",
         "Nc1n[nH]c2nc3ccccc3nc12",

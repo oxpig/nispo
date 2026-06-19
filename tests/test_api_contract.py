@@ -581,6 +581,8 @@ def test_retained_shortcuts_defer_to_roundtripping_systematic_alternatives(input
         "c1cccoocc1",
         "O=S([O-])([O-])=S",
         "NS(=[NH2+])O",
+        "N#CI(=O)=O",
+        "O=[I+]1C=CC=C1",
     ],
 )
 def test_common_polyatomic_fragments_roundtrip_with_opsin(input_smiles):
@@ -1028,6 +1030,23 @@ def test_small_retained_oxirane_and_benziodoxolone_parents_roundtrip_with_opsin(
     ],
 )
 def test_neutral_iodane_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C1=C[IH]C=C1",
+        "CC1=CC=C[IH]1",
+        "C1=C[IH]C[IH]1",
+        "C1=C[IH]OC1",
+    ],
+)
+def test_neutral_iodine_hydride_ring_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

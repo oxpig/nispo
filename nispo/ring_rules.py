@@ -1714,8 +1714,6 @@ def _simple_iodine_ring_candidates(
 ) -> list[tuple[str, tuple[int, ...]]]:
     if "I" not in symbols:
         return []
-    if _has_external_heavy_substituent(mol, ordered):
-        return []
     if any(mol.GetAtomWithIdx(idx).GetFormalCharge() != 0 for idx in ordered):
         return []
     counts = Counter(symbols)
@@ -1732,11 +1730,20 @@ def _simple_iodine_ring_candidates(
             parent = "iodolane"
         elif double_count == 1:
             parent = "iodoline"
+        elif double_count == 2 and _ring_iodine_atoms_have_hydrogen(mol, ordered):
+            parent = "iodol"
     elif counts == Counter({"C": 5, "I": 1}) and len(ordered) == 6:
         if double_count == 0:
             parent = "iodinane"
         elif double_count == 2:
             parent = "iodinine"
+    elif (
+        counts == Counter({"C": 3, "I": 1, "O": 1})
+        and len(ordered) == 5
+        and double_count == 1
+        and _ring_iodine_atoms_have_hydrogen(mol, ordered)
+    ):
+        parent = "iodoxole"
     elif counts == Counter({"C": 3, "I": 1, "N": 1}) and len(ordered) == 5 and double_count == 2:
         parent = "iodazole"
     elif (
@@ -1747,6 +1754,14 @@ def _simple_iodine_ring_candidates(
     ):
         parent = "diiodol"
     elif (
+        counts == Counter({"C": 3, "I": 2})
+        and len(ordered) == 5
+        and double_count == 1
+        and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 0
+        and _ring_iodine_atoms_have_hydrogen(mol, ordered)
+    ):
+        parent = "3,5-diiodol"
+    elif (
         counts == Counter({"C": 2, "I": 3})
         and len(ordered) == 5
         and double_count == 1
@@ -1755,7 +1770,18 @@ def _simple_iodine_ring_candidates(
         parent = "triiodol"
     if not parent:
         return []
+    if _has_external_heavy_substituent(mol, ordered) and parent not in {"iodol", "3,5-diiodol", "iodoxole"}:
+        return []
+    if parent == "3,5-diiodol":
+        return [(parent, _ring_sequence_for_3_5_diiodol(mol, ordered))]
+    if parent == "iodoxole":
+        return [(parent, _ring_sequence_with_symbols(mol, ordered, ("I", "O", "C", "C", "C")))]
     return [(parent, _ring_sequence_starting_with(mol, ordered, "I"))]
+
+
+def _ring_iodine_atoms_have_hydrogen(mol, ordered: Sequence[int]) -> bool:
+    iodine_atoms = [mol.GetAtomWithIdx(idx) for idx in ordered if mol.GetAtomWithIdx(idx).GetSymbol() == "I"]
+    return bool(iodine_atoms) and all(atom.GetTotalNumHs() > 0 for atom in iodine_atoms)
 
 
 def _has_external_heavy_substituent(mol, ordered: Sequence[int]) -> bool:
@@ -1779,6 +1805,24 @@ def _adjacent_symbol_bond_count(mol, ordered: Sequence[int], left_symbol: str, r
 def _ring_sequence_starting_with(mol, ordered: Sequence[int], symbol: str) -> tuple[int, ...]:
     for seq in _ring_numberings(ordered):
         if mol.GetAtomWithIdx(seq[0]).GetSymbol() == symbol:
+            return tuple(seq)
+    return tuple(ordered)
+
+
+def _ring_sequence_with_symbols(mol, ordered: Sequence[int], symbols: Sequence[str]) -> tuple[int, ...]:
+    for seq in _ring_numberings(ordered):
+        if tuple(mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq) == tuple(symbols):
+            return tuple(seq)
+    return tuple(ordered)
+
+
+def _ring_sequence_for_3_5_diiodol(mol, ordered: Sequence[int]) -> tuple[int, ...]:
+    for seq in _ring_numberings(ordered):
+        symbols = tuple(mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq)
+        if symbols != ("C", "C", "I", "C", "I"):
+            continue
+        bond = mol.GetBondBetweenAtoms(seq[0], seq[1])
+        if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
             return tuple(seq)
     return tuple(ordered)
 

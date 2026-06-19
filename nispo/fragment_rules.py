@@ -141,6 +141,7 @@ SMALL_RETAINED_TEMPLATES = (
     ("furoxanone", "O=C1C=NO[NH+]1[O-]"),
     ("4-oxazinone", "O=c1cconc1"),
     ("oxalimide", "O=c1[nH]c1=O"),
+    ("oxoiodolium", "O=[I+]1C=CC=C1"),
     ("selenazolium", "c1c[se]c[nH+]1"),
     ("thiapyrone", "O=c1ccccs1"),
 )
@@ -378,6 +379,7 @@ def _small_standalone_polyatomic_name(mol, Chem) -> str:
     return (
         _oxidonitrogen_anion_name(mol, Chem)
         or _cyanonitrate_name(mol, Chem)
+        or _cyanoiodate_name(mol, Chem)
         or _hypothiocyanite_name(mol, Chem)
         or _alkanesulfenate_name(mol, Chem)
         or _phosphacycloalkanolate_name(mol, Chem)
@@ -434,6 +436,28 @@ def _cyanonitrate_name(mol, Chem) -> str:
         else:
             return ""
     return "cyanonitrate" if double_o == 1 and oxido_o == 1 else ""
+
+
+def _cyanoiodate_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 1, "I": 1, "N": 1, "O": 2} or _total_charge(mol) != 0:
+        return ""
+    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    iodine = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "I")
+    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
+    if carbon.GetFormalCharge() != 0 or iodine.GetFormalCharge() != 0 or nitrogen.GetFormalCharge() != 0:
+        return ""
+    if not _specific_bond(mol, Chem, carbon.GetIdx(), nitrogen.GetIdx(), Chem.BondType.TRIPLE):
+        return ""
+    if not _specific_bond(mol, Chem, carbon.GetIdx(), iodine.GetIdx(), Chem.BondType.SINGLE):
+        return ""
+    oxo_count = sum(
+        1
+        for oxygen in mol.GetAtoms()
+        if oxygen.GetSymbol() == "O"
+        and oxygen.GetFormalCharge() == 0
+        and _specific_bond(mol, Chem, iodine.GetIdx(), oxygen.GetIdx(), Chem.BondType.DOUBLE)
+    )
+    return "cyanoiodate" if oxo_count == 2 else ""
 
 
 def _hypothiocyanite_name(mol, Chem) -> str:

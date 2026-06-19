@@ -163,6 +163,9 @@ def test_generated_fused_graph_supplement_roundtrips_with_opsin(input_smiles):
         "Nc1nc2cc(-c3cc[nH]n3)ccc2c2nc(C3CCNC3)[nH]c12",
         "CCOCOc1cc(C(F)(F)F)cc(C)c1-c1cnc2c[nH]nc2n1",
         "CC1(NC(=O)OC(C)(C)C)CCN(c2nc3[nH]nc(-c4cccc(Cl)c4Cl)c3nc2C(N)=O)CC1",
+        "N#Cc1n[nH]c2nccnc12",
+        "Cc1cnc2[nH]nc(C#N)c2n1",
+        "O=C(O)c1n[nH]c2nc(Cl)cnc12",
     ],
 )
 def test_generated_pyrazole_fused_orientation_roundtrips_with_opsin(input_smiles):

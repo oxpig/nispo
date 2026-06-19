@@ -71,6 +71,7 @@ class NameCandidate:
     parent_aromatic_atom_count: int = 0
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
+    parent_terminal_heterocarbon_substituent_count: int = 0
     parent_terminal_chalcogen_double_bond_count: int = 0
     parent_external_unsaturated_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
@@ -5925,6 +5926,8 @@ def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: li
         bonus += 90
     if _is_contextual_senior_hetero_single_ring_parent(item, prepared):
         bonus += 24
+    if _is_contextual_terminal_heterocarbon_pyrazolopyrazine_parent(item, prepared):
+        bonus += 12
     if _has_contextual_preferred_generated_exact_orientation(item, prepared):
         bonus += 24
     return bonus
@@ -10207,6 +10210,14 @@ _PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES = {
 }
 
 
+_PYRAZOLO_PYRAZINE_GENERATED_TEMPLATES = frozenset(
+    {
+        "pyrazolo[3,4-b]pyrazine",
+        "pyrazolo[4,3-b]pyrazine",
+    }
+)
+
+
 def _has_contextual_preferred_generated_fused_template_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -10217,9 +10228,9 @@ def _has_contextual_preferred_generated_fused_template_alternative(
     preferred_templates = _PREFERRED_GENERATED_FUSED_TEMPLATE_ALTERNATIVES.get(candidate.template_name or "")
     if not preferred_templates:
         return False
-    if (
-        candidate.template_name in {"pyrazolo[3,4-b]pyrazine", "pyrazolo[4,3-b]pyrazine"}
-        and candidate.parent_external_nitrogen_substituent_count
+    if candidate.template_name in _PYRAZOLO_PYRAZINE_GENERATED_TEMPLATES and (
+        candidate.parent_external_nitrogen_substituent_count
+        or candidate.parent_terminal_heterocarbon_substituent_count
     ):
         return False
     if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
@@ -10245,6 +10256,59 @@ def _has_contextual_preferred_generated_fused_template_alternative(
         if len(other.name) - len(item.name) > 140:
             continue
         if other.stability_penalty > item.stability_penalty + 90:
+            continue
+        return True
+    return False
+
+
+def _is_contextual_terminal_heterocarbon_pyrazolopyrazine_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.template_name not in _PYRAZOLO_PYRAZINE_GENERATED_TEMPLATES:
+        return False
+    if candidate.parent_terminal_heterocarbon_substituent_count < 1:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    current_rank = candidate.render_rank or 0
+    if current_rank < 1 or current_rank > 3:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-fused-parent":
+            continue
+        if other_candidate.template_name != "pyrazino[2,3-c]pyrazole":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != len(candidate.parent_atoms):
+            continue
+        if other_candidate.parent_terminal_heterocarbon_substituent_count != (
+            candidate.parent_terminal_heterocarbon_substituent_count
+        ):
+            continue
+        if other_candidate.parent_external_nitrogen_substituent_count:
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if other_rank < 1 or other_rank > 4:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(other.name) > 80:
+            continue
+        if item.stability_penalty > other.stability_penalty + 90:
             continue
         return True
     return False

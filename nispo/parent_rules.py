@@ -14909,6 +14909,10 @@ def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[st
             mol,
             parent_atom_tuple,
         ),
+        "parent_terminal_heterocarbon_substituent_count": _ring_terminal_heterocarbon_substituent_count(
+            mol,
+            parent_atom_tuple,
+        ),
         "parent_terminal_chalcogen_double_bond_count": _ring_terminal_chalcogen_double_bond_count(
             mol,
             parent_atom_tuple,
@@ -14942,6 +14946,28 @@ def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
                 continue
             if neighbor.GetDegree() == 1:
                 count += 1
+    return count
+
+
+def _ring_terminal_heterocarbon_substituent_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for carbon in atom.GetNeighbors():
+            carbon_idx = carbon.GetIdx()
+            if carbon_idx in ring_set or carbon.GetAtomicNum() != 6:
+                continue
+            for hetero in carbon.GetNeighbors():
+                hetero_idx = hetero.GetIdx()
+                if hetero_idx == idx or hetero_idx in ring_set:
+                    continue
+                if hetero.GetAtomicNum() in {1, 6} or hetero.GetDegree() != 1:
+                    continue
+                bond = mol.GetBondBetweenAtoms(carbon_idx, hetero_idx)
+                if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
+                    count += 1
+                    break
     return count
 
 

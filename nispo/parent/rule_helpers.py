@@ -2683,14 +2683,18 @@ def _single_ring_thione_suffix_name(
 
 _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENTS = (
     "oxadiazol",
+    "tetrazin",
     "thiadiazol",
+    "triazin",
     "triazol",
     "tetrazol",
 )
 
 _SINGLE_RING_INDICATED_H_CHALCOGEN_SUFFIX_PARENT_FULL_FORMS = {
     "oxadiazol": "oxadiazole",
+    "tetrazin": "tetrazine",
     "thiadiazol": "thiadiazole",
+    "triazin": "triazine",
     "triazol": "triazole",
     "tetrazol": "tetrazole",
 }

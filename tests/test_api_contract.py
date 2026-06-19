@@ -290,7 +290,10 @@ def test_sydnone_retained_parent_roundtrips(input_smiles):
         "O=c1[nH]cno1",
         "O=c1[nH]cn[nH]1",
         "O=c1[nH]nn[nH]1",
+        "O=c1nncc[nH]1",
+        "O=c1ncnn[nH]1",
         "S=c1[nH]cn[nH]1",
+        "S=c1nc[nH]cn1",
     ],
 )
 def test_single_ring_lactam_and_thione_indicated_h_suffixes_roundtrip_with_opsin(input_smiles):

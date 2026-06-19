@@ -5434,6 +5434,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
+    if _is_contextual_senior_hetero_single_ring_parent(item, prepared):
+        return 0
     if not (
         retained_lactone_topology
         or retained_cyclic_anhydride_topology
@@ -5921,6 +5923,8 @@ def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: li
         bonus += 40
     if _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared):
         bonus += 90
+    if _is_contextual_senior_hetero_single_ring_parent(item, prepared):
+        bonus += 24
     if _has_contextual_preferred_generated_exact_orientation(item, prepared):
         bonus += 24
     return bonus
@@ -8179,6 +8183,96 @@ def _has_contextual_larger_single_ring_parent_alternative(
         if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
             continue
         if other.stability_penalty > item.stability_penalty + 30:
+            continue
+        return True
+    return False
+
+
+def _is_contextual_senior_hetero_single_ring_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.safety is not None and candidate.safety.reasons:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 5 or parent_count > 8:
+        return False
+    if len(item.name) > 120:
+        return False
+    if candidate.parent_hetero_atom_count <= 0:
+        return False
+    if (
+        candidate.parent_aromatic_atom_count != parent_count
+        and candidate.parent_hetero_atom_count == 1
+        and _candidate_parent_element_count(candidate, "O") == 1
+    ):
+        return False
+    if candidate.parent_aromatic_atom_count != parent_count and _has_equal_or_senior_hetero_single_ring_alternative(
+        item,
+        prepared,
+    ):
+        return False
+    current_rank = candidate.render_rank or 0
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.safety is not None and other_candidate.safety.reasons:
+            continue
+        if len(other_candidate.parent_atoms) != parent_count:
+            continue
+        if other_candidate.parent_hetero_atom_count >= candidate.parent_hetero_atom_count:
+            continue
+        other_rank = other_candidate.render_rank or 0
+        if current_rank and other_rank and current_rank > other_rank + 4:
+            continue
+        if len(item.name) > 180 or len(item.name) - len(other.name) > 45:
+            continue
+        if item.stability_penalty > other.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_equal_or_senior_hetero_single_ring_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if other_candidate.safety is not None and other_candidate.safety.reasons:
+            continue
+        if other_candidate.parent_hetero_atom_count < candidate.parent_hetero_atom_count:
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if (
+            other_candidate.parent_aromatic_atom_count != other_parent_count
+            and not other_candidate.parent_terminal_hetero_substituent_count
+        ):
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 45:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
             continue
         return True
     return False

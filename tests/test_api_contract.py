@@ -200,6 +200,21 @@ def test_earlier_external_hetero_single_ring_parents_roundtrip_with_opsin(input_
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1ccc(N2CC[SH4]CC2)nc1",
+        "CC(=Nc1ccccc1C(C)C)c1cccc(C(C)=Nc2ccccc2C(C)C)n1",
+    ],
+)
+def test_senior_hetero_single_ring_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C1=NCCc2nc[nH]c21",
         "Cc1nn(C)c2c1CC(N1CCc3nc(-c4ccccc4Cl)[nH]c3C1)CC2",
         "CCc1cc(O)c(F)cc1-c1ccc2c(-c3nc4c([nH]3)CN(C(C)C)C(C(=O)N3CC(N(C)C)C3)C4)n[nH]c2c1",

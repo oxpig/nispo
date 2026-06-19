@@ -387,6 +387,49 @@ def test_kekulized_polycyclic_parent_defers_single_ring_decomposition_roundtrip(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC[C@@H](C)CC[C@H]1[C@@H](C)CC[C@H]2C(C)(C)CC(O)C(O)(O)[C@]12C",
+        "CC(C)=C1CC[C@]2(C)CCC[C@](C)(O)C2C1",
+        "C=C1CC[C@H]2C(C)(C)CCC[C@]2(C)[C@H]1CC/C(C)=C/C=O",
+        "CC12CCC(C1)C(C)(C)C2OC(=O)Cc1ccccc1",
+        "CC(C)=C1CCC(C)(O)C2CCC(C)C2C1",
+        "CC(=O)CC/C=C1/CC[C@@H]2C(C)(C)CCC[C@@]2(C)OC1",
+        "CO[C@@H]1/C(=C\\c2cnc(-c3cc4ccncc4cc3O)cn2)C[C@H]2N[C@@H]1CC2(F)F",
+    ],
+)
+def test_rank1_bicyclic_parent_defers_to_guarded_rank2_orientation_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)(C)C1(C(C)(C)C)CC2(C)C(=O)C(=Cc3ccccc3)C1(O)C2(C)C",
+        "CC1(C)C[C@H]2CN(c3ccc(N4CCS(=O)(=O)CC4)cc3)[C@@H]1CNC2=O",
+        "Cc1cc([C@@H](C)Nc2ccc(Cl)nc2C(=O)O)c2nc(N3CC4CCC3C(O)C4)c(C#N)nc2c1",
+        "COc1ccc([C@@H]2CO[C@H]3[C@@H]2OC[C@@H]3O)cc1C(=O)N[C@H]1[C@@H](C(=O)Nc2ccc(F)c(C(F)(F)F)c2)[C@H]2CC[C@@H]1/C2=C\\C1CC1",
+        "CC1(C)[C@@H]2[C@@H](C(=O)N[C@H](C#N)C[C@@H]3CC4(CC4)NC3=O)N(C(=O)C(NC(=O)C(F)(F)F)C3(C(F)(F)F)CC3)C[C@@H]21",
+        "CC(C)(C)[C@H](NC(=O)N1CCC(CCF)C1)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CC3(CC3)NC1=O)C2(C)C",
+    ],
+)
+def test_rank1_bicyclic_parent_keeps_fragile_orientation_controls_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",

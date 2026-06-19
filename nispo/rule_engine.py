@@ -428,7 +428,14 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _kekulized_polycyclic_alternative_for_single_ring_choice(
+    selected_item = (
+        _kekulized_polycyclic_alternative_for_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _alternate_bicyclic_orientation_for_rank1_choice(
         keyed_items,
         selected_item,
     ) or selected_item
@@ -792,6 +799,89 @@ def _kekulized_single_ring_parent_profile_is_supported(
     if candidate.parent_element_counts == (("C", 7), ("N", 2)):
         return len(name) <= 110
     return False
+
+
+_BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS = {
+    7: 3,
+    8: 3,
+    10: 2,
+    11: 3,
+}
+
+
+def _alternate_bicyclic_orientation_for_rank1_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in {"generic-bicyclic-parent", "functional-generic-bicyclic-parent"}:
+        return None
+    if selected_candidate.source_family != "bicyclic":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_file:
+        return None
+    if selected_candidate.render_rank != 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if selected_candidate.parent_hetero_atom_count:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    min_locants = _BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS.get(selected_parent_count)
+    if min_locants is None:
+        return None
+    if selected_parent_count < 10 and selected_candidate.family != "generic-bicyclic-parent":
+        return None
+    if len(selected_candidate.locants) < min_locants:
+        return None
+    if selected_parent_count < 10 and len(selected_candidate.locants) > 5:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != selected_candidate.family:
+            continue
+        if candidate.source_family != "bicyclic":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if candidate.render_rank != 2:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_count:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(candidate.locants) < min_locants:
+            continue
+        if selected_parent_count < 10 and len(candidate.locants) > 5:
+            continue
+        if len(item.name) > 280:
+            continue
+        if abs(len(item.name) - len(selected.name)) > 4:
+            continue
+        if candidate_key[0] != selected_key[0]:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(

@@ -1140,6 +1140,34 @@ class DithiocarbamateRetainedParentRule:
                 )
 
 
+class DithiocarbonateRetainedParentRule:
+    family = "dithiocarbonate-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        atom_set = set(range(mol.GetNumAtoms()))
+        for carbon in mol.GetAtoms():
+            if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+                continue
+            record = _dithiocarbonate_record(mol, self._Chem, carbon.GetIdx())
+            if record is None or record["covered_atoms"] != atom_set:
+                continue
+            name = _dithiocarbonate_record_name(record)
+            if not name:
+                continue
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=atom_set,
+                sort_key=(len(name), name),
+            )
+
+
 class HexamethylenediamideRetainedParentRule:
     family = "hexamethylenediamide-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -8722,6 +8750,85 @@ def _dithiocarbamate_carbon_record(mol, Chem, carbon_idx: int, nitrogen_idx: int
     }
 
 
+def _dithiocarbonate_record(mol, Chem, carbon_idx: int) -> dict | None:
+    double_sulfur = None
+    oxygen_owner = None
+    sulfur_owners = []
+    sulfur_owner_has_nitrile = []
+    terminal_sulfido = 0
+    covered_atoms = {carbon_idx}
+    for nbr in mol.GetAtomWithIdx(carbon_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            if double_sulfur is not None:
+                return None
+            if _heavy_degree_excluding(mol, nidx, carbon_idx) != 0:
+                return None
+            double_sulfur = nidx
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            if oxygen_owner is not None:
+                return None
+            owner = _single_external_substituent_name(mol, nidx, carbon_idx)
+            if not owner or _unstable_retained_functional_parent_substituent(owner):
+                return None
+            owner_atom = _single_heavy_neighbor_excluding(mol, nidx, carbon_idx)
+            if owner_atom is None:
+                return None
+            oxygen_owner = owner
+            covered_atoms.add(nidx)
+            covered_atoms.update(_collect_component_atoms(mol, owner_atom, nidx))
+            continue
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() <= 0:
+            owner_atom = _single_heavy_neighbor_excluding(mol, nidx, carbon_idx)
+            if owner_atom is None:
+                if nbr.GetFormalCharge() < 0:
+                    terminal_sulfido += 1
+                    covered_atoms.add(nidx)
+                    continue
+                return None
+            owner = _simple_or_branch_prefix(mol, owner_atom, nidx)
+            if not owner or _unstable_retained_functional_parent_substituent(owner):
+                return None
+            owner_atoms = _collect_component_atoms(mol, owner_atom, nidx)
+            sulfur_owners.append(owner)
+            sulfur_owner_has_nitrile.append(any(_is_nitrile_carbon(mol, atom_idx) for atom_idx in owner_atoms))
+            covered_atoms.add(nidx)
+            covered_atoms.update(owner_atoms)
+            continue
+        return None
+    if double_sulfur is None:
+        return None
+    return {
+        "oxygen_owner": oxygen_owner,
+        "sulfur_owners": tuple(sulfur_owners),
+        "sulfur_owner_has_nitrile": tuple(sulfur_owner_has_nitrile),
+        "terminal_sulfido": terminal_sulfido,
+        "covered_atoms": covered_atoms,
+    }
+
+
+def _dithiocarbonate_record_name(record: dict) -> str:
+    oxygen_owner = record["oxygen_owner"]
+    sulfur_owners = record["sulfur_owners"]
+    sulfur_owner_has_nitrile = record["sulfur_owner_has_nitrile"]
+    terminal_sulfido = record["terminal_sulfido"]
+    if oxygen_owner and len(sulfur_owners) == 1 and terminal_sulfido == 0:
+        return (
+            f"{_hetero_ligand_role_text('O', oxygen_owner)} "
+            f"{_hetero_ligand_role_text('S', sulfur_owners[0])}dithiocarbonate"
+        )
+    if oxygen_owner is None and len(sulfur_owners) == 1 and terminal_sulfido == 1:
+        if sulfur_owner_has_nitrile[0]:
+            return ""
+        return f"{_hetero_ligand_role_text('S', sulfur_owners[0])}trithiocarbonate"
+    return ""
+
+
 def _hexamethylenediamide_name(mol, Chem) -> str:
     nitrogens = [
         atom.GetIdx()
@@ -15974,6 +16081,7 @@ def parent_rules(Chem) -> tuple:
     bis_sulfonium_sulfide = BisSulfoniumSulfideRetainedParentRule(Chem)
     methylenebis_dithiocarbamate = MethylenebisDithiocarbamateRetainedParentRule(Chem)
     dithiocarbamate = DithiocarbamateRetainedParentRule(Chem)
+    dithiocarbonate = DithiocarbonateRetainedParentRule(Chem)
     hexamethylenediamide = HexamethylenediamideRetainedParentRule(Chem)
     small_inorganic = SmallInorganicRetainedParentRule(Chem)
     sydnone = SydnoneRetainedParentRule(Chem)
@@ -16109,6 +16217,12 @@ def parent_rules(Chem) -> tuple:
             parent_priority("senior-functional-exception"),
             (),
             dithiocarbamate.candidates,
+        ),
+        RuleSpec(
+            "dithiocarbonate-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (),
+            dithiocarbonate.candidates,
         ),
         RuleSpec(
             "hexamethylenediamide-retained-parent",

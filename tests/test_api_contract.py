@@ -1901,6 +1901,23 @@ def test_dithiocarbamate_retained_parents_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[SH-]C(=S)OC(C)(C)C",
+        "CCOC(=S)[SH-]C(C)C(=O)OC",
+        "C[SH-]C(=S)Oc1cnc(Br)cc1C",
+        "CCCCCC[SH-]C(=S)[S-]",
+    ],
+)
+def test_dithiocarbonate_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_diacylperoxy_dimethylhexane_retained_parent_roundtrips_with_opsin():
     input_smiles = "Cc1cccc(C(=O)OOC(C)(C)CCC(C)(C)OOC(=O)c2cccc(C)c2)c1"
     generated_name = smiles_to_iupac(input_smiles)

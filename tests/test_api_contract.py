@@ -387,6 +387,48 @@ def test_kekulized_polycyclic_parent_defers_single_ring_decomposition_roundtrip(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C1c2[nH]cnc2NC(=C=S)N1Cc1ccccc1C1CCC(F)CN1",
+        "O=C1c2[nH]cnc2NC(=C=S)N1Cc1ccc(Cl)cc1C1COCCN1",
+        "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2C2CCCN2)c2cc[nH]c21",
+        "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2C2COCCN2)c2cc[nH]c21",
+        "O=C1NC(=C=S)N(Cc2ccccc2[C@H]2CC(F)(F)CCN2)c2cc[nH]c21",
+        "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2[C@@H]2COCCN2)c2cc[nH]c21",
+    ],
+)
+def test_compact_kekulized_parent_defers_to_chain_dominant_acyclic_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "OCC1(CO)C=c2nc[nH]c2=CC1",
+        "CC(=O)/C=C1/CC[C@H]2C(C)(C)[C@@H]3C[C@]12CC[C@H]3C",
+        "Cc1ccc(S(=O)(=O)OC(C(=O)[O-])C2CC(C)(C=O)C(O)C(C)C34CCC(=O)C3C2(C)C(C)CC4)cc1",
+        "C=C[C@]1(C)C[C@@H](OC(=O)CO)[C@]2(C)[C@H](C)CC[C@]3(CCC(=O)[C@H]32)[C@@H](C)[C@@H]1O",
+        "C=CC[C@]1(C)C[C@@H](C(OS(=O)(=O)c2ccc(C)cc2)C(=O)[O-])[C@@]2(C)[C@H](C)CC[C@]3(CC[C@@H](OC)[C@@H]32)[C@@H](C)C1=O",
+        "CCCC[C@H](C)C(O)/C=C/[C@@H]1[C@H]2CCc3ccc(C(=O)O)cc3O[C@H]2C[C@H]1O",
+    ],
+)
+def test_compact_kekulized_parent_keeps_fragile_acyclic_controls_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC[C@@H](C)CC[C@H]1[C@@H](C)CC[C@H]2C(C)(C)CC(O)C(O)(O)[C@]12C",
         "CC(C)=C1CC[C@]2(C)CCC[C@](C)(O)C2C1",
         "C=C1CC[C@H]2C(C)(C)CCC[C@]2(C)[C@H]1CC/C(C)=C/C=O",

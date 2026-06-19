@@ -435,6 +435,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return _alternate_bicyclic_orientation_for_rank1_choice(
         keyed_items,
         selected_item,
@@ -799,6 +806,65 @@ def _kekulized_single_ring_parent_profile_is_supported(
     if candidate.parent_element_counts == (("C", 7), ("N", 2)):
         return len(name) <= 110
     return False
+
+
+def _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "kekulized-generic-polycyclic-parent":
+        return None
+    if selected_candidate.source_family != "kekulized":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_file:
+        return None
+    if selected_candidate.render_rank != 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 9:
+        return None
+    if len(selected_candidate.locants) != 3:
+        return None
+    if selected_candidate.parent_hetero_atom_count:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) not in {5, 6}:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 260:
+            continue
+        if abs(len(item.name) - len(selected.name)) > 12:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 _BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS = {

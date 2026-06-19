@@ -823,9 +823,11 @@ def _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
         return None
     if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
         return None
-    if len(selected_candidate.parent_atoms) != 9:
+    selected_parent_atom_count = len(selected_candidate.parent_atoms)
+    if selected_parent_atom_count < 8 or selected_parent_atom_count > 12:
         return None
-    if len(selected_candidate.locants) != 3:
+    selected_locant_count = len(selected_candidate.locants)
+    if selected_locant_count < 2:
         return None
     if selected_candidate.parent_hetero_atom_count:
         return None
@@ -847,7 +849,20 @@ def _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
             continue
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
             continue
-        if len(candidate.parent_atoms) not in {5, 6}:
+        candidate_parent_atom_count = len(candidate.parent_atoms)
+        if not (
+            (
+                selected_parent_atom_count == 9
+                and selected_locant_count == 3
+                and candidate_parent_atom_count in {5, 6}
+            )
+            or (
+                candidate_parent_atom_count >= 6
+                and candidate_parent_atom_count >= selected_parent_atom_count - 3
+            )
+        ):
+            continue
+        if selected_parent_atom_count == 10 and candidate_parent_atom_count > selected_parent_atom_count:
             continue
         if candidate.parent_hetero_atom_count:
             continue

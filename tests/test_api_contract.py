@@ -393,6 +393,10 @@ def test_kekulized_polycyclic_parent_defers_single_ring_decomposition_roundtrip(
         "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2C2COCCN2)c2cc[nH]c21",
         "O=C1NC(=C=S)N(Cc2ccccc2[C@H]2CC(F)(F)CCN2)c2cc[nH]c21",
         "O=C1NC(=C=S)N(Cc2ccc(Cl)cc2[C@@H]2COCCN2)c2cc[nH]c21",
+        "CCn1nc2c(c1C(=O)N=C=S)COC2",
+        "O=C([O-])C=C1[C@H]2CC[C@H]3C[C@@H]1[C@@H]2C3(F)F",
+        "CC[C@@H](C#N)N1CCC(n2c([C@@H](C)O)nc3cnc4c(ccn4S(=O)(=O)c4ccccc4)c32)C1",
+        "CC(C)(C)OC(=O)N1CC[C@@H](C(F)(F)F)C[C@@H]1c1ncccc1CN1C(=C=S)NC(=O)c2[nH]ccc21",
     ],
 )
 def test_compact_kekulized_parent_defers_to_chain_dominant_acyclic_roundtrip(
@@ -414,6 +418,7 @@ def test_compact_kekulized_parent_defers_to_chain_dominant_acyclic_roundtrip(
         "C=C[C@]1(C)C[C@@H](OC(=O)CO)[C@]2(C)[C@H](C)CC[C@]3(CCC(=O)[C@H]32)[C@@H](C)[C@@H]1O",
         "C=CC[C@]1(C)C[C@@H](C(OS(=O)(=O)c2ccc(C)cc2)C(=O)[O-])[C@@]2(C)[C@H](C)CC[C@]3(CC[C@@H](OC)[C@@H]32)[C@@H](C)C1=O",
         "CCCC[C@H](C)C(O)/C=C/[C@@H]1[C@H]2CCc3ccc(C(=O)O)cc3O[C@H]2C[C@H]1O",
+        "CC[C@@H](Nc1nc2c(c(N[C@@H](CN3C4CCC[C@@H]3CC4)c3csc(C)n3)n1)C[C@H](c1cccc(F)c1)CC2)C1CCC(C(=O)O)CC1",
     ],
 )
 def test_compact_kekulized_parent_keeps_fragile_acyclic_controls_roundtrip(

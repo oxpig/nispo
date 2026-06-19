@@ -738,16 +738,25 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
 
 def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
     atom = mol.GetAtomWithIdx(hetero_idx)
-    if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+    if atom.IsInRing() or atom.GetIsotope():
         return ""
     bond = mol.GetBondBetweenAtoms(hetero_idx, methylene_idx)
     if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
     if atom.GetSymbol() == "O":
+        if atom.GetFormalCharge() < 0 and not any(
+            nbr.GetIdx() != methylene_idx and nbr.GetAtomicNum() > 1
+            for nbr in atom.GetNeighbors()
+        ):
+            return "oxidomethyl"
+        if atom.GetFormalCharge() != 0:
+            return ""
         oxy = _oxygen_prefix(mol, hetero_idx, methylene_idx)
         if not oxy or not oxy.endswith("oxy") and oxy != "hydroxy":
             return ""
         return oxy + "methyl" if oxy != "hydroxy" else "hydroxymethyl"
+    if atom.GetFormalCharge() != 0:
+        return ""
     if atom.GetSymbol() == "N":
         amino = _nitrogen_prefix(mol, hetero_idx, methylene_idx)
         if not amino or not amino.endswith("amino"):

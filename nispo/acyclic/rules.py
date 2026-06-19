@@ -1377,6 +1377,9 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         return ""
     stereo_prefix = _complete_path_stereo_prefix(mol, path)
     if not as_substituent and not replacement_text:
+        oxido_parent = _oxido_suffix_parent_name(mol, path, prefixes)
+        if oxido_parent:
+            return f"({stereo_prefix})-{oxido_parent}" if stereo_prefix else oxido_parent
         hydroxy_parent = _hydroxy_suffix_parent_name(mol, path, prefixes)
         if hydroxy_parent:
             return f"({stereo_prefix})-{hydroxy_parent}" if stereo_prefix else hydroxy_parent
@@ -1401,6 +1404,37 @@ def _standalone_saturated_chain_parent(parent: str) -> str:
     if parent in _SATURATED_CHAIN_PARENT_STEMS:
         return parent + "e"
     return parent
+
+
+def _oxido_suffix_parent_name(
+    mol,
+    path: Sequence[int],
+    prefixes: Sequence[tuple[str, str]],
+) -> str:
+    oxido_locs = [loc for loc, prefix in prefixes if prefix == "oxido" and loc.isdigit()]
+    if len(oxido_locs) != 1:
+        return ""
+    if any(mol.GetAtomWithIdx(idx).IsInRing() for idx in path):
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxido"]
+    if any(prefix in {"carboxy", "carboxylato", "carbamyl", "formyl", "oxo", "imino"} for _loc, prefix in remaining):
+        return ""
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if not parent:
+        return ""
+    oxido_loc = oxido_locs[0]
+    if parent.endswith(("en", "yn")) or "-" in parent:
+        if oxido_loc != "1":
+            return ""
+    core = _mono_oxido_suffix_parent(parent, oxido_loc, bool(remaining))
+    prefix_text = _format_prefixes(remaining)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+
+
+def _mono_oxido_suffix_parent(parent: str, locant: str, has_prefixes: bool) -> str:
+    if locant == "1" and not has_prefixes and parent in {"methan", "ethan"}:
+        return parent + "olate"
+    return f"{parent}-{locant}-olate"
 
 
 def _hydroxy_suffix_parent_name(

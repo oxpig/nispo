@@ -924,6 +924,27 @@ def test_charged_polyatomic_empty_coverage_fragments_roundtrip_with_opsin(input_
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[O-]",
+        "CC[O-]",
+        "CCC[O-]",
+        "CCCCC(CC)C[O-]",
+        "[O-]Cc1ccccc1",
+        "NC1(C[O-])CCC1",
+        "CC(N)(C[O-])C[O-]",
+        "[O-]C[C@]1(O)O[C@H](CO)[C@@H](O)[C@H](O)[C@H]1O",
+    ],
+)
+def test_anionic_alcoholate_and_oxidomethyl_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(=[NH+][O-])C",
         "CCC(=[NH+][O-])C",
         "CC(C)(C)C(=[NH+][O-])c1ccccc1",

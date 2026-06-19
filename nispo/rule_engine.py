@@ -461,6 +461,13 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_generated_purine_parent(current, proposed):
         return False
+    if not _ranker_preserves_biochemical_retained_parent_over_shortcut(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_retained_benzimidazole_parent(current, proposed):
         return False
     if not _ranker_preserves_early_retained_benzimidazole_parent(current, proposed):
@@ -1707,6 +1714,58 @@ def _ranker_preserves_generated_purine_parent(
     if current_candidate.suffixes or proposed_candidate.suffixes:
         return True
     return False
+
+
+def _ranker_preserves_biochemical_retained_parent_over_shortcut(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_guarded_biochemical_retained_parent(current_candidate):
+        return True
+    if (
+        current_candidate.template_name == "pterin"
+        and proposed_candidate.family == "fused-retained-parent"
+        and proposed_candidate.template_name == "pteridin"
+    ):
+        return True
+    if proposed_candidate.family == "fused-retained-parent":
+        if proposed_candidate.template_name not in _BIOCHEMICAL_RETAINED_FUSED_PARENT_TEMPLATES:
+            return True
+        if not candidate_has_complete_graph(proposed_candidate) or not proposed_candidate.parent_atoms:
+            return True
+        current_oxygen_count = _candidate_parent_element_count(current_candidate, "O")
+        proposed_oxygen_count = _candidate_parent_element_count(proposed_candidate, "O")
+        if (
+            len(proposed_candidate.parent_atoms) >= len(current_candidate.parent_atoms)
+            and proposed_oxygen_count >= current_oxygen_count
+        ):
+            return True
+        return proposed_key <= current_key
+    if proposed_candidate.family in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES | {
+        "acyclic-parent",
+        "generated-fused-parent",
+        "single-ring-parent",
+    }:
+        return proposed_key <= current_key
+    return True
+
+
+def _is_guarded_biochemical_retained_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name not in _BIOCHEMICAL_RETAINED_FUSED_PARENT_TEMPLATES:
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    return True
 
 
 def _ranker_preserves_retained_benzimidazole_parent(
@@ -4165,6 +4224,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         _has_contextual_purin_parent_alternative_for_chalcogen_retained_purine_alias(item, prepared)
     )
     retained_purine_generated_parent = _has_contextual_generated_purine_parent_alternative(item, prepared)
+    substituted_pterin_with_pteridin_parent = (
+        _has_contextual_pteridin_parent_alternative_for_substituted_pterin(item, prepared)
+    )
     retained_imidazopyridine_benzazole_parent = _has_contextual_generated_benzazole_parent_alternative(
         item,
         prepared,
@@ -4417,6 +4479,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_purine_tautomer_alias
         or retained_purine_chalcogen_tautomer_parent
         or retained_purine_generated_parent
+        or substituted_pterin_with_pteridin_parent
         or retained_imidazopyridine_benzazole_parent
         or retained_imidazopyridine_with_first_indazole_h_parent
         or incomplete_organophosphorus_with_complete_purine_parent
@@ -4658,6 +4721,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 560
     if retained_purine_generated_parent:
         penalty += 140
+    if substituted_pterin_with_pteridin_parent:
+        penalty += 80
     if retained_imidazopyridine_benzazole_parent:
         penalty += 45
     if retained_imidazopyridine_with_first_indazole_h_parent:
@@ -8516,6 +8581,19 @@ _GENERATED_PURINE_PARENT_TEMPLATES = frozenset(
     }
 )
 
+_BIOCHEMICAL_RETAINED_FUSED_PARENT_TEMPLATES = frozenset(
+    {
+        "adenin",
+        "guanin",
+        "hypoxanthin",
+        "pteridin",
+        "pterin",
+        "purin",
+        "uric",
+        "xanthin",
+    }
+)
+
 _PURINE_LIKE_RETAINED_PARENT_TEMPLATES = frozenset(
     {
         "adenin",
@@ -8575,6 +8653,63 @@ def _has_contextual_purin_parent_alternative_for_chalcogen_retained_purine_alias
         if len(other.name) - len(item.name) > 140:
             continue
         if other.stability_penalty > item.stability_penalty + 560:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_pteridin_parent_alternative_for_substituted_pterin(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "pterin":
+        return False
+    if candidate.source_family != "static-retained":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 12:
+        return False
+    if candidate.parent_substituted_hetero_atom_count < 1:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if _candidate_parent_element_count(candidate, "N") != 5:
+        return False
+    if _candidate_parent_element_count(candidate, "O") != 1:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "fused-retained-parent":
+            continue
+        if other_candidate.template_name != "pteridin":
+            continue
+        if other_candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.parent_atoms) != 10:
+            continue
+        if other_candidate.parent_substituted_hetero_atom_count != candidate.parent_substituted_hetero_atom_count:
+            continue
+        if other_candidate.charge is not None or other_candidate.suffixes:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 3:
+            continue
+        if _candidate_parent_element_count(other_candidate, "N") != 4:
+            continue
+        if _candidate_parent_element_count(other_candidate, "O"):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
             continue
         return True
     return False

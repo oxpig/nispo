@@ -8803,6 +8803,7 @@ def _has_contextual_external_nitrogen_generated_fused_single_ring_alternative(
     candidate = item.candidate
     if not _is_external_nitrogen_generated_fused_shortcut_candidate(candidate):
         return False
+    alternative_names: set[str] = set()
     for other in prepared:
         if other is item or other.name == item.name:
             continue
@@ -8815,8 +8816,10 @@ def _has_contextual_external_nitrogen_generated_fused_single_ring_alternative(
             continue
         if other.stability_penalty > item.stability_penalty + 90:
             continue
-        return True
-    return False
+        alternative_names.add(other.name)
+        if len(alternative_names) > 1:
+            return False
+    return len(alternative_names) == 1
 
 
 def _is_external_nitrogen_generated_fused_shortcut_candidate(candidate: NameCandidate) -> bool:

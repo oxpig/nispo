@@ -6585,6 +6585,14 @@ def _phosphite_ester_names(mol, Chem) -> list[str]:
             names.append(_phosphite_ester_name(owner_names))
         if (
             ok
+            and len(owner_names) == 3
+            and terminal_anionic_oxygen == 0
+            and terminal_hydroxy_oxygen == 0
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            names.append(_phosphite_triester_name(owner_names))
+        if (
+            ok
             and len(owner_names) == 1
             and terminal_anionic_oxygen + terminal_hydroxy_oxygen == 2
             and terminal_anionic_oxygen in {0, 1, 2}
@@ -6952,6 +6960,36 @@ def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
             return f"di{first}phosphite"
         return f"bis({_strip_outer_parentheses(first)}) phosphite"
     return f"{_parenthesized_if_complex(first)} {_parenthesized_if_complex(second)} phosphite"
+
+
+def _phosphite_triester_name(owner_names: Sequence[str]) -> str:
+    if len(owner_names) != 3 or any(not name for name in owner_names):
+        return ""
+    counts = Counter(_strip_outer_parentheses(name) for name in owner_names)
+    if len(counts) == 1:
+        owner = next(iter(counts))
+        return f"{_phosphite_repeated_owner_text(owner, 3)} phosphite"
+    if len(counts) == 2:
+        repeated = next(owner for owner, count in counts.items() if count == 2)
+        single = next(owner for owner, count in counts.items() if count == 1)
+        parts = [
+            _phosphite_repeated_owner_text(repeated, 2),
+            _parenthesized_if_complex(single),
+        ]
+        return " ".join(part for part in parts if part) + " phosphite"
+    return " ".join(_parenthesized_if_complex(owner) for owner in sorted(counts)) + " phosphite"
+
+
+def _phosphite_repeated_owner_text(owner: str, count: int) -> str:
+    if count == 2:
+        if _simple_unparenthesized_n_substituent(owner) and re.fullmatch(r"[A-Za-z0-9']+", owner):
+            return f"di{owner}"
+        return f"bis({owner})"
+    if count == 3:
+        if _simple_unparenthesized_n_substituent(owner) and re.fullmatch(r"[A-Za-z0-9']+", owner):
+            return f"tri{owner}"
+        return f"tris({owner})"
+    return ""
 
 
 def _phosphite_monoester_name(owner: str, hydroxy_count: int) -> str:

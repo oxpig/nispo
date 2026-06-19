@@ -1818,6 +1818,23 @@ def test_monoester_phosphite_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "P(Oc1ccccc1)(Oc1ccccc1)OCCCCCCCC",
+        "CC(C)OP(Oc1ccccc1)Oc1ccccc1",
+        "CCCCOP(Oc1ccccc1)Oc1ccccc1",
+        "P(Oc1ccccc1)(Oc1ccccc1)Oc1ccccc1",
+    ],
+)
+def test_neutral_triester_phosphite_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCCP([O-])OCCCC",
         "CCCCOP([O-])SCCCC",
         "C=COP(N)[O-]",

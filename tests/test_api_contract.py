@@ -298,6 +298,40 @@ def test_kekulized_benzimidazole_like_bicyclic_parent_remains_preferred():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CON(C)C(=O)c1ccc2c(c1)N(C)CCO2",
+        "O=C(Nc1ccc2c(c1)N(C(C(=O)[O-])c1ccccc1)CCO2)Nc1ccc2cc[nH]c2c1",
+        "O=C(NC12CC(n3cc(OCCOC(F)(F)F)cn3)(C1)C2)[C@H]1CNc2cc(Cl)ccc2O1",
+        "CNS(=O)(=O)c1cccc(OC[C@@H](O)CNC2COC3(CCN(S(=O)(=O)c4ccc5c(c4)NCCO5)CC3)C2)c1",
+    ],
+)
+def test_retained_chromane_topology_parent_defers_lower_confidence_parent_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC1Oc2ncccc2NC1=O",
+        "CC1(C)Oc2ncccc2NC1=O",
+    ],
+)
+def test_chromanone_like_retained_parent_stays_on_opsin_parseable_template(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",

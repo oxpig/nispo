@@ -400,10 +400,21 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _adamantane_retained_parent_alternative_for_templateless_choice(
-        keyed_items,
-        selected_item,
-    ) or _benzimidazole_retained_parent_alternative_for_templateless_choice(
+    selected_item = (
+        _adamantane_retained_parent_alternative_for_templateless_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _benzimidazole_retained_parent_alternative_for_templateless_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _chromane_topology_replacement_alternative_for_nonchromane_choice(
         keyed_items,
         selected_item,
     ) or selected_item
@@ -548,6 +559,86 @@ def _benzimidazole_retained_parent_alternative_for_templateless_choice(
         if len(item.name) - len(selected.name) > 80:
             continue
         if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_CHROMANE_TOPOLOGY_REPLACEMENT_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-generic-bicyclic-parent",
+        "fused-retained-parent",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "single-ring-parent",
+        "spiro-functional-chain-substituent",
+        "sulfonamide-retained-parent",
+    }
+)
+_CHROMANE_PARENT_ELEMENT_COUNTS = frozenset(
+    {
+        (("C", 9), ("O", 1)),
+        (("C", 8), ("N", 1), ("O", 1)),
+        (("C", 7), ("N", 2), ("O", 1)),
+    }
+)
+
+
+def _chromane_topology_replacement_alternative_for_nonchromane_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.template_name == "chromane":
+        return None
+    if selected_candidate.family not in _CHROMANE_TOPOLOGY_REPLACEMENT_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "retained-topology-replacement-fused-parent":
+            continue
+        if candidate.template_name != "chromane":
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 10:
+            continue
+        if candidate.parent_element_counts not in _CHROMANE_PARENT_ELEMENT_COUNTS:
+            continue
+        if candidate.parent_substituted_hetero_atom_count:
+            continue
+        if candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count:
+            continue
+        if candidate.parent_external_oxygen_substituent_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 2:
+            continue
+        if len(item.name) > 260:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if candidate_key[0] > selected_key[0] + 120:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

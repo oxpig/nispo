@@ -211,6 +211,23 @@ def test_terminal_azole_chalcogen_suffix_parent_keeps_guarded_controls(
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCOC(=O)c1cccc(NS(=O)(=O)c2cc3[nH]c(=O)c(=O)[nH]c3cc2C)c1",
+        "CN(C)c1cc2[nH]c(=O)c(=O)[nH]c2cc1S(=O)(=O)Nc1ccc(OC(F)(F)F)cc1",
+    ],
+)
+def test_retained_quinoxalin_dicarbonyl_parent_roundtrips_with_opsin(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_retained_hydro_fused_template_pair_roundtrips_with_opsin():
     input_smiles = "Cc1cc(C#C[C@]2(O)CCc3cccnc32)cc(-c2ncc3ccnc(N)c3n2)c1"
     generated_name = smiles_to_iupac(input_smiles)

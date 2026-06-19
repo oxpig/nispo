@@ -466,6 +466,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return _alternate_bicyclic_orientation_for_rank1_choice(
         keyed_items,
         selected_item,
@@ -10264,6 +10271,16 @@ _PROTECTED_TERMINAL_AZOLE_RETAINED_FUSED_TEMPLATE_NAMES = frozenset(
 )
 
 
+_QUINOXALIN_DICARBONYL_TEMPLATELESS_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
+
+
 def _has_contextual_preferred_generated_fused_template_alternative(
     item: _PreparedCandidate,
     prepared: list[_PreparedCandidate],
@@ -10398,6 +10415,63 @@ def _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
         if len(item.name) - len(selected.name) > 90:
             continue
         if candidate_key[0] > selected_key[0] + 340:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _QUINOXALIN_DICARBONYL_TEMPLATELESS_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.template_name:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if candidate.template_name != "quinoxalin":
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 10:
+            continue
+        element_counts = dict(candidate.parent_element_counts)
+        if element_counts.get("N", 0) != 2 or element_counts.get("C", 0) != 8:
+            continue
+        if candidate.parent_external_unsaturated_bond_count < 2:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 3:
+            continue
+        if len(item.name) > 260:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

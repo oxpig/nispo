@@ -153,6 +153,25 @@ def test_generated_fused_graph_supplement_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1c[nH]c2nccc-2n1",
+        "c1ncc2ccc3nncc3c2[nH]1",
+        "c1cc2c(ccc3n[nH]cc32)cn1",
+        "COc1cc2c(C)[nH]nc2c2ccccc12",
+        "N#Cc1cnc2cc[nH]nc1-2",
+        "CCOC(=O)c1cc2c(ccc3n[nH]cc32)s1",
+    ],
+)
+def test_generated_fused_indicated_h_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CON(C)C(=O)c1cc(F)c(F)c2[nH]ncc12",
         "[O-][n+]1cc(Br)c2cn[nH]c2c1",
         "Nc1n[nH]c2nc3ccccc3nc12",

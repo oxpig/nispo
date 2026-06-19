@@ -16240,6 +16240,17 @@ class ExactRetainedParentRule:
         name = _exact_retained_parent_candidate_name(template)
         return (len(name), template.get("source_family", ""), name)
 
+    def _candidate_name(self, mol, template: dict, match: Sequence[int]) -> str:
+        return _exact_retained_parent_candidate_name(template)
+
+    def _parent_indicated_hydrogen_locants(
+        self,
+        mol,
+        template: dict,
+        match: Sequence[int],
+    ) -> tuple[str, ...]:
+        return ()
+
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0 or not ctx.features["all_atoms_in_one_ring_system"]:
@@ -16266,7 +16277,7 @@ class ExactRetainedParentRule:
                         if template.get("source_family") == "static-exact-retained"
                         else self.family
                     )
-                    name = _exact_retained_parent_candidate_name(template)
+                    name = self._candidate_name(mol, template, match)
                     yield NameCandidate(
                         name=name,
                         family=family,
@@ -16279,6 +16290,11 @@ class ExactRetainedParentRule:
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
                         source_file=str(template.get("source_file", "")),
+                        parent_indicated_hydrogen_locants=self._parent_indicated_hydrogen_locants(
+                            mol,
+                            template,
+                            match,
+                        ),
                         template_formal_charge_atom_count=_formal_charge_atom_count(template_record_mol(template)),
                         template_abs_formal_charge_sum=_abs_formal_charge_sum(template_record_mol(template)),
                         estimated_length=len(name),
@@ -16320,7 +16336,7 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                         if template.get("source_family") == "static-exact-retained"
                         else self.family
                     )
-                    name = _exact_retained_parent_candidate_name(template)
+                    name = self._candidate_name(mol, template, match)
                     yield NameCandidate(
                         name=name,
                         family=family,
@@ -16333,6 +16349,11 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
                         source_file=str(template.get("source_file", "")),
+                        parent_indicated_hydrogen_locants=self._parent_indicated_hydrogen_locants(
+                            mol,
+                            template,
+                            match,
+                        ),
                         template_formal_charge_atom_count=_formal_charge_atom_count(template_record_mol(template)),
                         template_abs_formal_charge_sum=_abs_formal_charge_sum(template_record_mol(template)),
                         estimated_length=len(name),
@@ -16348,6 +16369,21 @@ class GeneratedExactParentRule(ExactRetainedParentRule):
 
     def _sort_key(self, template: dict) -> tuple:
         return _generated_exact_parent_sort_key(template)
+
+    def _candidate_name(self, mol, template: dict, match: Sequence[int]) -> str:
+        reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+        name = _terminal_retained_parent_name(_adjust_fused_parent_for_charge(mol, template, reverse))
+        name = _template_isotope_prefixed_parent_name(mol, template, match, name)
+        return _opsin_parseable_retained_parent_name(name)
+
+    def _parent_indicated_hydrogen_locants(
+        self,
+        mol,
+        template: dict,
+        match: Sequence[int],
+    ) -> tuple[str, ...]:
+        reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+        return tuple(_matched_fused_indicated_hydrogen_locants(mol, template, reverse))
 
 
 class ExactBiochemicalRetainedParentRule(ExactFunctionalRetainedParentRule):

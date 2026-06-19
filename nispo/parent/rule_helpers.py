@@ -749,13 +749,51 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     if not hydro:
         return ""
     locants = ",".join(str(loc) for loc in hydro_locs)
-    name = f"{locants}-{hydro}-{template_record_name(template)}"
+    parent_name = _hydro_indicated_hydrogen_template_name(mol, template, match)
+    name = f"{locants}-{hydro}-{parent_name}"
     if len(charged_locs) == 1:
         if not charged_has_hydrogen:
             name = _drop_indicated_hydrogen_prefix(name)
         stem = name[:-1] if name.endswith("e") else name
         return f"{stem}-{charged_locs[0]}-ium"
     return name
+
+
+def _hydro_indicated_hydrogen_template_name(mol, template: dict, match: Sequence[int]) -> str:
+    name = template_record_name(template)
+    if not _supports_hydro_fused_indicated_hydrogen(name):
+        return name
+    if _match_has_terminal_chalcogen_double_bond(mol, match):
+        return name
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+    if len(h_locs) != 1:
+        return name
+    return f"{h_locs[0]}H-{name}"
+
+
+def _supports_hydro_fused_indicated_hydrogen(name: str) -> bool:
+    if name.startswith("indeno["):
+        return False
+    if re.search(r"(?:benzene|pyrrole)$", name):
+        return False
+    return _supports_generated_fused_indicated_hydrogen(name)
+
+
+def _match_has_terminal_chalcogen_double_bond(mol, match: Sequence[int]) -> bool:
+    core = set(match)
+    for idx in match:
+        atom = mol.GetAtomWithIdx(idx)
+        for neighbor in atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx in core or neighbor.GetAtomicNum() not in {8, 16, 34, 52}:
+                continue
+            if neighbor.GetDegree() != 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(idx, nidx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                return True
+    return False
 
 
 def _is_hydro_locant(locant: str) -> bool:
@@ -766,6 +804,7 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     candidate_locs = []
     scored_hydro_atoms = 0
     scored_hydro_total = 0
+    parent_name = _hydro_indicated_hydrogen_template_name(mol, template, match)
     for template_idx, mol_idx in enumerate(match):
         template_atom = template_record_mol(template).GetAtomWithIdx(template_idx)
         atom = mol.GetAtomWithIdx(mol_idx)
@@ -788,7 +827,7 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     if template_record_name(template).startswith("spiro["):
         for count, hydro in ((2, "dihydro"), (4, "tetrahydro"), (6, "hexahydro")):
             if scored_hydro_atoms >= count:
-                candidates.append(((2, count, -scored_hydro_total, 0, ()), f"{hydro}{template_record_name(template)}"))
+                candidates.append(((2, count, -scored_hydro_total, 0, ()), f"{hydro}{parent_name}"))
     if len(candidate_locs) < 2:
         for hydro_key, parent_name in sorted(candidates)[:12]:
             yield parent_name, hydro_key
@@ -816,7 +855,7 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
                     -_hydro_locant_span(locs),
                     [_locant_sort_key(locant) for locant in locs],
                 ),
-                f"{locant_text}-{hydro}-{template_record_name(template)}",
+                f"{locant_text}-{hydro}-{parent_name}",
             ))
     for hydro_key, parent_name in sorted(candidates)[:12]:
         yield parent_name, hydro_key
@@ -1837,11 +1876,25 @@ def _strip_leading_indicated_hydrogen(name: str) -> str:
 
 
 def _supports_generated_fused_indicated_hydrogen(name: str) -> bool:
-    return bool(re.match(r"(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
+    if "[" not in name or "]" not in name:
+        return False
+    if not re.match(r"^[a-z]+(?:o|ino)\[[^\]]+\][a-z]", name):
+        return False
+    return bool(
+        re.search(
+            r"(?:benzene|pyrrole|pyrazole|imidazol(?:e)?|triazol(?:e)?|"
+            r"tetrazol(?:e)?|oxazol(?:e)?|thiazol(?:e)?|pyridin(?:e)?|"
+            r"pyrimidin(?:e)?|pyridazin(?:e)?|pyrazin(?:e)?|indazole|"
+            r"purin(?:e)?|quinolin(?:e)?|isoquinolin(?:e)?|"
+            r"quinazolin(?:e)?|quinoxalin(?:e)?)$",
+            name,
+        )
+    )
 
 
 def _preserve_generated_fused_indicated_hydrogen(name: str) -> bool:
-    return bool(re.match(r"\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
+    match = re.search(r"(?:^|-)\d+[a-z]?H-(.+)", name)
+    return bool(match and _supports_generated_fused_indicated_hydrogen(match.group(1)))
 
 
 @dataclass(frozen=True, slots=True)

@@ -272,6 +272,32 @@ def test_unsaturated_adamantane_substituent_keeps_templateless_parent_roundtrip(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C(c1ccc2nc[nH]c2c1)N(CCO)CCO",
+        "CN(Cc1nc2cc(C3CC3)cc(Br)c2[nH]1)C(=O)OCc1ccccc1",
+        "COc1ccc2nc(N3CCC4CN(C#N)CC43)[nH]c2c1",
+        "O=C1NC(Nc2ccc3nc[nH]c3c2)=N/C1=C\\c1ccc2ncsc2c1",
+    ],
+)
+def test_retained_benzimidazole_parent_defers_templateless_decomposition(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_kekulized_benzimidazole_like_bicyclic_parent_remains_preferred():
+    input_smiles = "Clc1ccccc1-c1nc2c([nH]1)CC(N1CCc3nc[nH]c3C1)CC2"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",

@@ -403,6 +403,9 @@ def _candidate_fact_ranked_item(
     return _adamantane_retained_parent_alternative_for_templateless_choice(
         keyed_items,
         selected_item,
+    ) or _benzimidazole_retained_parent_alternative_for_templateless_choice(
+        keyed_items,
+        selected_item,
     ) or selected_item
 
 
@@ -472,6 +475,77 @@ def _adamantane_retained_parent_alternative_for_templateless_choice(
         if len(item.name) > 280:
             continue
         if len(item.name) - len(selected.name) > 130:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_BENZIMIDAZOLE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "carbamate-retained-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generic-bicyclic-parent",
+        "single-ring-parent",
+        "spiro-functional-chain-substituent",
+        "sulfonamide-retained-parent",
+    }
+)
+
+
+def _benzimidazole_retained_parent_alternative_for_templateless_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.template_name:
+        return None
+    if selected_candidate.family not in _BENZIMIDAZOLE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if candidate.template_name != "benzimidazole":
+            continue
+        if candidate.source_family != "static-retained":
+            continue
+        if candidate.source_file != "high_impact_fused_parent_templates.json":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 9:
+            continue
+        if candidate.parent_element_counts != (("C", 7), ("N", 2)):
+            continue
+        if candidate.parent_substituted_hetero_atom_count:
+            continue
+        if candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate.suffixes:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 2:
+            continue
+        if len(item.name) > 260:
+            continue
+        if len(item.name) - len(selected.name) > 80:
             continue
         if candidate_key[0] > selected_key[0] + 220:
             continue

@@ -765,6 +765,22 @@ def test_hydroxy_oxo_dicarboxylate_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CNN(C)Cc1cc2ccccc2n1CCC(=O)NCC(=O)NCC(=O)NCC(=O)N(C)C(C)C(=O)[O-]",
+        "CNN(C)Cc1cc2cccnc2n1CCC(=O)N(C)C(C)C(=O)[O-]",
+        "CCC(=O)NCCNCC(=O)NCCOCCOCCC(=O)N(C)C(C)Cn1c(CN(C)NC)cc2ccccc21",
+    ],
+)
+def test_complex_hydrazino_methyl_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCOC(=O)CCC#N",
         "N#CCC(=O)N",
     ],

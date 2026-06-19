@@ -752,8 +752,12 @@ def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
         amino = _nitrogen_prefix(mol, hetero_idx, methylene_idx)
         if not amino or not amino.endswith("amino"):
             return ""
-        return amino + "methyl"
+        return f"({amino})methyl" if _complex_hetero_methyl_prefix(amino) else amino + "methyl"
     return ""
+
+
+def _complex_hetero_methyl_prefix(prefix: str) -> bool:
+    return "(" in prefix or ")" in prefix
 
 
 def _terminal_carboxymethyl_prefix(mol, carbonyl_idx: int, methylene_idx: int, parent_idx: int) -> str:

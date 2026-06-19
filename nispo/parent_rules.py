@@ -14323,12 +14323,16 @@ class GeneratedFusedParentRule(FusedParentRule):
             sort_key = self._candidate_sort_key(mol, template, match, name)
             if fact.topology_query:
                 sort_key = (_generated_topology_fused_candidate_rank(template_name, name), *sort_key)
+            reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=self.priority,
                 sort_key=sort_key,
                 **_fused_parent_graph_fact_kwargs(mol, match),
+                parent_indicated_hydrogen_locants=tuple(
+                    _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+                ),
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_name,
@@ -14893,11 +14897,19 @@ def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[st
             mol,
             parent_atom_tuple,
         ),
+        "parent_terminal_chalcogen_double_bond_count": _ring_terminal_chalcogen_double_bond_count(
+            mol,
+            parent_atom_tuple,
+        ),
         "parent_substituted_hetero_atom_count": _parent_substituted_hetero_atom_count(
             mol,
             parent_atom_tuple,
         ),
         "parent_external_nitrogen_substituent_count": _ring_external_nitrogen_substituent_count(
+            mol,
+            parent_atom_tuple,
+        ),
+        "parent_external_acyl_nitrogen_substituent_count": _ring_external_acyl_nitrogen_substituent_count(
             mol,
             parent_atom_tuple,
         ),
@@ -14917,6 +14929,24 @@ def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
             if neighbor.GetIdx() in ring_set or neighbor.GetAtomicNum() == 6:
                 continue
             if neighbor.GetDegree() == 1:
+                count += 1
+    return count
+
+
+def _ring_terminal_chalcogen_double_bond_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetIdx() in ring_set:
+                continue
+            if neighbor.GetAtomicNum() not in {8, 16, 34, 52}:
+                continue
+            if neighbor.GetDegree() != 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(idx, neighbor.GetIdx())
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
                 count += 1
     return count
 
@@ -14945,6 +14975,37 @@ def _ring_external_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
             if neighbor.GetIdx() not in ring_set and neighbor.GetAtomicNum() == 7:
                 count += 1
     return count
+
+
+def _ring_external_acyl_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for nitrogen in atom.GetNeighbors():
+            if nitrogen.GetIdx() in ring_set or nitrogen.GetAtomicNum() != 7:
+                continue
+            if _external_nitrogen_has_acyl_neighbor(mol, nitrogen.GetIdx(), ring_set):
+                count += 1
+    return count
+
+
+def _external_nitrogen_has_acyl_neighbor(mol, nitrogen_idx: int, parent_atoms: set[int]) -> bool:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    for carbon in nitrogen.GetNeighbors():
+        carbon_idx = carbon.GetIdx()
+        if carbon_idx in parent_atoms or carbon.GetAtomicNum() != 6:
+            continue
+        for hetero in carbon.GetNeighbors():
+            hetero_idx = hetero.GetIdx()
+            if hetero_idx == nitrogen_idx:
+                continue
+            if hetero.GetAtomicNum() not in {8, 16, 34, 52}:
+                continue
+            bond = mol.GetBondBetweenAtoms(carbon_idx, hetero_idx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                return True
+    return False
 
 
 def _ring_external_oxygen_substituent_count(mol, ring: Sequence[int]) -> int:
@@ -16735,6 +16796,7 @@ from .parent.rule_helpers import (
     _generated_fused_graph_orientation_preference,
     _benzotriazole_template_h_preference,
     _has_n_oxide_on_match,
+    _matched_fused_indicated_hydrogen_locants,
     _name_fused_core_match,
     _name_natural_product_topology_match,
     _opsin_parseable_retained_parent_name,

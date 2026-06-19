@@ -71,9 +71,12 @@ class NameCandidate:
     parent_aromatic_atom_count: int = 0
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
+    parent_terminal_chalcogen_double_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
+    parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
+    parent_indicated_hydrogen_locants: tuple[str, ...] = ()
     prefixes: tuple[PrefixCandidate, ...] = ()
     suffixes: tuple[SuffixCandidate, ...] = ()
     charge: ChargeEvidence | None = None
@@ -1030,6 +1033,11 @@ def _ranker_preserves_generated_fused_parent_over_penalized_retained_shortcut(
     current_render_rank = current_candidate.render_rank
     if current_render_rank is None or current_render_rank > 3:
         return True
+    if _is_unanchored_indicated_h_generated_purine_candidate(current_candidate) and _is_matching_retained_purin_candidate(
+        proposed_candidate,
+        current_candidate,
+    ):
+        return True
     current_penalty = int(current_key[0]) if current_key else current.stability_penalty
     proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
     if proposed_penalty < current_penalty + 180:
@@ -1739,6 +1747,8 @@ def _ranker_preserves_generated_purine_parent(
         return True
     if proposed_candidate.parent_substituted_hetero_atom_count:
         return True
+    if _generated_purine_candidate_has_terminal_hetero_substituent(current_candidate):
+        return True
     if current_candidate.render_rank is None or current_candidate.render_rank > 2:
         return True
     if current_candidate.charge is not None or proposed_candidate.charge is not None:
@@ -1746,6 +1756,48 @@ def _ranker_preserves_generated_purine_parent(
     if current_candidate.suffixes or proposed_candidate.suffixes:
         return True
     return False
+
+
+def _generated_purine_candidate_has_terminal_hetero_substituent(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "generated-fused-parent"
+        and candidate.template_name in _GENERATED_PURINE_PARENT_TEMPLATES
+        and candidate.parent_terminal_hetero_substituent_count > 0
+    )
+
+
+def _is_unanchored_indicated_h_generated_purine_candidate(candidate: NameCandidate) -> bool:
+    return (
+        _generated_purine_candidate_has_terminal_hetero_substituent(candidate)
+        and candidate.parent_terminal_chalcogen_double_bond_count > 0
+        and bool(candidate.parent_indicated_hydrogen_locants)
+        and "1" not in candidate.parent_indicated_hydrogen_locants
+        and "3" in candidate.parent_indicated_hydrogen_locants
+    )
+
+
+def _is_matching_retained_purin_candidate(candidate: NameCandidate, generated_candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "fused-retained-parent"
+        and candidate.template_name == "purin"
+        and candidate_has_complete_graph(candidate)
+        and candidate_has_complete_graph(generated_candidate)
+        and bool(candidate.parent_atoms)
+        and candidate.parent_atoms == generated_candidate.parent_atoms
+        and len(candidate.parent_atoms) == 9
+        and not _has_acylated_external_nitrogen_monochalcogen_purine_shape(generated_candidate)
+        and candidate.charge is None
+        and generated_candidate.charge is None
+        and not candidate.suffixes
+        and not generated_candidate.suffixes
+    )
+
+
+def _has_acylated_external_nitrogen_monochalcogen_purine_shape(candidate: NameCandidate) -> bool:
+    return (
+        candidate.parent_external_acyl_nitrogen_substituent_count > 0
+        and candidate.parent_terminal_chalcogen_double_bond_count == 1
+    )
 
 
 def _ranker_preserves_biochemical_retained_parent_over_shortcut(
@@ -3586,6 +3638,10 @@ def _has_contextual_generated_fused_same_atoms_alternative(
         same_ring = bool(ring_atoms and other_candidate.ring_system_atoms == ring_atoms)
         if not same_parent and not same_ring:
             continue
+        if _is_matching_retained_purin_candidate(candidate, other_candidate) and _is_unanchored_indicated_h_generated_purine_candidate(
+            other_candidate,
+        ):
+            continue
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue
         if len(other.name) - len(item.name) > 90:
@@ -3705,6 +3761,10 @@ def _has_contextual_low_rank_generated_fused_parent_alternative(
         if not same_ring and parent_overlap < min(parent_count, other_parent_count, 8):
             continue
         if other_candidate.render_rank is None or other_candidate.render_rank > 3:
+            continue
+        if _is_matching_retained_purin_candidate(candidate, other_candidate) and _is_unanchored_indicated_h_generated_purine_candidate(
+            other_candidate,
+        ):
             continue
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue
@@ -4256,6 +4316,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         _has_contextual_purin_parent_alternative_for_chalcogen_retained_purine_alias(item, prepared)
     )
     retained_purine_generated_parent = _has_contextual_generated_purine_parent_alternative(item, prepared)
+    retained_purine_unanchored_generated_parent = (
+        _has_contextual_unanchored_generated_purine_parent_alternative_for_retained_purin(item, prepared)
+    )
     substituted_pterin_with_pteridin_parent = (
         _has_contextual_pteridin_parent_alternative_for_substituted_pterin(item, prepared)
     )
@@ -4514,6 +4577,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or fragile_purine_tautomer_alias
         or retained_purine_chalcogen_tautomer_parent
         or retained_purine_generated_parent
+        or retained_purine_unanchored_generated_parent
         or substituted_pterin_with_pteridin_parent
         or retained_imidazopyridine_benzazole_parent
         or retained_imidazopyridine_with_first_indazole_h_parent
@@ -4757,6 +4821,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 560
     if retained_purine_generated_parent:
         penalty += 140
+    if retained_purine_unanchored_generated_parent:
+        penalty -= 120
     if substituted_pterin_with_pteridin_parent:
         penalty += 80
     if retained_imidazopyridine_benzazole_parent:
@@ -5091,7 +5157,7 @@ def _allow_high_confidence_imidazo45a_unlocanted_stereo_candidate(
         return False
     if candidate.template_name != "imidazo[4,5-a]benzene":
         return False
-    if candidate.render_rank is None or candidate.render_rank > 2:
+    if candidate.render_rank is None or candidate.render_rank > 4:
         return False
     if len(candidate.parent_atoms) < 9:
         return False
@@ -8846,7 +8912,7 @@ def _is_external_nitrogen_generated_fused_shortcut_candidate(candidate: NameCand
         return False
     if candidate.safety is not None and candidate.safety.reasons:
         return False
-    if candidate.render_rank is None or candidate.render_rank > 2:
+    if candidate.render_rank is None or candidate.render_rank > 4:
         return False
     return True
 
@@ -8907,6 +8973,41 @@ def _has_contextual_generated_purine_parent_alternative(
         if len(other_candidate.parent_atoms) != len(candidate.parent_atoms):
             continue
         if other_candidate.render_rank is None or other_candidate.render_rank > 2:
+            continue
+        if _generated_purine_candidate_has_terminal_hetero_substituent(other_candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(item.name) > 180:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 120:
+            continue
+        return True
+    return False
+
+
+def _has_contextual_unanchored_generated_purine_parent_alternative_for_retained_purin(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name != "purin":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 9:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_unanchored_indicated_h_generated_purine_candidate(other_candidate):
+            continue
+        if not _is_matching_retained_purin_candidate(candidate, other_candidate):
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 4:
             continue
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue

@@ -3037,6 +3037,33 @@ def test_generated_purine_orientation_parent_roundtrips_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "S=c1[nH]cnc2[nH]cnc12",
+        "Nc1nc2[nH]cnc2c(=S)[nH]1",
+        "C=CCn1c(=O)[nH]c2nc(N)[nH]c(=O)c21",
+        "CCCCn1c(=O)[nH]c2nc(N(C(C)=O)C(C)=O)[nH]c(=O)c21",
+    ],
+)
+def test_unanchored_chalcogen_purine_parent_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_acylated_monochalcogen_purinone_does_not_emit_wrong_parseable_parent():
+    input_smiles = "NCC(=O)NCC(=O)Nc1nc2[nH]cnc2c(=O)[nH]1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    if parsed_smiles:
+        assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc2oc(C3=NCCc4[nH]cnc43)nc2c1",
         "c1ccc2sc(C3=NCCc4[nH]cnc43)nc2c1",
         "c1ccc2[nH]c(C3=NCCc4[nH]cnc43)nc2c1",

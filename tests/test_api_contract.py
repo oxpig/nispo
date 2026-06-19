@@ -368,6 +368,25 @@ def test_opsin_retained_fused_parent_keeps_fragile_correct_retained_controls(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCNC(=O)CC[C@H](N)C(=O)N1CCc2nc(Cc3ccccc3)[nH]c2C1",
+        "CC(C)(C)OC(=O)N1C[C@@H]2CN(c3ccccc3)[C@H](C1)C(C)(C)C2",
+        "C[C@@]12C(=O)C(=O)C1([C@@H](O)C1C=CCCC1)NC(=O)[C@@H]2CCCl",
+        "Cc1ccc(S(=O)(=O)OC(C(=O)[O-])[C@@H]2C[C@@](C)([C@@H]3CO3)[C@@H](O)[C@H](C)[C@]34CCC(=O)[C@H]3[C@]2(C)[C@H](C)CC4)cc1",
+    ],
+)
+def test_kekulized_polycyclic_parent_defers_single_ring_decomposition_roundtrip(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",

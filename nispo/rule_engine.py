@@ -421,7 +421,14 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
+    selected_item = (
+        _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _kekulized_polycyclic_alternative_for_single_ring_choice(
         keyed_items,
         selected_item,
     ) or selected_item
@@ -707,6 +714,84 @@ def _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_KEKULIZED_SINGLE_RING_PARENT_PROFILE_COUNTS = frozenset(
+    {
+        (("C", 6), ("N", 1)),
+        (("C", 6), ("N", 3)),
+        (("C", 14),),
+    }
+)
+
+
+def _kekulized_polycyclic_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if candidate.source_family != "kekulized":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) < selected_parent_count + 1:
+            continue
+        if len(candidate.parent_atoms) > 15:
+            continue
+        if not _kekulized_single_ring_parent_profile_is_supported(candidate, item.name):
+            continue
+        if len(candidate.parent_atoms) <= 7 and len(candidate.locants) < 3:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.render_rank != 1:
+            continue
+        if len(item.name) > 220:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _kekulized_single_ring_parent_profile_is_supported(
+    candidate: NameCandidate,
+    name: str,
+) -> bool:
+    if candidate.parent_element_counts in _KEKULIZED_SINGLE_RING_PARENT_PROFILE_COUNTS:
+        return True
+    if candidate.parent_element_counts == (("C", 7), ("N", 2)):
+        return len(name) <= 110
+    return False
 
 
 def _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(

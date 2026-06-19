@@ -749,6 +749,22 @@ def test_high_impact_charged_retained_parents_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C([O-])CCC(O)CC(=O)C(=O)[O-]",
+        "O=C([O-])C(=O)CC(O)C(=O)[O-]",
+        "O=C([O-])C(=O)C[C@H](O)C(=O)[O-]",
+    ],
+)
+def test_hydroxy_oxo_dicarboxylate_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCOC(=O)CCC#N",
         "N#CCC(=O)N",
     ],
@@ -1425,6 +1441,23 @@ def test_phosphonous_acid_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN(C)P(=O)([O-])Cl",
+        "CCN(CC)P(=O)([O-])F",
+        "CC(C)N(C(C)C)P([O-])Cl",
+        "CN(C)P([O-])Br",
+    ],
+)
+def test_halo_phosphoramidite_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

@@ -6098,11 +6098,18 @@ class OxoCarboxylateRetainedParentRule:
         if mol.GetRingInfo().NumRings() != 0:
             return
         seen = set()
-        for name in _oxo_carboxylate_parent_names(mol, self._Chem):
+        for name, stereo_locants in _oxo_carboxylate_parent_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_heavy_atom_indices(mol),
+                stereo_locants=stereo_locants,
+            )
 
 
 class BoronicPinacolEsterParentRule:
@@ -6734,6 +6741,27 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
                 names.append(f"{ligand_text} trithiophosphite")
             continue
 
+        if (
+            anionic_oxygen_count == 1
+            and anionic_sulfur_count == 0
+            and not carbon_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and len(halogen_ligands) == 1
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 1
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            name = _halophosphoramidite_name(
+                mol,
+                substituted_amino_ligands[0],
+                pidx,
+                halogen_ligands[0],
+            )
+            if name:
+                names.append(name)
+            continue
+
         if anionic_oxygen_count != 1:
             continue
         if anionic_sulfur_count != 0:
@@ -6891,6 +6919,32 @@ def _phosphoramidite_substituted_amino_prefix(mol, nitrogen_idx: int, phosphorus
     return prefix
 
 
+def _halophosphoramidite_name(mol, nitrogen_idx: int, phosphorus_idx: int, halogen: str) -> str:
+    amino_prefix = _phosphoramidite_substituted_amino_prefix(mol, nitrogen_idx, phosphorus_idx)
+    halo = HALO.get(halogen, "")
+    if not amino_prefix or not halo or not _stable_phosphoramidite_amino_prefix(amino_prefix):
+        return ""
+    return f"{amino_prefix}{halo}phosphoramidite"
+
+
+def _phosphoramidohalidate_name(mol, nitrogen_idx: int, phosphorus_idx: int, halogen: str) -> str:
+    amino_prefix = _phosphoramidite_substituted_amino_prefix(mol, nitrogen_idx, phosphorus_idx)
+    halo = HALO.get(halogen, "")
+    if not amino_prefix or not halo or not _stable_phosphoramidite_amino_prefix(amino_prefix):
+        return ""
+    return f"{amino_prefix}phosphoramido{halo[:-1]}idate"
+
+
+def _stable_phosphoramidite_amino_prefix(prefix: str) -> bool:
+    if not prefix or len(prefix) > 96 or " " in prefix or "[" in prefix or "]" in prefix:
+        return False
+    if prefix.startswith("("):
+        return False
+    if any(fragment in prefix for fragment in ("lambda", "spiro", "bicyclo")):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,()'\-]+", prefix))
+
+
 def _phosphite_ester_name(owner_names: Sequence[str]) -> str:
     first, second = sorted(owner_names)
     if first == second:
@@ -6922,6 +6976,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
         carbon_single_ligands = []
         carbon_double_ligands = []
         oxygen_ligands = []
+        halogen_ligands = []
         terminal_amino_ligands = []
         substituted_amino_ligands = []
         covered = {pidx}
@@ -6970,6 +7025,14 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
                 oxygen_ligands.append(nidx)
                 covered.update(_collect_component_atoms(mol, nidx, pidx))
             elif (
+                nbr.GetSymbol() in HALO
+                and nbr.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.SINGLE
+                and not heavy
+            ):
+                halogen_ligands.append(nbr.GetSymbol())
+                covered.add(nidx)
+            elif (
                 nbr.GetSymbol() == "N"
                 and nbr.GetFormalCharge() == 0
                 and bond_type == Chem.BondType.SINGLE
@@ -7001,6 +7064,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(carbon_single_ligands) == 1
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not halogen_ligands
             and not terminal_amino_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
@@ -7019,6 +7083,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(carbon_single_ligands) == 1
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not halogen_ligands
             and not terminal_amino_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
@@ -7035,6 +7100,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(terminal_amino_ligands) == 1
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not halogen_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
         ):
@@ -7049,6 +7115,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and not carbon_single_ligands
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not halogen_ligands
             and not terminal_amino_ligands
             and len(substituted_amino_ligands) == 1
             and phosphorus.GetTotalNumHs() == 1
@@ -7065,6 +7132,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(oxygen_ligands) == 1
             and not carbon_single_ligands
             and not carbon_double_ligands
+            and not halogen_ligands
             and not terminal_amino_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 1
@@ -7075,11 +7143,33 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             continue
 
         if (
+            double_oxygen_count == 1
+            and anionic_oxygen_count == 1
+            and not carbon_single_ligands
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and len(halogen_ligands) == 1
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 1
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            name = _phosphoramidohalidate_name(
+                mol,
+                substituted_amino_ligands[0],
+                pidx,
+                halogen_ligands[0],
+            )
+            if name:
+                names.append(name)
+            continue
+
+        if (
             double_oxygen_count == 0
             and anionic_oxygen_count == 3
             and len(carbon_double_ligands) == 1
             and not carbon_single_ligands
             and not oxygen_ligands
+            and not halogen_ligands
             and not terminal_amino_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
@@ -10364,15 +10454,19 @@ def _generic_acyl_functional_parent_text(mol, Chem, root: str, path: Sequence[in
 
 
 def _oxo_carboxylate_parent_names(mol, Chem) -> list[str]:
+    return [name for name, _stereo_locants in _oxo_carboxylate_parent_records(mol, Chem)]
+
+
+def _oxo_carboxylate_parent_records(mol, Chem) -> list[tuple[str, tuple[tuple[int, str], ...]]]:
     groups = _terminal_carboxyl_groups(mol, Chem, allowed_kinds={"carboxylate"})
-    names: list[str] = []
+    records: list[tuple[str, tuple[tuple[int, str], ...]]] = []
     if len(groups) == 1:
-        names.extend(_alpha_keto_monocarboxylate_names(mol, Chem, groups[0]))
+        records.extend((name, ()) for name in _alpha_keto_monocarboxylate_names(mol, Chem, groups[0]))
     elif len(groups) == 2:
-        name = _alpha_keto_dicarboxylate_name(mol, Chem, groups)
-        if name:
-            names.append(name)
-    return sorted(set(names), key=lambda name: (len(name), name))
+        record = _alpha_keto_dicarboxylate_record(mol, Chem, groups)
+        if record:
+            records.append(record)
+    return sorted(set(records), key=lambda record: (len(record[0]), record[0], record[1]))
 
 
 def _terminal_carboxyl_groups(
@@ -10441,25 +10535,43 @@ def _is_alpha_keto_carbon(mol, Chem, atom_idx: int, carboxyl_idx: int) -> bool:
 
 
 def _alpha_keto_dicarboxylate_name(mol, Chem, groups: Sequence[tuple[int, int, str]]) -> str:
+    record = _alpha_keto_dicarboxylate_record(mol, Chem, groups)
+    return record[0] if record else ""
+
+
+def _alpha_keto_dicarboxylate_record(
+    mol,
+    Chem,
+    groups: Sequence[tuple[int, int, str]],
+) -> tuple[str, tuple[tuple[int, str], ...]] | None:
     endpoints = [group[0] for group in groups if group[2] == "carboxylate"]
     if len(endpoints) != 2:
-        return ""
+        return None
     path = tuple(Chem.rdmolops.GetShortestPath(mol, endpoints[0], endpoints[1]))
     if not _simple_alpha_keto_dicarboxylate_path(mol, Chem, path):
-        return ""
+        return None
     reverse = tuple(reversed(path))
     orientations = []
     for candidate_path in (path, reverse):
         oxo_locants = _path_oxo_locants(mol, Chem, candidate_path)
         if len(oxo_locants) == 1:
-            orientations.append((oxo_locants[0], candidate_path))
+            hydroxy_locants = tuple(_path_hydroxy_locants(mol, Chem, candidate_path))
+            if len(hydroxy_locants) <= 2:
+                orientations.append((oxo_locants[0], hydroxy_locants, candidate_path))
     if not orientations:
-        return ""
-    oxo_locant, oriented = min(orientations, key=lambda item: (item[0], tuple(item[1])))
+        return None
+    oxo_locant, hydroxy_locants, oriented = min(
+        orientations,
+        key=lambda item: (item[0], item[1], tuple(item[2])),
+    )
     root = ROOTS.get(len(oriented))
     if not root:
-        return ""
-    return f"{oxo_locant}-oxo{root}anedioate"
+        return None
+    prefixes = [(str(locant), "hydroxy") for locant in hydroxy_locants]
+    prefixes.append((str(oxo_locant), "oxo"))
+    name = _join_prefix_parent(_format_prefixes(prefixes), f"{root}anedioate")
+    stereo_locants = tuple((atom_idx, str(locant)) for locant, atom_idx in enumerate(oriented, start=1))
+    return name, stereo_locants
 
 
 def _simple_alpha_keto_dicarboxylate_path(mol, Chem, path: Sequence[int]) -> bool:
@@ -10497,6 +10609,19 @@ def _simple_alpha_keto_dicarboxylate_path(mol, Chem, path: Sequence[int]) -> boo
             if pos in {0, len(path) - 1} and nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
                 allowed_external_oxygens.add(nidx)
                 continue
+            if (
+                pos not in {0, len(path) - 1}
+                and nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and nbr.GetTotalNumHs() == 1
+                and not any(
+                    other.GetIdx() != atom_idx and other.GetAtomicNum() > 1
+                    for other in nbr.GetNeighbors()
+                )
+            ):
+                allowed_external_oxygens.add(nidx)
+                continue
             return False
         if pos not in {0, len(path) - 1} and len(double_oxygens) > 1:
             return False
@@ -10516,6 +10641,26 @@ def _path_oxo_locants(mol, Chem, path: Sequence[int]) -> list[int]:
             if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
                 double_oxygen_count += 1
         if double_oxygen_count == 1:
+            locants.append(locant)
+    return locants
+
+
+def _path_hydroxy_locants(mol, Chem, path: Sequence[int]) -> list[int]:
+    locants = []
+    for locant, atom_idx in enumerate(path, start=1):
+        if locant in {1, len(path)}:
+            continue
+        hydroxy_count = 0
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx())
+            if (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and nbr.GetTotalNumHs() == 1
+            ):
+                hydroxy_count += 1
+        if hydroxy_count == 1:
             locants.append(locant)
     return locants
 

@@ -2007,12 +2007,31 @@ def _ranker_preserves_charged_single_ring_parent_over_neutral_shortcut(
         return True
     if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
         return True
+    if candidate_safety_reasons(current_candidate):
+        return True
     if _is_exact_retained_charge_distribution_shortcut(proposed_candidate):
         if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
             return True
         if not current_candidate.parent_atoms.issubset(proposed_candidate.parent_atoms):
             return True
         if len(current_candidate.parent_atoms) < 5 or len(current_candidate.parent_atoms) > 6:
+            return True
+        if len(current.name) > 180 or len(current.name) - len(proposed.name) > 90:
+            return True
+        return proposed_key <= current_key
+    if proposed_candidate.family in _CHARGED_SINGLE_RING_PARENT_COMPETITOR_FAMILIES:
+        if proposed_candidate.charge is not None and proposed_candidate.charge.charged_atoms:
+            return True
+        if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+            return True
+        if len(current.name) > 220 or len(current.name) - len(proposed.name) > 130:
+            return True
+        return proposed_key <= current_key
+    if (
+        proposed_candidate.family == "charged-retained-parent"
+        and _is_six_membered_ring_dication_single_ring_parent(current_candidate)
+    ):
+        if not _is_charged_retained_parent_candidate(proposed_candidate):
             return True
         if len(current.name) > 180 or len(current.name) - len(proposed.name) > 90:
             return True
@@ -3657,6 +3676,11 @@ _RETAINED_BENZOCYCLOBUTENE_ALTERNATIVE_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMIL
 
 _ACYCLIC_RING_DECOMPOSITION_PARENT_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
     "charged-ring-acyclic-skeleton-with-ring-substituents",
+}
+_CHARGED_SINGLE_RING_PARENT_COMPETITOR_FAMILIES = _ACYCLIC_SKELETON_PARENT_FAMILIES | {
+    "beta-dicarbonyl-parent",
+    "biphenyl-parent",
+    "neutral-amine-parent",
 }
 
 _ACYCLIC_INTEGRATED_RING_PARENT_ALTERNATIVE_FAMILIES = {
@@ -8069,7 +8093,9 @@ def _has_contextual_charged_single_ring_parent_alternative(
 ) -> bool:
     candidate = item.candidate
     charge_distribution_shortcut = _is_exact_retained_charge_distribution_shortcut(candidate)
-    if not charge_distribution_shortcut:
+    charge_erasing_competitor = _is_charge_erasing_single_ring_competitor_candidate(candidate)
+    charged_retained_parent = _is_charged_retained_parent_candidate(candidate)
+    if not charge_distribution_shortcut and not charge_erasing_competitor and not charged_retained_parent:
         if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
             return False
         if candidate.charge is not None or candidate.suffixes:
@@ -8083,28 +8109,99 @@ def _has_contextual_charged_single_ring_parent_alternative(
         if other is item or other.name == item.name:
             continue
         other_candidate = other.candidate
-        if other_candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        if not _is_charge_located_single_ring_parent_candidate(other_candidate):
             continue
-        if other_candidate.charge is None or not other_candidate.charge.charged_atoms:
+        evidence = other_candidate.charge
+        if evidence is None:
             continue
-        if other_candidate.suffixes:
-            continue
-        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+        if evidence.formal_charge < 0 and len(evidence.charged_atoms) > 1:
             continue
         if charge_distribution_shortcut:
             if len(other_candidate.parent_atoms) < 5 or len(other_candidate.parent_atoms) > 6:
                 continue
             if not other_candidate.parent_atoms.issubset(candidate.parent_atoms):
                 continue
+        elif charge_erasing_competitor:
+            if len(other.name) > 220 or len(other.name) - len(item.name) > 130:
+                continue
+        elif charged_retained_parent:
+            if not _is_six_membered_ring_dication_single_ring_parent(other_candidate):
+                continue
+            if len(other.name) > 180 or len(other.name) - len(item.name) > 90:
+                continue
         else:
             if len(other_candidate.parent_atoms) != current_parent_count:
                 continue
         if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
-            continue
+            if not charge_erasing_competitor and not charged_retained_parent:
+                continue
         if other.stability_penalty > item.stability_penalty + 80:
-            continue
+            if (
+                not (charge_erasing_competitor or charged_retained_parent)
+                or other.stability_penalty > item.stability_penalty + 180
+            ):
+                continue
         return True
     return False
+
+
+def _is_charge_located_single_ring_parent_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return False
+    evidence = candidate.charge
+    if evidence is None or not evidence.charged_atoms:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 4 or parent_count > 6:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+def _is_charge_erasing_single_ring_competitor_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family not in _CHARGED_SINGLE_RING_PARENT_COMPETITOR_FAMILIES:
+        return False
+    if candidate.charge is not None and candidate.charge.charged_atoms:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+def _is_charged_retained_parent_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "charged-retained-parent":
+        return False
+    if candidate.charge is not None and candidate.charge.charged_atoms:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+def _is_six_membered_ring_dication_single_ring_parent(candidate: NameCandidate) -> bool:
+    if not _is_charge_located_single_ring_parent_candidate(candidate):
+        return False
+    evidence = candidate.charge
+    if evidence is None:
+        return False
+    if evidence.formal_charge != 2 or len(evidence.charged_atoms) != 2:
+        return False
+    if len(candidate.parent_atoms) != 6:
+        return False
+    if candidate.parent_element_counts != (("C", 4), ("N", 2)):
+        return False
+    if candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.suffixes:
+        return False
+    return True
 
 
 def _is_simple_charged_aromatic_single_ring_parent(candidate: NameCandidate) -> bool:

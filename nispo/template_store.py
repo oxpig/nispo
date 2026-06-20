@@ -156,9 +156,12 @@ class TemplateStore:
         self.Chem = Chem
         self._compiled: dict[int, CompiledTemplate] = {}
         self._compiled_indexes: dict[int, tuple[tuple[dict, ...], _CompiledTemplateIndex]] = {}
+        self._catalog: ParentScaffoldCatalog | None = None
 
     @property
     def catalog(self) -> ParentScaffoldCatalog:
+        if self._catalog is not None:
+            return self._catalog
         static_retained = self.static_retained()
         opsin_test_scaffolds = self.opsin_test_scaffolds()
         generated_spiro_scaffolds = self.generated_spiro_scaffolds()
@@ -194,7 +197,7 @@ class TemplateStore:
             + fusion_component_parents
         )
         single_ring = self._dedupe_templates(single_ring + opsin_retained_ring_csv_single_ring)
-        return ParentScaffoldCatalog(
+        self._catalog = ParentScaffoldCatalog(
             static_retained=static_retained,
             opsin_test_scaffolds=opsin_test_scaffolds,
             generated_spiro_scaffolds=generated_spiro_scaffolds,
@@ -209,6 +212,7 @@ class TemplateStore:
             single_ring=single_ring,
             by_source_family=self._group_by_source_family(fused + exact + single_ring),
         )
+        return self._catalog
 
     def static_retained(self) -> tuple[dict, ...]:
         return build_static_parent_templates(self.Chem)

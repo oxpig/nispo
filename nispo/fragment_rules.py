@@ -319,6 +319,8 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem)
         or _phosphorus_hydrido_oxoanion_name(mol, Chem)
         or _phosphorus_hydrido_thiooxoanion_name(mol, Chem)
+        or _simple_phosphorus_chalcogen_anion_name(mol, Chem)
+        or _simple_nitrogen_sulfur_anion_name(mol, Chem)
         or _simple_thiosulfur_oxoanion_name(mol, Chem)
         or _chalcogen_thiooxoanion_name(mol, Chem)
         or _phosphorus_thiooxoanion_name(mol, Chem)
@@ -336,7 +338,9 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     if mol.GetNumAtoms() < 2:
         return ""
     return (
-        _small_retained_template_name(mol, Chem)
+        _simple_phosphorus_chalcogen_neutral_name(mol, Chem)
+        or _simple_nitrogen_sulfur_neutral_name(mol, Chem)
+        or _small_retained_template_name(mol, Chem)
         or _isodiazene_name(mol, Chem)
         or _azanol_name(mol, Chem)
         or _phosphorus_oxo_cation_name(mol, Chem)
@@ -391,6 +395,701 @@ def _small_standalone_polyatomic_name(mol, Chem) -> str:
         or _acetonide_name(mol, Chem)
         or _nitronite_name(mol, Chem)
     )
+
+
+def _simple_phosphorus_chalcogen_neutral_name(mol, Chem) -> str:
+    return (
+        _phosphaethene_yne_name(mol, Chem)
+        or _alkanethiosulfonic_acid_name(mol, Chem)
+        or _alkyl_phosphorous_acid_name(mol, Chem)
+        or _alkyl_phosphinic_halide_name(mol, Chem)
+        or _halo_alkenyl_phosphinic_acid_name(mol, Chem)
+        or _phosphorous_acid_dialkylamide_name(mol, Chem)
+    )
+
+
+def _simple_phosphorus_chalcogen_anion_name(mol, Chem) -> str:
+    return (
+        _alkanesulfonimidate_name(mol, Chem)
+        or _alkyl_trithiophosphonate_name(mol, Chem)
+        or _alkyl_phosphonochloridoate_name(mol, Chem)
+        or _dialkoxy_oxo_phosphanuide_name(mol, Chem)
+    )
+
+
+def _simple_nitrogen_sulfur_neutral_name(mol, Chem) -> str:
+    return _alkyl_thiosulfoximine_name(mol, Chem)
+
+
+def _simple_nitrogen_sulfur_anion_name(mol, Chem) -> str:
+    return (
+        _isothiocyanoamide_name(mol, Chem)
+        or _dialkylhydrazinide_name(mol, Chem)
+        or _n_alkyl_nitrosoamide_name(mol, Chem)
+        or _dialkyl_thiolate_name(mol, Chem)
+    )
+
+
+def _phosphaethene_yne_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 1, "P": 1} or _total_charge(mol) != 0:
+        return ""
+    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    phosphorus = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P")
+    bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), phosphorus.GetIdx())
+    if bond is None:
+        return ""
+    if carbon.GetFormalCharge() or phosphorus.GetFormalCharge():
+        return ""
+    if bond.GetBondType() == Chem.BondType.DOUBLE and carbon.GetTotalNumHs() == 2 and phosphorus.GetTotalNumHs() == 1:
+        return "phosphaethene"
+    if bond.GetBondType() == Chem.BondType.TRIPLE and carbon.GetTotalNumHs() == 1 and phosphorus.GetTotalNumHs() == 0:
+        return "phosphaethyne"
+    return ""
+
+
+def _alkanethiosulfonic_acid_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and not atom.IsInRing()]
+    if len(sulfurs) != 2:
+        return ""
+    for sulfur in sulfurs:
+        sidx = sulfur.GetIdx()
+        carbon_idx = terminal_sulfur_idx = None
+        double_oxygen = hydroxy = 0
+        covered = {sidx}
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sidx, nidx)
+            if bond is None:
+                return ""
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+                double_oxygen += 1
+                covered.add(nidx)
+            elif (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and nbr.GetTotalNumHs() == 1
+            ):
+                hydroxy += 1
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+                terminal_sulfur_idx = nidx
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                carbon_idx = nidx
+            else:
+                return ""
+        if double_oxygen != 1 or hydroxy != 1 or terminal_sulfur_idx is None or carbon_idx is None:
+            continue
+        chain = _linear_fragment_carbon_chain(mol, Chem, carbon_idx, sidx)
+        if not chain:
+            continue
+        chain_atoms, amino_locants = chain
+        covered.update(chain_atoms)
+        for locant, nitrogen_idx in amino_locants:
+            covered.add(nitrogen_idx)
+        if covered != set(range(mol.GetNumAtoms())):
+            continue
+        root = ROOTS.get(len(chain_atoms), "")
+        if not root:
+            continue
+        prefixes = _fragment_locant_prefix_text("amino", [locant for locant, _idx in amino_locants])
+        return f"{prefixes}{root}anethiosulfonic acid"
+    return ""
+
+
+def _alkanesulfonimidate_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    sulfur_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0]
+    if len(sulfur_atoms) != 1:
+        return ""
+    sulfur = sulfur_atoms[0]
+    sidx = sulfur.GetIdx()
+    carbon_idx = imino_idx = oxido_idx = None
+    double_oxygen = 0
+    covered = {sidx}
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            imino_idx = nidx
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            oxido_idx = nidx
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or imino_idx is None or oxido_idx is None or double_oxygen != 1:
+        return ""
+    chain = _linear_fragment_carbon_chain(mol, Chem, carbon_idx, sidx)
+    if not chain:
+        return ""
+    chain_atoms, amino_locants = chain
+    if amino_locants:
+        return ""
+    covered.update(chain_atoms)
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    root = ROOTS.get(len(chain_atoms), "")
+    return f"{root}anesulfonimidate" if root else ""
+
+
+def _alkyl_phosphorous_acid_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0 or phosphorus.GetTotalNumHs() != 1:
+        return ""
+    pidx = phosphorus.GetIdx()
+    carbon_idx = None
+    hydroxy = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == 0
+            and nbr.GetTotalNumHs() == 1
+        ):
+            hydroxy += 1
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or hydroxy != 3:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, pidx)
+    if not owner:
+        return ""
+    covered.update(owner_atoms)
+    return f"{owner}phosphorous acid" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _alkyl_phosphinic_halide_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0 or phosphorus.GetTotalNumHs() != 1:
+        return ""
+    pidx = phosphorus.GetIdx()
+    carbon_idx = halogen = None
+    double_oxygen = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() in HALIDE_ANIONS and bond.GetBondType() == Chem.BondType.SINGLE:
+            halogen = nbr.GetSymbol()
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or halogen is None or double_oxygen != 1:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, pidx)
+    if not owner:
+        return ""
+    covered.update(owner_atoms)
+    return f"{owner}phosphinic {HALIDE_ANIONS[halogen]}" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _halo_alkenyl_phosphinic_acid_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0 or phosphorus.GetTotalNumHs() != 0:
+        return ""
+    pidx = phosphorus.GetIdx()
+    carbon_idx = halogen = None
+    double_oxygen = hydroxy = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == 0
+            and nbr.GetTotalNumHs() == 1
+        ):
+            hydroxy += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() in HALIDE_ANIONS and bond.GetBondType() == Chem.BondType.SINGLE:
+            halogen = nbr.GetSymbol()
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or halogen is None or double_oxygen != 1 or hydroxy != 1:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, pidx)
+    if owner == "vinyl":
+        owner = "ethenyl"
+    if not owner:
+        return ""
+    covered.update(owner_atoms)
+    return f"{HALIDE_STEMS[halogen]}o({owner})phosphinic acid" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _alkyl_trithiophosphonate_name(mol, Chem) -> str:
+    if _total_charge(mol) != -2:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0:
+        return ""
+    pidx = phosphorus.GetIdx()
+    carbon_idx = None
+    double_sulfur = anionic_sulfur = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_sulfur += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            anionic_sulfur += 1
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or double_sulfur != 1 or anionic_sulfur != 2:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, pidx)
+    if not owner:
+        return ""
+    covered.update(owner_atoms)
+    return f"{owner}trithiophosphonate" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _alkyl_phosphonochloridoate_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0:
+        return ""
+    pidx = phosphorus.GetIdx()
+    carbon_idx = None
+    double_oxygen = oxido = chloride = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_idx = nidx
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            oxido += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "Cl" and bond.GetBondType() == Chem.BondType.SINGLE:
+            chloride += 1
+            covered.add(nidx)
+        else:
+            return ""
+    if carbon_idx is None or double_oxygen != 1 or oxido != 1 or chloride != 1:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, pidx)
+    if not owner:
+        return ""
+    covered.update(owner_atoms)
+    return f"{owner}phosphonochloridoate" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _dialkoxy_oxo_phosphanuide_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != -1:
+        return ""
+    pidx = phosphorus.GetIdx()
+    double_oxygen = 0
+    alkoxy_names = []
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            covered.add(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            owner_atoms = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetIdx() != pidx and atom.GetSymbol() == "C"]
+            if len(owner_atoms) != 1:
+                return ""
+            owner, atoms = _simple_fragment_owner_name(mol, Chem, owner_atoms[0], nidx)
+            alkoxy = _alkoxy_fragment_name(owner)
+            if not alkoxy:
+                return ""
+            alkoxy_names.append(alkoxy)
+            covered.add(nidx)
+            covered.update(atoms)
+        else:
+            return ""
+    if double_oxygen != 1 or len(alkoxy_names) != 2 or covered != set(range(mol.GetNumAtoms())):
+        return ""
+    if alkoxy_names[0] != alkoxy_names[1]:
+        return ""
+    return f"di{alkoxy_names[0]}(oxo)phosphanuide"
+
+
+def _phosphorous_acid_dialkylamide_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    phosphorus = _single_phosphorus_atom(mol)
+    if phosphorus is None or phosphorus.GetFormalCharge() != 0 or phosphorus.GetTotalNumHs() != 0:
+        return ""
+    pidx = phosphorus.GetIdx()
+    nitrogen_idx = None
+    hydroxy = 0
+    covered = {pidx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(pidx, nidx)
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            nitrogen_idx = nidx
+            covered.add(nidx)
+        elif (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == 0
+            and nbr.GetTotalNumHs() == 1
+        ):
+            hydroxy += 1
+            covered.add(nidx)
+        else:
+            return ""
+    if nitrogen_idx is None or hydroxy != 2:
+        return ""
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    owner_names = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == pidx:
+            continue
+        if nbr.GetSymbol() != "C":
+            return ""
+        owner, atoms = _simple_fragment_owner_name(mol, Chem, nidx, nitrogen_idx)
+        if not owner:
+            return ""
+        owner_names.append(owner)
+        covered.update(atoms)
+    if len(owner_names) != 2 or owner_names[0] != owner_names[1] or covered != set(range(mol.GetNumAtoms())):
+        return ""
+    return f"phosphorous acid di{owner_names[0]}amide"
+
+
+def _isothiocyanoamide_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 1, "N": 2, "S": 1} or _total_charge(mol) != -1:
+        return ""
+    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
+    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    anionic_n = [atom for atom in nitrogens if atom.GetFormalCharge() == -1]
+    neutral_n = [atom for atom in nitrogens if atom.GetFormalCharge() == 0]
+    if len(anionic_n) != 1 or len(neutral_n) != 1:
+        return ""
+    anionic_n = anionic_n[0]
+    neutral_n = neutral_n[0]
+    if not _specific_bond(mol, Chem, carbon.GetIdx(), sulfur.GetIdx(), Chem.BondType.DOUBLE):
+        return ""
+    if not _specific_bond(mol, Chem, carbon.GetIdx(), neutral_n.GetIdx(), Chem.BondType.DOUBLE):
+        return ""
+    if not _specific_bond(mol, Chem, neutral_n.GetIdx(), anionic_n.GetIdx(), Chem.BondType.SINGLE):
+        return ""
+    return "isothiocyanoamide" if anionic_n.GetTotalNumHs() == 1 else ""
+
+
+def _dialkylhydrazinide_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    if len(nitrogens) != 2:
+        return ""
+    bond = mol.GetBondBetweenAtoms(nitrogens[0].GetIdx(), nitrogens[1].GetIdx())
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    owner_names = []
+    covered = {nitrogens[0].GetIdx(), nitrogens[1].GetIdx()}
+    if sorted(atom.GetFormalCharge() for atom in nitrogens) != [-1, 0]:
+        return ""
+    for nitrogen in nitrogens:
+        nidx = nitrogen.GetIdx()
+        carbon_neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetSymbol() == "C"]
+        expected_hydrogens = 0 if nitrogen.GetFormalCharge() == -1 else 1
+        if len(carbon_neighbors) != 1 or nitrogen.GetTotalNumHs() != expected_hydrogens:
+            return ""
+        owner, atoms = _simple_fragment_owner_name(mol, Chem, carbon_neighbors[0], nidx)
+        if not owner:
+            return ""
+        owner_names.append(owner)
+        covered.update(atoms)
+    if owner_names[0] != owner_names[1] or covered != set(range(mol.GetNumAtoms())):
+        return ""
+    return f"1,2-di{owner_names[0]}hydrazinide"
+
+
+def _n_alkyl_nitrosoamide_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    if len(nitrogens) != 2:
+        return ""
+    anionic = [atom for atom in nitrogens if atom.GetFormalCharge() == -1]
+    neutral = [atom for atom in nitrogens if atom.GetFormalCharge() == 0]
+    if len(anionic) != 1 or len(neutral) != 1:
+        return ""
+    anionic_n = anionic[0]
+    neutral_n = neutral[0]
+    if not _specific_bond(mol, Chem, anionic_n.GetIdx(), neutral_n.GetIdx(), Chem.BondType.SINGLE):
+        return ""
+    oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"]
+    if len(oxygens) != 1 or not _specific_bond(mol, Chem, neutral_n.GetIdx(), oxygens[0].GetIdx(), Chem.BondType.DOUBLE):
+        return ""
+    carbon_neighbors = [nbr.GetIdx() for nbr in anionic_n.GetNeighbors() if nbr.GetSymbol() == "C"]
+    if len(carbon_neighbors) != 1 or anionic_n.GetTotalNumHs() != 0:
+        return ""
+    owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_neighbors[0], anionic_n.GetIdx())
+    if not owner:
+        return ""
+    covered = {anionic_n.GetIdx(), neutral_n.GetIdx(), oxygens[0].GetIdx(), *owner_atoms}
+    return f"N-{owner}nitrosoamide" if covered == set(range(mol.GetNumAtoms())) else ""
+
+
+def _dialkyl_thiolate_name(mol, Chem) -> str:
+    if _total_charge(mol) != -1:
+        return ""
+    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetFormalCharge() == -1]
+    if len(sulfurs) != 1 or sulfurs[0].GetTotalNumHs() != 1:
+        return ""
+    sulfur = sulfurs[0]
+    owner_names = []
+    covered = {sulfur.GetIdx()}
+    for nbr in sulfur.GetNeighbors():
+        if nbr.GetSymbol() != "C" or mol.GetBondBetweenAtoms(sulfur.GetIdx(), nbr.GetIdx()).GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        owner, atoms = _simple_fragment_owner_name(mol, Chem, nbr.GetIdx(), sulfur.GetIdx())
+        if not owner:
+            return ""
+        owner_names.append(owner)
+        covered.update(atoms)
+    if len(owner_names) != 2 or covered != set(range(mol.GetNumAtoms())):
+        return ""
+    parent_name = {
+        "methyl": "methanethiolate",
+        "ethyl": "ethanethiolate",
+        "propyl": "propanethiolate",
+        "butyl": "butanethiolate",
+    }.get(owner_names[1], "")
+    if not parent_name:
+        return ""
+    return f"S-{owner_names[0]}-{parent_name}"
+
+
+def _alkyl_thiosulfoximine_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"]
+    if len(sulfurs) != 2:
+        return ""
+    for sulfur in sulfurs:
+        if sulfur.GetFormalCharge() != 0 or sulfur.GetTotalNumHs() != 1:
+            continue
+        sidx = sulfur.GetIdx()
+        carbon_idx = imino_idx = thioxo_idx = None
+        covered = {sidx}
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sidx, nidx)
+            if bond is None:
+                return ""
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                carbon_idx = nidx
+            elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+                imino_idx = nidx
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+                thioxo_idx = nidx
+                covered.add(nidx)
+            else:
+                return ""
+        if carbon_idx is None or imino_idx is None or thioxo_idx is None:
+            continue
+        owner, owner_atoms = _simple_fragment_owner_name(mol, Chem, carbon_idx, sidx)
+        if not owner:
+            return ""
+        covered.update(owner_atoms)
+        if covered == set(range(mol.GetNumAtoms())):
+            return f"S-{owner}-thiosulfoximine"
+    return ""
+
+
+def _single_phosphorus_atom(mol):
+    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and not atom.IsInRing()]
+    return phosphorus_atoms[0] if len(phosphorus_atoms) == 1 else None
+
+
+def _simple_fragment_owner_name(mol, Chem, atom_idx: int, parent_idx: int) -> tuple[str, set[int]]:
+    from .branch_rules import branch_prefix
+
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() != "C" or atom.IsInRing():
+        return "", set()
+    name = branch_prefix(mol, atom_idx, parent_idx)
+    name = _strip_fragment_parentheses(name)
+    name = {
+        "ethen-1-yl": "vinyl",
+        "ethenyl": "vinyl",
+        "propan-2-yl": "isopropyl",
+        "2-propyl": "isopropyl",
+    }.get(name, name)
+    if name not in {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "isopropyl",
+        "butyl",
+        "isobutyl",
+        "t-butyl",
+        "tert-butyl",
+        "vinyl",
+    }:
+        return "", set()
+    atoms = _fragment_component_atoms(mol, atom_idx, parent_idx)
+    return name, atoms
+
+
+def _linear_fragment_carbon_chain(mol, Chem, start_idx: int, parent_idx: int) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...]]:
+    chain = []
+    amino_locants = []
+    previous = parent_idx
+    current = start_idx
+    seen = set()
+    while True:
+        if current in seen:
+            return (), ()
+        seen.add(current)
+        atom = mol.GetAtomWithIdx(current)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            return (), ()
+        chain.append(current)
+        next_carbons = []
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == previous or nbr.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(current, nidx)
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                next_carbons.append(nidx)
+            elif _is_amino_substituent(mol, Chem, nidx, current):
+                amino_locants.append((len(chain), nidx))
+            else:
+                return (), ()
+        if not next_carbons:
+            break
+        if len(next_carbons) != 1:
+            return (), ()
+        previous, current = current, next_carbons[0]
+    if len(chain) > 10:
+        return (), ()
+    return tuple(chain), tuple(amino_locants)
+
+
+def _is_amino_substituent(mol, Chem, nitrogen_idx: int, carbon_idx: int) -> bool:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+        return False
+    if nitrogen.GetTotalNumHs() != 2:
+        return False
+    if not _specific_bond(mol, Chem, nitrogen_idx, carbon_idx, Chem.BondType.SINGLE):
+        return False
+    return all(nbr.GetIdx() == carbon_idx or nbr.GetAtomicNum() <= 1 for nbr in nitrogen.GetNeighbors())
+
+
+def _fragment_component_atoms(mol, start_idx: int, parent_idx: int) -> set[int]:
+    stack = [start_idx]
+    seen = {parent_idx}
+    atoms = set()
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        atoms.add(idx)
+        atom = mol.GetAtomWithIdx(idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in seen and nbr.GetAtomicNum() > 1:
+                stack.append(nidx)
+    return atoms
+
+
+def _fragment_locant_prefix_text(kind: str, locants: list[int]) -> str:
+    if not locants:
+        return ""
+    counts: dict[int, int] = {}
+    for locant in locants:
+        counts[locant] = counts.get(locant, 0) + 1
+    if any(count != 1 for count in counts.values()):
+        return ""
+    locant_text = ",".join(str(locant) for locant in sorted(counts))
+    multiplier = {1: "", 2: "di", 3: "tri"}.get(len(counts), "")
+    return f"{locant_text}-{multiplier}{kind}-"
+
+
+def _alkoxy_fragment_name(owner: str) -> str:
+    return {
+        "methyl": "methoxy",
+        "ethyl": "ethoxy",
+        "propyl": "propoxy",
+        "isopropyl": "isopropoxy",
+        "butyl": "butoxy",
+        "isobutyl": "isobutoxy",
+        "t-butyl": "tert-butoxy",
+        "tert-butyl": "tert-butoxy",
+    }.get(owner, "")
+
+
+def _strip_fragment_parentheses(name: str) -> str:
+    if name.startswith("(") and name.endswith(")"):
+        return name[1:-1]
+    return name
 
 
 def _oxidonitrogen_anion_name(mol, Chem) -> str:

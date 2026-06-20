@@ -950,6 +950,11 @@ def _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(
     selected_parent_count = len(selected_candidate.parent_atoms)
     if selected_parent_count < 20:
         return None
+    selected_stereo = selected_candidate.stereo
+    if selected_stereo is None or not selected_stereo.bond_descriptors:
+        return None
+    if any(descriptor != "STEREOCIS" for _atom_idx, descriptor in selected_stereo.bond_descriptors):
+        return None
     if selected_candidate.charge is not None or selected_candidate.suffixes:
         return None
     if candidate_safety_reasons(selected_candidate):

@@ -1505,6 +1505,8 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
     multi_positive_name = _multi_positive_n_ring_parent_name(mol, parent_name, seq)
     if multi_positive_name:
         return multi_positive_name
+    if sum(1 for idx in seq if mol.GetAtomWithIdx(idx).GetFormalCharge() > 0) > 1:
+        return ""
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
         if atom.GetFormalCharge() < 0:
@@ -1554,7 +1556,7 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
         if re.fullmatch(r"1,2,[34]-triazoline", charge_base):
             stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
             return f"{stem}-{loc}-ium"
-        if re.fullmatch(r"\d+(?:,\d+)*-dihydropyrimidine", charge_base):
+        if _is_hydrogenated_azine_parent(charge_base):
             stem = charge_base[:-1] if charge_base.endswith("e") else charge_base
             return f"{stem}-{loc}-ium"
         if charge_base.endswith(("triazine", "tetrazine", "pentazine", "hexazine")):
@@ -1587,6 +1589,16 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name
+
+
+def _is_hydrogenated_azine_parent(parent_name: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?:\d+(?:,\d+)*-)?(?:di|tri|tetra|penta|hexa)?hydro"
+            r"(?:pyridine|pyrimidine|pyrazine|pyridazine)",
+            parent_name,
+        )
+    )
 
 
 def _multi_positive_n_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
@@ -1690,7 +1702,21 @@ def _is_replacement_heterocycle_parent(parent_name: str, charged_symbol: str) ->
     replacement = REPLACEMENT.get(charged_symbol)
     if not replacement:
         return False
-    return bool(re.search(rf"(?:^|-)\d+-{re.escape(replacement)}", parent_name))
+    charge_base = _drop_indicated_hydrogen_prefix(parent_name)
+    if any(
+        charge_base == aromatic_parent or charge_base.endswith(f"-{aromatic_parent}")
+        for aromatic_parent in _AROMATIC_N_H_CATION_PARENTS
+    ):
+        return False
+    replacement_stems = {replacement, replacement.rstrip("a")}
+    return any(
+        re.search(
+            rf"(?:^|[,-])\d+(?:,\d+)*-(?:di|tri|tetra|penta|hexa)?{re.escape(stem)}",
+            parent_name,
+        )
+        for stem in replacement_stems
+        if stem
+    )
 
 
 def _ring_pattern_candidates(

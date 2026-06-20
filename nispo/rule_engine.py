@@ -10778,7 +10778,7 @@ def _has_contextual_external_nitrogen_generated_fused_single_ring_alternative(
         other_candidate = other.candidate
         if not _is_clean_aromatic_single_ring_parent_candidate(other_candidate):
             continue
-        if len(other.name) > 80:
+        if len(other.name) > 120:
             continue
         if len(other.name) - len(item.name) > 90:
             continue
@@ -10804,7 +10804,7 @@ def _is_external_nitrogen_generated_fused_shortcut_candidate(candidate: NameCand
         return False
     if candidate.parent_aromatic_atom_count != parent_count:
         return False
-    if candidate.parent_hetero_atom_count > 2:
+    if candidate.parent_hetero_atom_count > 3:
         return False
     if candidate.parent_external_nitrogen_substituent_count != 1:
         return False

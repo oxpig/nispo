@@ -1,6 +1,29 @@
 [
   {
     "locants": {
+      "1": "8",
+      "2": "7",
+      "3": "6",
+      "4": "5",
+      "5": "3'",
+      "6": "2'",
+      "7": "1'",
+      "8": "6'",
+      "9": "5'",
+      "10": "4",
+      "11": "3a",
+      "12": "8a",
+      "13": "1",
+      "14": "2",
+      "15": "3"
+    },
+    "name": "8-oxo-spiro[6,7-dihydro-4H-pyrazolo[3,4-c]azepine-5,4'-oxane]",
+    "smiles": "O=C1NCC2(CCOCC2)CC2=C1NN=C2",
+    "source_file": "generated_spiro_scaffold_templates.json",
+    "source_subtype": "targeted-spiro-azolone-family"
+  },
+  {
+    "locants": {
       "10": "7'",
       "13": "5",
       "4": "4'",

@@ -2047,6 +2047,7 @@ def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[
     locanted_records = (
         _read_json_records("opsin_retained_mono_fused_ring_templates.json")
         + _read_json_records("opsin_polyacene_helicene_templates.json")
+        + _read_json_records("opsin_polycyclic_arene_templates.json")
         + _opsin_derived_phene_records()
     )
     if locanted_records:

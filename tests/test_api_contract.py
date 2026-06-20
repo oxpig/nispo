@@ -3946,6 +3946,21 @@ def test_steroid_retained_parent_alternatives_roundtrip_with_opsin(input_smiles)
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1cc2ccc3c4cccc5c6cccc7ccc8c9cccc%10c(c1)c2c3c(c%109)c(c54)c8c76",
+        "c1cc2c3c(cccc3c1)-c1cc3c(ccc4c5cc6c(cc5ccc34)-c3cccc4cccc-6c34)cc1-2",
+    ],
+)
+def test_polycyclic_arene_retained_parent_templates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

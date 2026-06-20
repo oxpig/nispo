@@ -508,6 +508,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _generated_benzopyrazole_alternative_for_templateless_indazole_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return _alternate_bicyclic_orientation_for_rank1_choice(
         keyed_items,
         selected_item,
@@ -1295,6 +1302,98 @@ def _generated_purine_fused_alternative_for_single_ring_choice(
         if len(item.name) - len(selected.name) > 160:
             continue
         if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_BENZOPYRAZOLE_TEMPLATELESS_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generic-spiro-parent",
+        "phosphorus-acid-parent",
+        "single-ring-parent",
+        "sulfonamide-retained-parent",
+        "sulfonohydrazide-retained-parent",
+    }
+)
+_BENZOPYRAZOLE_TEMPLATELESS_SOURCE_FAMILIES = frozenset({"", "spiro"})
+_BENZOPYRAZOLE_GRAPHLESS_COMPETITOR_FAMILIES = frozenset(
+    {
+        "phosphorus-acid-parent",
+        "sulfonamide-retained-parent",
+        "sulfonohydrazide-retained-parent",
+    }
+)
+
+
+def _generated_benzopyrazole_alternative_for_templateless_indazole_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.template_name or selected_candidate.source_file:
+        return None
+    if selected_candidate.source_family not in _BENZOPYRAZOLE_TEMPLATELESS_SOURCE_FAMILIES:
+        return None
+    if selected_candidate.family not in _BENZOPYRAZOLE_TEMPLATELESS_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.charge is not None:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if selected_candidate.parent_atoms:
+        if not candidate_has_complete_graph(selected_candidate):
+            return None
+        if len(selected_candidate.parent_atoms) > 11:
+            return None
+        if selected_candidate.parent_aromatic_atom_count:
+            return None
+    elif selected_candidate.family not in _BENZOPYRAZOLE_GRAPHLESS_COMPETITOR_FAMILIES:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.template_name != "benzo[1,2-c]pyrazole":
+            continue
+        if candidate.parent_element_counts != (("C", 7), ("N", 2)):
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 9:
+            continue
+        if candidate.parent_aromatic_atom_count != 9 or candidate.parent_hetero_atom_count != 2:
+            continue
+        if candidate.charge is not None:
+            continue
+        if candidate.parent_abs_formal_charge_sum or candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 2:
+            continue
+        if len(item.name) > 320:
+            continue
+        if len(item.name) - len(selected.name) > 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

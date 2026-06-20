@@ -1669,7 +1669,9 @@ class PhosphanyliumYlideneParentRule:
             return
         ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
         ylidene = _simple_or_branch_prefix(mol, ylidene_idx, pidx)
-        if not ligand or not ylidene or "methylidene" not in ylidene:
+        if not ligand or not _stable_phosphanylium_ylidene_ligand(ligand):
+            return
+        if not _stable_phosphanylium_ylidene_substituent(ylidene):
             return
         covered = {pidx, oxido_idx}
         covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
@@ -1686,6 +1688,34 @@ class PhosphanyliumYlideneParentRule:
             parent_atoms=atom_set,
             sort_key=(len(name), name),
         )
+
+
+def _stable_phosphanylium_ylidene_ligand(name: str) -> bool:
+    if not name or len(name) > 96:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
+        return False
+    return name.endswith("yl")
+
+
+def _stable_phosphanylium_ylidene_substituent(name: str) -> bool:
+    if not name or len(name) > 96:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
+        return False
+    return name.endswith("ylidene")
 
 
 def _simple_ligand_name(name: str) -> bool:

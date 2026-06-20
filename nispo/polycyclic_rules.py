@@ -166,7 +166,7 @@ def _polycyclic_parent_sequence_candidates(mol, Chem, atoms: set[int]) -> list[t
     rank = _graph_cycle_rank(graph)
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
-    candidates: list[tuple[str, tuple[int, ...]]] = []
+    candidates: list[tuple] = []
     if rank == 2:
         candidates.extend(_bicyclic_parent_sequence_candidates(mol, atoms, graph))
         candidates.extend(_spiro_parent_sequence_candidates(mol, atoms, graph))
@@ -174,7 +174,8 @@ def _polycyclic_parent_sequence_candidates(mol, Chem, atoms: set[int]) -> list[t
         candidates.extend(_secondary_zero_bridge_tricyclic_sequence_candidates(mol, atoms, graph))
     seen = set()
     unique = []
-    for parent, seq in candidates:
+    for candidate in candidates:
+        parent, seq = candidate[0], candidate[1]
         key = (parent, seq)
         if key in seen:
             continue
@@ -185,7 +186,7 @@ def _polycyclic_parent_sequence_candidates(mol, Chem, atoms: set[int]) -> list[t
 
 def _bicyclic_parent_sequence_candidates(
     mol, atoms: set[int], graph: dict[int, set[int]]
-) -> list[tuple[str, tuple[int, ...]]]:
+) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     candidates = []
     base_orient_remaining_paths = (
         _ring_multiple_bond_count(mol, atoms) == 0
@@ -207,7 +208,7 @@ def _bicyclic_parent_sequence_candidates(
         ):
             parent = _bicyclic_parent(mol, seq, bracket)
             if parent:
-                candidates.append((parent, seq))
+                candidates.append((parent, seq, bracket))
     return candidates
 
 
@@ -407,14 +408,25 @@ def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tup
 
 
 def _decorated_polycyclic_records(
-    mol, atoms: set[int], parent_sequences: Sequence[tuple[str, tuple[int, ...]]]
+    mol, atoms: set[int], parent_sequences: Sequence[tuple]
 ) -> list[tuple[str, tuple[int, ...]]]:
     candidates = []
-    for parent, seq in parent_sequences:
+    for record in parent_sequences:
+        parent, seq = record[0], record[1]
+        bracket = record[2] if len(record) > 2 else ()
         name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
         if not name:
             continue
-        key = (*_polycyclic_numbering_preference_key(mol, seq, atoms), name)
+        topology_mismatches = (
+            _opsin_bridge_topology_mismatch_count(mol, seq, bracket)
+            if bracket
+            else 0
+        )
+        key = (
+            topology_mismatches,
+            *_polycyclic_numbering_preference_key(mol, seq, atoms),
+            name,
+        )
         candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
     return [(name, seq) for _key, name, seq in candidates]

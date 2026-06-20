@@ -752,12 +752,6 @@ def _functionalized_generated_fused_alternative_for_generated_fused_choice(
         return None
     if selected_candidate.parent_aromatic_atom_count != selected_parent_count:
         return None
-    if selected_candidate.parent_hetero_atom_count < 2:
-        return None
-    if selected_candidate.parent_external_nitrogen_substituent_count:
-        return None
-    if selected_candidate.parent_external_oxygen_substituent_count:
-        return None
     if selected_candidate.charge is not None or selected_candidate.suffixes:
         return None
     if candidate_safety_reasons(selected_candidate):
@@ -782,29 +776,42 @@ def _functionalized_generated_fused_alternative_for_generated_fused_choice(
             continue
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
             continue
-        if len(candidate.parent_atoms) != selected_parent_count:
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < selected_parent_count:
+            continue
+        if candidate_parent_count > selected_parent_count + 6:
             continue
         if candidate.parent_aromatic_atom_count != selected_parent_count:
-            continue
-        if candidate.parent_hetero_atom_count < selected_candidate.parent_hetero_atom_count:
-            continue
-        if candidate.parent_external_nitrogen_substituent_count <= (
-            selected_candidate.parent_external_nitrogen_substituent_count
-        ):
-            continue
-        if candidate.parent_terminal_hetero_substituent_count < max(
-            1,
-            selected_candidate.parent_terminal_hetero_substituent_count,
-        ):
-            continue
-        if candidate.parent_external_oxygen_substituent_count:
+            if candidate_parent_count == selected_parent_count:
+                continue
+            if candidate.parent_aromatic_atom_count != candidate_parent_count:
+                continue
+        same_scale_external_n = (
+            candidate_parent_count == selected_parent_count
+            and selected_candidate.parent_hetero_atom_count >= 2
+            and candidate.parent_hetero_atom_count >= selected_candidate.parent_hetero_atom_count
+            and not selected_candidate.parent_external_oxygen_substituent_count
+            and not candidate.parent_external_oxygen_substituent_count
+            and candidate.parent_external_nitrogen_substituent_count
+            > selected_candidate.parent_external_nitrogen_substituent_count
+            and candidate.parent_terminal_hetero_substituent_count
+            >= max(1, selected_candidate.parent_terminal_hetero_substituent_count)
+        )
+        larger_terminal_functional_core = (
+            candidate_parent_count > selected_parent_count
+            and candidate.parent_hetero_atom_count >= max(2, selected_candidate.parent_hetero_atom_count)
+            and candidate.parent_terminal_hetero_substituent_count
+            >= max(3, selected_candidate.parent_terminal_hetero_substituent_count + 2)
+        )
+        if not (same_scale_external_n or larger_terminal_functional_core):
             continue
         if candidate.charge is not None or candidate.suffixes:
             continue
         if candidate_safety_reasons(candidate):
             continue
         render_rank = candidate.render_rank
-        if render_rank is None or render_rank < 1 or render_rank > selected_rank:
+        rank_window = selected_rank if same_scale_external_n else selected_rank + 4
+        if render_rank is None or render_rank < 1 or render_rank > rank_window:
             continue
         if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
             continue

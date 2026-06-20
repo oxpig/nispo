@@ -2275,6 +2275,7 @@ class PhosphorusAcidParentRule:
             )
         carbon_neighbors = []
         double_oxygen_count = 0
+        double_sulfur_count = 0
         hydroxy_count = 0
         for nbr in phosphorus.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -2283,6 +2284,8 @@ class PhosphorusAcidParentRule:
                 carbon_neighbors.append(nidx)
             elif nbr.GetSymbol() == "O" and bond.GetBondType() == self._Chem.BondType.DOUBLE:
                 double_oxygen_count += 1
+            elif nbr.GetSymbol() == "S" and bond.GetBondType() == self._Chem.BondType.DOUBLE:
+                double_sulfur_count += 1
             elif (
                 nbr.GetSymbol() == "O"
                 and bond.GetBondType() == self._Chem.BondType.SINGLE
@@ -2296,6 +2299,7 @@ class PhosphorusAcidParentRule:
         if (
             len(carbon_neighbors) == 1
             and double_oxygen_count == 0
+            and double_sulfur_count == 0
             and hydroxy_count == 2
             and phosphorus.GetTotalNumHs() == 0
         ):
@@ -2307,7 +2311,24 @@ class PhosphorusAcidParentRule:
             name = prefix + "phosphonous acid"
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
             return
+        if (
+            len(carbon_neighbors) == 1
+            and double_oxygen_count == 0
+            and double_sulfur_count == 1
+            and hydroxy_count == 2
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            prefix = _simple_or_branch_prefix(mol, carbon_neighbors[0], pidx)
+            if not prefix:
+                return
+            if _needs_substituent_parentheses(prefix):
+                prefix = f"({prefix})"
+            name = prefix + "phosphonothioic acid"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            return
         if len(carbon_neighbors) != 1 or double_oxygen_count != 1:
+            return
+        if double_sulfur_count != 0:
             return
         implicit_hydrogens = phosphorus.GetTotalNumHs()
         if hydroxy_count == 2 and implicit_hydrogens == 0:

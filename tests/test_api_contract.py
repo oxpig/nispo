@@ -1896,6 +1896,22 @@ def test_phosphonous_acid_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CP(O)(O)=S",
+        "O=C([O-])CP(O)(O)=S",
+        "C=CC(=O)OCCc1ccccc1P(O)(O)=S",
+    ],
+)
+def test_phosphonothioic_acid_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CP(=O)(c1ccc(-c2noc(C(F)(F)Cl)n2)cc1)N1CCOCC1",
         "Cc1sc(C=O)cc1[C@H]1c2cc(Cl)ccc2CCN1P(=O)(c1ccccc1)c1ccccc1",
     ],

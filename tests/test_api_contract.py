@@ -3636,6 +3636,24 @@ def test_compact_functional_bicyclic_parent_alternatives_roundtrip_with_opsin(in
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(=O)N1C[C@@H]2CC[C@H]1C(C(=O)N1C[C@H](F)C[C@H]1C(=O)N[C@@H](c1ccccc1)c1ccc(C(C)C)cc1)C2",
+        "CN[C@@H](C)C(=O)N[C@H]1CC(F)(F)CC[C@H]2CC[C@@H](C(=O)N[C@@H]3CCCc4ccccc43)N2C1=O",
+        "CN[C@@H](C)C(=O)N[C@H]1CCO[C@H]2CC(C)(C)[C@@H](C(=O)N[C@@H]3CCCc4ccccc43)N2C1=O",
+    ],
+)
+def test_retained_fused_parent_defers_to_functional_bicyclic_alternative(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C[C@](O)(c1nc2c(Cl)nc(Cl)nc2[nH]1)C1CC1",
         "C[C@@H](Oc1ccc(-c2nc3c(Cl)ncnc3[nH]2)cc1)c1ccccc1",
     ],

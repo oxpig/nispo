@@ -418,6 +418,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _generated_hetero_fused_alternative_for_tetralin_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _chromane_topology_replacement_alternative_for_nonchromane_choice(
             keyed_items,
             selected_item,
@@ -620,6 +627,64 @@ def _benzimidazole_retained_parent_alternative_for_templateless_choice(
         if candidate_key[0] > selected_key[0] + 220:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_TETRALIN_GENERATED_HETERO_FUSED_PARENT_COUNTS = (("C", 6), ("N", 3))
+
+
+def _generated_hetero_fused_alternative_for_tetralin_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "fused-retained-parent":
+        return None
+    if selected_candidate.template_name != "tetralin":
+        return None
+    if selected_candidate.parent_element_counts != (("C", 10),):
+        return None
+    if not selected_candidate.stereo_locants:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    alternatives: list[tuple[tuple[int, tuple], _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.parent_element_counts != _TETRALIN_GENERATED_HETERO_FUSED_PARENT_COUNTS:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 9:
+            continue
+        if candidate.parent_hetero_atom_count < 3:
+            continue
+        if candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 4:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        alternatives.append(((render_rank, candidate_key), item))
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

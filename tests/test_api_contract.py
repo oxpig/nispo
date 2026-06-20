@@ -2526,6 +2526,23 @@ def test_retained_bis_functional_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC[N-]CC[N-]CC",
+        "c1ccc([N-]CC[N-]c2ccccc2)cc1",
+        "C=C[N-]CCCC[N-]C=C",
+        "CCCCCCCC/C=C\\CCCCCCCC[N-]CC[N-]CCCCCCCC/C=C\\CCCCCCCC",
+    ],
+)
+def test_bis_azanidyl_alkane_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COc1ccc(C(C#N)=NOS(=O)(=O)c2ccc(C)cc2)cc1",
         "Cc1ccc(S(=O)(=O)ON=C2SC=CC2=C(C#N)c2ccccc2C)cc1",
         "CCCS(=O)(=O)ON=C1SC=CC1=C(C#N)c1ccccc1C",

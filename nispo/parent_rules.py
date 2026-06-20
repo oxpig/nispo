@@ -3860,6 +3860,7 @@ class ChargedRetainedParentRule:
 
 def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names = []
+    names.extend(_bis_azanidyl_alkane_retained_parent_names(mol, Chem))
     names.extend(_anionic_amide_retained_parent_names(mol, Chem))
     names.extend(_amide_oxide_retained_parent_names(mol, Chem))
     names.extend(_sulfur_oxoanion_retained_parent_names(mol, Chem))
@@ -3871,6 +3872,82 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_hydroxylamine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _bis_azanidyl_alkane_retained_parent_names(mol, Chem) -> list[str]:
+    nitrogens = [
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
+    ]
+    if len(nitrogens) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != -2:
+        return []
+    first_n, second_n = nitrogens
+    path = tuple(Chem.rdmolops.GetShortestPath(mol, first_n, second_n))
+    if not path or path[0] != first_n or path[-1] != second_n:
+        return []
+    linker = path[1:-1]
+    if len(linker) < 2 or not _is_unsubstituted_saturated_carbon_path(mol, Chem, linker, first_n, second_n):
+        return []
+    parent = _alkane_parent_name(len(linker))
+    if not parent:
+        return []
+    substituents = []
+    covered = set(linker)
+    for nidx, linker_idx in ((first_n, path[1]), (second_n, path[-2])):
+        substituent = _bis_azanidyl_external_substituent(mol, nidx, linker_idx)
+        if not substituent:
+            return []
+        substituents.append(substituent)
+        external_idx = _single_heavy_neighbor_excluding(mol, nidx, linker_idx)
+        if external_idx is None:
+            return []
+        covered.add(nidx)
+        covered.update(_collect_component_atoms(mol, external_idx, nidx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return []
+    if substituents[0] != substituents[1]:
+        return []
+    piece = _azanidyl_substituent_piece(substituents[0])
+    return [f"1,{len(linker)}-bis({piece}azanidyl){parent}"]
+
+
+def _alkane_parent_name(length: int) -> str:
+    root = ROOTS.get(length)
+    return f"{root}ane" if root else ""
+
+
+def _bis_azanidyl_external_substituent(mol, nitrogen_idx: int, linker_idx: int) -> str:
+    external_idx = _single_heavy_neighbor_excluding(mol, nitrogen_idx, linker_idx)
+    if external_idx is None:
+        return ""
+    external = mol.GetAtomWithIdx(external_idx)
+    if external.GetSymbol() != "C" or external.GetFormalCharge() != 0:
+        return ""
+    prefix = _retained_parent_substituent_alias(_simple_or_branch_prefix(mol, external_idx, nitrogen_idx))
+    if not _stable_bis_azanidyl_substituent(prefix):
+        return ""
+    return _strip_outer_parentheses(prefix)
+
+
+def _stable_bis_azanidyl_substituent(name: str) -> bool:
+    if not name or len(name) > 96:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return name.endswith(("yl", "carbonyl"))
+
+
+def _azanidyl_substituent_piece(name: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9']+", name):
+        return name
+    return f"({name})"
 
 
 def _amide_oxide_retained_parent_names(mol, Chem) -> list[str]:

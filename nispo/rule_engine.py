@@ -488,6 +488,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _functionalized_generated_fused_alternative_for_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
             keyed_items,
             selected_item,
@@ -720,6 +727,105 @@ def _generated_hetero_fused_alternative_for_tetralin_choice(
         if len(item.name) - len(selected.name) > 80:
             continue
         alternatives.append(((render_rank, candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _functionalized_generated_fused_alternative_for_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    """Prefer a same-scale generated fused core with graph functionalization evidence."""
+
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 8 or selected_parent_count > 14:
+        return None
+    if selected_candidate.parent_aromatic_atom_count != selected_parent_count:
+        return None
+    if selected_candidate.parent_hetero_atom_count < 2:
+        return None
+    if selected_candidate.parent_external_nitrogen_substituent_count:
+        return None
+    if selected_candidate.parent_external_oxygen_substituent_count:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_rank = selected_candidate.render_rank
+    if selected_rank is None or selected_rank < 1 or selected_rank > 4:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_count:
+            continue
+        if candidate.parent_aromatic_atom_count != selected_parent_count:
+            continue
+        if candidate.parent_hetero_atom_count < selected_candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count <= (
+            selected_candidate.parent_external_nitrogen_substituent_count
+        ):
+            continue
+        if candidate.parent_terminal_hetero_substituent_count < max(
+            1,
+            selected_candidate.parent_terminal_hetero_substituent_count,
+        ):
+            continue
+        if candidate.parent_external_oxygen_substituent_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank < 1 or render_rank > selected_rank:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 90:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 240:
+            continue
+        if candidate_key[0] > selected_key[0] + 240:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    render_rank,
+                    -candidate.parent_external_nitrogen_substituent_count,
+                    -candidate.parent_terminal_hetero_substituent_count,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

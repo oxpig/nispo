@@ -2671,6 +2671,7 @@ def _single_center_phosphine_oxide_name(mol, Chem, pidx: int, atom_set: set[int]
     if phosphorus_hydrogens == 0 and not _simple_no_hydrogen_phosphine_oxide_scope(
         mol,
         Chem,
+        pidx,
         ligand_atom_sets,
     ):
         return ""
@@ -2729,10 +2730,15 @@ def _single_center_phosphine_sulfide_name(mol, Chem, pidx: int, atom_set: set[in
     return ligand_text + "phosphine sulfide" if ligand_text else ""
 
 
-def _simple_no_hydrogen_phosphine_oxide_scope(mol, Chem, ligand_atom_sets: Sequence[frozenset[int]]) -> bool:
-    if mol.GetNumAtoms() > 18:
+def _simple_no_hydrogen_phosphine_oxide_scope(
+    mol,
+    Chem,
+    phosphorus_idx: int,
+    ligand_atom_sets: Sequence[frozenset[int]],
+) -> bool:
+    if mol.GetNumAtoms() > 48:
         return False
-    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if mol.GetAtomWithIdx(phosphorus_idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
         return False
     if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
         return False
@@ -2741,9 +2747,9 @@ def _simple_no_hydrogen_phosphine_oxide_scope(mol, Chem, ligand_atom_sets: Seque
         heavy_count = sum(
             1 for idx in ligand_atoms if mol.GetAtomWithIdx(idx).GetAtomicNum() > 1
         )
-        if heavy_count > 12:
+        if heavy_count > 32:
             return False
-        if sum(1 for ring in atom_rings if ring.issubset(ligand_atoms)) > 1:
+        if sum(1 for ring in atom_rings if ring.issubset(ligand_atoms)) > 4:
             return False
     return True
 

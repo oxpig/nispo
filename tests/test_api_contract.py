@@ -320,6 +320,22 @@ def test_generated_hydro_pyrido45d_imidazole_parent_roundtrips_with_opsin(input_
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1cccc2c1NCCN2C1C=c2cncnc2=NC1=O",
+        "Cc1c(/C=C2\\C(=O)Nc3ccc(F)cc32)[nH]c2c1C(=O)NCC2",
+        "COc1c(Cl)cccc1Nc1c(-c2ccnc3cn[nH]c23)nn2c1C(=O)NC[C@@H]2C",
+    ],
+)
+def test_retained_fused_shortcuts_defer_to_generated_hydro_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C1c2ccc(F)cc2C(=O)N1c1ccco[nH]o1",
         "NC(=O)c1ccc2c(c1)C([C@H](c1ccc(F)cc1)C1CCC1)N([C@@H]1CCC(=O)NC1=O)C2=O",
         "NC(=O)c1ccc2c(c1)C([C@@H](c1ccc(Cl)cn1)C1CCC1)N([C@H]1CCC(=O)NC1=O)C2=O",

@@ -474,6 +474,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _generated_hydro_fused_alternative_for_aromatic_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
             keyed_items,
             selected_item,
@@ -1067,6 +1074,15 @@ _LOW_CONFIDENCE_GENERATED_FUSED_TO_KEKULIZED_FAMILIES = frozenset(
         "skeletal-replacement-fused-parent",
     }
 )
+_GENERATED_HYDRO_PYRIDO_IMIDAZOLE_PARENT_COUNTS = (("C", 6), ("N", 3))
+_GENERATED_HYDRO_PYRIDO_IMIDAZOLE_SELECTED_PARENT_COUNTS = frozenset(
+    {
+        (("C", 6), ("N", 3)),
+        (("C", 7), ("N", 1), ("S", 1)),
+        (("C", 7), ("N", 2)),
+        (("C", 8), ("N", 1)),
+    }
+)
 
 
 def _kekulized_polycyclic_alternative_for_single_ring_choice(
@@ -1257,6 +1273,87 @@ def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
         if len(item.name) > 280:
             continue
         if len(item.name) - len(selected.name) > 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generated_hydro_fused_alternative_for_aromatic_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if selected_candidate.priority != 28 or selected_candidate.render_rank != 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_atom_count = len(selected_candidate.parent_atoms)
+    if selected_parent_atom_count != 9:
+        return None
+    if selected_candidate.parent_element_counts not in _GENERATED_HYDRO_PYRIDO_IMIDAZOLE_SELECTED_PARENT_COUNTS:
+        return None
+    if selected_candidate.parent_aromatic_atom_count != selected_parent_atom_count:
+        return None
+    if selected_candidate.parent_hetero_atom_count < 1 or selected_candidate.parent_hetero_atom_count > 3:
+        return None
+    if selected_candidate.parent_external_oxygen_substituent_count:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-hydro-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.template_name != "pyrido[4,5-d]imidazole":
+            continue
+        if candidate.priority != 28 or candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_atom_count = len(candidate.parent_atoms)
+        if candidate_parent_atom_count != 9:
+            continue
+        if candidate.parent_element_counts != _GENERATED_HYDRO_PYRIDO_IMIDAZOLE_PARENT_COUNTS:
+            continue
+        if candidate_parent_atom_count < selected_parent_atom_count:
+            continue
+        if candidate.parent_aromatic_atom_count:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 160:
             continue
         if candidate_key[0] > selected_key[0] + 220:
             continue

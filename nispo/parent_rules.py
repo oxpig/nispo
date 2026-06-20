@@ -9557,6 +9557,14 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
                 nitrogen_idx,
                 path,
             )
+            if not parent_atoms:
+                parent_atoms = _complete_dimethyl_amide_carbamate_path_parent_atoms(
+                    mol,
+                    Chem,
+                    carbonyl_idx,
+                    nitrogen_idx,
+                    path,
+                )
             records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms))
         records.extend(
             (name, source_family, frozenset())
@@ -9608,6 +9616,128 @@ def _complete_oxalamide_carboxylate_parent_atoms(
         covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
     heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
     return frozenset(covered) if covered == heavy_atoms else frozenset()
+
+
+def _complete_dimethyl_amide_carbamate_path_parent_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    path: Sequence[int],
+) -> frozenset[int]:
+    if not _amide_nitrogen_has_two_methyl_substituents(mol, Chem, nitrogen_idx, carbonyl_idx):
+        return frozenset()
+    covered = _retained_amide_path_covered_atoms(mol, Chem, carbonyl_idx, nitrogen_idx, path)
+    heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    if covered != heavy_atoms:
+        return frozenset()
+    if not _covered_atoms_have_n_methyl_carboxylate_substituent(mol, Chem, covered):
+        return frozenset()
+    return frozenset(covered)
+
+
+def _retained_amide_path_covered_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    path: Sequence[int],
+) -> set[int]:
+    amide_oxygen_idx = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    if amide_oxygen_idx is None:
+        return set()
+    path_set = set(path)
+    covered = {carbonyl_idx, amide_oxygen_idx, nitrogen_idx, *path_set}
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    for pos, atom_idx in enumerate(path, start=2):
+        allowed_neighbors = {carbonyl_idx if pos == 2 else path[pos - 3]}
+        if pos - 1 < len(path):
+            allowed_neighbors.add(path[pos - 1])
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in allowed_neighbors or nidx in path_set or nbr.GetAtomicNum() <= 1:
+                continue
+            covered.update(_collect_component_atoms(mol, nidx, atom_idx))
+    return covered
+
+
+def _amide_nitrogen_has_two_methyl_substituents(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> bool:
+    substituents = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors()
+        if nbr.GetIdx() != carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    return len(substituents) == 2 and all(_is_terminal_methyl_substituent(mol, Chem, idx, nitrogen_idx) for idx in substituents)
+
+
+def _covered_atoms_have_n_methyl_carboxylate_substituent(mol, Chem, covered: set[int]) -> bool:
+    for atom_idx in covered:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            continue
+        neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(neighbors) != 3:
+            continue
+        carboxylate = [
+            idx
+            for idx in neighbors
+            if _is_n_carboxylate_carbon(mol, Chem, idx, atom_idx)
+        ]
+        methyl = [
+            idx
+            for idx in neighbors
+            if _is_terminal_methyl_substituent(mol, Chem, idx, atom_idx)
+        ]
+        if len(carboxylate) != 1 or len(methyl) != 1:
+            continue
+        attachment = [idx for idx in neighbors if idx not in {carboxylate[0], methyl[0]}]
+        if len(attachment) == 1 and attachment[0] in covered:
+            return True
+    return False
+
+
+def _is_n_carboxylate_carbon(mol, Chem, carbon_idx: int, nitrogen_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+        return False
+    bond_to_nitrogen = mol.GetBondBetweenAtoms(carbon_idx, nitrogen_idx)
+    if bond_to_nitrogen is None or bond_to_nitrogen.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    double_oxygen = 0
+    oxido_oxygen = 0
+    other_heavy = []
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen += 1
+        elif (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == -1
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.SINGLE
+        ):
+            oxido_oxygen += 1
+        elif nbr.GetAtomicNum() > 1:
+            other_heavy.append(nidx)
+    return double_oxygen == 1 and oxido_oxygen == 1 and not other_heavy
+
+
+def _is_terminal_methyl_substituent(mol, Chem, carbon_idx: int, attached_idx: int) -> bool:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+        return False
+    bond = mol.GetBondBetweenAtoms(carbon_idx, attached_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    heavy_neighbors = [nbr.GetIdx() for nbr in carbon.GetNeighbors() if nbr.GetAtomicNum() > 1]
+    return heavy_neighbors == [attached_idx]
 
 
 def _ring_carboxamide_parent_names(

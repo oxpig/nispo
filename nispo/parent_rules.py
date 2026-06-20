@@ -1252,6 +1252,123 @@ class PhosphaniumParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
+class BisPhosphinoAmineRetainedParentRule:
+    family = "bis-phosphino-amine-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        for name in _bis_phosphino_amine_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+            )
+
+
+def _bis_phosphino_amine_names(mol, Chem) -> list[str]:
+    if sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 0:
+        return []
+    names = []
+    atom_set = set(range(mol.GetNumAtoms()))
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+            continue
+        if nitrogen.GetTotalNumHs() != 0:
+            continue
+        nidx = nitrogen.GetIdx()
+        neighbors = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(neighbors) != 3:
+            continue
+        if any(mol.GetBondBetweenAtoms(nidx, nbr_idx).GetBondType() != Chem.BondType.SINGLE for nbr_idx in neighbors):
+            continue
+        phosphorus_neighbors = [
+            nbr_idx
+            for nbr_idx in neighbors
+            if mol.GetAtomWithIdx(nbr_idx).GetSymbol() == "P"
+            and mol.GetAtomWithIdx(nbr_idx).GetFormalCharge() == 0
+            and not mol.GetAtomWithIdx(nbr_idx).IsInRing()
+        ]
+        carbon_neighbors = [
+            nbr_idx
+            for nbr_idx in neighbors
+            if mol.GetAtomWithIdx(nbr_idx).GetSymbol() == "C"
+            and mol.GetAtomWithIdx(nbr_idx).GetFormalCharge() == 0
+        ]
+        if len(phosphorus_neighbors) != 2 or len(carbon_neighbors) != 1:
+            continue
+        amine_substituent = _retained_parent_substituent_alias(
+            _simple_or_branch_prefix(mol, carbon_neighbors[0], nidx)
+        )
+        if not _stable_bis_phosphino_amine_substituent(amine_substituent):
+            continue
+        covered = {nidx}
+        covered.update(_collect_component_atoms(mol, carbon_neighbors[0], nidx))
+        phosphino_names = []
+        for pidx in phosphorus_neighbors:
+            phosphino_name, phosphino_atoms = _phosphino_ligand_name_and_atoms(mol, Chem, pidx, nidx)
+            if not phosphino_name:
+                break
+            phosphino_names.append(phosphino_name)
+            covered.update(phosphino_atoms)
+        else:
+            if covered == atom_set and len(set(phosphino_names)) == 1:
+                names.append(f"bis({phosphino_names[0]})({_strip_outer_parentheses(amine_substituent)})amine")
+    return sorted(set(names), key=lambda value: (len(value), value))
+
+
+def _phosphino_ligand_name_and_atoms(mol, Chem, phosphorus_idx: int, nitrogen_idx: int) -> tuple[str, set[int]]:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return "", set()
+    if phosphorus.GetTotalNumHs() != 0:
+        return "", set()
+    ligand_names = []
+    covered = {phosphorus_idx}
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return "", set()
+        if nidx == nitrogen_idx:
+            continue
+        if nbr.GetSymbol() != "C" or nbr.GetFormalCharge() != 0:
+            return "", set()
+        ligand = _retained_parent_substituent_alias(_simple_or_branch_prefix(mol, nidx, phosphorus_idx))
+        if not _stable_bis_phosphino_amine_substituent(ligand):
+            return "", set()
+        ligand_names.append(_strip_outer_parentheses(ligand))
+        covered.update(_collect_component_atoms(mol, nidx, phosphorus_idx))
+    counts = Counter(ligand_names)
+    if len(counts) != 1:
+        return "", set()
+    ligand, count = next(iter(counts.items()))
+    if count != 2:
+        return "", set()
+    bare = _strip_outer_parentheses(ligand)
+    ligand_text = "di" + bare if re.fullmatch(r"[A-Za-z0-9']+", bare) else f"di({bare})"
+    return ligand_text + "phosphino", covered
+
+
+def _stable_bis_phosphino_amine_substituent(name: str) -> bool:
+    if not name or len(name) > 96:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return name.endswith("yl")
+
+
 def _bis_phosphonio_alkane_name(mol, Chem, phosphorus_idxs: Sequence[int]) -> str:
     if len(phosphorus_idxs) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 2:
         return ""
@@ -16797,6 +16914,7 @@ def parent_rules(Chem) -> tuple:
     organophosphorus_oxide = OrganophosphorusOxideParentRule(Chem)
     phosphorane = PhosphoraneParentRule(Chem)
     aminophosphane = AminophosphaneParentRule(Chem)
+    bis_phosphino_amine = BisPhosphinoAmineRetainedParentRule(Chem)
     dithiazole = DithiazoleRetainedParentRule(Chem)
     oxazinone = OxazinoneRetainedParentRule(Chem)
     oxirane_dione = OxiraneDioneRetainedParentRule(Chem)
@@ -16969,6 +17087,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("organophosphorus-oxide-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), organophosphorus_oxide.candidates),
         RuleSpec("phosphorane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorane.candidates),
         RuleSpec("aminophosphane-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), aminophosphane.candidates),
+        RuleSpec("bis-phosphino-amine-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), bis_phosphino_amine.candidates),
         RuleSpec("dithiazole-retained-parent", parent_priority("senior-functional-exception"), (), dithiazole.candidates),
         RuleSpec("oxazinone-retained-parent", parent_priority("senior-functional-exception"), (), oxazinone.candidates),
         RuleSpec("oxirane-dione-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), oxirane_dione.candidates),

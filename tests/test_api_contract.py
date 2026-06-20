@@ -2046,6 +2046,22 @@ def test_bis_phosphonio_alkane_retained_parents_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(C)N(P(c1ccccc1)c1ccccc1)P(c1ccccc1)c1ccccc1",
+        "CCCC[C@H]1CC[C@@H](N(P(c2ccccc2)c2ccccc2)P(c2ccccc2)c2ccccc2)CC1",
+        "Cc1cc(C)cc(P(c2cc(C)cc(C)c2)N(C2CCCCC2)P(c2cc(C)cc(C)c2)c2cc(C)cc(C)c2)c1",
+    ],
+)
+def test_bis_phosphino_amine_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[N]=O",
         "O=[PH3]",
         "O=[Si]",

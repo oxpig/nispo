@@ -1204,6 +1204,18 @@ class PhosphaniumParentRule:
             for atom in mol.GetAtoms()
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
+        if len(phosphorus_atoms) == 2:
+            name = _bis_phosphonio_alkane_name(mol, self._Chem, [atom.GetIdx() for atom in phosphorus_atoms])
+            if name:
+                atom_set = set(range(mol.GetNumAtoms()))
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    parent_atoms=atom_set,
+                    sort_key=(len(name), name),
+                )
+            return
         if len(phosphorus_atoms) != 1:
             return
         phosphorus = phosphorus_atoms[0]
@@ -1238,6 +1250,89 @@ class PhosphaniumParentRule:
         name = _phosphanium_name(names)
         if name:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+
+
+def _bis_phosphonio_alkane_name(mol, Chem, phosphorus_idxs: Sequence[int]) -> str:
+    if len(phosphorus_idxs) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 2:
+        return ""
+    first_p, second_p = phosphorus_idxs
+    path = tuple(Chem.rdmolops.GetShortestPath(mol, first_p, second_p))
+    if not path or path[0] != first_p or path[-1] != second_p:
+        return ""
+    linker = path[1:-1]
+    if len(linker) < 2 or not _is_unsubstituted_saturated_carbon_path(mol, Chem, linker, first_p, second_p):
+        return ""
+    parent = _alkane_parent_name(len(linker))
+    if not parent:
+        return ""
+    ligand_texts = []
+    covered = set(linker)
+    for pidx, linker_idx in ((first_p, path[1]), (second_p, path[-2])):
+        ligand_text, ligand_atoms = _phosphonio_external_ligand_text_and_atoms(mol, Chem, pidx, linker_idx)
+        if not ligand_text:
+            return ""
+        ligand_texts.append(ligand_text)
+        covered.add(pidx)
+        covered.update(ligand_atoms)
+    if covered != set(range(mol.GetNumAtoms())) or ligand_texts[0] != ligand_texts[1]:
+        return ""
+    return f"1,{len(linker)}-bis({ligand_texts[0]}phosphonio){parent}"
+
+
+def _phosphonio_external_ligand_text_and_atoms(mol, Chem, phosphorus_idx: int, linker_idx: int) -> tuple[str, set[int]]:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 1 or phosphorus.IsInRing():
+        return "", set()
+    if phosphorus.GetTotalNumHs() not in {0, 1}:
+        return "", set()
+    names = []
+    covered: set[int] = set()
+    for nbr in phosphorus.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return "", set()
+        if nidx == linker_idx:
+            continue
+        if nbr.GetSymbol() != "C" or nbr.GetFormalCharge() != 0:
+            return "", set()
+        prefix = _retained_parent_substituent_alias(_simple_or_branch_prefix(mol, nidx, phosphorus_idx))
+        if not _stable_bis_phosphonio_ligand(prefix):
+            return "", set()
+        names.append(_strip_outer_parentheses(prefix))
+        covered.update(_collect_component_atoms(mol, nidx, phosphorus_idx))
+    if len(names) + phosphorus.GetTotalNumHs() != 3:
+        return "", set()
+    text = _phosphonio_repeated_ligand_text(names)
+    return (text, covered) if text else ("", set())
+
+
+def _stable_bis_phosphonio_ligand(name: str) -> bool:
+    if not name or len(name) > 64:
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    return name.endswith("yl")
+
+
+def _phosphonio_repeated_ligand_text(names: Sequence[str]) -> str:
+    counts = Counter(names)
+    if len(counts) != 1:
+        return ""
+    name, count = next(iter(counts.items()))
+    if count == 1:
+        return name
+    multiplier = MULT.get(count, "")
+    if not multiplier:
+        return ""
+    bare = _strip_outer_parentheses(name)
+    return multiplier + bare if re.fullmatch(r"[A-Za-z0-9']+", bare) else f"{multiplier}({bare})"
 
 
 class PhosphanyliumOxideParentRule:

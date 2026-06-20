@@ -16241,7 +16241,13 @@ class ExactRetainedParentRule:
         return (len(name), template.get("source_family", ""), name)
 
     def _candidate_name(self, mol, template: dict, match: Sequence[int]) -> str:
-        return _exact_retained_parent_candidate_name(template)
+        reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+        name = _adjust_fused_parent_for_indicated_hydrogen(mol, template, reverse)
+        if name == template_record_name(template):
+            return _exact_retained_parent_candidate_name(template)
+        if template.get("source_file") == "naturalProducts.xml":
+            name = _terminal_retained_parent_name(name)
+        return _opsin_parseable_retained_parent_name(name)
 
     def _parent_indicated_hydrogen_locants(
         self,
@@ -16249,7 +16255,8 @@ class ExactRetainedParentRule:
         template: dict,
         match: Sequence[int],
     ) -> tuple[str, ...]:
-        return ()
+        reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+        return tuple(_matched_fused_indicated_hydrogen_locants(mol, template, reverse))
 
     def candidates(self, ctx):
         mol = ctx.mol

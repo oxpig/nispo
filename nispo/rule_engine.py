@@ -502,6 +502,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
             keyed_items,
             selected_item,
@@ -917,6 +924,80 @@ def _external_acyl_generated_fused_single_ring_alternative_for_generated_fused_c
         if item.stability_penalty > selected.stability_penalty + 120:
             continue
         if candidate_key[0] > selected_key[0] + 160:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in {
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum < 1:
+        return None
+    if selected_candidate.parent_abs_formal_charge_sum < 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 20:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 5 or candidate_parent_count > 6:
+            continue
+        if candidate.priority != 61:
+            continue
+        if candidate.parent_aromatic_atom_count != candidate_parent_count:
+            continue
+        if candidate.parent_terminal_hetero_substituent_count < 3:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count:
+            continue
+        if candidate.parent_external_oxygen_substituent_count:
+            continue
+        if selected_parent_count - candidate_parent_count < 14:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank != 1:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 180:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

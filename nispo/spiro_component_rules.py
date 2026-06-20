@@ -75,11 +75,13 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
             continue
         if _cycle_rank_for_atoms(graph, ring_system_atoms) > 7 and _has_ring_peroxide(mol, Chem, ring_system_atoms):
             continue
-        spiro_split_count = sum(
-            1 for idx in ring_system_atoms if len(_components_without_atom(graph, idx)) == 2
-        )
+        components_by_spiro = {
+            idx: _components_without_atom(graph, idx) for idx in ring_system_atoms
+        }
+        spiro_split_count = sum(1 for parts in components_by_spiro.values() if len(parts) == 2)
+        has_ring_system_carbonyl = None
         for spiro_idx in sorted(atom_set):
-            parts = _components_without_atom(graph, spiro_idx)
+            parts = components_by_spiro[spiro_idx]
             if len(parts) != 2:
                 continue
             sides = []
@@ -102,8 +104,11 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                     )
                 )
             for left_rank, left_atoms, right_rank, right_atoms in _poly_poly_side_orders(sides):
-                if spiro_split_count != 1 and _has_ring_system_carbonyl(mol, Chem, ring_system_atoms):
-                    continue
+                if spiro_split_count != 1:
+                    if has_ring_system_carbonyl is None:
+                        has_ring_system_carbonyl = _has_ring_system_carbonyl(mol, Chem, ring_system_atoms)
+                    if has_ring_system_carbonyl:
+                        continue
                 if left_rank not in {2, 3, 4, 5} or right_rank not in {2, 3, 4, 5}:
                     continue
                 candidates.extend(

@@ -336,6 +336,41 @@ def test_retained_fused_shortcuts_defer_to_generated_hydro_parent(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C([N-][n+]1ccccc1)c1ccc(/C=C/c2ccc(C(F)(F)F)cc2)cc1",
+        "O=C([N-][n+]1ccccc1)c1nc2ccc(OC(F)(F)F)cc2s1",
+        "CCn1c(C(=O)N2CCCCC2)[n+](CC)c2c(N)c(C[C@H](O)[C@@H](O)[C@H](O)[C@H](O)CO)c(C[C@H](O)[C@@H](O)[C@H](O)[C@H](O)CO)cc21",
+        "C[NH+]1c2ccccc2C(/C=C/c2ccc(N(c3ccccc3)c3ccccc3)cc2)c2ccccc21",
+        "CC=C[NH+]1C(=C2N(CCCCCC(=O)ON3C(=O)CCC3=O)c3ccccc3C2(C)C)C(C)(C)c2ccccc21",
+        "O=C(O)C[C@H]1C(=O)O[CH-]N1C(=O)OCc1ccccc1",
+    ],
+)
+def test_explicit_charged_parent_candidates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN(C)c1cc[n+](C(=O)[N-]S(=O)(=O)N(C)C)cc1",
+        "CC(C)n1cc(S(=O)(=O)[N-]C(=O)[n+]2ccc(N(C)C)cc2)cnc1=O",
+        "CC(C)(C)C1=C/C(=C\\C=C2/CCC(/C=C/c3cc(C(C)(C)C)[o+]c4ccccc34)=C2N(c2ccccc2)c2ccccc2)c2ccccc2O1",
+    ],
+)
+def test_explicit_charged_parent_candidates_keep_retained_controls(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C1c2ccc(F)cc2C(=O)N1c1ccco[nH]o1",
         "NC(=O)c1ccc2c(c1)C([C@H](c1ccc(F)cc1)C1CCC1)N([C@@H]1CCC(=O)NC1=O)C2=O",
         "NC(=O)c1ccc2c(c1)C([C@@H](c1ccc(Cl)cn1)C1CCC1)N([C@H]1CCC(=O)NC1=O)C2=O",

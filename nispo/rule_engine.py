@@ -509,6 +509,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _explicit_charged_parent_alternative_for_neutral_charged_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(
             keyed_items,
             selected_item,
@@ -936,6 +943,229 @@ def _external_acyl_generated_fused_single_ring_alternative_for_generated_fused_c
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_CHARGED_GENERATED_FUSED_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generic-bicyclic-parent",
+        "neutral-amine-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-amide-parent",
+        "retained-topology-replacement-fused-parent",
+    }
+)
+_CHARGED_PYRIDINIUM_ACYL_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
+
+
+def _explicit_charged_parent_alternative_for_neutral_charged_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.molecule_abs_formal_charge_sum < 1:
+        return None
+    if _explicit_candidate_formal_charge(selected_candidate):
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    ranked_items = sorted(keyed_items, key=lambda keyed: keyed[0])
+    rank_by_id = {id(item): rank for rank, (_key, item) in enumerate(ranked_items, start=1)}
+    has_competitive_charged_ring_acyclic = (
+        _has_competitive_charged_ring_acyclic_alternative(
+            keyed_items,
+            selected,
+            selected_key,
+        )
+        if selected_candidate.family == "neutral-amine-parent"
+        else False
+    )
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        candidate_charge = _explicit_candidate_formal_charge(candidate)
+        if not candidate_charge:
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        candidate_rank = rank_by_id.get(id(item))
+        if candidate_rank is None:
+            continue
+        case_priority = _explicit_charged_parent_alternative_priority(
+            selected_candidate,
+            candidate,
+            candidate_charge,
+            candidate_rank,
+            has_competitive_charged_ring_acyclic,
+        )
+        if case_priority is None:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 160:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 240:
+            continue
+        if candidate_key[0] > selected_key[0] + 280:
+            continue
+        alternatives.append(
+            (
+                (
+                    case_priority,
+                    candidate_rank,
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _explicit_candidate_formal_charge(candidate: NameCandidate) -> int:
+    return candidate.charge.formal_charge if candidate.charge is not None else 0
+
+
+def _explicit_charged_parent_alternative_priority(
+    selected_candidate: NameCandidate,
+    candidate: NameCandidate,
+    candidate_charge: int,
+    candidate_rank: int,
+    has_competitive_charged_ring_acyclic: bool,
+) -> int | None:
+    if (
+        selected_candidate.family in _CHARGED_PYRIDINIUM_ACYL_COMPETITOR_FAMILIES
+        and _is_charged_pyridinium_acyl_single_ring_candidate(
+            candidate,
+            candidate_charge,
+            candidate_rank,
+        )
+    ):
+        return 0
+    if (
+        selected_candidate.family in _CHARGED_GENERATED_FUSED_COMPETITOR_FAMILIES
+        and candidate.family == "generated-fused-parent"
+        and candidate.source_family == "generated-fused"
+        and candidate.source_file == "generated_fused_template_index.json"
+        and candidate_rank <= 4
+        and len(candidate.parent_atoms) >= 8
+        and candidate.parent_aromatic_atom_count >= 8
+        and candidate.parent_aromatic_atom_count == len(candidate.parent_atoms)
+        and candidate.parent_hetero_atom_count >= 2
+        and (
+            candidate.parent_external_nitrogen_substituent_count
+            + candidate.parent_external_oxygen_substituent_count
+        )
+        >= 1
+        and not candidate.suffixes
+    ):
+        return 1
+    if (
+        selected_candidate.family == "neutral-amine-parent"
+        and not has_competitive_charged_ring_acyclic
+        and candidate.family in {"fused-retained-parent", "generated-fused-parent"}
+        and candidate_rank <= 3
+        and len(candidate.parent_atoms) >= 9
+        and not candidate.suffixes
+    ):
+        return 2
+    if (
+        selected_candidate.family == "single-ring-parent"
+        and selected_candidate.suffixes
+        and candidate.family == "fused-retained-parent"
+        and candidate_rank <= 8
+        and len(candidate.parent_atoms) >= 9
+        and not candidate.suffixes
+    ):
+        return 3
+    if (
+        selected_candidate.family == "single-ring-parent"
+        and candidate.family == "single-ring-parent"
+        and candidate_charge < 0
+        and candidate_rank <= 4
+        and (candidate.suffixes or candidate.parent_hetero_atom_count >= 2)
+    ):
+        return 4
+    return None
+
+
+def _has_competitive_charged_ring_acyclic_alternative(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+    selected_key: tuple,
+) -> bool:
+    selected_candidate = selected.candidate
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "charged-ring-acyclic-skeleton-with-ring-substituents":
+            continue
+        if _explicit_candidate_formal_charge(candidate):
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 80:
+            continue
+        if candidate_key[0] > selected_key[0] + 80:
+            continue
+        return True
+    return False
+
+
+def _is_charged_pyridinium_acyl_single_ring_candidate(
+    candidate: NameCandidate,
+    candidate_charge: int,
+    candidate_rank: int,
+) -> bool:
+    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return False
+    if candidate_charge <= 0:
+        return False
+    if candidate_rank > 3:
+        return False
+    if len(candidate.parent_atoms) != 6:
+        return False
+    if candidate.parent_aromatic_atom_count != 6:
+        return False
+    if candidate.parent_hetero_atom_count != 1:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count != 1:
+        return False
+    if candidate.parent_external_oxygen_substituent_count:
+        return False
+    if candidate.suffixes:
+        return False
+    return True
 
 
 def _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(

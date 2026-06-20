@@ -1967,6 +1967,22 @@ def test_halo_phosphoramidite_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCN(CC)P(Cl)c1ccccc1",
+        "CN(C)P(Cl)C1CCCCC1",
+        "CC(C)N(C(C)C)P(Cl)c1ccccc1",
+    ],
+)
+def test_amino_chlorophosphine_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCOP(=O)(O)Oc1ccccc1",
         "COP(=O)(O)O",
         "COP(=O)(O)OC",

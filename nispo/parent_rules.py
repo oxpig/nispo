@@ -7018,6 +7018,31 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
         anionic_oxygen_count = len(terminal_anionic_oxygens)
         anionic_sulfur_count = len(terminal_anionic_sulfurs)
         if (
+            anionic_oxygen_count == 0
+            and anionic_sulfur_count == 0
+            and len(carbon_ligands) == 1
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and len(halogen_ligands) == 1
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 1
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            carbon = _strip_outer_parentheses(_phosphorus_attached_prefix(mol, carbon_ligands[0], pidx))
+            amino_prefix = _phosphoramidite_substituted_amino_prefix(mol, substituted_amino_ligands[0], pidx)
+            halo = HALO.get(halogen_ligands[0], "")
+            if (
+                carbon
+                and amino_prefix
+                and halo
+                and _simple_unparenthesized_n_substituent(carbon)
+                and _stable_phosphoramidite_amino_prefix(amino_prefix)
+                and amino_prefix.startswith("di")
+            ):
+                names.append(f"{halo}({amino_prefix}amino)({carbon})phosphine")
+            continue
+
+        if (
             anionic_oxygen_count == 1
             and anionic_sulfur_count == 0
             and len(carbon_ligands) == 2

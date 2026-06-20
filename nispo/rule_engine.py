@@ -488,6 +488,20 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _hydro_retained_alternative_for_skeletal_replacement_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _high_confidence_generated_fused_template_alternative(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _generated_hydro_fused_alternative_for_aromatic_generated_fused_choice(
             keyed_items,
             selected_item,
@@ -517,6 +531,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _retained_fused_alternative_for_neutral_amine_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _high_confidence_generated_fused_template_alternative(
             keyed_items,
             selected_item,
         )
@@ -564,7 +585,14 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _alternate_bicyclic_orientation_for_rank1_choice(
+    selected_item = (
+        _alternate_bicyclic_orientation_for_rank1_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return _steroid_retained_parent_alternative(
         keyed_items,
         selected_item,
     ) or selected_item
@@ -2157,6 +2185,267 @@ def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _hydro_retained_alternative_for_skeletal_replacement_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "skeletal-replacement-fused-parent":
+        return None
+    if selected_candidate.source_family != "arylGroups:ring:ring":
+        return None
+    if selected_candidate.source_file != "arylGroups.xml":
+        return None
+    if selected_candidate.priority != 28:
+        return None
+    if selected_candidate.render_rank is None or selected_candidate.render_rank > 2:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count != 13:
+        return None
+    if selected_candidate.parent_aromatic_atom_count or selected_candidate.parent_hetero_atom_count:
+        return None
+    if selected_candidate.parent_abs_formal_charge_sum or selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "hydro-fused-retained-parent":
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+            continue
+        if candidate.priority != 18:
+            continue
+        if candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_count:
+            continue
+        if candidate.parent_aromatic_atom_count or candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_abs_formal_charge_sum or candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if candidate_key[0] > 120:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS = {
+    "imidazo[4,5-a]benzene": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+        "allowed_selected_families": frozenset(
+            {
+                "fused-retained-parent",
+                "generated-fused-parent",
+                "generated-hydro-fused-parent",
+                "high-signal-generated-topology-fused-parent",
+                "retained-topology-replacement-fused-parent",
+            }
+        ),
+    },
+    "imidazo[1,2-b]pyridazine": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 3,
+        "allowed_selected_families": frozenset(
+            {
+                "acyclic-skeleton-with-ring-substituents",
+                "fused-retained-parent",
+                "generated-fused-parent",
+                "retained-topology-replacement-fused-parent",
+                "single-ring-parent",
+            }
+        ),
+    },
+}
+
+
+def _high_confidence_generated_fused_template_alternative(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        spec = _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS.get(candidate.template_name)
+        if spec is None:
+            continue
+        if selected_candidate.family not in spec["allowed_selected_families"]:
+            continue
+        if selected_candidate.family == "generated-fused-parent" and (
+            selected_candidate.template_name == candidate.template_name
+        ):
+            continue
+        if selected_candidate.source_file == "naturalProducts.xml":
+            continue
+        if not _is_high_confidence_generated_fused_template_alternative(candidate, spec):
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_high_confidence_generated_fused_template_alternative(
+    candidate: NameCandidate,
+    spec: dict[str, object],
+) -> bool:
+    parent_atom_count = int(spec["parent_atom_count"])
+    parent_hetero_atom_count = int(spec["parent_hetero_atom_count"])
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if candidate.priority != 28:
+        return False
+    if candidate.render_rank != 1:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) != parent_atom_count:
+        return False
+    if len(candidate.ring_system_atoms) != parent_atom_count:
+        return False
+    if candidate.parent_hetero_atom_count != parent_hetero_atom_count:
+        return False
+    if candidate.parent_abs_formal_charge_sum or candidate.molecule_abs_formal_charge_sum:
+        return False
+    if candidate.prefixes or candidate.suffixes:
+        return False
+    if candidate.charge is not None and candidate.charge.charged_atoms:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+_STEROID_RETAINED_PARENT_TEMPLATES = frozenset({"estr", "gon"})
+_STEROID_TOPOLOGY_PARENT_TEMPLATES = frozenset({"pregn", "chol", "cholest"})
+_STEROID_PARENT_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "charged-retained-parent",
+        "fused-retained-parent",
+        "natural-product-topology-parent",
+    }
+)
+
+
+def _steroid_retained_parent_alternative(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_steroid_retained_parent_alternative(candidate):
+            continue
+        if not _selected_allows_steroid_retained_parent_alternative(
+            selected_candidate,
+            candidate,
+        ):
+            continue
+        if candidate_key[0] > 130:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _selected_allows_steroid_retained_parent_alternative(
+    selected_candidate: NameCandidate,
+    candidate: NameCandidate,
+) -> bool:
+    if selected_candidate.family not in _STEROID_PARENT_COMPETITOR_FAMILIES:
+        return False
+    if selected_candidate.source_file == "naturalProducts.xml":
+        if selected_candidate.source_family != "naturalProducts:ring:biochemical":
+            return False
+        if selected_candidate.family != "natural-product-topology-parent":
+            return False
+        if selected_candidate.template_name not in _STEROID_TOPOLOGY_PARENT_TEMPLATES:
+            return False
+        if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+            return False
+        if len(selected_candidate.parent_atoms) < 21:
+            return False
+        return candidate.render_rank is not None and candidate.render_rank <= 5
+    if selected_candidate.family == "fused-retained-parent":
+        if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+            return False
+        if len(selected_candidate.parent_atoms) > 9:
+            return False
+    return candidate.render_rank is not None and candidate.render_rank <= 7
+
+
+def _is_steroid_retained_parent_alternative(candidate: NameCandidate) -> bool:
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.template_name not in _STEROID_RETAINED_PARENT_TEMPLATES:
+        return False
+    if candidate.source_family != "naturalProducts:ring:biochemical":
+        return False
+    if candidate.source_file != "naturalProducts.xml":
+        return False
+    if candidate.priority != 18:
+        return False
+    if candidate.render_rank is None or candidate.render_rank > 7:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) not in {17, 18}:
+        return False
+    if candidate.parent_aromatic_atom_count or candidate.parent_hetero_atom_count:
+        return False
+    if candidate.parent_abs_formal_charge_sum or candidate.template_abs_formal_charge_sum:
+        return False
+    if candidate.prefixes or candidate.suffixes:
+        return False
+    if candidate.charge is not None and candidate.charge.charged_atoms:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
 
 
 def _generated_hydro_fused_alternative_for_aromatic_generated_fused_choice(

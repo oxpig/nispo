@@ -3654,6 +3654,24 @@ def test_retained_fused_parent_defers_to_functional_bicyclic_alternative(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@@H](NC1CCCc2c1[nH]c1ccccc21)c1ccccc1",
+        "CC1NC(C(=O)NN)C(=Cc2ccc(Cl)cc2)c2c1[nH]c1ccccc21",
+        "CC1Cc2c([nH]c3ccccc23)C(c2c(F)cc(Br)cc2F)N1C12CC([C@@H](C)O)(C1)C2",
+    ],
+)
+def test_skeletal_replacement_fused_parent_defers_to_hydro_retained_parent(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C[C@](O)(c1nc2c(Cl)nc(Cl)nc2[nH]1)C1CC1",
         "C[C@@H](Oc1ccc(-c2nc3c(Cl)ncnc3[nH]2)cc1)c1ccccc1",
     ],
@@ -3890,6 +3908,37 @@ def test_ranker_preserves_senior_functional_parents_roundtrip_with_opsin(input_s
     ],
 )
 def test_ranker_preserves_generic_bicyclic_parent_over_generated_fused_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCN(CC)c1ccc2cc(-c3cccc4nc(C)[nH]c34)c(=O)oc2c1",
+        "N[C@H](c1cn2ncc([C@@H](C3CC3)N3CCC(C(F)(F)F)NC3=O)cc2n1)C1CCC(F)(F)CC1",
+    ],
+)
+def test_high_confidence_generated_fused_template_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C#C[C@@]1(O)CC[C@H]2[C@@H]3CC[C@H]4C[C@@H](N5CCN(C(=O)[C@@H]6CCCN6C(=O)c6ccc7ccccc7n6)CC5)CC[C@]4(C)[C@H]3CC[C@@]21C",
+        "CC(=O)N1CCN(C(=O)CCC(C)[C@H]2CC[C@H]3[C@@H]4CC[C@H]5C[C@@H](O)CC[C@]5(C)[C@H]4CC[C@]23C)CC1",
+        "CC[C@]12CC[C@@](C)(O)C[C@H]1CC[C@H]1[C@@H]3CC[C@H](C(=O)Cn4nnc5cc(OC)ccc54)[C@@]3(C)CC[C@@H]12",
+    ],
+)
+def test_steroid_retained_parent_alternatives_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

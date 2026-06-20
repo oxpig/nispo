@@ -509,6 +509,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _retained_fused_alternative_for_neutral_amine_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _explicit_charged_parent_alternative_for_neutral_charged_choice(
             keyed_items,
             selected_item,
@@ -940,6 +947,97 @@ def _external_acyl_generated_fused_single_ring_alternative_for_generated_fused_c
         if candidate_key[0] > selected_key[0] + 160:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _retained_fused_alternative_for_neutral_amine_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "neutral-amine-parent":
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 20:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    ranked_items = sorted(keyed_items, key=lambda keyed: keyed[0])
+    rank_by_id = {
+        id(item): rank for rank, (_key, item) in enumerate(ranked_items, start=1)
+    }
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 8 or candidate_parent_count > 14:
+            continue
+        if (
+            candidate.source_file == "arylGroups.xml"
+            and candidate.parent_external_unsaturated_bond_count
+            and candidate.parent_element_counts != (("C", candidate_parent_count),)
+        ):
+            continue
+        if selected_parent_count - candidate_parent_count < 12:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank < 1 or render_rank > 9:
+            continue
+        if candidate.source_file != "arylGroups.xml" and render_rank > 2:
+            continue
+        if (
+            candidate.source_file == "arylGroups.xml"
+            and render_rank > 2
+            and candidate.parent_element_counts != (("C", candidate_parent_count),)
+        ):
+            continue
+        candidate_rank = rank_by_id.get(id(item))
+        if candidate_rank is None or candidate_rank > 16:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 240:
+            continue
+        if candidate_key[0] > selected_key[0] + 380:
+            continue
+        alternatives.append(
+            (
+                (
+                    render_rank,
+                    candidate_rank,
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

@@ -6065,7 +6065,7 @@ class RetainedAmideParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name, source_family in _retained_amide_records(mol, self._Chem):
+        for name, source_family, parent_atoms in _retained_amide_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
@@ -6075,6 +6075,7 @@ class RetainedAmideParentRule:
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+                parent_atoms=parent_atoms,
             )
 
 
@@ -9531,10 +9532,10 @@ def _neutral_carbonyl_count(mol, Chem) -> int:
 
 
 def _retained_amide_names(mol, Chem) -> list[str]:
-    return [name for name, _source_family in _retained_amide_records(mol, Chem)]
+    return [name for name, _source_family, _parent_atoms in _retained_amide_records(mol, Chem)]
 
 
-def _retained_amide_records(mol, Chem) -> list[tuple[str, str]]:
+def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
     records = []
     for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
         n_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
@@ -9549,9 +9550,17 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str]]:
             core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "amide")
             if not core:
                 continue
-            records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide"))
+            parent_atoms = _complete_oxalamide_carboxylate_parent_atoms(
+                mol,
+                Chem,
+                carbonyl_idx,
+                nitrogen_idx,
+                path,
+            )
+            records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms))
         records.extend(
-            _ring_carboxamide_parent_records(
+            (name, source_family, frozenset())
+            for name, source_family in _ring_carboxamide_parent_records(
                 mol,
                 Chem,
                 carbonyl_idx,
@@ -9561,6 +9570,44 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str]]:
             )
         )
     return records
+
+
+def _complete_oxalamide_carboxylate_parent_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+    path: Sequence[int],
+) -> frozenset[int]:
+    if len(path) != 1:
+        return frozenset()
+    carboxyl_idx = path[0]
+    if _terminal_carboxyl_group_kind(mol, Chem, carboxyl_idx, carbonyl_idx) != "carboxylate":
+        return frozenset()
+    amide_oxygen_idx = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    if amide_oxygen_idx is None:
+        return frozenset()
+    covered = {carbonyl_idx, amide_oxygen_idx, nitrogen_idx, carboxyl_idx}
+    for nbr in mol.GetAtomWithIdx(carboxyl_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carboxyl_idx, nidx)
+        if nbr.GetSymbol() != "O" or bond is None:
+            return frozenset()
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            covered.add(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+            covered.add(nidx)
+        else:
+            return frozenset()
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    return frozenset(covered) if covered == heavy_atoms else frozenset()
 
 
 def _ring_carboxamide_parent_names(

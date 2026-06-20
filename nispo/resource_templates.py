@@ -19,6 +19,7 @@ from .resource_operations import apply_token_operations
 # the same scaffold SMILES. Keep those aliases on one immutable RDKit query so
 # MoleculeContext's identity-based substructure cache can reuse the match work.
 _RAW_TEMPLATE_MOL_CACHE: dict[tuple[int, str], object | None] = {}
+_JSON_SCAFFOLD_TEMPLATE_CACHE: dict[tuple, tuple[dict, str] | None] = {}
 
 
 # Static parent templates taken from OPSIN's ring-token resource families and
@@ -2194,39 +2195,87 @@ def _build_json_scaffold_templates(
     templates = []
     seen: set[tuple[str, str]] = set()
     for record in records:
-        mol = _raw_template_mol(Chem, record.get("smiles", ""))
-        if mol is None:
-            continue
-        locants = {}
-        for key, value in record.get("locants", {}).items():
-            try:
-                locants[int(key)] = str(value)
-            except (TypeError, ValueError):
-                continue
-        if not locants:
-            continue
-        template = {"name": record.get("name", ""), "mol": mol, "locants": locants}
-        if not template["name"]:
-            continue
-        template.update(
-            {
-                "source_family": source_family,
-                "source_file": record.get("source_file") or default_source_file,
-                "source_subtype": record.get("source_subtype", ""),
-                "stereochemical": _has_stereochemical_smiles(record.get("smiles", "")),
-            }
+        cached_template = _json_scaffold_template_from_record(
+            Chem,
+            record,
+            source_family=source_family,
+            default_source_file=default_source_file,
         )
-        if "general_parent_safe" in record:
-            template["general_parent_safe"] = bool(record["general_parent_safe"])
-        flags = tuple(str(flag) for flag in record.get("flags", ()) if str(flag))
-        if flags:
-            template["flags"] = flags
-        dedupe_key = (template["name"], Chem.MolToSmiles(mol, canonical=True))
+        if cached_template is None:
+            continue
+        template, canonical_smiles = cached_template
+        dedupe_key = (template["name"], canonical_smiles)
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
         templates.append(template)
     return tuple(templates)
+
+
+def _json_scaffold_template_from_record(
+    Chem,
+    record: dict,
+    *,
+    source_family: str,
+    default_source_file: str,
+) -> tuple[dict, str] | None:
+    smiles = str(record.get("smiles", ""))
+    locant_items = tuple(
+        sorted((str(key), str(value)) for key, value in (record.get("locants") or {}).items())
+    )
+    flags = tuple(str(flag) for flag in record.get("flags", ()) if str(flag))
+    general_parent_safe = (
+        bool(record["general_parent_safe"]) if "general_parent_safe" in record else None
+    )
+    cache_key = (
+        id(Chem),
+        source_family,
+        default_source_file,
+        str(record.get("name", "")),
+        smiles,
+        locant_items,
+        str(record.get("source_file") or ""),
+        str(record.get("source_subtype", "")),
+        general_parent_safe,
+        flags,
+    )
+    cached = _JSON_SCAFFOLD_TEMPLATE_CACHE.get(cache_key)
+    if cached is not None or cache_key in _JSON_SCAFFOLD_TEMPLATE_CACHE:
+        return cached
+
+    mol = _raw_template_mol(Chem, smiles)
+    if mol is None:
+        _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = None
+        return None
+    locants = {}
+    for key, value in locant_items:
+        try:
+            locants[int(key)] = value
+        except (TypeError, ValueError):
+            continue
+    if not locants:
+        _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = None
+        return None
+    name = str(record.get("name", ""))
+    if not name:
+        _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = None
+        return None
+    template = {"name": name, "mol": mol, "locants": locants}
+    template.update(
+        {
+            "source_family": source_family,
+            "source_file": record.get("source_file") or default_source_file,
+            "source_subtype": record.get("source_subtype", ""),
+            "stereochemical": _has_stereochemical_smiles(smiles),
+        }
+    )
+    if general_parent_safe is not None:
+        template["general_parent_safe"] = general_parent_safe
+    if flags:
+        template["flags"] = flags
+    result = (template, Chem.MolToSmiles(mol, canonical=True))
+    _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = result
+    return result
 
 
 def _raw_template_mol(Chem, smiles: str):

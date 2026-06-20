@@ -432,6 +432,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _templateless_alternative_for_static_chromanone_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
             keyed_items,
             selected_item,
@@ -784,6 +791,77 @@ def _chromane_topology_replacement_alternative_for_nonchromane_choice(
         if len(item.name) - len(selected.name) > 80:
             continue
         if candidate_key[0] > selected_key[0] + 120:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_STATIC_CHROMANONE_TEMPLATELESS_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
+
+
+def _templateless_alternative_for_static_chromanone_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "fused-retained-parent":
+        return None
+    if selected_candidate.template_name != "chroman-4-one":
+        return None
+    if selected_candidate.source_family != "static-retained":
+        return None
+    if selected_candidate.source_file:
+        return None
+    if selected_candidate.render_rank not in {None, 1}:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 11:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _STATIC_CHROMANONE_TEMPLATELESS_ALTERNATIVE_FAMILIES:
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.parent_abs_formal_charge_sum:
+            continue
+        if candidate.family == "single-ring-parent":
+            if len(candidate.parent_atoms) != 6 or candidate.parent_aromatic_atom_count != 6:
+                continue
+        elif len(candidate.parent_atoms) < 7:
+            continue
+        if len(item.name) > 240:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

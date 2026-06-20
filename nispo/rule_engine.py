@@ -439,6 +439,20 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _functional_bicyclic_alternative_for_acyclic_skeleton_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _acyclic_skeleton_alternative_for_high_rank_hetero_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _kekulized_polycyclic_alternative_for_single_ring_choice(
             keyed_items,
             selected_item,
@@ -817,6 +831,218 @@ def _acyclic_skeleton_alternative_for_opsin_retained_fused_choice(
         if len(item.name) > 220:
             continue
         if len(item.name) - len(selected.name) > 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_skeleton_alternative_for_high_rank_hetero_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.priority != 61:
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is None or selected_render_rank < 2 or selected_render_rank > 3:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.parent_hetero_atom_count <= 0:
+        return None
+    if selected_candidate.parent_external_nitrogen_substituent_count:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    if _has_clean_compact_topology_alternative_for_high_rank_single_ring_choice(
+        keyed_items,
+        selected,
+        selected_key,
+    ):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES:
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_atom_count = len(candidate.parent_atoms)
+        if candidate_parent_atom_count < 5 or candidate_parent_atom_count > 15:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_external_unsaturated_bond_count and candidate.priority >= 60:
+            continue
+        if candidate.parent_external_unsaturated_bond_count >= 2 and selected_render_rank != 3:
+            continue
+        if (
+            selected_render_rank == 3
+            and selected_candidate.parent_external_unsaturated_bond_count
+            and candidate.parent_external_unsaturated_bond_count >= 2
+        ):
+            continue
+        if (
+            selected_render_rank == 2
+            and candidate.priority < 60
+            and not (
+                (
+                    selected_candidate.parent_hetero_atom_count >= 2
+                    and selected_candidate.parent_aromatic_atom_count == 0
+                )
+                or selected_candidate.parent_terminal_hetero_substituent_count >= 2
+            )
+        ):
+            continue
+        if (
+            selected_render_rank == 2
+            and selected_candidate.parent_aromatic_atom_count >= 5
+            and candidate_parent_atom_count >= 15
+        ):
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 220:
+            continue
+        if len(item.name) - len(selected.name) > 100:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _has_clean_compact_topology_alternative_for_high_rank_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+    selected_key: tuple,
+) -> bool:
+    selected_parent_count = len(selected.candidate.parent_atoms)
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in {"generic-bicyclic-parent", "kekulized-generic-polycyclic-parent"}:
+            continue
+        if candidate.family == "generic-bicyclic-parent" and candidate.source_family != "bicyclic":
+            continue
+        if candidate.family == "kekulized-generic-polycyclic-parent" and candidate.source_family != "kekulized":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_count = len(candidate.parent_atoms)
+        if parent_count < 8 or parent_count > 10:
+            continue
+        if parent_count < selected_parent_count + 3:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if len(candidate.locants) < 3:
+            continue
+        if candidate.render_rank != 1:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        return True
+    return False
+
+
+def _functional_bicyclic_alternative_for_acyclic_skeleton_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "acyclic-skeleton-with-ring-substituents":
+        return None
+    if selected_candidate.priority != 60:
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_atom_count = len(selected_candidate.parent_atoms)
+    if selected_parent_atom_count > 22:
+        return None
+    if selected_candidate.parent_hetero_atom_count:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "functional-generic-bicyclic-parent":
+            continue
+        if candidate.priority != 14:
+            continue
+        if candidate.source_family != "bicyclic":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_atom_count = len(candidate.parent_atoms)
+        if candidate_parent_atom_count < 6 or candidate_parent_atom_count > 9:
+            continue
+        if selected_parent_atom_count - candidate_parent_atom_count > 15:
+            continue
+        if candidate_parent_atom_count != 7 and len(candidate.locants) < 3:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if len(candidate.locants) < 2:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 2:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 260:
+            continue
+        if len(item.name) - len(selected.name) > 120:
             continue
         if candidate_key[0] > selected_key[0] + 220:
             continue

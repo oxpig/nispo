@@ -1697,6 +1697,23 @@ def test_fact_switch_gate_preserves_generated_fused_parent_against_retained_shor
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "[O-][NH+]1N=Nc2ccccc21",
+        "CN(C)CCOc1c(=O)[nH]cc2cnn(C)c(=O)c12",
+        "CCc1cc(C)c(C(=O)N2CCC(F)(C3(C#N)C=CC=CC3)CC2)cc1-c1nc2c([nH]1)COCC2",
+        "CCn1nc(CC(C)(C)COC(=O)c2cccc(C(N)=O)c2)c2c1C(=O)NCC1(CCOCC1)C2",
+    ],
+)
+def test_contextual_selector_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COc1ccc(O)cc1",
         "O=C(O)c1ccc(O)cc1",
         "CC1(C)OBOC1(C)C",

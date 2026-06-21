@@ -474,6 +474,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _kekulized_polycyclic_alternative_for_oxido_retained_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _generated_purine_fused_alternative_for_single_ring_choice(
             keyed_items,
             selected_item,
@@ -516,6 +523,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _generated_hydro_fused_alternative_for_late_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _functionalized_generated_fused_alternative_for_generated_fused_choice(
             keyed_items,
             selected_item,
@@ -531,6 +545,20 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _retained_fused_alternative_for_neutral_amine_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _graph_parent_alternative_for_neutral_amine_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _retained_amide_alternative_for_spiro_carboxamide_choice(
             keyed_items,
             selected_item,
         )
@@ -1066,6 +1094,170 @@ def _retained_fused_alternative_for_neutral_amine_choice(
                 (
                     render_rank,
                     candidate_rank,
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_NEUTRAL_AMINE_GRAPH_PARENT_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "functional-generic-bicyclic-parent",
+        "generated-fused-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+    }
+)
+
+
+def _graph_parent_alternative_for_neutral_amine_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "neutral-amine-parent":
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 18:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _NEUTRAL_AMINE_GRAPH_PARENT_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 8 or candidate_parent_count > 10:
+            continue
+        if selected_parent_count - candidate_parent_count < 9:
+            continue
+        if (
+            candidate.family == "kekulized-generic-polycyclic-parent"
+            and candidate.parent_external_unsaturated_bond_count
+        ):
+            continue
+        if candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.formal_charge not in {0, 1}:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank < 1 or render_rank > 2:
+            continue
+        if candidate.family == "generated-fused-parent":
+            if candidate.source_family != "generated-fused":
+                continue
+            if candidate.source_file != "generated_fused_template_index.json":
+                continue
+            if candidate.priority != 28 or render_rank != 1:
+                continue
+        elif candidate.family in {"functional-generic-bicyclic-parent", "kekulized-generic-polycyclic-parent"}:
+            if candidate.priority != 14:
+                continue
+        elif candidate.priority != 19:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    render_rank,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_SPIRO_PYRAZOLO_AZEPINE_CARBOXAMIDE_TEMPLATE = (
+    "8-oxo-spiro[6,7-dihydro-4H-pyrazolo[3,4-c]azepine-5,4'-oxane]"
+)
+
+
+def _retained_amide_alternative_for_spiro_carboxamide_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "fused-retained-parent":
+        return None
+    if selected_candidate.template_name != _SPIRO_PYRAZOLO_AZEPINE_CARBOXAMIDE_TEMPLATE:
+        return None
+    if selected_candidate.source_file != "generated_spiro_scaffold_templates.json":
+        return None
+    if selected_candidate.render_rank != 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 16:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "retained-amide-parent":
+            continue
+        if candidate.source_family != "ring-carboxamide":
+            continue
+        if candidate.priority != 9:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 110:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 260:
+            continue
+        if candidate_key[0] > selected_key[0] + 360:
+            continue
+        alternatives.append(
+            (
+                (
                     candidate_key[0],
                     len(item.name),
                     candidate_key,
@@ -1967,6 +2159,77 @@ def _kekulized_single_ring_parent_profile_is_supported(
     return False
 
 
+def _kekulized_polycyclic_alternative_for_oxido_retained_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "oxido-fused-retained-parent":
+        return None
+    if selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 8 or selected_parent_count > 11:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    ranked_items = sorted(keyed_items, key=lambda keyed: keyed[0])
+    rank_by_id = {id(item): rank for rank, (_key, item) in enumerate(ranked_items, start=1)}
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "kekulized-generic-polycyclic-parent":
+            continue
+        if candidate.source_family != "kekulized":
+            continue
+        if candidate.template_name or candidate.source_file:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < selected_parent_count - 1:
+            continue
+        if candidate_parent_count > selected_parent_count + 1:
+            continue
+        if candidate.render_rank != 1:
+            continue
+        if candidate.suffixes:
+            continue
+        if _explicit_candidate_formal_charge(candidate) <= 0:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        candidate_rank = rank_by_id.get(id(item))
+        if candidate_rank is None or candidate_rank > 6:
+            continue
+        if len(item.name) > 220:
+            continue
+        if len(item.name) - len(selected.name) > 130:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_rank,
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _generated_purine_fused_alternative_for_single_ring_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -2747,6 +3010,86 @@ def _generated_hydro_fused_alternative_for_retained_fused_choice(
                     candidate_key[0],
                     len(item.name),
                     candidate_parent_count,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_LATE_SINGLE_RING_GENERATED_HYDRO_TEMPLATES = frozenset(
+    {
+        "pyrano[3,4-d]imidazole",
+        "pyrido[4,5-d]imidazole",
+        "pyrimido[4,5-b]pyrrole",
+    }
+)
+
+
+def _generated_hydro_fused_alternative_for_late_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.priority != 61:
+        return None
+    if selected_candidate.render_rank not in {1, 2}:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 6:
+        return None
+    if len(selected_candidate.locants) < 6:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-hydro-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.template_name not in _LATE_SINGLE_RING_GENERATED_HYDRO_TEMPLATES:
+            continue
+        if candidate.priority != 28 or candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 9:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 160:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name),
                     candidate_key,
                 ),
                 item,

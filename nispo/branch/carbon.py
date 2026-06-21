@@ -707,6 +707,9 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     carboxymethyl = _terminal_carboxymethyl_prefix(mol, attached_idx, idx, parent_idx)
     if carboxymethyl:
         return carboxymethyl
+    carbamoyloxy_methyl = _carbamoyloxy_methyl_prefix(mol, attached_idx, idx, parent_idx)
+    if carbamoyloxy_methyl:
+        return carbamoyloxy_methyl
     if attached.IsInRing():
         attached_bond = mol.GetBondBetweenAtoms(idx, attached_idx)
         if attached_bond is None:
@@ -763,6 +766,76 @@ def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
             return ""
         return f"({amino})methyl" if _complex_hetero_methyl_prefix(amino) else amino + "methyl"
     return ""
+
+
+def _carbamoyloxy_methyl_prefix(mol, oxygen_idx: int, methylene_idx: int, parent_idx: int) -> str:
+    methylene = mol.GetAtomWithIdx(methylene_idx)
+    if methylene.GetSymbol() != "C" or methylene.GetFormalCharge() != 0 or methylene.IsInRing():
+        return ""
+    if methylene.GetIsotope() or _path_has_isotopic_hydrogen(mol, (methylene_idx,)):
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(methylene_idx, parent_idx)
+    oxygen_bond = mol.GetBondBetweenAtoms(methylene_idx, oxygen_idx)
+    if (
+        parent_bond is None
+        or oxygen_bond is None
+        or parent_bond.GetBondType() != Chem.BondType.SINGLE
+        or oxygen_bond.GetBondType() != Chem.BondType.SINGLE
+    ):
+        return ""
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0 or oxygen.IsInRing() or oxygen.GetIsotope():
+        return ""
+    carbonyls = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != methylene_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(carbonyls) != 1:
+        return ""
+    carbonyl_idx = carbonyls[0]
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing() or carbonyl.GetIsotope():
+        return ""
+    carbonyl_bond = mol.GetBondBetweenAtoms(oxygen_idx, carbonyl_idx)
+    if carbonyl_bond is None or carbonyl_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    double_oxygens = []
+    nitrogens = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return ""
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "N" and bond is not None and bond.GetBondType() == Chem.BondType.SINGLE:
+            nitrogens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return ""
+    if len(double_oxygens) != 1 or len(nitrogens) != 1:
+        return ""
+    nitrogen_idx = nitrogens[0]
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetFormalCharge() != 0 or nitrogen.GetIsotope() or nitrogen.IsInRing():
+        return ""
+    ligand_names = []
+    for nbr in nitrogen.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        name = branch_prefix(mol, nidx, nitrogen_idx) or substituent_from_root(mol, nidx, nitrogen_idx)
+        if not name:
+            return ""
+        ligand_names.append(name)
+    if len(ligand_names) > 2:
+        return ""
+    if not ligand_names:
+        return "carbamoyloxymethyl"
+    ligand_text = "".join(f"({name})" for name in sorted(ligand_names))
+    return f"({ligand_text}carbamoyloxy)methyl"
 
 
 def _complex_hetero_methyl_prefix(prefix: str) -> bool:

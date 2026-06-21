@@ -78,6 +78,10 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
         if not heavy:
             return suffix_prefix_term("thione", "thioxo")
+    non_parent = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
+    lambda6 = _lambda6_tetrafluorosulfanyl_prefix(mol, idx, parent_idx, non_parent)
+    if lambda6:
+        return lambda6
     halogens = [
         n.GetSymbol()
         for n in atom.GetNeighbors()
@@ -85,7 +89,6 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     ]
     if len(halogens) == 5 and all(symbol == "F" for symbol in halogens):
         return "pentafluorosulfanyl"
-    non_parent = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
     if len(halogens) == 3 and all(symbol == "F" for symbol in halogens) and len(non_parent) == 3:
         return "trifluorosulfanyl"
     double_oxygens = {
@@ -551,6 +554,118 @@ def _halosulfur_prefix(double_o: int, halogens: Sequence[str], non_parent_count:
     if double_o == 0 and non_parent_count == 1:
         return HALO[halogens[0]] + "sulfanyl"
     return _HALOSULFUR_OXO_PREFIXES.get(double_o, {}).get(halogens[0], "")
+
+
+def _lambda6_tetrafluorosulfanyl_prefix(mol, sulfur_idx: int, parent_idx: int, non_parent: Sequence[int]) -> str:
+    parent_bond = mol.GetBondBetweenAtoms(sulfur_idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+
+    fluorines: list[int] = []
+    ligands: list[int] = []
+    for nidx in non_parent:
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if _is_terminal_fluorine_ligand(mol, nidx, sulfur_idx):
+            fluorines.append(nidx)
+        else:
+            ligands.append(nidx)
+    if len(fluorines) != 4 or len(ligands) != 1:
+        return ""
+
+    ligand = _lambda6_tetrafluorosulfanyl_ligand_prefix(mol, ligands[0], sulfur_idx)
+    return f"{ligand}tetrafluoro-lambda6-sulfanyl" if ligand else ""
+
+
+def _lambda6_tetrafluorosulfanyl_ligand_prefix(mol, ligand_idx: int, sulfur_idx: int) -> str:
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    bond = mol.GetBondBetweenAtoms(ligand_idx, sulfur_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if ligand.GetSymbol() in {"Cl", "Br", "I"}:
+        return HALO[ligand.GetSymbol()] if _is_terminal_halogen_ligand(mol, ligand_idx, sulfur_idx) else ""
+    if ligand.GetSymbol() == "C":
+        return _lambda6_fluoroethyl_ligand_prefix(mol, ligand_idx, sulfur_idx)
+    return ""
+
+
+def _lambda6_fluoroethyl_ligand_prefix(mol, carbon_idx: int, sulfur_idx: int) -> str:
+    alpha = mol.GetAtomWithIdx(carbon_idx)
+    if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing() or alpha.GetIsotope():
+        return ""
+    beta_carbons = []
+    alpha_fluorines = []
+    for neighbor in alpha.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == sulfur_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if _is_terminal_fluorine_ligand(mol, nidx, carbon_idx):
+            alpha_fluorines.append(nidx)
+        elif neighbor.GetSymbol() == "C":
+            beta_carbons.append(nidx)
+        elif neighbor.GetAtomicNum() > 1:
+            return ""
+    if len(alpha_fluorines) != 2 or len(beta_carbons) != 1:
+        return ""
+
+    beta_idx = beta_carbons[0]
+    beta = mol.GetAtomWithIdx(beta_idx)
+    if beta.GetFormalCharge() != 0 or beta.IsInRing() or beta.GetIsotope():
+        return ""
+    beta_bond = mol.GetBondBetweenAtoms(carbon_idx, beta_idx)
+    if beta_bond is None or beta_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+
+    beta_fluorines = []
+    terminal_halogen = ""
+    for neighbor in beta.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == carbon_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(beta_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if _is_terminal_fluorine_ligand(mol, nidx, beta_idx):
+            beta_fluorines.append(nidx)
+        elif neighbor.GetSymbol() in {"Cl", "Br", "I"} and _is_terminal_halogen_ligand(mol, nidx, beta_idx):
+            if terminal_halogen:
+                return ""
+            terminal_halogen = HALO[neighbor.GetSymbol()]
+        elif neighbor.GetAtomicNum() > 1:
+            return ""
+    if len(beta_fluorines) != 2:
+        return ""
+    if terminal_halogen:
+        return f"2-{terminal_halogen}tetrafluoroethyl"
+    return "1,1,2,2-tetrafluoroethyl"
+
+
+def _is_terminal_fluorine_ligand(mol, atom_idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    return (
+        atom.GetSymbol() == "F"
+        and atom.GetFormalCharge() == 0
+        and not atom.GetIsotope()
+        and _is_terminal_halogen_ligand(mol, atom_idx, parent_idx)
+    )
+
+
+def _is_terminal_halogen_ligand(mol, atom_idx: int, parent_idx: int) -> bool:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() not in HALO or atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return False
+    bond = mol.GetBondBetweenAtoms(atom_idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    return not [
+        neighbor.GetIdx()
+        for neighbor in atom.GetNeighbors()
+        if neighbor.GetIdx() != parent_idx and neighbor.GetAtomicNum() > 1
+    ]
 
 
 def _sulfur_oxo_substituent_suffix(double_o: int) -> str:

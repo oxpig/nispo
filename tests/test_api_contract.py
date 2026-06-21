@@ -2712,6 +2712,23 @@ def test_small_lambda_sulfur_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1ccc(S(F)(F)(F)(F)Cl)cc1",
+        "Fc1ccc(S(F)(F)(F)(F)Cl)cn1",
+        "FC(F)(Cl)C(F)(F)S(F)(F)(F)(F)c1ccccn1",
+        "FC(F)C(F)(F)S(F)(F)(F)(F)c1ccccc1",
+    ],
+)
+def test_lambda6_tetrafluorosulfanyl_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COc1cc2nncc(N3CCC4(CC3)CCN([SH2](=O)C=N)C4)c2cc1OC",
         "COc1cc2ncnc(N3CCC4(CCN([SH2](=O)C=N)CC4)C3)c2cc1OC",
         "COc1cc2ncnc(N3CCC4(CC3)CCN([SH2](=O)C=N)CC4)c2cc1OC",

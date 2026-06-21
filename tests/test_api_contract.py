@@ -4328,6 +4328,21 @@ def test_terminal_carboxylate_parent_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C(/C=C/c1ccc(O)c(O)c1)OC(=O)C(=O)[O-]",
+        "CSCC[C@H](N)C(=O)OC(=O)C(=O)[O-]",
+    ],
+)
+def test_acyl_owner_dicarboxylate_ester_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

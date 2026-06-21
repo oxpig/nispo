@@ -6578,12 +6578,19 @@ class RetainedAcidEsterParentRule:
             if name in seen:
                 continue
             seen.add(name)
+            parent_atoms = (
+                _heavy_atom_indices(mol)
+                if source_family == "retained-acid-ester:dicarboxylate-acyl-owner"
+                else frozenset()
+            )
             yield NameCandidate(
                 name,
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+                parent_atoms=parent_atoms,
+                estimated_length=len(name),
             )
 
 
@@ -9910,17 +9917,20 @@ def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
     names = _acyl_diphosphate_records(mol, Chem)
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
-        if not owner:
+        if owner:
+            generic_source = _retained_acid_ester_source_family(mol, Chem, carbonyl_idx, acyl_idx, "generic")
+            generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
+            names.extend((name, generic_source) for name in generic)
+            dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
+            if dicarboxylate:
+                names.append((dicarboxylate, "retained-acid-ester:dicarboxylate"))
+            acrylate = _acrylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
+            if acrylate:
+                names.append((acrylate, "retained-acid-ester:acrylate"))
             continue
-        generic_source = _retained_acid_ester_source_family(mol, Chem, carbonyl_idx, acyl_idx, "generic")
-        generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
-        names.extend((name, generic_source) for name in generic)
-        dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
+        dicarboxylate = _acyl_owner_dicarboxylate_ester_name(mol, Chem, carbonyl_idx, ester_oxygen_idx, acyl_idx)
         if dicarboxylate:
-            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate"))
-        acrylate = _acrylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
-        if acrylate:
-            names.append((acrylate, "retained-acid-ester:acrylate"))
+            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate-acyl-owner"))
     return names
 
 
@@ -11782,6 +11792,82 @@ def _dicarboxylate_ester_name(mol, Chem, carbonyl_idx: int, acyl_idx: int, owner
     if terminal == "acid":
         return f"{owner} hydrogen {root}"
     return ""
+
+
+def _acyl_owner_dicarboxylate_ester_name(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    ester_oxygen_idx: int,
+    acyl_idx: int,
+) -> str:
+    owner_record = _acyl_ester_owner_record(mol, Chem, ester_oxygen_idx, carbonyl_idx)
+    if not owner_record:
+        return ""
+    owner_name, owner_atoms = owner_record
+    name = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner_name)
+    if not name:
+        return ""
+    dicarboxylate_atoms = _collect_component_atoms(mol, carbonyl_idx, ester_oxygen_idx)
+    covered = set(owner_atoms)
+    covered.add(ester_oxygen_idx)
+    covered.update(dicarboxylate_atoms)
+    return name if covered == _heavy_atom_indices(mol) else ""
+
+
+def _acyl_ester_owner_record(
+    mol,
+    Chem,
+    ester_oxygen_idx: int,
+    dicarboxylate_carbonyl_idx: int,
+) -> tuple[str, frozenset[int]] | None:
+    oxygen = mol.GetAtomWithIdx(ester_oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != dicarboxylate_carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return None
+    owner_carbonyl_idx = heavy[0]
+    owner_carbonyl = mol.GetAtomWithIdx(owner_carbonyl_idx)
+    if owner_carbonyl.GetSymbol() != "C" or owner_carbonyl.GetFormalCharge() != 0 or owner_carbonyl.IsInRing():
+        return None
+    double_oxygen = _carbonyl_double_oxygen(mol, Chem, owner_carbonyl_idx)
+    if double_oxygen is None:
+        return None
+    acyl_carbons = [
+        nbr.GetIdx()
+        for nbr in owner_carbonyl.GetNeighbors()
+        if nbr.GetIdx() != ester_oxygen_idx
+        and nbr.GetSymbol() == "C"
+        and mol.GetBondBetweenAtoms(owner_carbonyl_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(acyl_carbons) != 1:
+        return None
+    owner_acyl_idx = acyl_carbons[0]
+    names = [
+        name
+        for path in _ester_acyl_parent_paths(mol, Chem, owner_carbonyl_idx, owner_acyl_idx)
+        for name in (_generic_acyl_ligand_path_name(mol, Chem, owner_carbonyl_idx, path),)
+        if name and _stable_acyl_dicarboxylate_owner_name(name)
+    ]
+    if not names:
+        return None
+    owner_name = min(names, key=lambda value: (len(value), value))
+    owner_atoms = {owner_carbonyl_idx, double_oxygen}
+    owner_atoms.update(_collect_component_atoms(mol, owner_acyl_idx, owner_carbonyl_idx))
+    return owner_name, frozenset(owner_atoms)
+
+
+def _stable_acyl_dicarboxylate_owner_name(name: str) -> bool:
+    if len(name) > 120 or " " in name or "[" in name or "]" in name:
+        return False
+    if name.startswith("(") and not re.match(r"^\([0-9EZRS,]+\)-", name):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,()'\-]+", name))
 
 
 def _linear_saturated_dicarboxylate_path(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> tuple[int, ...] | None:

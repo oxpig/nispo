@@ -33,7 +33,7 @@ from .formatting import join_prefix_parent as _join_prefix_parent
 from .formatting import loc_unsat
 from .formatting import preferred_parent_stem as _preferred_parent_stem
 from .formatting import unsaturated_parent as _unsaturated_parent
-from .molecule_cache import mol_cache_get, mol_cache_set
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .parent.partial_hydro import (
     PartialHydroCandidateFacts,
     partial_hydro_render_set,
@@ -15638,8 +15638,11 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
             template_name = template_record_name(template)
             if not _allow_high_signal_generated_topology_candidate(template_name, name):
                 continue
+            if not _allow_high_signal_generated_topology_graph_candidate(mol, match, template_name):
+                continue
             if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
+            graph_facts = _fused_parent_graph_fact_kwargs(mol, match)
             yielded_names.add(name)
             yielded += 1
             sort_key = (
@@ -15651,7 +15654,7 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
                 family=self.family,
                 priority=self.priority,
                 sort_key=sort_key,
-                **_fused_parent_graph_fact_kwargs(mol, match),
+                **graph_facts,
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_name,
@@ -15667,6 +15670,7 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
 
 _HIGH_SIGNAL_GENERATED_TOPOLOGY_TEMPLATE_NAMES = frozenset(
     {
+        "imidazo[4,5-a]benzene",
         "pyridazino[1,6-a]pyrimidine",
         "pyrano[2,3-a]benzene",
     }
@@ -15698,6 +15702,8 @@ def _allow_generated_topology_template(template_name: str) -> bool:
 
 
 def _allow_high_signal_generated_topology_candidate(template_name: str, name: str) -> bool:
+    if template_name == "imidazo[4,5-a]benzene":
+        return True
     if template_name == "pyridazino[1,6-a]pyrimidine":
         return bool(
             "pyridazino[1,6-a]pyrimidin" in name
@@ -15711,6 +15717,19 @@ def _allow_high_signal_generated_topology_candidate(template_name: str, name: st
             and re.search(r"(?:^|-)2(?:[a-z])?-(?:oxo|thioxo)-", name)
         )
     return False
+
+
+def _allow_high_signal_generated_topology_graph_candidate(
+    mol,
+    match: Sequence[int],
+    template_name: str,
+) -> bool:
+    if template_name == "imidazo[4,5-a]benzene":
+        return bool(
+            _ring_terminal_hetero_substituent_count(mol, match)
+            or _ring_external_nitrogen_substituent_count(mol, match)
+        )
+    return True
 
 
 def _generated_topology_fused_match_is_hydrogen_compatible(mol, template: dict, match: Sequence[int]) -> bool:
@@ -15811,8 +15830,16 @@ class SingleRingParentRule:
                     parent_aromatic_atom_count=_ring_aromatic_atom_count(mol, ring),
                     parent_hetero_atom_count=_ring_hetero_atom_count(mol, ring),
                     parent_terminal_hetero_substituent_count=_ring_terminal_hetero_substituent_count(mol, ring),
+                    parent_terminal_heterocarbon_substituent_count=_ring_terminal_heterocarbon_substituent_count(
+                        mol,
+                        ring,
+                    ),
+                    parent_terminal_carbonyl_substituent_count=_ring_terminal_carbonyl_substituent_count(mol, ring),
                     parent_external_nitrogen_substituent_count=_ring_external_nitrogen_substituent_count(mol, ring),
                     parent_external_oxygen_substituent_count=_ring_external_oxygen_substituent_count(mol, ring),
+                    parent_external_relative_stereo_branch_count=(
+                        1 if ring_fact.structural_key and ring_fact.structural_key[2] == 0 else 0
+                    ),
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
@@ -15825,7 +15852,7 @@ class SingleRingParentRule:
         facts = tuple(
             _SingleRingParentFacts(
                 ring=tuple(ring),
-                structural_key=_single_ring_parent_fact_sort_key(ctx.mol, ring),
+                structural_key=_single_ring_parent_fact_sort_key(ctx.mol, ring, ctx.Chem),
             )
             for ring in parent_rings
         )
@@ -15839,7 +15866,8 @@ class SingleRingParentRule:
         facts: tuple["_SingleRingParentFacts", ...],
     ) -> tuple["_SingleRingParentFacts", ...]:
         if len(facts) <= _SINGLE_RING_PARENT_RING_FACT_SET_SIZE and not any(
-            fact.structural_key and fact.structural_key[0] == 0 for fact in facts
+            fact.structural_key and (fact.structural_key[0] == 0 or fact.structural_key[2] == 0)
+            for fact in facts
         ):
             finalists = facts
         else:
@@ -15938,7 +15966,7 @@ def _locants_from_sequence(seq: Sequence[int]) -> tuple[tuple[int, str], ...]:
     return tuple((idx, str(locant)) for locant, idx in enumerate(seq, start=1))
 
 
-def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:
+def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int], Chem) -> tuple:
     ring_set = set(ring)
     atoms = [mol.GetAtomWithIdx(idx) for idx in ring]
     size = len(ring)
@@ -15953,18 +15981,104 @@ def _single_ring_parent_fact_sort_key(mol, ring: Sequence[int]) -> tuple:
     return (
         0 if aromatic_atoms == size else 1,
         abs(size - 6),
+        _single_ring_external_relative_stereo_branch_rank(mol, ring, Chem),
         external_bonds,
         hetero_atoms,
         tuple(sorted(ring)),
     )
 
 
+def _single_ring_external_relative_stereo_branch_rank(mol, ring: Sequence[int], Chem) -> int:
+    ring_set = frozenset(ring)
+    atoms = [mol.GetAtomWithIdx(idx) for idx in ring]
+    if not ring_set:
+        return 1
+    if any(atom.GetIsAromatic() or atom.GetSymbol() != "C" for atom in atoms):
+        return 1
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in atoms):
+        return 1
+    cache = mol_cache_dict(mol, "single_ring_external_relative_stereo_branch_rank")
+    cache_key = tuple(sorted(ring_set))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return int(cached)
+    relative_rings = _relative_stereo_ring_branch_sets(mol, Chem)
+    if not relative_rings:
+        cache[cache_key] = 1
+        return 1
+    for relative_ring, tagged_atoms in relative_rings:
+        if relative_ring & ring_set:
+            continue
+        if not tagged_atoms:
+            continue
+        if _ring_component_touches_parent_ring(mol, relative_ring, ring_set):
+            cache[cache_key] = 0
+            return 0
+    cache[cache_key] = 1
+    return 1
+
+
+def _ring_component_touches_parent_ring(
+    mol,
+    relative_ring: frozenset[int],
+    parent_ring: frozenset[int],
+) -> bool:
+    if not relative_ring or not parent_ring:
+        return False
+    ring_atoms = mol_cache_get(mol, "all_ring_atoms")
+    if ring_atoms is None:
+        ring_atoms = mol_cache_set(
+            mol,
+            "all_ring_atoms",
+            set().union(*(set(ring) for ring in mol.GetRingInfo().AtomRings())),
+        )
+    seen = set(relative_ring)
+    stack = [(atom_idx, 0) for atom_idx in relative_ring]
+    while stack:
+        atom_idx, depth = stack.pop()
+        if depth > 4:
+            continue
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in parent_ring:
+                return True
+            if nidx in seen or nbr.GetAtomicNum() <= 1:
+                continue
+            if nidx in ring_atoms:
+                continue
+            seen.add(nidx)
+            stack.append((nidx, depth + 1))
+    return False
+
+
 def _ring_aromatic_atom_count(mol, ring: Sequence[int]) -> int:
-    return sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetIsAromatic())
+    return _cached_ring_count(
+        mol,
+        "ring_aromatic_atom_count",
+        ring,
+        lambda: sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetIsAromatic()),
+    )
 
 
 def _ring_hetero_atom_count(mol, ring: Sequence[int]) -> int:
-    return sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6)
+    return _cached_ring_count(
+        mol,
+        "ring_hetero_atom_count",
+        ring,
+        lambda: sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6),
+    )
+
+
+def _cached_ring_count(mol, cache_name: str, ring: Sequence[int], compute) -> int:
+    cache = mol_cache_dict(mol, cache_name)
+    key = tuple(sorted(int(idx) for idx in ring))
+    cached = cache.get(key)
+    if cached is not None:
+        return int(cached)
+    value = int(compute())
+    cache[key] = value
+    return value
 
 
 def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[str, object]:
@@ -16007,6 +16121,7 @@ def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[st
 
 
 _PURIN_6_AMINE_SOURCE_FAMILY = "fused-retained:purin-6-amine"
+_PURIN_THIOXO_SOURCE_FAMILY = "fused-retained:purin-thioxo"
 
 
 def _retained_fused_source_family(
@@ -16018,6 +16133,8 @@ def _retained_fused_source_family(
 ) -> str:
     if _has_purin_6_amine_parent_shape(mol, template, match):
         return _PURIN_6_AMINE_SOURCE_FAMILY
+    if _has_purin_thioxo_parent_shape(mol, template, match):
+        return _PURIN_THIOXO_SOURCE_FAMILY
     return str(template.get("source_family", "") if default is None else default)
 
 
@@ -16054,7 +16171,54 @@ def _has_purin_6_amine_parent_shape(mol, template: dict, match: Sequence[int]) -
     return has_locant_6_amino
 
 
+def _has_purin_thioxo_parent_shape(mol, template: dict, match: Sequence[int]) -> bool:
+    if template_record_name(template) != "purin":
+        return False
+    thioxo_locs = set(_purin_terminal_thioxo_locants(mol, template, match))
+    if thioxo_locs not in ({"2", "6"}, {"6", "8"}, {"2", "6", "8"}):
+        return False
+    locants = template_record_locants(template)
+    core = set(match)
+    for template_idx, mol_idx in enumerate(match):
+        locant = locants.get(template_idx, "")
+        if locant not in {"1", "3", "7", "9"}:
+            continue
+        atom = mol.GetAtomWithIdx(int(mol_idx))
+        if any(nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+            return False
+    return True
+
+
+def _purin_terminal_thioxo_locants(mol, template: dict, match: Sequence[int]) -> tuple[str, ...]:
+    locants = template_record_locants(template)
+    core = set(match)
+    thioxo_locs: list[str] = []
+    for template_idx, mol_idx in enumerate(match):
+        locant = locants.get(template_idx, "")
+        if not locant:
+            continue
+        atom = mol.GetAtomWithIdx(int(mol_idx))
+        for neighbor in atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx in core or neighbor.GetAtomicNum() != 16 or neighbor.GetDegree() != 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(int(mol_idx), nidx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                thioxo_locs.append(locant)
+                break
+    return tuple(sorted(set(thioxo_locs), key=int))
+
+
 def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_terminal_hetero_substituent_count",
+        ring,
+        lambda: _ring_terminal_hetero_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_terminal_hetero_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:
@@ -16068,6 +16232,15 @@ def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
 
 
 def _ring_terminal_heterocarbon_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_terminal_heterocarbon_substituent_count",
+        ring,
+        lambda: _ring_terminal_heterocarbon_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_terminal_heterocarbon_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:
@@ -16089,7 +16262,47 @@ def _ring_terminal_heterocarbon_substituent_count(mol, ring: Sequence[int]) -> i
     return count
 
 
+def _ring_terminal_carbonyl_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_terminal_carbonyl_substituent_count",
+        ring,
+        lambda: _ring_terminal_carbonyl_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_terminal_carbonyl_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
+    ring_set = set(ring)
+    count = 0
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for carbon in atom.GetNeighbors():
+            carbon_idx = carbon.GetIdx()
+            if carbon_idx in ring_set or carbon.GetAtomicNum() != 6:
+                continue
+            for hetero in carbon.GetNeighbors():
+                hetero_idx = hetero.GetIdx()
+                if hetero_idx == idx or hetero_idx in ring_set:
+                    continue
+                if hetero.GetAtomicNum() not in {8, 16} or hetero.GetDegree() != 1:
+                    continue
+                bond = mol.GetBondBetweenAtoms(carbon_idx, hetero_idx)
+                if bond is not None and bond.GetBondTypeAsDouble() > 1.5:
+                    count += 1
+                    break
+    return count
+
+
 def _ring_terminal_chalcogen_double_bond_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_terminal_chalcogen_double_bond_count",
+        ring,
+        lambda: _ring_terminal_chalcogen_double_bond_count_uncached(mol, ring),
+    )
+
+
+def _ring_terminal_chalcogen_double_bond_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:
@@ -16108,6 +16321,15 @@ def _ring_terminal_chalcogen_double_bond_count(mol, ring: Sequence[int]) -> int:
 
 
 def _parent_substituted_hetero_atom_count(mol, parent_atoms: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "parent_substituted_hetero_atom_count",
+        parent_atoms,
+        lambda: _parent_substituted_hetero_atom_count_uncached(mol, parent_atoms),
+    )
+
+
+def _parent_substituted_hetero_atom_count_uncached(mol, parent_atoms: Sequence[int]) -> int:
     parent_set = set(parent_atoms)
     count = 0
     for idx in parent_set:
@@ -16123,6 +16345,15 @@ def _parent_substituted_hetero_atom_count(mol, parent_atoms: Sequence[int]) -> i
 
 
 def _ring_external_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_external_nitrogen_substituent_count",
+        ring,
+        lambda: _ring_external_nitrogen_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_external_nitrogen_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:
@@ -16134,6 +16365,15 @@ def _ring_external_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
 
 
 def _ring_external_acyl_nitrogen_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_external_acyl_nitrogen_substituent_count",
+        ring,
+        lambda: _ring_external_acyl_nitrogen_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_external_acyl_nitrogen_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:
@@ -16165,6 +16405,15 @@ def _external_nitrogen_has_acyl_neighbor(mol, nitrogen_idx: int, parent_atoms: s
 
 
 def _ring_external_oxygen_substituent_count(mol, ring: Sequence[int]) -> int:
+    return _cached_ring_count(
+        mol,
+        "ring_external_oxygen_substituent_count",
+        ring,
+        lambda: _ring_external_oxygen_substituent_count_uncached(mol, ring),
+    )
+
+
+def _ring_external_oxygen_substituent_count_uncached(mol, ring: Sequence[int]) -> int:
     ring_set = set(ring)
     count = 0
     for idx in ring:

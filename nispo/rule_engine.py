@@ -72,12 +72,14 @@ class NameCandidate:
     parent_hetero_atom_count: int = 0
     parent_terminal_hetero_substituent_count: int = 0
     parent_terminal_heterocarbon_substituent_count: int = 0
+    parent_terminal_carbonyl_substituent_count: int = 0
     parent_terminal_chalcogen_double_bond_count: int = 0
     parent_external_unsaturated_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
+    parent_external_relative_stereo_branch_count: int = 0
     parent_indicated_hydrogen_locants: tuple[str, ...] = ()
     molecule_formal_charge_atom_count: int = 0
     molecule_abs_formal_charge_sum: int = 0
@@ -411,6 +413,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _acyclic_skeleton_alternative_for_functionalized_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _adamantane_retained_parent_alternative_for_templateless_choice(
             keyed_items,
             selected_item,
@@ -614,7 +623,28 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _heterocarbonyl_aromatic_single_ring_alternative_for_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _acyclic_skeleton_alternative_for_oxathiazolone_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _stable_purin_6_amine_alternative_for_generated_or_adenin_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _stable_purin_thioxo_alternative_for_generated_choice(
             keyed_items,
             selected_item,
         )
@@ -3436,6 +3466,94 @@ def _acyclic_skeleton_alternative_for_generated_partial_hydro_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+_FUNCTIONALIZED_GENERATED_FUSED_ACYCLIC_TEMPLATES = frozenset(
+    {
+        "benzo[1,2-d]oxazole",
+        "benzo[1,2-d]thiazole",
+        "imidazo[1,2-a]pyridine",
+        "imidazo[4,5-a]benzene",
+        "pyrido[2,3-b]pyrrole",
+        "pyrrolo[2,3-b]pyridine",
+    }
+)
+
+
+def _acyclic_skeleton_alternative_for_functionalized_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if selected_candidate.template_name not in _FUNCTIONALIZED_GENERATED_FUSED_ACYCLIC_TEMPLATES:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 9:
+        return None
+    if selected_candidate.parent_aromatic_atom_count != 9 or selected_candidate.parent_hetero_atom_count < 2:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-skeleton-with-ring-substituents":
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if candidate.priority != 60 or candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 10 or candidate_parent_count > 14:
+            continue
+        if candidate.parent_aromatic_atom_count or candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_external_nitrogen_substituent_count or candidate.parent_external_oxygen_substituent_count:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None or candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 160:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 160:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    candidate_parent_count,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES = frozenset(
     {
         "spiro-functional-chain-substituent",
@@ -3666,6 +3784,8 @@ def _candidate_fact_ranked_switch_is_safe(
         proposed_key,
     ):
         return False
+    if not _ranker_preserves_clean_aromatic_parent_over_terminal_carbonyl_switch(current, proposed):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -3679,6 +3799,37 @@ def _candidate_fact_ranked_switch_is_safe(
     if current_candidate.priority >= proposed_candidate.priority:
         return True
     if len(proposed_candidate.parent_atoms) <= len(current_candidate.parent_atoms):
+        return True
+    return False
+
+
+def _ranker_preserves_clean_aromatic_parent_over_terminal_carbonyl_switch(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if not _is_clean_aromatic_carbocycle_single_ring_candidate(current_candidate):
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if not candidate_has_complete_graph(proposed_candidate) or not proposed_candidate.parent_atoms:
+        return True
+    if len(proposed_candidate.parent_atoms) != len(current_candidate.parent_atoms):
+        return True
+    if proposed_candidate.parent_aromatic_atom_count != current_candidate.parent_aromatic_atom_count:
+        return True
+    if proposed_candidate.parent_hetero_atom_count != 0:
+        return True
+    if proposed_candidate.parent_terminal_carbonyl_substituent_count <= 0:
+        return True
+    if proposed_candidate.parent_terminal_heterocarbon_substituent_count <= 0:
+        return True
+    if len(proposed.name) <= len(current.name) + 10:
+        return True
+    if proposed_candidate.charge is not None or proposed_candidate.suffixes:
+        return True
+    if candidate_safety_reasons(proposed_candidate):
         return True
     return False
 
@@ -5018,6 +5169,7 @@ def _ranker_preserves_generated_purine_parent(
 
 
 _STABLE_RETAINED_PURIN_6_AMINE_SOURCE_FAMILY = "fused-retained:purin-6-amine"
+_STABLE_RETAINED_PURIN_THIOXO_SOURCE_FAMILY = "fused-retained:purin-thioxo"
 
 
 def _is_stable_retained_purin_6_amine_candidate(candidate: NameCandidate) -> bool:
@@ -5025,6 +5177,19 @@ def _is_stable_retained_purin_6_amine_candidate(candidate: NameCandidate) -> boo
         candidate.family == "fused-retained-parent"
         and candidate.template_name == "purin"
         and candidate.source_family == _STABLE_RETAINED_PURIN_6_AMINE_SOURCE_FAMILY
+        and candidate_has_complete_graph(candidate)
+        and bool(candidate.parent_atoms)
+        and len(candidate.parent_atoms) == 9
+        and candidate.charge is None
+        and not candidate.suffixes
+    )
+
+
+def _is_stable_retained_purin_thioxo_candidate(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "fused-retained-parent"
+        and candidate.template_name == "purin"
+        and candidate.source_family == _STABLE_RETAINED_PURIN_THIOXO_SOURCE_FAMILY
         and candidate_has_complete_graph(candidate)
         and bool(candidate.parent_atoms)
         and len(candidate.parent_atoms) == 9
@@ -5090,6 +5255,229 @@ def _stable_purin_6_amine_matches_selected_parent(
     if not candidate.parent_atoms.issubset(selected_candidate.parent_atoms):
         return False
     return len(selected_candidate.parent_atoms) - len(candidate.parent_atoms) == 1
+
+
+def _stable_purin_thioxo_alternative_for_generated_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+        return None
+    if not candidate_has_complete_graph(selected_candidate) or not selected_candidate.parent_atoms:
+        return None
+    if len(selected_candidate.parent_atoms) != 9:
+        return None
+    if selected_candidate.parent_terminal_chalcogen_double_bond_count < 2:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_stable_retained_purin_thioxo_candidate(candidate):
+            continue
+        if candidate.parent_atoms != selected_candidate.parent_atoms:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 3:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 70:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 160:
+            continue
+        alternatives.append(((render_rank, candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _heterocarbonyl_aromatic_single_ring_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if (
+        selected_candidate.source_family == _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE
+        or _is_carbohydrate_like_single_ring_candidate(selected_candidate)
+    ):
+        return None
+    if not candidate_has_complete_graph(selected_candidate) or not selected_candidate.parent_atoms:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    selected_carbonyl = selected_candidate.parent_terminal_carbonyl_substituent_count
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+            continue
+        if len(candidate.parent_atoms) != 6:
+            continue
+        if candidate.parent_aromatic_atom_count != 6 or candidate.parent_hetero_atom_count:
+            continue
+        if (
+            candidate.parent_terminal_hetero_substituent_count
+            or candidate.parent_external_nitrogen_substituent_count
+            or candidate.parent_external_oxygen_substituent_count
+        ):
+            continue
+        if candidate.parent_terminal_carbonyl_substituent_count <= selected_carbonyl:
+            continue
+        if _terminal_carbonyl_switch_displaces_preferred_single_ring_parent(
+            selected_candidate,
+            selected.name,
+            item.name,
+        ):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 4:
+            continue
+        selected_rank = selected_candidate.render_rank
+        if selected_rank is not None and render_rank > selected_rank + 3:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if (
+            selected_carbonyl == 0
+            and _is_clean_aromatic_carbocycle_single_ring_candidate(selected_candidate)
+            and len(item.name) - len(selected.name) > 10
+        ):
+            continue
+        if len(item.name) - len(selected.name) > 90:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 60:
+            continue
+        alternatives.append(((-candidate.parent_terminal_carbonyl_substituent_count, candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _terminal_carbonyl_switch_displaces_preferred_single_ring_parent(
+    selected_candidate: NameCandidate,
+    selected_name: str,
+    proposed_name: str,
+) -> bool:
+    if selected_candidate.parent_hetero_atom_count >= 1:
+        return True
+    return (
+        selected_candidate.parent_terminal_hetero_substituent_count >= 2
+        and len(proposed_name) > len(selected_name)
+    )
+
+
+def _is_clean_aromatic_carbocycle_single_ring_candidate(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "single-ring-parent"
+        and bool(candidate.parent_atoms)
+        and candidate_has_complete_graph(candidate)
+        and len(candidate.parent_atoms) == 6
+        and candidate.parent_aromatic_atom_count == 6
+        and candidate.parent_hetero_atom_count == 0
+        and candidate.parent_terminal_hetero_substituent_count == 0
+        and candidate.parent_terminal_heterocarbon_substituent_count == 0
+        and candidate.parent_terminal_carbonyl_substituent_count == 0
+        and candidate.parent_external_nitrogen_substituent_count == 0
+        and candidate.parent_external_oxygen_substituent_count == 0
+        and candidate.charge is None
+        and not candidate.suffixes
+        and not candidate_safety_reasons(candidate)
+    )
+
+
+def _is_carbohydrate_like_single_ring_candidate(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "single-ring-parent"
+        and bool(candidate.parent_atoms)
+        and candidate_has_complete_graph(candidate)
+        and len(candidate.parent_atoms) in {5, 6}
+        and candidate.parent_aromatic_atom_count == 0
+        and candidate.parent_hetero_atom_count == 1
+        and candidate.parent_external_oxygen_substituent_count >= 1
+        and len(candidate.stereo_locants) >= 3
+    )
+
+
+def _acyclic_skeleton_alternative_for_oxathiazolone_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _is_oxathiazolone_single_ring_candidate(selected_candidate):
+        return None
+    if selected_candidate.charge is not None:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+            continue
+        if len(candidate.parent_atoms) < 3 or len(candidate.parent_atoms) > 6:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_external_unsaturated_bond_count > selected_candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 80:
+            continue
+        alternatives.append(((candidate.priority, len(item.name), candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_oxathiazolone_single_ring_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if len(candidate.parent_atoms) != 5:
+        return False
+    element_counts = dict(candidate.parent_element_counts)
+    return (
+        element_counts.get("C") == 2
+        and element_counts.get("N") == 1
+        and element_counts.get("O") == 1
+        and element_counts.get("S") == 1
+        and bool(candidate.suffixes)
+        and candidate.parent_terminal_hetero_substituent_count >= 1
+    )
 
 
 def _generated_purine_candidate_has_terminal_hetero_substituent(candidate: NameCandidate) -> bool:
@@ -5435,6 +5823,7 @@ def _candidate_has_structured_facts(candidate: NameCandidate) -> bool:
         or candidate.source_file
         or candidate.ring_system_atoms
         or candidate.parent_element_counts
+        or candidate.parent_external_relative_stereo_branch_count
         or candidate.prefixes
         or candidate.suffixes
         or candidate.charge is not None
@@ -6362,7 +6751,9 @@ def _candidate_selection_kekulized_early_rank_bonus(candidate: NameCandidate) ->
 
 
 def _candidate_selection_render_rank_key(candidate: NameCandidate) -> int:
-    if candidate.family not in _RENDER_RANK_BEFORE_LENGTH_FAMILIES:
+    if candidate.family == "single-ring-parent" and candidate.parent_external_relative_stereo_branch_count:
+        pass
+    elif candidate.family not in _RENDER_RANK_BEFORE_LENGTH_FAMILIES:
         return 999
     if candidate.render_rank is None:
         return 999

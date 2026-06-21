@@ -1300,6 +1300,10 @@ def _name_fused_core_match(
     if purin_amine_name:
         cache[cache_key] = purin_amine_name
         return purin_amine_name
+    purin_thioxo_name = _fused_purin_indicated_thioxo_name(prefixes, parent_name)
+    if purin_thioxo_name:
+        cache[cache_key] = purin_thioxo_name
+        return purin_thioxo_name
     suffix_name = (
         _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_functional_suffix(prefixes)
@@ -1422,6 +1426,40 @@ def _fused_purin_6_amine_name(prefixes: Sequence[tuple[str, str]], parent_name: 
         return ""
     prefix_text = _format_prefixes(remaining)
     return _join_prefix_parent(prefix_text, amine_core) if prefix_text else amine_core
+
+
+def _fused_purin_indicated_thioxo_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    if parent not in {"purin", "purine"}:
+        return ""
+    if any(prefix == "oxo" for _loc, prefix in prefixes):
+        return ""
+    thioxo_locs = tuple(
+        sorted((loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()), key=int)
+    )
+    h_locs = _purin_thioxo_indicated_h_locants(thioxo_locs)
+    if not h_locs:
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
+    if any(loc in {"1", "3", "7", "9"} for loc, _prefix in remaining):
+        return ""
+    prefix_text = _format_prefixes(remaining)
+    locants = ",".join(thioxo_locs)
+    multiplier = MULT.get(len(thioxo_locs), "")
+    h_text = ",".join(f"{loc}H" for loc in h_locs)
+    core = f"{locants}-{multiplier}thioxo-{h_text}-{parent}"
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+
+
+def _purin_thioxo_indicated_h_locants(thioxo_locs: Sequence[str]) -> tuple[str, ...]:
+    locant_set = set(thioxo_locs)
+    if locant_set == {"2", "6"}:
+        return ("3",)
+    if locant_set == {"6", "8"}:
+        return ("3", "9")
+    if locant_set == {"2", "6", "8"}:
+        return ("3", "7")
+    return ()
 
 
 def _match_has_unlocanted_external_substitution(

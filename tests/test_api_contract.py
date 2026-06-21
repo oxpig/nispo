@@ -88,6 +88,38 @@ def test_lambda2_unsaturated_heterocycles_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Nc1cnc2[nH]nc(-c3nc4ccc(F)cc4[nH]3)c2c1",
+        "CNC(=O)Nc1ccc2c(c1)nc([C@@H]1CCCC(=O)N1c1ccc(F)c(F)c1)n2[C@H]1CC[C@H](OC)CC1",
+        "C[C@H](Cc1nc2c(Cl)cccc2[nH]1)C(=O)N[C@@H]1C(=O)N2CCCN2Cc2ccccc21",
+    ],
+)
+def test_imidazo_high_signal_topology_orientation_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCC[C@H]1CC[C@H](COC2CCC(CCCC)CC2)CC1",
+        "C/C=C/CC[C@H]1CC[C@H](C2CCC(CC)CC2)CC1",
+        "C/C=C/CC[C@H]1CC[C@H](C2CCC(CCC)CC2)CC1",
+    ],
+)
+def test_external_relative_stereo_ring_branch_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C1C[SH4]C1",
         "C1CC[SH4]C1",
         "C1=CC=[SH3]C=C1",
@@ -3909,6 +3941,70 @@ def test_purin_6_amine_suffix_parent_roundtrips_with_opsin(input_smiles):
     ],
 )
 def test_unanchored_chalcogen_purine_parent_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "S=c1[nH]c(=S)c2[nH]cnc2[nH]1",
+        "S=c1[nH]c(=S)c2[nH]c(=S)[nH]c2[nH]1",
+        "CSc1nc(=S)c2[nH]c(=S)[nH]c2[nH]1",
+    ],
+)
+def test_multi_thioxo_purine_parent_indicated_h_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Nc1ccc(C=Cc2ccccc2)cc1/C=C/C(=O)c1ccccc1",
+        "O=C=C1C=CC=C(CC=Cc2cccc(/C=C/C(=O)c3ccccc3)c2)C1",
+    ],
+)
+def test_heterocarbonyl_aromatic_single_ring_orientation_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCOc1cc(N)c(Cl)cc1C(=O)[NH+]([O-])CC1CN(Cc2ccc(F)cc2)CCO1",
+        "COc1ccc(C(=O)N=S(C)(=O)c2ccc(-c3noc(C(F)(F)F)n3)cc2)cc1",
+        "Cc1nc([C@H](C)NC(=O)c2cc(Cl)cc(C(F)(F)F)c2)n(-c2ccc(C(=O)N=S(C)(=O)c3ccccc3)cn2)n1",
+        "COC(=O)CCS(=O)(=NC(=O)c1ccc(C2=NOC(c3cc(Cl)cc(Cl)c3)(C(F)(F)F)C2)cc1C)c1ccc(C)c(C)c1",
+    ],
+)
+def test_clean_aromatic_parents_do_not_overpromote_long_carbonyl_branches(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCc1nsc(=O)o1",
+        "O=c1oc(C=CCl)ns1",
+        "O=c1oc(CCCCl)ns1",
+    ],
+)
+def test_oxathiazolone_acyclic_parent_alternatives_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

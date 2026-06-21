@@ -4717,6 +4717,7 @@ def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:
             continue
         substituents = []
         hetero_substituents = []
+        n_hetero_substituents = []
         covered = {nidx}
         for nbr in heavy_neighbors:
             nbr_idx = nbr.GetIdx()
@@ -4730,19 +4731,76 @@ def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:
                 substituents.append(_retained_parent_substituent_alias(prefix))
             elif nbr.GetSymbol() in {"O", "S"}:
                 hetero_substituents.append(_retained_parent_substituent_alias(prefix))
+            elif nbr.GetSymbol() == "N":
+                n_hetero = _anionic_amide_n_hetero_substituent(_retained_parent_substituent_alias(prefix))
+                if not n_hetero:
+                    break
+                n_hetero_substituents.append(n_hetero)
             else:
                 break
             covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
         else:
             if covered != atom_set:
                 continue
-            if hetero_substituents:
+            if hetero_substituents and n_hetero_substituents:
+                continue
+            if hetero_substituents and substituents:
                 name = _hetero_substituted_anionic_amide_parent_name(substituents, hetero_substituents)
-            else:
+            elif hetero_substituents:
+                name = _single_hetero_substituted_anionic_amide_parent_name(
+                    mol,
+                    Chem,
+                    hetero_substituents,
+                )
+            elif n_hetero_substituents and not substituents:
+                name = _single_n_hetero_substituted_anionic_amide_parent_name(n_hetero_substituents)
+            elif not n_hetero_substituents:
                 name = _anionic_amide_parent_name(substituents)
+            else:
+                name = ""
             if name:
                 names.append(name)
     return names
+
+
+_ANIONIC_AMIDE_N_HETERO_SUBSTITUENT_ALIASES = {
+    "aziridino": "aziridin-1-yl",
+    "azetidino": "azetidin-1-yl",
+    "pyrrolidino": "pyrrolidin-1-yl",
+    "piperidino": "piperidin-1-yl",
+    "piperazino": "piperazin-1-yl",
+    "morpholino": "morpholin-4-yl",
+    "thiomorpholino": "thiomorpholin-4-yl",
+    "imidazolidino": "imidazolidin-1-yl",
+    "pyrazolidino": "pyrazolidin-1-yl",
+}
+
+
+def _anionic_amide_n_hetero_substituent(name: str) -> str:
+    return _ANIONIC_AMIDE_N_HETERO_SUBSTITUENT_ALIASES.get(name, "")
+
+
+def _single_hetero_substituted_anionic_amide_parent_name(
+    mol,
+    Chem,
+    hetero_substituents: Sequence[str],
+) -> str:
+    if len(hetero_substituents) != 1:
+        return ""
+    hetero = hetero_substituents[0]
+    if not _stable_anionic_amide_hetero_substituent(hetero):
+        return ""
+    if _has_explicit_alkene_stereo(mol, Chem):
+        return ""
+    return hetero + "amide"
+
+
+def _single_n_hetero_substituted_anionic_amide_parent_name(
+    n_hetero_substituents: Sequence[str],
+) -> str:
+    if len(n_hetero_substituents) != 1:
+        return ""
+    return n_hetero_substituents[0] + "amide"
 
 
 def _hetero_substituted_anionic_amide_parent_name(

@@ -154,6 +154,8 @@ def test_generated_fused_graph_supplement_roundtrips_with_opsin(input_smiles):
     "input_smiles",
     [
         "CCN(Cc1nc2c(N)nc3cc(-c4cc[nH]n4)ccc3c2[nH]1)S(=O)(=O)N(C)C",
+        "O=c1c(-c2ccc3c(c2)C2(CC2)CO3)cn2ccc(NCC(F)(F)F)nc2c1C1=CC2=C(CC1)OCC21CC1",
+        "CC(C)(C)OC(=O)N1CCOC[C@H]1c1cc(-c2cnc3[nH]cc(Cl)c3n2)cc2c1CN(C(=O)N1CC3CCC1CC3=O)CC2",
     ],
 )
 def test_targeted_generated_fused_alias_expansion_roundtrips_with_opsin(input_smiles):

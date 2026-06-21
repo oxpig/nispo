@@ -92,6 +92,24 @@ def test_carbamoyloxy_methyl_branches_roundtrip_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "N=C(N)NCCC[C@H](N)C(=O)/C(CC#P=O)=C(\\N)C(=O)O",
+        "COC(=O)/C(C)=C/C(=N/S(=O)(=O)c1ccc(C)cc1)c1ccccc1",
+        "COC(=O)/C(=C\\C(=O)O)C(O)P(=O)(O)O",
+        "CCOC(=O)C/C(=N\\N1C(=O)C2CCC1C2)c1ccc(F)cc1",
+        "COc1ccc(COc2cc(OC)cc(/C=C/C(=O)Nc3cc([C@H]4CC[C@@H](OC(=O)NC(C)C)C4)[nH]n3)c2C2OCCO2)cc1",
+    ],
+)
+def test_external_bond_stereo_parent_alternatives_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize("input_smiles", ["C1=C[N]N=C1", "C1=CSC[N]1"])
 def test_lambda2_unsaturated_heterocycles_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)

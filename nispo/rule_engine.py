@@ -96,6 +96,7 @@ class NameCandidate:
     estimated_length: int | None = None
     render_cost: int = 1
     render_rank: int | None = None
+    external_bond_stereo_parent_fragile: bool = False
     rejection_reason: str = ""
 
 
@@ -673,6 +674,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _azachroman_topology_replacement_alternative_for_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _internal_bond_stereo_parent_alternative_for_fragile_choice(
             keyed_items,
             selected_item,
         )
@@ -5912,19 +5920,50 @@ def _with_molecule_stereo_evidence(mol, Chem, candidate: NameCandidate) -> NameC
 
 
 def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate) -> NameCandidate:
-    if not _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate):
-        return candidate
-    safety = candidate.safety or CandidateSafety()
+    updated = candidate
+    if _candidate_has_external_bond_stereo_parent(mol, Chem, candidate):
+        updated = replace(updated, external_bond_stereo_parent_fragile=True)
+    fragility_reasons: list[str] = []
+    if _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate):
+        fragility_reasons.append(OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT)
+    if not fragility_reasons:
+        return updated
+    safety = updated.safety or CandidateSafety()
     reasons = safety.opsin_fragility_reasons
-    if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in reasons:
-        return candidate
+    new_reasons = tuple(reason for reason in fragility_reasons if reason not in reasons)
+    if not new_reasons:
+        return updated
     return replace(
-        candidate,
+        updated,
         safety=replace(
             safety,
-            opsin_fragility_reasons=(*reasons, OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT),
+            opsin_fragility_reasons=(*reasons, *new_reasons),
         ),
     )
+
+
+def _candidate_has_external_bond_stereo_parent(mol, Chem, candidate: NameCandidate) -> bool:
+    if candidate.family not in _EXTERNAL_BOND_STEREO_FRAGILITY_PARENT_FAMILIES:
+        return False
+    stereo = candidate.stereo
+    if stereo is None or not stereo.bond_descriptors:
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    locanted_atoms = {atom_idx for atom_idx, _locant in candidate.stereo_locants}
+    if not parent_atoms and locanted_atoms:
+        return False
+    for bond_idx, _descriptor in stereo.bond_descriptors:
+        bond = mol.GetBondWithIdx(bond_idx)
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        begin_idx = bond.GetBeginAtomIdx()
+        end_idx = bond.GetEndAtomIdx()
+        if begin_idx in parent_atoms and end_idx in parent_atoms:
+            continue
+        if begin_idx in locanted_atoms and end_idx in locanted_atoms:
+            continue
+        return True
+    return False
 
 
 def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
@@ -6543,6 +6582,32 @@ _EXOCYCLIC_FUSED_PARENT_FAMILIES = {
     "hydro-fused-retained-parent",
     "retained-topology-replacement-fused-parent",
 }
+
+_EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES = {
+    "carbamate-retained-parent": {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    },
+    "functional-generic-bicyclic-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
+    "fused-retained-parent": {"retained-amide-parent"},
+    "guanidine-retained-parent": {"acyclic-parent"},
+    "phosphorus-acid-parent": {"acyclic-parent"},
+    "retained-topology-replacement-fused-parent": {
+        "glutarimide-retained-parent",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+    },
+    "skeletal-replacement-fused-parent": {
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+    },
+    "sulfonamide-retained-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
+    "sulfonohydrazide-retained-parent": {"acyclic-skeleton-with-ring-substituents"},
+}
+_EXTERNAL_BOND_STEREO_FRAGILITY_PARENT_FAMILIES = frozenset(
+    _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES
+)
 
 _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST = frozenset({"1H-benzimidazole"})
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES = frozenset(
@@ -7328,6 +7393,48 @@ def _has_contextual_exocyclic_fused_single_ring_alternative(
             continue
         return True
     return False
+
+
+def _internal_bond_stereo_parent_alternative_for_fragile_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    candidate = selected.candidate
+    allowed_families = _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES.get(candidate.family)
+    if not allowed_families:
+        return None
+    if not candidate.external_bond_stereo_parent_fragile:
+        return None
+    if candidate.stereo is None or not candidate.stereo.bond_descriptors:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, other in keyed_items:
+        if other is selected or other.name == selected.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in allowed_families:
+            continue
+        if other_candidate.stereo is None or not other_candidate.stereo.bond_descriptors:
+            continue
+        if other_candidate.external_bond_stereo_parent_fragile:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(selected.name) > 130:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        if other_candidate.priority > candidate.priority + 70:
+            continue
+        alternatives.append((candidate_key, other))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _has_stable_bis_indolinylidene_parent(name: str) -> bool:

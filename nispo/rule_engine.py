@@ -404,6 +404,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _acyclic_skeleton_alternative_for_generated_partial_hydro_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _adamantane_retained_parent_alternative_for_templateless_choice(
             keyed_items,
             selected_item,
@@ -3144,6 +3151,88 @@ def _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
         if candidate_key[0] > selected_key[0]:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_skeleton_alternative_for_generated_partial_hydro_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-partial-hydro-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if not selected_candidate.template_name:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 8 or selected_parent_count > 10:
+        return None
+    if selected_candidate.parent_hetero_atom_count:
+        return None
+    if selected_candidate.parent_aromatic_atom_count:
+        return None
+    if selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-skeleton-with-ring-substituents":
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if candidate.priority != 60 or candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 4 or candidate_parent_count > 14:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_aromatic_atom_count:
+            continue
+        if candidate.locants:
+            continue
+        if candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate.charge is not None or candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 180:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        if candidate_key[0] > selected_key[0] + 360:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_parent_count,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

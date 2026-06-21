@@ -627,6 +627,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _azachroman_topology_replacement_alternative_for_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return _steroid_retained_parent_alternative(
         keyed_items,
         selected_item,
@@ -1654,6 +1661,100 @@ def _chromane_topology_replacement_alternative_for_nonchromane_choice(
         if candidate_key[0] > selected_key[0] + 120:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_AZACHROMAN_TOPOLOGY_REPLACEMENT_TEMPLATE_NAMES = frozenset({"chroman", "chromen"})
+_AZACHROMAN_PARENT_ELEMENT_COUNTS = frozenset(
+    {
+        (("C", 8), ("N", 1), ("O", 1)),
+        (("C", 7), ("N", 2), ("O", 1)),
+    }
+)
+
+
+def _azachroman_topology_replacement_alternative_for_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    if selected_candidate.source_file != "generated_fused_template_index.json":
+        return None
+    if not candidate_has_complete_graph(selected_candidate) or not selected_candidate.parent_atoms:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 9 or selected_parent_count > 14:
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is None or selected_render_rank < 1 or selected_render_rank > 3:
+        return None
+    if selected_candidate.priority != 28:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if selected_candidate.parent_external_unsaturated_bond_count:
+        return None
+    if selected_candidate.parent_terminal_chalcogen_double_bond_count:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "retained-topology-replacement-fused-parent":
+            continue
+        if candidate.template_name not in _AZACHROMAN_TOPOLOGY_REPLACEMENT_TEMPLATE_NAMES:
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+            continue
+        if candidate.priority != 28:
+            continue
+        if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+            continue
+        if len(candidate.parent_atoms) != 10:
+            continue
+        if candidate.parent_element_counts not in _AZACHROMAN_PARENT_ELEMENT_COUNTS:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank < 1 or render_rank > 2:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 180:
+            continue
+        alternatives.append(
+            (
+                (
+                    render_rank,
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

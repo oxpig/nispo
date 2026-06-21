@@ -3997,6 +3997,23 @@ def test_high_confidence_generated_fused_template_alternatives_roundtrip_with_op
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C=Cc1cccc2c1ncn2C1=NC(C)(C)Oc2c(C)cccc21",
+        "Cc1ncc(Cl)cc1C(=O)NC1CCC(Cn2c(=O)n(-c3cnc4c(c3)OCC(=O)N4)c3ccccc32)CC1",
+    ],
+)
+def test_azachroman_topology_replacement_and_guarded_control_roundtrip_with_opsin(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C#C[C@@]1(O)CC[C@H]2[C@@H]3CC[C@H]4C[C@@H](N5CCN(C(=O)[C@@H]6CCCN6C(=O)c6ccc7ccccc7n6)CC5)CC[C@]4(C)[C@H]3CC[C@@]21C",
         "CC(=O)N1CCN(C(=O)CCC(C)[C@H]2CC[C@H]3[C@@H]4CC[C@H]5C[C@@H](O)CC[C@]5(C)[C@H]4CC[C@]23C)CC1",
         "CC[C@]12CC[C@@](C)(O)C[C@H]1CC[C@H]1[C@@H]3CC[C@H](C(=O)Cn4nnc5cc(OC)ccc54)[C@@]3(C)CC[C@@H]12",

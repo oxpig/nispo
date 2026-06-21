@@ -586,6 +586,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _charged_retained_fused_alternative_for_replacement_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _charged_large_acyclic_single_ring_alternative_for_acyclic_choice(
             keyed_items,
             selected_item,
@@ -601,6 +608,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _stable_purin_6_amine_alternative_for_generated_or_adenin_choice(
             keyed_items,
             selected_item,
         )
@@ -1305,6 +1319,18 @@ _CHARGED_PYRIDINIUM_ACYL_COMPETITOR_FAMILIES = frozenset(
         "preferred-acyclic-skeleton-with-ring-substituents",
     }
 )
+_CHARGED_RETAINED_FUSED_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "skeletal-replacement-fused-parent",
+        "single-ring-parent",
+    }
+)
 
 
 def _explicit_charged_parent_alternative_for_neutral_charged_choice(
@@ -1382,6 +1408,77 @@ def _explicit_charged_parent_alternative_for_neutral_charged_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _charged_retained_fused_alternative_for_replacement_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _CHARGED_RETAINED_FUSED_COMPETITOR_FAMILIES:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if not _explicit_candidate_formal_charge(candidate):
+            continue
+        if _tautomer_sensitive_charged_retained_fused_template(candidate):
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) < 8:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    candidate.priority,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _tautomer_sensitive_charged_retained_fused_template(candidate: NameCandidate) -> bool:
+    template_name = candidate.template_name or ""
+    if "ium" in template_name:
+        return True
+    if "mercaptopurin" in template_name or "hypoxanthin" in template_name:
+        return True
+    return any(
+        fragment in template_name
+        for fragment in (
+            "imidazo[4,5-b]pyridine",
+            "imidazo[4,5-c]pyridine",
+            "pyrido[4,5-d]imidazole",
+            "pyrido[5,6-d]imidazole",
+        )
+    )
 
 
 def _explicit_candidate_formal_charge(candidate: NameCandidate) -> int:
@@ -4877,6 +4974,18 @@ def _ranker_preserves_generated_purine_parent(
 ) -> bool:
     current_candidate = current.candidate
     proposed_candidate = proposed.candidate
+    if _is_stable_retained_purin_6_amine_candidate(current_candidate):
+        if proposed_candidate.family != "generated-fused-parent":
+            return True
+        if proposed_candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
+            return True
+        if not candidate_has_complete_graph(proposed_candidate):
+            return True
+        if proposed_candidate.parent_atoms != current_candidate.parent_atoms:
+            return True
+        if proposed_candidate.charge is not None or proposed_candidate.suffixes:
+            return True
+        return False
     if current_candidate.family != "generated-fused-parent":
         return True
     if current_candidate.template_name not in _GENERATED_PURINE_PARENT_TEMPLATES:
@@ -4906,6 +5015,81 @@ def _ranker_preserves_generated_purine_parent(
     if current_candidate.suffixes or proposed_candidate.suffixes:
         return True
     return False
+
+
+_STABLE_RETAINED_PURIN_6_AMINE_SOURCE_FAMILY = "fused-retained:purin-6-amine"
+
+
+def _is_stable_retained_purin_6_amine_candidate(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "fused-retained-parent"
+        and candidate.template_name == "purin"
+        and candidate.source_family == _STABLE_RETAINED_PURIN_6_AMINE_SOURCE_FAMILY
+        and candidate_has_complete_graph(candidate)
+        and bool(candidate.parent_atoms)
+        and len(candidate.parent_atoms) == 9
+        and candidate.charge is None
+        and not candidate.suffixes
+    )
+
+
+def _stable_purin_6_amine_alternative_for_generated_or_adenin_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _can_replace_with_stable_purin_6_amine(selected_candidate):
+        return None
+    if not candidate_has_complete_graph(selected_candidate) or not selected_candidate.parent_atoms:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_stable_retained_purin_6_amine_candidate(candidate):
+            continue
+        if not _stable_purin_6_amine_matches_selected_parent(candidate, selected_candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 3:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 55:
+            continue
+        alternatives.append(((render_rank, candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _can_replace_with_stable_purin_6_amine(candidate: NameCandidate) -> bool:
+    if candidate.family == "generated-fused-parent":
+        return candidate.template_name in _GENERATED_PURINE_PARENT_TEMPLATES
+    if candidate.family == "neutral-amine-parent":
+        return True
+    return candidate.family == "fused-retained-parent" and candidate.template_name == "adenin"
+
+
+def _stable_purin_6_amine_matches_selected_parent(
+    candidate: NameCandidate,
+    selected_candidate: NameCandidate,
+) -> bool:
+    if selected_candidate.family == "generated-fused-parent":
+        return candidate.parent_atoms == selected_candidate.parent_atoms
+    if selected_candidate.template_name != "adenin":
+        if selected_candidate.family != "neutral-amine-parent":
+            return False
+        if not candidate.parent_atoms.issubset(selected_candidate.parent_atoms):
+            return False
+        return 1 <= len(selected_candidate.parent_atoms) - len(candidate.parent_atoms) <= 8
+    if not candidate.parent_atoms.issubset(selected_candidate.parent_atoms):
+        return False
+    return len(selected_candidate.parent_atoms) - len(candidate.parent_atoms) == 1
 
 
 def _generated_purine_candidate_has_terminal_hetero_substituent(candidate: NameCandidate) -> bool:
@@ -7162,6 +7346,7 @@ def _has_contextual_retained_quinuclidin_parent_alternative(
     if candidate.family not in {
         "acyclic-skeleton-with-ring-substituents",
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
         "functional-acyclic-skeleton-with-ring-substituents",
         "functional-generic-bicyclic-parent",
         "generic-bicyclic-parent",

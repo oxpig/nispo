@@ -106,6 +106,24 @@ def test_hypervalent_ring_lambda_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCCI1C=CCC1",
+        "CC1=C[IH]C(C)C(C)=C1C",
+        "C1=CC=C[IH]C=CC=C1",
+        "C1=CC=C[IH][IH][IH]C=C1",
+        "O=[IH]1CCCCC1",
+    ],
+)
+def test_neutral_iodine_ring_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(C)(C)[C@H]1C=CN(c2cccc(N3C=C[C@H](C(C)(C)C)C3)n2)C1",
         "CC(C)[C@H]1COC(c2cccc(C3=N[C@@H](C(C)C)CO3)n2)=N1",
         "O=c1[nH]c(C2C=NON2NCCN2CC=NS2(=O)=O)no1",
@@ -378,6 +396,45 @@ def test_explicit_charged_parent_candidates_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_explicit_charged_parent_candidates_keep_retained_controls(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "[C-]#[N+]N",
+        "[C-]#[N+]O",
+        "[C-]#[N+]S",
+        "[C-]#[N+]Br",
+        "[C-]#[N+]Cl",
+        "[C-]#[N+]N=C=S",
+        "[C-]#[N+]S(=O)(=O)Cl",
+        "[C-]#[N+]C(=O)CCCCCCCCCCC",
+        "[C-]#[N+]C(=O)c1ccc(C)cc1",
+        "[C-]#[N+]OC(C)=O",
+        "[C-]#[N+]C(=O)[C@H](O)[C@@H](O)[C@H](O)[C@H](O)CO",
+    ],
+)
+def test_isocyanide_retained_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "[C-]#[N+][O-]",
+        "[C-]#[N+]c1ccc(/C=C2/C(=O)Nc3ccc(OC)cc32)cc1F",
+    ],
+)
+def test_isocyanide_retained_parent_keeps_stereo_and_fulminate_controls(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 
@@ -1285,6 +1342,15 @@ def test_hetero_substituted_anionic_amide_parents_roundtrip_with_opsin(input_smi
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize("input_smiles", ["CN[NH-]", "CCN[NH-]"])
+def test_n_amino_substituted_anionic_amide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [
@@ -2180,6 +2246,36 @@ def test_phosphate_ester_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C=CCOP(=O)([O-])c1c[n+](C)nc2ccccc12",
+        "COP(=O)([O-])c1c(C)[n+](C)nc2ccccc12",
+        "C[n+]1cn([C@@H]2O[C@H](COP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]2O)c2nc(N)[nH]c(=O)c21",
+    ],
+)
+def test_charged_fused_substituent_prefixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "Cc1cc(C)c(-c2cccc3[nH+]c4ccccc4cc23)c(C)c1",
+    ],
+)
+def test_charged_retained_fused_parents_survive_replacement_ranker(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
         "C=CC(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
         "CC(C)=CCC/C(C)=C/C(=O)OP(=O)([O-])OP(=O)([O-])[O-]",
@@ -2345,6 +2441,25 @@ def test_carbodiimide_retained_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_formamidine_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C1=C[NH+]=NC1",
+        "C1=N[NH+]=CC1",
+        "C1=NC[NH+]=C1",
+        "c1c[nH+]n[nH]1",
+        "c1n[nH+]c[nH]1",
+        "c1ccc2[nH+][nH]nc2c1",
+    ],
+)
+def test_positive_azole_cation_tautomers_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 
@@ -3095,6 +3210,7 @@ def test_compact_bicyclic_parent_ranker_switches_beat_long_acyclic_decomposition
     "input_smiles",
     [
         "C=C[C@H]1CN2CCC1CC2",
+        "C=C[C@@H]1C[NH+]2CCC1CC2[C@H](O)c1ccnc2ccc(OC)cc12",
         "C[N+]12CC[C@@H](COCCOCCOCC3C4CC(C3)C4)C(C)(C)[C@H]1CC2",
         "COC[C@@]1(COP(N)(=O)OC[C@]2(COC)C(=O)C3CCN2CC3)C(=O)C2CCN1CC2",
     ],
@@ -3768,6 +3884,24 @@ def test_generated_purine_orientation_parent_roundtrips_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Nc1ncnc2[nH]cnc12",
+        "CCNc1ncnc2[nH]cnc12",
+        "CN(C)c1ncnc2[nH]cnc12",
+        "Ic1nc(N[C@H](C2CCC2)C2CC2)c2nc[nH]c2n1",
+        "Ic1nc(N[C@@H](C2CCC2)C2CC2)c2nc[nH]c2n1",
+    ],
+)
+def test_purin_6_amine_suffix_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "S=c1[nH]cnc2[nH]cnc12",
         "Nc1nc2[nH]cnc2c(=S)[nH]1",
         "C=CCn1c(=O)[nH]c2nc(N)[nH]c(=O)c21",
@@ -4037,6 +4171,26 @@ def test_steroid_retained_parent_alternatives_roundtrip_with_opsin(input_smiles)
     ],
 )
 def test_polycyclic_arene_retained_parent_templates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C=CC(C=C)=CC(=O)[O-]",
+        "O=C([O-])CC(=O)[O-]",
+        "CC(C(=O)[O-])C(=O)[O-]",
+        "O=C([O-])/C=C/C(=O)[O-]",
+        "O=C([O-])/C=C\\C(=O)[O-]",
+        "CCCCCCCCC(CC(=O)[O-])C(=O)C(=O)[O-]",
+        "COC(=O)/C(=C\\C(=O)[O-])CP(=O)(O)O",
+    ],
+)
+def test_terminal_carboxylate_parent_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

@@ -986,7 +986,9 @@ def _fused_ring_substituent_prefix_from_templates(
             locant = template_record_locants(template).get(template_idx)
             if not locant or locant.endswith("a"):
                 continue
-            suffix = _fused_substituent_suffix(template_record_name(template), locant)
+            suffix = _charged_fused_substituent_suffix(mol, template, match, reverse, locant)
+            if not suffix:
+                suffix = _fused_substituent_suffix(template_record_name(template), locant)
             if not suffix:
                 continue
             prefix_records = _fused_substituent_prefix_records(
@@ -1552,6 +1554,70 @@ def _fused_substituent_suffix(parent_name: str, locant: str) -> str:
     if not stem:
         stem = parent_name
     return f"{stem}-{locant}-yl"
+
+
+def _charged_fused_substituent_suffix(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    reverse: dict[int, int],
+    attachment_locant: str,
+) -> str:
+    parent_name = template_record_name(template)
+    if _charged_fused_substituent_template_is_unstable(parent_name):
+        return ""
+    template_mol = template_record_mol(template)
+    locants = template_record_locants(template)
+    cation_locs: list[str] = []
+    cation_suffix = ""
+    charged_has_hydrogen = False
+    for mol_idx in match:
+        template_idx = reverse[mol_idx]
+        atom = mol.GetAtomWithIdx(mol_idx)
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        locant = locants.get(template_idx, "")
+        if (
+            not locant
+            or not locant.isdigit()
+            or atom.GetFormalCharge() <= 0
+            or template_atom.GetFormalCharge() != 0
+        ):
+            continue
+        if atom.GetSymbol() == "C":
+            suffix = "ylium"
+        elif atom.GetSymbol() in {"N", "O", "S"}:
+            suffix = "ium"
+        else:
+            continue
+        cation_locs.append(locant)
+        if cation_suffix and cation_suffix != suffix:
+            return ""
+        cation_suffix = suffix
+        if atom.GetSymbol() in {"N", "O"} and atom.GetTotalNumHs() > 0:
+            charged_has_hydrogen = True
+    if len(cation_locs) != 1 or not cation_suffix:
+        return ""
+    if not charged_has_hydrogen:
+        parent_name = _drop_indicated_hydrogen_prefix(parent_name)
+    stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    charged_parent = f"{stem}-{cation_locs[0]}-{cation_suffix}"
+    return _fused_substituent_suffix(charged_parent, attachment_locant)
+
+
+def _charged_fused_substituent_template_is_unstable(parent_name: str) -> bool:
+    if "ium" in parent_name:
+        return True
+    if "mercaptopurin" in parent_name or "hypoxanthin" in parent_name:
+        return True
+    return any(
+        fragment in parent_name
+        for fragment in (
+            "imidazo[4,5-b]pyridine",
+            "imidazo[4,5-c]pyridine",
+            "pyrido[4,5-d]imidazole",
+            "pyrido[5,6-d]imidazole",
+        )
+    )
 
 
 def _combine_fused_substituent_prefix(prefix_text: str, suffix: str) -> str:

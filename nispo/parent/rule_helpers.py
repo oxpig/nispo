@@ -1296,6 +1296,10 @@ def _name_fused_core_match(
         cache[cache_key] = result
         return result
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
+    purin_amine_name = _fused_purin_6_amine_name(prefixes, parent_name)
+    if purin_amine_name:
+        cache[cache_key] = purin_amine_name
+        return purin_amine_name
     suffix_name = (
         _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_functional_suffix(prefixes)
@@ -1396,6 +1400,28 @@ def _is_terminal_element_radical_substituent(mol, atom_idx: int, parent_idx: int
     if bond is None or bond.GetBondTypeAsDouble() != 1.0:
         return False
     return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
+
+
+def _fused_purin_6_amine_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+    parent = _strip_leading_indicated_hydrogen(parent_name)
+    if parent not in {"purin", "purine"}:
+        return ""
+    amine_prefixes = [(loc, prefix) for loc, prefix in prefixes if loc == "6" and prefix.endswith("amino")]
+    if len(amine_prefixes) != 1:
+        return ""
+    amine_loc, amine_prefix = amine_prefixes[0]
+    if amine_prefix == "amino":
+        amine_core = "9H-purin-6-amine"
+    else:
+        group = amine_prefix.removesuffix("amino")
+        if not group:
+            return ""
+        amine_core = f"{_format_amide_n_substituent(group)}-9H-purin-6-amine"
+    remaining = [(loc, prefix) for loc, prefix in prefixes if (loc, prefix) != (amine_loc, amine_prefix)]
+    if any(loc in {"1", "3", "7", "9"} for loc, _prefix in remaining):
+        return ""
+    prefix_text = _format_prefixes(remaining)
+    return _join_prefix_parent(prefix_text, amine_core) if prefix_text else amine_core
 
 
 def _match_has_unlocanted_external_substitution(
@@ -1798,11 +1824,25 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
         return f"{stem}-{anion_locs[0]}-ide"
     if len(cation_locs) == 1:
         locant = cation_locs[0]
+        fused_n_h_cation = (
+            _fused_aromatic_n_h_cation_parent_name(name)
+            if charged_has_hydrogen and cation_suffix == "ium"
+            else ""
+        )
+        if fused_n_h_cation:
+            return fused_n_h_cation
         if not charged_has_hydrogen:
             name = _drop_indicated_hydrogen_prefix(name)
         stem = name[:-1] if name.endswith("e") else name
         return f"{stem}-{locant}-{cation_suffix}"
     return name
+
+
+def _fused_aromatic_n_h_cation_parent_name(name: str) -> str:
+    base = _drop_indicated_hydrogen_prefix(name)
+    if base == "benzotriazole":
+        return "benzotriazolium"
+    return ""
 
 
 def _drop_indicated_hydrogen_prefix(name: str) -> str:

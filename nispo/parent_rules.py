@@ -4140,11 +4140,142 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_oxonium_retained_parent_names(mol, Chem))
     names.extend(_methylium_retained_parent_names(mol, Chem))
     names.extend(_cyano_methane_ion_parent_names(mol, Chem))
+    names.extend(_isocyanide_retained_parent_names(mol, Chem))
     names.extend(_nitrone_azaniumolate_parent_names(mol, Chem))
     names.extend(_n_substituted_imine_oxide_retained_parent_names(mol, Chem))
     names.extend(_hydroxylamine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _isocyanide_retained_parent_names(mol, Chem) -> list[str]:
+    motifs = _isocyanide_motifs(mol, Chem)
+    if len(motifs) != 1:
+        return []
+    carbon_idx, nitrogen_idx, owner_idx = motifs[0]
+    covered = {carbon_idx, nitrogen_idx}
+    covered.update(_collect_component_atoms(mol, owner_idx, nitrogen_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return []
+    owner = mol.GetAtomWithIdx(owner_idx)
+    if owner.GetFormalCharge() != 0:
+        return []
+    if owner.GetSymbol() == "O":
+        ester_names = _isocyanide_o_acyl_ester_names(mol, Chem, owner_idx, nitrogen_idx)
+        if ester_names:
+            return ester_names
+        owner_prefix = _isocyanide_terminal_chalcogen_prefix(mol, owner_idx, nitrogen_idx)
+    elif owner.GetSymbol() == "S":
+        owner_prefix = _isocyanide_terminal_chalcogen_prefix(mol, owner_idx, nitrogen_idx)
+        if not owner_prefix:
+            owner_prefix = _isocyanide_owner_prefix(mol, owner_idx, nitrogen_idx)
+    else:
+        owner_prefix = _isocyanide_owner_prefix(mol, owner_idx, nitrogen_idx)
+    if not owner_prefix:
+        return []
+    return [f"{owner_prefix} isocyanide"]
+
+
+def _isocyanide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
+    motifs = []
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != -1:
+            continue
+        carbon_idx = carbon.GetIdx()
+        carbon_heavy = [nbr.GetIdx() for nbr in carbon.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(carbon_heavy) != 1:
+            continue
+        nitrogen_idx = carbon_heavy[0]
+        nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 1:
+            continue
+        cn_bond = mol.GetBondBetweenAtoms(carbon_idx, nitrogen_idx)
+        if cn_bond is None or cn_bond.GetBondType() != Chem.BondType.TRIPLE:
+            continue
+        owners = [
+            nbr.GetIdx()
+            for nbr in nitrogen.GetNeighbors()
+            if nbr.GetIdx() != carbon_idx and nbr.GetAtomicNum() > 1
+        ]
+        if len(owners) != 1:
+            continue
+        no_bond = mol.GetBondBetweenAtoms(nitrogen_idx, owners[0])
+        if no_bond is None or no_bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        motifs.append((carbon_idx, nitrogen_idx, owners[0]))
+    return motifs
+
+
+def _isocyanide_o_acyl_ester_names(mol, Chem, oxygen_idx: int, nitrogen_idx: int) -> list[str]:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
+        return []
+    heavy = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return []
+    carbonyl_idx = heavy[0]
+    bond = mol.GetBondBetweenAtoms(oxygen_idx, carbonyl_idx)
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return []
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0:
+        return []
+    double_oxygen = []
+    acyl_carbons = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == oxygen_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        neighbor_bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and neighbor_bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygen.append(nidx)
+        elif nbr.GetSymbol() == "C" and neighbor_bond.GetBondType() == Chem.BondType.SINGLE:
+            acyl_carbons.append(nidx)
+        else:
+            return []
+    if len(double_oxygen) != 1 or len(acyl_carbons) != 1:
+        return []
+    return _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_carbons[0], "isocyano")
+
+
+def _isocyanide_terminal_chalcogen_prefix(mol, atom_idx: int, nitrogen_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetFormalCharge() != 0:
+        return ""
+    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1]
+    if heavy:
+        return ""
+    if atom.GetSymbol() == "O":
+        return "hydroxy"
+    if atom.GetSymbol() == "S":
+        return "sulfanyl"
+    return ""
+
+
+def _isocyanide_owner_prefix(mol, owner_idx: int, nitrogen_idx: int) -> str:
+    name = _simple_or_branch_prefix(mol, owner_idx, nitrogen_idx)
+    name = _retained_parent_substituent_alias(name) if name else ""
+    return name if _stable_isocyanide_owner_prefix(name) else ""
+
+
+def _stable_isocyanide_owner_prefix(name: str) -> bool:
+    if not name or len(name) > 100:
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+        return False
+    if any(fragment in name for fragment in ("phosph", "azonia", "isocyano", "fulmin")):
+        return False
+    if "ylidene" in name:
+        return False
+    if name in {"amino", "hydroxy", "sulfanyl", "isothiocyanato", *HALO.values()}:
+        return True
+    return name.endswith(("yl", "oyl", "carbonyl", "sulfonyl"))
 
 
 def _bis_azanidyl_alkane_retained_parent_names(mol, Chem) -> list[str]:
@@ -4777,7 +4908,24 @@ _ANIONIC_AMIDE_N_HETERO_SUBSTITUENT_ALIASES = {
 
 
 def _anionic_amide_n_hetero_substituent(name: str) -> str:
-    return _ANIONIC_AMIDE_N_HETERO_SUBSTITUENT_ALIASES.get(name, "")
+    alias = _ANIONIC_AMIDE_N_HETERO_SUBSTITUENT_ALIASES.get(name, "")
+    if alias:
+        return alias
+    if _stable_anionic_amide_n_amino_substituent(name):
+        return name
+    return ""
+
+
+def _stable_anionic_amide_n_amino_substituent(name: str) -> bool:
+    if len(name) > 48:
+        return False
+    if not name.endswith("amino"):
+        return False
+    if _unstable_retained_functional_parent_substituent(name):
+        return False
+    if " " in name or "[" in name or "]" in name or "(" in name or ")" in name:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,\-]+", name))
 
 
 def _single_hetero_substituted_anionic_amide_parent_name(
@@ -6524,6 +6672,31 @@ class OxoCarboxylateRetainedParentRule:
                 sort_key=(len(name), name),
                 parent_atoms=_heavy_atom_indices(mol),
                 stereo_locants=stereo_locants,
+            )
+
+
+class TerminalCarboxylateParentRule:
+    family = "terminal-carboxylate-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen = set()
+        for name in _terminal_carboxylate_parent_names(mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_heavy_atom_indices(mol),
+                source_family="terminal-carboxylate",
+                estimated_length=len(name),
             )
 
 
@@ -10775,6 +10948,23 @@ def _collect_component_atoms(mol, start_idx: int, blocked_idx: int) -> set[int]:
     return component
 
 
+def _collect_component_atoms_excluding(mol, start_idx: int, blocked: Collection[int]) -> set[int]:
+    seen = set(blocked)
+    stack = [start_idx]
+    component = set()
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        component.add(idx)
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in seen and nbr.GetAtomicNum() > 1:
+                stack.append(nidx)
+    return component
+
+
 def _boronic_pinacol_ester_motifs(mol, Chem) -> list[tuple[int, int]]:
     motifs = []
     for atom in mol.GetAtoms():
@@ -11144,6 +11334,64 @@ def _oxo_carboxylate_parent_names(mol, Chem) -> list[str]:
     return [name for name, _stereo_locants in _oxo_carboxylate_parent_records(mol, Chem)]
 
 
+def _terminal_carboxylate_parent_names(mol, Chem) -> list[str]:
+    groups = _terminal_carboxyl_groups(mol, Chem, allowed_kinds={"carboxylate"})
+    names: list[str] = []
+    if len(groups) == 1:
+        names.extend(_terminal_monocarboxylate_parent_names(mol, Chem, groups[0]))
+    elif len(groups) == 2:
+        names.extend(_terminal_dicarboxylate_parent_names(mol, Chem, groups))
+    return sorted(set(names), key=lambda name: (len(name), name))
+
+
+def _terminal_monocarboxylate_parent_names(mol, Chem, group: tuple[int, int, str]) -> list[str]:
+    carbonyl_idx, alpha_idx, kind = group
+    if kind != "carboxylate":
+        return []
+    names = []
+    for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, alpha_idx):
+        if not path or path[0] != alpha_idx:
+            continue
+        covered = _terminal_monocarboxylate_path_covered_atoms(mol, Chem, carbonyl_idx, path)
+        if not covered or covered != _heavy_atom_indices(mol):
+            continue
+        name = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "oate")
+        if name:
+            names.append(name)
+    return names
+
+
+def _terminal_monocarboxylate_path_covered_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    path: Sequence[int],
+) -> set[int]:
+    carbonyl_oxygen = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    if carbonyl_oxygen is None:
+        return set()
+    oxido_oxygen = _terminal_carboxylate_single_oxygen(mol, Chem, carbonyl_idx)
+    if oxido_oxygen is None:
+        return set()
+    covered = {carbonyl_idx, carbonyl_oxygen, oxido_oxygen, *path}
+    path_set = set(path)
+    for pos, atom_idx in enumerate(path, start=2):
+        allowed_neighbors = {carbonyl_idx if pos == 2 else path[pos - 3]}
+        if pos - 1 < len(path):
+            allowed_neighbors.add(path[pos - 1])
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in allowed_neighbors or nidx in path_set or nbr.GetAtomicNum() <= 1:
+                continue
+            branch_atoms = _collect_component_atoms_excluding(mol, nidx, {atom_idx, *path_set})
+            if any(mol.GetAtomWithIdx(branch_idx).IsInRing() for branch_idx in branch_atoms):
+                return set()
+            if any(mol.GetAtomWithIdx(branch_idx).GetFormalCharge() != 0 for branch_idx in branch_atoms):
+                return set()
+            covered.update(branch_atoms)
+    return covered
+
+
 def _oxo_carboxylate_parent_records(mol, Chem) -> list[tuple[str, tuple[tuple[int, str], ...]]]:
     groups = _terminal_carboxyl_groups(mol, Chem, allowed_kinds={"carboxylate"})
     records: list[tuple[str, tuple[tuple[int, str], ...]]] = []
@@ -11261,6 +11509,112 @@ def _alpha_keto_dicarboxylate_record(
     return name, stereo_locants
 
 
+def _terminal_dicarboxylate_parent_names(
+    mol,
+    Chem,
+    groups: Sequence[tuple[int, int, str]],
+) -> list[str]:
+    if _acyclic_carbohydrate_retained_name(mol, Chem):
+        return []
+    endpoints = [group[0] for group in groups if group[2] == "carboxylate"]
+    if len(endpoints) != 2:
+        return []
+    path = tuple(Chem.rdmolops.GetShortestPath(mol, endpoints[0], endpoints[1]))
+    if not path:
+        return []
+    names = []
+    for oriented in (path, tuple(reversed(path))):
+        name = _terminal_dicarboxylate_path_name(mol, Chem, oriented)
+        if name:
+            names.append(name)
+    return names
+
+
+def _terminal_dicarboxylate_path_name(mol, Chem, path: Sequence[int]) -> str:
+    if len(path) < 2:
+        return ""
+    if _terminal_carboxyl_group_kind(mol, Chem, path[0], path[1]) != "carboxylate":
+        return ""
+    if _terminal_carboxyl_group_kind(mol, Chem, path[-1], path[-2]) != "carboxylate":
+        return ""
+    root = ROOTS.get(len(path))
+    if not root:
+        return ""
+    path_set = set(path)
+    prefixes: list[tuple[str, str]] = []
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    covered = set(path)
+    for locant, atom_idx in enumerate(path, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            return ""
+        expected_path_neighbors = set()
+        if locant > 1:
+            expected_path_neighbors.add(path[locant - 2])
+        if locant < len(path):
+            expected_path_neighbors.add(path[locant])
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nbr.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is None:
+                return ""
+            if nidx in path_set:
+                if nidx not in expected_path_neighbors:
+                    return ""
+                if bond.GetBondType() not in {Chem.BondType.SINGLE, Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}:
+                    return ""
+                continue
+            if locant in {1, len(path)} and nbr.GetSymbol() == "O":
+                if bond.GetBondType() == Chem.BondType.DOUBLE:
+                    covered.add(nidx)
+                    continue
+                if bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
+                    covered.add(nidx)
+                    continue
+                return ""
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                prefixes.append((str(locant), "oxo"))
+                covered.add(nidx)
+                continue
+            if (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and nbr.GetFormalCharge() == 0
+                and nbr.GetTotalNumHs() == 1
+                and not any(other.GetIdx() != atom_idx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+            ):
+                prefixes.append((str(locant), "hydroxy"))
+                covered.add(nidx)
+                continue
+            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
+            if not prefix:
+                return ""
+            prefixes.append((str(locant), prefix))
+            covered.update(_collect_component_atoms(mol, nidx, atom_idx))
+    if covered != _heavy_atom_indices(mol):
+        return ""
+    for locant, (left_idx, right_idx) in enumerate(zip(path, path[1:]), start=1):
+        bond = mol.GetBondBetweenAtoms(left_idx, right_idx)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+        elif bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    parent = _unsaturated_parent(root, ene_locs, yne_locs) + "edioate"
+    prefix_text = _format_prefixes(prefixes)
+    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    stereo = _generic_path_stereo_prefix(mol, Chem, path, start=1)
+    if stereo is None:
+        return ""
+    return f"({stereo})-{name}" if stereo else name
+
+
 def _simple_alpha_keto_dicarboxylate_path(mol, Chem, path: Sequence[int]) -> bool:
     if len(path) < 3:
         return False
@@ -11367,7 +11721,11 @@ def _retained_simple_acyl_parent_text(root: str, suffix: str) -> str:
 
 
 def _generic_acyl_ester_stereo_prefix(mol, Chem, path: Sequence[int]) -> str | None:
-    locants = {idx: pos for pos, idx in enumerate(path, start=2)}
+    return _generic_path_stereo_prefix(mol, Chem, path, start=2)
+
+
+def _generic_path_stereo_prefix(mol, Chem, path: Sequence[int], *, start: int) -> str | None:
+    locants = {idx: pos for pos, idx in enumerate(path, start=start)}
     assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     atom_descriptors = []
     for idx, descriptor in assigned:
@@ -11483,6 +11841,22 @@ def _terminal_carboxyl_group_kind(mol, Chem, carbonyl_idx: int, acyl_idx: int) -
     if oxygen.GetFormalCharge() == 0:
         return "acid"
     return ""
+
+
+def _terminal_carboxylate_single_oxygen(mol, Chem, carbonyl_idx: int) -> int | None:
+    oxygen_indices = []
+    for nbr in mol.GetAtomWithIdx(carbonyl_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == -1
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and _heavy_degree_excluding(mol, nidx, carbonyl_idx) == 0
+        ):
+            oxygen_indices.append(nidx)
+    return oxygen_indices[0] if len(oxygen_indices) == 1 else None
 
 
 def _acrylate_ester_name(mol, Chem, carbonyl_idx: int, alpha_idx: int, owner: str) -> str:
@@ -14038,6 +14412,7 @@ class FusedParentRule:
                 )
             yielded_names.add(name)
             mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
+            source_family = _retained_fused_source_family(mol, template, match)
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -14047,7 +14422,7 @@ class FusedParentRule:
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_record_name(template),
-                source_family=str(template.get("source_family", "")),
+                source_family=source_family,
                 source_file=str(template.get("source_file", "")),
                 parent_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, match),
                 charge=_polycyclic_parent_charge_evidence(mol, match),
@@ -14143,6 +14518,12 @@ class RetainedRingScaffoldParentRule:
                 continue
             yielded_names.add(name)
             yielded += 1
+            source_family = _retained_fused_source_family(
+                mol,
+                fact.template,
+                fact.match,
+                default=fact.compiled.record.source_family,
+            )
             yield NameCandidate(
                 name=name,
                 family=self.family,
@@ -14153,7 +14534,7 @@ class RetainedRingScaffoldParentRule:
                 stereo_locants=_template_match_stereo_locants(fact.compiled.runtime, fact.match),
                 template_id=fact.compiled.record.id,
                 template_name=fact.compiled.record.name,
-                source_family=fact.compiled.record.source_family,
+                source_family=source_family,
                 source_file=fact.compiled.record.source_file,
                 estimated_length=len(name),
                 render_rank=render_rank,
@@ -15623,6 +16004,54 @@ def _fused_parent_graph_fact_kwargs(mol, parent_atoms: Sequence[int]) -> dict[st
             parent_atom_tuple,
         ),
     }
+
+
+_PURIN_6_AMINE_SOURCE_FAMILY = "fused-retained:purin-6-amine"
+
+
+def _retained_fused_source_family(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    *,
+    default: str | None = None,
+) -> str:
+    if _has_purin_6_amine_parent_shape(mol, template, match):
+        return _PURIN_6_AMINE_SOURCE_FAMILY
+    return str(template.get("source_family", "") if default is None else default)
+
+
+def _has_purin_6_amine_parent_shape(mol, template: dict, match: Sequence[int]) -> bool:
+    if template_record_name(template) != "purin":
+        return False
+    locants = template_record_locants(template)
+    core = set(match)
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    if "9" not in _matched_fused_indicated_hydrogen_locants(mol, template, reverse):
+        return False
+    has_locant_6_amino = False
+    for template_idx, mol_idx in enumerate(match):
+        locant = locants.get(template_idx, "")
+        atom = mol.GetAtomWithIdx(int(mol_idx))
+        external_neighbors = [
+            nbr
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() not in core and nbr.GetAtomicNum() > 1
+        ]
+        if locant in {"1", "3", "7", "9"} and external_neighbors:
+            return False
+        if locant != "6":
+            continue
+        for neighbor in external_neighbors:
+            bond = mol.GetBondBetweenAtoms(int(mol_idx), neighbor.GetIdx())
+            if (
+                neighbor.GetAtomicNum() == 7
+                and not neighbor.IsInRing()
+                and bond is not None
+                and bond.GetBondTypeAsDouble() == 1.0
+            ):
+                has_locant_6_amino = True
+    return has_locant_6_amino
 
 
 def _ring_terminal_hetero_substituent_count(mol, ring: Sequence[int]) -> int:
@@ -17126,6 +17555,7 @@ def parent_rules(Chem) -> tuple:
     retained_amide = RetainedAmideParentRule(Chem)
     beta_dicarbonyl = BetaDicarbonylParentRule(Chem)
     oxo_carboxylate = OxoCarboxylateRetainedParentRule(Chem)
+    terminal_carboxylate = TerminalCarboxylateParentRule(Chem)
     boronic_pinacol_ester = BoronicPinacolEsterParentRule(Chem)
     carbamate = CarbamateRetainedParentRule(Chem)
     cyclic_n_carbamate_carboxylate = CyclicNCarbamateCarboxylateRetainedParentRule(Chem)
@@ -17333,6 +17763,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("retained-amide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_amide.candidates),
         RuleSpec("beta-dicarbonyl-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), beta_dicarbonyl.candidates),
         RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), oxo_carboxylate.candidates),
+        RuleSpec("terminal-carboxylate-parent", parent_priority("senior-functional-exception"), (), terminal_carboxylate.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
         RuleSpec(

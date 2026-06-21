@@ -1527,6 +1527,24 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         if atom.GetSymbol() != "N":
             continue
+        nonaromatic_azole_cation = _nonaromatic_positive_azole_cation_parent_name(
+            mol,
+            parent_name,
+            seq,
+            loc,
+            atom,
+        )
+        if nonaromatic_azole_cation:
+            return nonaromatic_azole_cation
+        aromatic_triazolium = _aromatic_triazole_n_h_cation_parent_name(
+            mol,
+            parent_name,
+            seq,
+            loc,
+            atom,
+        )
+        if aromatic_triazolium:
+            return aromatic_triazolium
         aromatic_cation = _aromatic_n_h_cation_parent_name(parent_name, atom)
         if aromatic_cation:
             return aromatic_cation
@@ -1589,6 +1607,71 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name
+
+
+def _nonaromatic_positive_azole_cation_parent_name(
+    mol,
+    parent_name: str,
+    seq: Sequence[int],
+    charged_loc: int,
+    atom,
+) -> str:
+    """Name pyrazolium/imidazolium tautomers from the ring bond pattern."""
+
+    if atom.GetIsAromatic() or atom.GetTotalNumHs() <= 0:
+        return ""
+    base = _drop_indicated_hydrogen_prefix(parent_name)
+    if base not in {"pyrazole", "imidazole"}:
+        return ""
+    if sum(1 for idx in seq if mol.GetAtomWithIdx(idx).GetFormalCharge() > 0) != 1:
+        return ""
+    saturated_locs = []
+    ring_set = set(seq)
+    for loc, idx in enumerate(seq, start=1):
+        ring_atom = mol.GetAtomWithIdx(idx)
+        if ring_atom.GetAtomicNum() != 6 or ring_atom.GetIsAromatic():
+            continue
+        ring_bonds = [
+            mol.GetBondBetweenAtoms(idx, nbr.GetIdx())
+            for nbr in ring_atom.GetNeighbors()
+            if nbr.GetIdx() in ring_set
+        ]
+        if len(ring_bonds) != 2:
+            continue
+        if all(bond is not None and bond.GetBondTypeAsDouble() <= 1.1 for bond in ring_bonds):
+            saturated_locs.append(loc)
+    if len(saturated_locs) != 1:
+        return ""
+    h_loc = saturated_locs[0]
+    if base == "pyrazole":
+        return f"{h_loc}H-pyrazolium"
+    return f"{h_loc}H-imidazol-{charged_loc}-ium"
+
+
+def _aromatic_triazole_n_h_cation_parent_name(
+    mol,
+    parent_name: str,
+    seq: Sequence[int],
+    charged_loc: int,
+    atom,
+) -> str:
+    if not atom.GetIsAromatic() or atom.GetTotalNumHs() <= 0:
+        return ""
+    base = _drop_indicated_hydrogen_prefix(parent_name)
+    if base not in {"1,2,3-triazole", "1,2,4-triazole"}:
+        return ""
+    n_h_locs = [
+        loc
+        for loc, idx in enumerate(seq, start=1)
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "N" and mol.GetAtomWithIdx(idx).GetTotalNumHs() > 0
+    ]
+    if len(n_h_locs) != 2 or charged_loc not in n_h_locs:
+        return ""
+    indicated_locs = [loc for loc in n_h_locs if loc != charged_loc]
+    if len(indicated_locs) != 1:
+        return ""
+    stem = base[:-1] if base.endswith("e") else base
+    return f"{indicated_locs[0]}H-{stem}-{charged_loc}-ium"
 
 
 def _is_hydrogenated_azine_parent(parent_name: str) -> bool:
@@ -1763,6 +1846,16 @@ def _simple_iodine_ring_candidates(
             parent = "iodinane"
         elif double_count == 2:
             parent = "iodinine"
+    elif counts == Counter({"C": 7, "I": 1}) and len(ordered) == 8:
+        if double_count == 0:
+            parent = "iodocane"
+        elif double_count == 3 and _ring_iodine_atoms_have_hydrogen(mol, ordered):
+            parent = "iodocine"
+    elif counts == Counter({"C": 8, "I": 1}) and len(ordered) == 9:
+        if double_count == 0:
+            parent = "iodonane"
+        elif double_count == 4 and _ring_iodine_atoms_have_hydrogen(mol, ordered):
+            parent = "iodonine"
     elif (
         counts == Counter({"C": 3, "I": 1, "O": 1})
         and len(ordered) == 5
@@ -1794,14 +1887,30 @@ def _simple_iodine_ring_candidates(
         and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 2
     ):
         parent = "triiodol"
+    elif (
+        counts == Counter({"C": 5, "I": 3})
+        and len(ordered) == 8
+        and double_count == 2
+        and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 2
+        and _ring_iodine_atoms_have_hydrogen(mol, ordered)
+    ):
+        parent = "1,2,3-triiodocine"
+    elif (
+        counts == Counter({"C": 6, "I": 3})
+        and len(ordered) == 9
+        and double_count == 3
+        and _adjacent_symbol_bond_count(mol, ordered, "I", "I") == 2
+        and _ring_iodine_atoms_have_hydrogen(mol, ordered)
+    ):
+        parent = "1,2,3-triiodonine"
     if not parent:
-        return []
-    if _has_external_heavy_substituent(mol, ordered) and parent not in {"iodol", "3,5-diiodol", "iodoxole"}:
         return []
     if parent == "3,5-diiodol":
         return [(parent, _ring_sequence_for_3_5_diiodol(mol, ordered))]
     if parent == "iodoxole":
         return [(parent, _ring_sequence_with_symbols(mol, ordered, ("I", "O", "C", "C", "C")))]
+    if parent in {"1,2,3-triiodocine", "1,2,3-triiodonine"}:
+        return [(parent, _ring_sequence_starting_with_triiodo_segment(mol, ordered))]
     return [(parent, _ring_sequence_starting_with(mol, ordered, "I"))]
 
 
@@ -1849,6 +1958,14 @@ def _ring_sequence_for_3_5_diiodol(mol, ordered: Sequence[int]) -> tuple[int, ..
             continue
         bond = mol.GetBondBetweenAtoms(seq[0], seq[1])
         if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+            return tuple(seq)
+    return tuple(ordered)
+
+
+def _ring_sequence_starting_with_triiodo_segment(mol, ordered: Sequence[int]) -> tuple[int, ...]:
+    for seq in _ring_numberings(ordered):
+        symbols = tuple(mol.GetAtomWithIdx(idx).GetSymbol() for idx in seq[:3])
+        if symbols == ("I", "I", "I"):
             return tuple(seq)
     return tuple(ordered)
 

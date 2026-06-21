@@ -4630,7 +4630,8 @@ def _amine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
     oxido_oxygens = []
     ligand_names = []
     covered = {nitrogen_idx}
-    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    for nbr in nitrogen.GetNeighbors():
         nidx = nbr.GetIdx()
         bond = mol.GetBondBetweenAtoms(nitrogen_idx, nidx)
         if bond is None:
@@ -4661,7 +4662,14 @@ def _amine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | None:
             return None
         ligand_names.append(_strip_outer_parentheses(ligand))
         covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
-    if len(oxido_oxygens) != 1 or len(ligand_names) != 3:
+    ligand_count = len(ligand_names)
+    hydrogen_count = nitrogen.GetTotalNumHs()
+    if len(oxido_oxygens) != 1:
+        return None
+    if not (
+        (ligand_count == 3 and hydrogen_count == 0)
+        or (ligand_count == 2 and hydrogen_count == 1)
+    ):
         return None
     return {"ligand_names": tuple(ligand_names), "covered_atoms": covered}
 
@@ -4819,6 +4827,8 @@ def _has_nonaromatic_multiring_component(mol, start_idx: int, blocked_idx: int) 
 
 
 def _amine_oxide_ligand_text(ligand_names: Sequence[str]) -> str:
+    if len(ligand_names) == 2:
+        return _secondary_amine_oxide_ligand_text(ligand_names)
     counts = Counter(ligand_names)
     pieces = []
     for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
@@ -4834,6 +4844,36 @@ def _amine_oxide_ligand_text(ligand_names: Sequence[str]) -> str:
         else:
             pieces.append(multiplier + bare)
     return "".join(pieces) + "amine oxide" if pieces else ""
+
+
+def _secondary_amine_oxide_ligand_text(ligand_names: Sequence[str]) -> str:
+    left, right = sorted(_strip_outer_parentheses(name) for name in ligand_names)
+    parent, substituent = _secondary_amine_oxide_parent_ligand(left, right)
+    if not parent or not substituent:
+        return ""
+    if _simple_unparenthesized_n_substituent(substituent):
+        substituent_text = substituent
+    else:
+        substituent_text = f"({substituent})"
+    return f"N-{substituent_text}{parent}amine oxide"
+
+
+def _secondary_amine_oxide_parent_ligand(left: str, right: str) -> tuple[str, str]:
+    left_score = _secondary_amine_oxide_parent_score(left)
+    right_score = _secondary_amine_oxide_parent_score(right)
+    if right_score > left_score:
+        return right, left
+    return left, right
+
+
+def _secondary_amine_oxide_parent_score(ligand: str) -> tuple[int, int, str]:
+    simple_alkyl = _hydroxylamine_oxide_alkyl_substituent(ligand)
+    cyclic_or_aromatic = any(fragment in ligand for fragment in ("cyclo", "phenyl", "benzyl", "ind"))
+    return (
+        1 if cyclic_or_aromatic else 0,
+        0 if simple_alkyl else 1,
+        len(ligand),
+    )
 
 
 def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:

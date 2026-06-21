@@ -842,6 +842,41 @@ def test_rank1_bicyclic_parent_keeps_fragile_orientation_controls_roundtrip(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC1(C)OC2(C)C(O)CC1CC2O",
+        "CCOc1ccc(N2C[C@@H]3CC(C)(C)[C@H]2CC(=O)N3Cc2ccccc2)cc1",
+        "CCC1CC2C=CC1N(C(=O)Cc1c[nH]c3ccc(OC)cc13)C2",
+    ],
+)
+def test_clean_bicyclic_parent_orientation_alternatives_roundtrip_with_opsin(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C=CC1=C(C(=O)O)N2C(=O)C(NC(=O)CCc3ccccc3)C2SC1",
+        "O=C(O)C1=C(C=NOCCNC(=O)c2ccc(O)c(O)c2Cl)CSC2CC(=O)N12",
+    ],
+)
+def test_clean_bicyclic_parent_decomposition_alternatives_roundtrip_with_opsin(
+    input_smiles,
+):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)c1ccc(C2Cc3cccc(-c4cncnc4)c32)c(C(N)=O)n1",
         "COc1ccc2c(c1)C(CN1CCN(C3CCC34CCNCC4)C(c3ccccc3C(C)C)C1)C2",
         "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(Cl)cc2)c2ccc3c(c2)CC3(F)F)N1",
@@ -1326,6 +1361,21 @@ def test_two_substituent_nitrone_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_tertiary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "[O-][NH+](Cc1ccccc1)C1CCCCC1",
+        "[O-][NH+](CC)C1CCCCC1",
+    ],
+)
+def test_secondary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

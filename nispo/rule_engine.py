@@ -75,6 +75,7 @@ class NameCandidate:
     parent_terminal_carbonyl_substituent_count: int = 0
     parent_terminal_chalcogen_double_bond_count: int = 0
     parent_external_unsaturated_bond_count: int = 0
+    parent_internal_unsaturated_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_acyl_nitrogen_substituent_count: int = 0
@@ -660,6 +661,20 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _generated_benzopyrazole_alternative_for_templateless_indazole_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _earlier_bicyclic_orientation_for_late_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _clean_bicyclic_alternative_for_decomposition_choice(
             keyed_items,
             selected_item,
         )
@@ -3112,9 +3127,40 @@ def _chain_dominant_acyclic_alternative_for_compact_kekulized_choice(
 _BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS = {
     7: 3,
     8: 3,
+    9: 3,
     10: 2,
     11: 3,
 }
+
+
+def _is_clean_templateless_bicyclic_parent(candidate: NameCandidate) -> bool:
+    if candidate.family not in {"generic-bicyclic-parent", "functional-generic-bicyclic-parent"}:
+        return False
+    if candidate.source_family != "bicyclic":
+        return False
+    if candidate.template_name or candidate.source_file:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+def _bicyclic_orientation_min_locants(parent_count: int) -> int | None:
+    return _BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS.get(parent_count)
+
+
+def _bicyclic_orientation_min_locants_for_candidate(candidate: NameCandidate) -> int | None:
+    parent_count = len(candidate.parent_atoms)
+    min_locants = _bicyclic_orientation_min_locants(parent_count)
+    if (
+        parent_count == 8
+        and min_locants is not None
+        and candidate.parent_internal_unsaturated_bond_count
+    ):
+        return min(min_locants, 2)
+    return min_locants
 
 
 def _alternate_bicyclic_orientation_for_rank1_choice(
@@ -3122,24 +3168,12 @@ def _alternate_bicyclic_orientation_for_rank1_choice(
     selected: _PreparedCandidate,
 ) -> _PreparedCandidate | None:
     selected_candidate = selected.candidate
-    if selected_candidate.family not in {"generic-bicyclic-parent", "functional-generic-bicyclic-parent"}:
-        return None
-    if selected_candidate.source_family != "bicyclic":
-        return None
-    if selected_candidate.template_name or selected_candidate.source_file:
+    if not _is_clean_templateless_bicyclic_parent(selected_candidate):
         return None
     if selected_candidate.render_rank != 1:
         return None
-    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
-        return None
-    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
-        return None
-    if candidate_safety_reasons(selected_candidate):
-        return None
-    if selected_candidate.parent_hetero_atom_count:
-        return None
     selected_parent_count = len(selected_candidate.parent_atoms)
-    min_locants = _BICYCLIC_RANK2_ORIENTATION_MIN_LOCANTS.get(selected_parent_count)
+    min_locants = _bicyclic_orientation_min_locants_for_candidate(selected_candidate)
     if min_locants is None:
         return None
     if selected_parent_count < 10 and selected_candidate.family != "generic-bicyclic-parent":
@@ -3158,21 +3192,15 @@ def _alternate_bicyclic_orientation_for_rank1_choice(
         candidate = item.candidate
         if candidate.family != selected_candidate.family:
             continue
-        if candidate.source_family != "bicyclic":
-            continue
-        if candidate.template_name or candidate.source_file:
+        if not _is_clean_templateless_bicyclic_parent(candidate):
             continue
         if candidate.render_rank != 2:
             continue
-        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
-            continue
         if len(candidate.parent_atoms) != selected_parent_count:
             continue
-        if candidate.parent_hetero_atom_count:
+        if candidate.parent_hetero_atom_count != selected_candidate.parent_hetero_atom_count:
             continue
-        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
-            continue
-        if candidate_safety_reasons(candidate):
+        if candidate.parent_internal_unsaturated_bond_count != selected_candidate.parent_internal_unsaturated_bond_count:
             continue
         if len(candidate.locants) < min_locants:
             continue
@@ -3187,6 +3215,140 @@ def _alternate_bicyclic_orientation_for_rank1_choice(
         if candidate_key[0] > selected_key[0] + 220:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _earlier_bicyclic_orientation_for_late_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _is_clean_templateless_bicyclic_parent(selected_candidate):
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is None or selected_render_rank <= 3:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 7 or selected_parent_count > 10:
+        return None
+    min_locants = _bicyclic_orientation_min_locants_for_candidate(selected_candidate)
+    if min_locants is None or len(selected_candidate.locants) < min_locants:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_clean_templateless_bicyclic_parent(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_count:
+            continue
+        if candidate.parent_hetero_atom_count != selected_candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_internal_unsaturated_bond_count != selected_candidate.parent_internal_unsaturated_bond_count:
+            continue
+        candidate_render_rank = candidate.render_rank
+        if candidate_render_rank is None or candidate_render_rank > 3:
+            continue
+        if candidate_render_rank >= selected_render_rank:
+            continue
+        if len(candidate.locants) < min_locants:
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 20:
+            continue
+        if candidate_key[0] > selected_key[0] + 80:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    0 if candidate.family == selected_candidate.family else 1,
+                    candidate_render_rank,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_BICYCLIC_DECOMPOSITION_PARENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "high-signal-generated-topology-fused-parent",
+    }
+)
+
+
+def _clean_bicyclic_alternative_for_decomposition_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _BICYCLIC_DECOMPOSITION_PARENT_FAMILIES:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_clean_templateless_bicyclic_parent(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 8 or candidate_parent_count > 10:
+            continue
+        min_locants = _bicyclic_orientation_min_locants_for_candidate(candidate)
+        if min_locants is None or len(candidate.locants) < min_locants:
+            continue
+        candidate_render_rank = candidate.render_rank
+        if candidate_render_rank is None or candidate_render_rank > 2:
+            continue
+        if selected_candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+            if selected_parent_count - candidate_parent_count < 1:
+                continue
+        elif abs(selected_parent_count - candidate_parent_count) > 2:
+            continue
+        if len(item.name) > 220:
+            continue
+        if len(item.name) - len(selected.name) > 100:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    candidate_render_rank,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
@@ -5973,6 +6135,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
     formal_charge_atom_count = 0
     abs_formal_charge_sum = 0
     external_unsaturated_bond_count = 0
+    internal_unsaturated_bond_count = 0
     for atom_idx in candidate.parent_atoms:
         atom = mol.GetAtomWithIdx(atom_idx)
         symbol = atom.GetSymbol()
@@ -5984,6 +6147,14 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         for neighbor in atom.GetNeighbors():
             neighbor_idx = neighbor.GetIdx()
             if neighbor_idx in candidate.parent_atoms:
+                if atom_idx < neighbor_idx:
+                    bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+                    if (
+                        bond is not None
+                        and not bond.GetIsAromatic()
+                        and bond.GetBondTypeAsDouble() > 1.1
+                    ):
+                        internal_unsaturated_bond_count += 1
                 continue
             bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
             if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
@@ -5997,6 +6168,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         and candidate.parent_formal_charge_atom_count == formal_charge_atom_count
         and candidate.parent_abs_formal_charge_sum == abs_formal_charge_sum
         and candidate.parent_external_unsaturated_bond_count == external_unsaturated_bond_count
+        and candidate.parent_internal_unsaturated_bond_count == internal_unsaturated_bond_count
     ):
         return candidate
     return replace(
@@ -6007,6 +6179,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         parent_formal_charge_atom_count=formal_charge_atom_count,
         parent_abs_formal_charge_sum=abs_formal_charge_sum,
         parent_external_unsaturated_bond_count=external_unsaturated_bond_count,
+        parent_internal_unsaturated_bond_count=internal_unsaturated_bond_count,
     )
 
 

@@ -153,6 +153,20 @@ def test_generated_fused_graph_supplement_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCN(Cc1nc2c(N)nc3cc(-c4cc[nH]n4)ccc3c2[nH]1)S(=O)(=O)N(C)C",
+    ],
+)
+def test_targeted_generated_fused_alias_expansion_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1c[nH]c2nccc-2n1",
         "c1ncc2ccc3nncc3c2[nH]1",
         "c1cc2c(ccc3n[nH]cc32)cn1",
@@ -342,6 +356,7 @@ def test_retained_fused_shortcuts_defer_to_generated_hydro_parent(input_smiles):
         "C[NH+]1c2ccccc2C(/C=C/c2ccc(N(c3ccccc3)c3ccccc3)cc2)c2ccccc21",
         "CC=C[NH+]1C(=C2N(CCCCCC(=O)ON3C(=O)CCC3=O)c3ccccc3C2(C)C)C(C)(C)c2ccccc21",
         "O=C(O)C[C@H]1C(=O)O[CH-]N1C(=O)OCc1ccccc1",
+        "c1ccc([IH+](c2ccccc2)c2ccccc2)cc1",
     ],
 )
 def test_explicit_charged_parent_candidates_roundtrip_with_opsin(input_smiles):
@@ -802,6 +817,7 @@ def test_single_ring_lactam_and_thione_indicated_h_suffixes_roundtrip_with_opsin
         "CC1(C)C[C@@H](c2ccn3c(C4(c5noc(=O)[nH]5)CC4)c(C(=O)O)cc3c2)CCO1",
         "CN1C(=O)/C(=C/c2ccc3[nH]ncc3c2)N=C1N[C@H]1CCCOC1",
         "CCN1CC(=O)N([C@@H]2CCN(C(=O)c3cc(/C=C4\\OC(=O)c5ccccc54)ccc3F)C2)C1=O",
+        "O=C1C=C1",
     ],
 )
 def test_single_ring_oxo_suffix_parent_selection_roundtrips_with_opsin(input_smiles):
@@ -967,6 +983,36 @@ def test_generic_spiro_deferred_to_compact_fused_retained_parent(input_smiles):
 
 def test_generic_spiro_deferral_preserves_charged_parent():
     input_smiles = "Cn1ccc2c(OC3CC4(C[NH2+]C4)C3)ccc(Cl)c2c1=O"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCN1C(=O)C2(Oc3ccccc3C23C(=O)N(CC)c2ccccc23)c2ccccc21",
+        "CN1C(=O)C2(Oc3ccc(-c4ccccc4)cc3C23C(=O)N(C)c2ccccc23)c2ccccc21",
+    ],
+)
+def test_rank6_component_dispiro_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=S1(=O)OC2CC13CCC2C3",
+        "C1CCC23CCCC(C2)C(C1)C3",
+    ],
+)
+def test_secondary_bridge_tricyclic_fallback_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

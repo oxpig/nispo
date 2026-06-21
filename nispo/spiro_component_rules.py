@@ -152,10 +152,10 @@ def _component_dispiro_candidates(
     scaffold families rather than individual retained names.
     """
 
-    if _cycle_rank_for_atoms(graph, ring_system_atoms) > 4:
-        return []
-
     blocks = _fused_ring_blocks(ctx.mol, ring_system_atoms)
+    rank = _cycle_rank_for_atoms(graph, ring_system_atoms)
+    if rank > 4 and not (rank <= 7 and len(blocks) == 3):
+        return []
     if len(blocks) < 3:
         return []
     edges: list[tuple[int, int, int]] = []

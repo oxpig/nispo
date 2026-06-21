@@ -3595,6 +3595,8 @@ def _oxo_adjusted_unsaturated_carbocycle_parent(parent_name: str, oxo_locs: Sequ
 def _cycloalkapolyene_ring_size(parent_name: str) -> int | None:
     if not parent_name.startswith("cyclo") or "en" not in parent_name:
         return None
+    if re.search(r"^cycloprop-\d(?:,\d+)*-en", parent_name):
+        return 3
     if not re.search(r"^cyclo(?:but|hept)a-1(?:,3)*(?:,5)?-", parent_name):
         return None
     for size, root in sorted(ROOTS.items(), key=lambda item: -len(item[1])):

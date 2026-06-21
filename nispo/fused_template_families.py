@@ -17,7 +17,23 @@ _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
 _MAX_GENERATED_RECORDS_PER_GRAPH = 256
 _MAX_GENERATED_ALIASES_PER_SCAFFOLD = 1
 _MAX_ORIENTATION_ALIASES_PER_SCAFFOLD = 1
+_MAX_TARGETED_GENERATED_ALIASES_PER_SCAFFOLD = 3
+_MAX_TARGETED_ORIENTATION_ALIASES_PER_SCAFFOLD = 3
 _MAX_RETAINED_TOPOLOGY_REPLACEMENT_TEMPLATES_PER_GRAPH = 24
+
+_TARGETED_GENERATED_FUSED_ALIAS_KEYS = frozenset(
+    (
+        (13, 3, (("C", 10), ("N", 3)), "C1CCC2C(C1)CCC1CCCC12", "C1CCC2C(C1)NCC1NCNC12"),
+    )
+)
+_TARGETED_GENERATED_FUSED_ALIAS_JSON_KEYS = frozenset(
+    (
+        json.dumps((atom_count, ring_count, elements), separators=(",", ":")),
+        graph_key,
+        element_graph_key,
+    )
+    for atom_count, ring_count, elements, graph_key, element_graph_key in _TARGETED_GENERATED_FUSED_ALIAS_KEYS
+)
 
 _TARGET_FUSION_COMPONENT_PREFIXES = (
     "imidazo",
@@ -283,6 +299,14 @@ def generated_template_key(template: dict) -> tuple:
     return (len(name), generated_fusion_preference(name), name)
 
 
+def is_targeted_generated_fused_alias_key(
+    feature_key: tuple,
+    graph_key: str,
+    element_graph_key: str,
+) -> bool:
+    return _generated_fused_alias_key(feature_key, graph_key, element_graph_key) in _TARGETED_GENERATED_FUSED_ALIAS_KEYS
+
+
 def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skeleton: int) -> tuple[dict, ...]:
     grouped: dict[str, list[dict]] = {}
     for template in templates:
@@ -369,6 +393,12 @@ def _generated_records_for_graph(
             .get(graph_key, {})
             .get(element_graph_key)
         ) or ()
+        if _is_targeted_generated_fused_alias_json_key(key, graph_key, element_graph_key):
+            return _preferred_records_per_scaffold(
+                records,
+                aliases_per_scaffold=_MAX_TARGETED_GENERATED_ALIASES_PER_SCAFFOLD,
+                orientation_aliases_per_scaffold=_MAX_TARGETED_ORIENTATION_ALIASES_PER_SCAFFOLD,
+            )
         return _preferred_records_per_scaffold(records)
     if graph_filter:
         return ()
@@ -382,7 +412,12 @@ def _generated_records_for_graph(
     )
 
 
-def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ...]:
+def _preferred_records_per_scaffold(
+    records: tuple[dict, ...],
+    *,
+    aliases_per_scaffold: int | None = None,
+    orientation_aliases_per_scaffold: int | None = None,
+) -> tuple[dict, ...]:
     """Collapse OPSIN alias fan-out before materializing generated templates.
 
     OPSIN's fusion resources contain many accepted names for the same scaffold.
@@ -394,12 +429,22 @@ def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ..
 
     if not records:
         return ()
+    if aliases_per_scaffold is None:
+        aliases_per_scaffold = _MAX_GENERATED_ALIASES_PER_SCAFFOLD
+    if orientation_aliases_per_scaffold is None:
+        orientation_aliases_per_scaffold = _MAX_ORIENTATION_ALIASES_PER_SCAFFOLD
     grouped: dict[str, list[dict]] = {}
     for record in records:
         grouped.setdefault(str(record.get("smiles", "")), []).append(record)
     selected = []
     for scaffold_records in grouped.values():
-        selected.extend(_preferred_generated_records_for_scaffold(scaffold_records))
+        selected.extend(
+            _preferred_generated_records_for_scaffold(
+                scaffold_records,
+                aliases_per_scaffold=aliases_per_scaffold,
+                orientation_aliases_per_scaffold=orientation_aliases_per_scaffold,
+            )
+        )
     return tuple(
         sorted(
             selected,
@@ -408,11 +453,20 @@ def _preferred_records_per_scaffold(records: tuple[dict, ...]) -> tuple[dict, ..
     )
 
 
-def _preferred_generated_records_for_scaffold(records: list[dict]) -> list[dict]:
+def _preferred_generated_records_for_scaffold(
+    records: list[dict],
+    *,
+    aliases_per_scaffold: int | None = None,
+    orientation_aliases_per_scaffold: int | None = None,
+) -> list[dict]:
+    if aliases_per_scaffold is None:
+        aliases_per_scaffold = _MAX_GENERATED_ALIASES_PER_SCAFFOLD
+    if orientation_aliases_per_scaffold is None:
+        orientation_aliases_per_scaffold = _MAX_ORIENTATION_ALIASES_PER_SCAFFOLD
     orientation_preferred = sorted(
         records,
         key=lambda record: (generated_fusion_preference(str(record.get("name", ""))), len(str(record.get("name", "")))),
-    )[:_MAX_ORIENTATION_ALIASES_PER_SCAFFOLD]
+    )[:orientation_aliases_per_scaffold]
     shortest = sorted(
         (
             record
@@ -423,7 +477,7 @@ def _preferred_generated_records_for_scaffold(records: list[dict]) -> list[dict]
             len(str(record.get("name", ""))),
             generated_fusion_preference(str(record.get("name", ""))),
         ),
-    )[:_MAX_GENERATED_ALIASES_PER_SCAFFOLD]
+    )[:aliases_per_scaffold]
     selected = []
     seen = set()
     for record in shortest + orientation_preferred:
@@ -442,6 +496,20 @@ def _skip_short_generated_fusion_alias(record: dict, orientation_preferred: list
     return any(
         generated_fusion_orientation_role(str(preferred.get("name", ""))) == "preferred-pyrazolo-imidazole"
         for preferred in orientation_preferred
+    )
+
+
+def _is_targeted_generated_fused_alias_json_key(key: str, graph_key: str, element_graph_key: str) -> bool:
+    return (key, graph_key, element_graph_key) in _TARGETED_GENERATED_FUSED_ALIAS_JSON_KEYS
+
+
+def _generated_fused_alias_key(feature_key, graph_key: str, element_graph_key: str) -> tuple:
+    return (
+        int(feature_key[0]),
+        int(feature_key[1]),
+        tuple(tuple(item) for item in feature_key[2]),
+        graph_key,
+        element_graph_key,
     )
 
 

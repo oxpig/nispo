@@ -4063,7 +4063,11 @@ class IodoniumParentRule:
                     break
                 ligand_neighbors.append(nbr.GetIdx())
             else:
-                if len(ligand_neighbors) + implicit_hydrogens != 2 or len(ligand_neighbors) not in {1, 2}:
+                ligand_count = len(ligand_neighbors)
+                if not (
+                    (ligand_count + implicit_hydrogens == 2 and ligand_count in {1, 2})
+                    or (ligand_count == 3 and implicit_hydrogens == 1)
+                ):
                     continue
                 ligand_names = []
                 covered = {iodine_idx}
@@ -4082,7 +4086,7 @@ class IodoniumParentRule:
 
 
 def _iodonium_parent_name(ligand_names: Sequence[str]) -> str:
-    if not 1 <= len(ligand_names) <= 2:
+    if not 1 <= len(ligand_names) <= 3:
         return ""
     counts = Counter(ligand_names)
     parts = []

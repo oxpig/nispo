@@ -278,7 +278,9 @@ def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list
         return []
     rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= atoms]
     if any(len(left & right) == 1 for left, right in combinations(rings, 2)):
-        return _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
+        candidates = _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
+        if candidates:
+            return candidates
     parent_sequences = []
     for a, b in _bridgehead_pair_candidates(graph, atoms, 4):
         paths = _bridge_paths_with_count(graph, atoms, a, b, 4)

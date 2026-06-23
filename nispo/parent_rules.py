@@ -7968,6 +7968,8 @@ def _phosphate_ester_record(mol, Chem, pidx: int) -> dict | None:
             owner_atoms = _collect_component_atoms(mol, heavy[0], nidx)
             if not _stable_phosphate_oxygen_owner_component(mol, Chem, owner_atoms):
                 return None
+            if _phosphate_owner_has_nonaromatic_carbon_alkoxy_phosphoryloxy(mol, Chem, owner_atoms):
+                return None
             owner_names.append(owner)
             covered_atoms.add(nidx)
             covered_atoms.update(owner_atoms)
@@ -8038,6 +8040,40 @@ def _stable_phosphate_oxygen_owner_component(mol, Chem, atom_indices: set[int]) 
     if ring_carbonyl_count > 1 and _component_has_fused_ring(mol, atom_indices):
         return False
     return True
+
+
+def _phosphate_owner_has_nonaromatic_carbon_alkoxy_phosphoryloxy(mol, Chem, atom_indices: set[int]) -> bool:
+    for atom_idx in atom_indices:
+        phosphorus = mol.GetAtomWithIdx(atom_idx)
+        if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+            continue
+        double_oxygen_count = 0
+        nonaromatic_carbon_ligand_count = 0
+        substituted_oxygen_ligand_count = 0
+        for nbr in phosphorus.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in atom_indices:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is None:
+                continue
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+                continue
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE and not nbr.GetIsAromatic():
+                nonaromatic_carbon_ligand_count += 1
+                continue
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+                heavy = [
+                    other.GetIdx()
+                    for other in nbr.GetNeighbors()
+                    if other.GetIdx() != atom_idx and other.GetAtomicNum() > 1
+                ]
+                if heavy:
+                    substituted_oxygen_ligand_count += 1
+        if double_oxygen_count == 1 and nonaromatic_carbon_ligand_count and substituted_oxygen_ligand_count:
+            return True
+    return False
 
 
 def _component_carbon_has_double_oxygen(mol, Chem, carbon_idx: int, atom_indices: set[int]) -> bool:

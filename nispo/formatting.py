@@ -395,7 +395,7 @@ def _strip_leading_indicated_hydrogen(name: str) -> str:
 def _prefix_needs_parentheses(name: str) -> bool:
     if name in _UNPARENTHESIZED_HYPHENATED_PREFIXES:
         return False
-    if name.startswith("(") or ")" in name or "-" in name:
+    if name.startswith("(") or ")" in name or "-" in name or " " in name:
         return True
     return _is_composite_substituent_name(name)
 
@@ -419,6 +419,8 @@ def _is_composite_substituent_name(name: str) -> bool:
 
 def _multiplied_prefix_needs_parentheses(name: str) -> bool:
     if name != "carbamyl" and ("carbamyl" in name or "carbamoyl" in name):
+        return True
+    if name.endswith("phosphoryloxy"):
         return True
     if _has_leading_multiplier(name):
         return True

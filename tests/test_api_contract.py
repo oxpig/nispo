@@ -2362,6 +2362,21 @@ def test_phosphate_ester_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCCCCc1cc(OP(=O)(Cc2ccccc2)OCC)c(-c2cccc(C)c2)c(OP(=O)(Cc2ccccc2)OCC)c1",
+        "CCCCCc1cc(OP(C)(=O)OCC)c(-c2cccc(C)c2)c(OP(C)(=O)OCC)c1",
+    ],
+)
+def test_mixed_ligand_phosphoryloxy_prefixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C=CCOP(=O)([O-])c1c[n+](C)nc2ccccc12",
         "COP(=O)([O-])c1c(C)[n+](C)nc2ccccc12",
         "C[n+]1cn([C@@H]2O[C@H](COP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]2O)c2nc(N)[nH]c(=O)c21",

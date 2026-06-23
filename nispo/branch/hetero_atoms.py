@@ -184,7 +184,7 @@ def _phosphorus_oxy_prefix(mol, phosphorus_idx: int, oxygen_idx: int) -> str:
     double_oxygen_count = 0
     hydroxy_count = 0
     oxido_count = 0
-    ligand_names = []
+    ligand_records = []
     for nbr in phosphorus.GetNeighbors():
         nidx = nbr.GetIdx()
         if nidx == oxygen_idx:
@@ -208,26 +208,27 @@ def _phosphorus_oxy_prefix(mol, phosphorus_idx: int, oxygen_idx: int) -> str:
         ligand = branch_prefix(mol, nidx, phosphorus_idx)
         if not ligand:
             return ""
-        ligand_names.append(ligand)
+        ligand_records.append((_phosphorus_oxy_ligand_class(nbr), ligand))
     if double_oxygen_count != 1:
         return ""
-    if not ligand_names:
+    if not ligand_records:
         if hydroxy_count == 2 and oxido_count == 0:
             return "phosphonooxy"
         if hydroxy_count == 0 and oxido_count == 2:
             return "phosphonatooxy"
         return ""
-    if hydroxy_count == 1 and oxido_count == 0 and len(ligand_names) == 1:
-        if _phosphorus_oxy_ligand_needs_parentheses(ligand_names[0]):
+    if hydroxy_count == 1 and oxido_count == 0 and len(ligand_records) == 1:
+        _ligand_class, ligand = ligand_records[0]
+        if _phosphorus_oxy_ligand_needs_parentheses(ligand):
             return ""
-        return _phosphorus_oxy_ligand_unit(ligand_names[0]) + "phosphonooxy"
-    if hydroxy_count == 0 and oxido_count == 0 and len(ligand_names) == 2:
-        if any(_phosphorus_oxy_ligand_needs_parentheses(ligand) for ligand in ligand_names):
+        return _phosphorus_oxy_ligand_unit(ligand) + "phosphonooxy"
+    if hydroxy_count == 0 and oxido_count == 0 and len(ligand_records) == 2:
+        if any(_phosphorus_oxy_ligand_needs_parentheses(ligand) for _ligand_class, ligand in ligand_records):
             return ""
-        counts = Counter(ligand_names)
+        counts = Counter(ligand_records)
         parts = []
-        for ligand in sorted(counts):
-            count = counts[ligand]
+        for (_ligand_class, ligand) in sorted(counts):
+            count = counts[(_ligand_class, ligand)]
             unit = _phosphorus_oxy_ligand_unit(ligand)
             parts.append(unit if count == 1 else MULT.get(count, "") + unit)
         return "".join(parts) + "phosphoryloxy"
@@ -285,6 +286,14 @@ def _phosphorus_oxy_ligand_unit(ligand: str) -> str:
     if _phosphorus_oxy_ligand_needs_parentheses(ligand):
         return f"({ligand})"
     return ligand
+
+
+def _phosphorus_oxy_ligand_class(atom) -> int:
+    if atom.GetSymbol() == "C" and not atom.GetIsAromatic():
+        return 0
+    if atom.GetSymbol() == "O":
+        return 1
+    return 2
 
 
 def _phosphorus_oxy_ligand_needs_parentheses(ligand: str) -> bool:

@@ -1091,7 +1091,7 @@ class MethylenebisDithiocarbamateRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        name = _methylenebis_dithiocarbamate_name(mol, self._Chem)
+        name = _bis_dithiocarbamate_name(mol, self._Chem)
         if name:
             yield NameCandidate(
                 name,
@@ -9615,6 +9615,16 @@ def _unsubstituted_phenyl_ligand_atoms(mol, ring_attachment_idx: int, parent_idx
     return set(ring)
 
 
+def _bis_dithiocarbamate_name(mol, Chem) -> str:
+    methylene = _methylenebis_dithiocarbamate_name(mol, Chem)
+    if methylene:
+        return methylene
+    linked = _linked_bis_dithiocarbamate_name(mol, Chem)
+    if linked:
+        return linked
+    return ""
+
+
 def _methylenebis_dithiocarbamate_name(mol, Chem) -> str:
     atom_set = set(range(mol.GetNumAtoms()))
     for carbon in mol.GetAtoms():
@@ -9647,14 +9657,90 @@ def _methylenebis_dithiocarbamate_name(mol, Chem) -> str:
     return ""
 
 
-def _dithiocarbamate_unit_name_and_atoms(mol, Chem, nitrogen_idx: int, methylene_idx: int) -> tuple[str, set[int]] | None:
+def _linked_bis_dithiocarbamate_name(mol, Chem) -> str:
+    atom_set = set(range(mol.GetNumAtoms()))
+    units = []
+    for nitrogen in mol.GetAtoms():
+        nidx = nitrogen.GetIdx()
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+            continue
+        for linker in nitrogen.GetNeighbors():
+            linker_idx = linker.GetIdx()
+            if linker.GetAtomicNum() <= 1:
+                continue
+            unit = _dithiocarbamate_unit_name_and_atoms(mol, Chem, nidx, linker_idx)
+            if unit is not None:
+                units.append((nidx, linker_idx, *unit))
+    for left_idx, left_linker, left_name, left_atoms in units:
+        for right_idx, right_linker, right_name, right_atoms in units:
+            if left_idx >= right_idx or left_name != right_name:
+                continue
+            linker_name, linker_atoms = _bis_dithiocarbamate_linker_name_and_atoms(
+                mol,
+                Chem,
+                left_idx,
+                left_linker,
+                right_idx,
+                right_linker,
+            )
+            if not linker_name:
+                continue
+            covered = set(left_atoms) | set(right_atoms) | linker_atoms
+            if covered == atom_set:
+                return f"{linker_name}bis({left_name})"
+    return ""
+
+
+def _bis_dithiocarbamate_linker_name_and_atoms(
+    mol,
+    Chem,
+    left_nitrogen: int,
+    left_linker: int,
+    right_nitrogen: int,
+    right_linker: int,
+) -> tuple[str, set[int]]:
+    if left_linker == right_linker:
+        return "", set()
+    left = mol.GetAtomWithIdx(left_linker)
+    right = mol.GetAtomWithIdx(right_linker)
+    linker_bond = mol.GetBondBetweenAtoms(left_linker, right_linker)
+    if linker_bond is None or linker_bond.GetBondType() != Chem.BondType.SINGLE:
+        return "", set()
+    if (
+        left.GetSymbol() == "C"
+        and right.GetSymbol() == "C"
+        and left.GetFormalCharge() == 0
+        and right.GetFormalCharge() == 0
+        and not left.IsInRing()
+        and not right.IsInRing()
+        and _linker_heavy_neighbors(mol, left_linker) == {left_nitrogen, right_linker}
+        and _linker_heavy_neighbors(mol, right_linker) == {right_nitrogen, left_linker}
+    ):
+        return "ethane-1,2-diyl", {left_linker, right_linker}
+    if (
+        left.GetSymbol() == "S"
+        and right.GetSymbol() == "S"
+        and left.GetFormalCharge() == 0
+        and right.GetFormalCharge() == 0
+        and _linker_heavy_neighbors(mol, left_linker) == {left_nitrogen, right_linker}
+        and _linker_heavy_neighbors(mol, right_linker) == {right_nitrogen, left_linker}
+    ):
+        return "dithio", {left_linker, right_linker}
+    return "", set()
+
+
+def _linker_heavy_neighbors(mol, atom_idx: int) -> set[int]:
+    return {nbr.GetIdx() for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors() if nbr.GetAtomicNum() > 1}
+
+
+def _dithiocarbamate_unit_name_and_atoms(mol, Chem, nitrogen_idx: int, linker_idx: int) -> tuple[str, set[int]] | None:
     nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
     if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
         return None
     heavy = [
         nbr.GetIdx()
         for nbr in nitrogen.GetNeighbors()
-        if nbr.GetIdx() != methylene_idx and nbr.GetAtomicNum() > 1
+        if nbr.GetIdx() != linker_idx and nbr.GetAtomicNum() > 1
     ]
     if len(heavy) != 2:
         return None

@@ -114,6 +114,23 @@ def test_sulfonyl_carbonyl_azanide_retained_parent_survives_ranker_switch():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        r"CC(C#N)=C1\CCN(C(=O)OC(C)(C)C)C1",
+        "CC(C(=O)O)=C1CC[C@H]2[C@@H]3CCC4=CCCC[C@]4(C)[C@H]3CC[C@]12C",
+        "COc1cccc(C(=O)NN=C(C)C(=O)O)c1",
+        "CCCCCCCCCCCCCCCCCCOC(=O)C(C)=[P+]([O-])c1cccc(O)c1",
+    ],
+)
+def test_functionalized_ethylidene_prefixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Cc1c(CN(C)C(=O)OCc2ccccc2)oc2cccc(C#N)c12",
         "CCCCNC(=O)NC1CCC(CN(C)C(=O)OCc2ccccc2)CC1",
         "COCOc1cc2oc(=O)cc(COC(=O)N(C)CCN)c2cc1Br",

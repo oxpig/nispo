@@ -1088,6 +1088,13 @@ def _imine_carbon_ylidene(mol, carbon_idx: int, nitrogen_idx: int) -> str:
             return name + "methylidene"
         return ""
     if len(substituents) == 2:
+        functional_ethylidene = _branch_rules()._functionalized_ethylidene_prefix(
+            mol,
+            substituents,
+            carbon_idx,
+        )
+        if functional_ethylidene:
+            return functional_ethylidene
         names = []
         for sub_idx in substituents:
             if mol.GetAtomWithIdx(sub_idx).IsInRing():

@@ -1725,6 +1725,9 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
         root = ROOTS.get(len(chain) + 1)
         return root + "ylidene" if root else ""
     if len(heavy) == 2:
+        substituted_ethylidene = _functionalized_ethylidene_prefix(mol, heavy, idx)
+        if substituted_ethylidene:
+            return substituted_ethylidene
         halo_functional = _halo_functionalized_carbon_methylidene_prefix(mol, heavy, idx)
         if halo_functional:
             return halo_functional
@@ -1760,6 +1763,63 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
         if any(not chain for chain in chains):
             return ""
     return ""
+
+
+def _functionalized_ethylidene_prefix(
+    mol,
+    substituent_indices: Sequence[int],
+    ylidene_idx: int,
+) -> str:
+    if len(substituent_indices) != 2:
+        return ""
+    methyl_indices = [
+        nidx
+        for nidx in substituent_indices
+        if _is_terminal_methyl(mol, nidx, ylidene_idx)
+    ]
+    if len(methyl_indices) != 1:
+        return ""
+    functional_idx = (
+        substituent_indices[0]
+        if substituent_indices[1] == methyl_indices[0]
+        else substituent_indices[1]
+    )
+    name = _functionalized_ethylidene_substituent_name(mol, functional_idx, ylidene_idx)
+    if not name:
+        return ""
+    return f"1-{_parenthesize_complex_prefix(name)}ethylidene"
+
+
+def _functionalized_ethylidene_substituent_name(mol, substituent_idx: int, ylidene_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(substituent_idx)
+    if atom.GetFormalCharge() != 0 or atom.GetIsotope():
+        return ""
+    bond = mol.GetBondBetweenAtoms(substituent_idx, ylidene_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if _is_nitrile_carbon(mol, substituent_idx):
+        return "cyano"
+    if atom.GetSymbol() != "C" or atom.IsInRing():
+        return ""
+    subtree = collect_subtree(mol, substituent_idx, ylidene_idx)
+    if not _subtree_has_supported_ethylidene_functional_evidence(mol, subtree):
+        return ""
+    name = substituent_from_root(mol, substituent_idx, ylidene_idx)
+    if not name:
+        return ""
+    if name in {"carboxy", "carboxylato", "formyl", "carbamyl"}:
+        return name
+    if name.endswith("oxycarbonyl"):
+        return name
+    return ""
+
+
+def _subtree_has_supported_ethylidene_functional_evidence(mol, atom_indices: set[int]) -> bool:
+    for atom_idx in atom_indices:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() not in {"C", "H", "O", "N"}:
+            return False
+    return _subtree_has_functional_carbon_evidence(mol, atom_indices)
 
 
 def _halo_functionalized_carbon_methylidene_prefix(

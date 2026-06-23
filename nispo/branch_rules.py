@@ -227,6 +227,7 @@ from .branch.carbon import (
     _branch_rule_sets,
     _nitro_branch_predicate,
     _alkylidene_prefix,
+    _functionalized_ethylidene_prefix,
     _hetero_methylidene_prefix,
     _enal_substituent_prefix,
     _enone_substituent_prefix,

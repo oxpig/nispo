@@ -216,6 +216,24 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
         if candidates:
             return candidates
 
+    if (
+        n == 3
+        and symbols.count("O") == 2
+        and symbols.count("P") == 1
+        and (all_aromatic or kekulized_aromatic or all_single_bonds)
+    ):
+        candidates.extend(
+            _ring_pattern_candidates(
+                mol,
+                ordered,
+                "1,3,2-dioxaphosphirane",
+                ("O", "P", "O"),
+                checks=(_neutral_dioxaphosphirane_ring,),
+            )
+        )
+        if candidates:
+            return candidates
+
     if n == 3 and symbols.count("C") == 1 and symbols.count("N") == 2:
         candidates.extend(
             _ring_pattern_candidates(
@@ -1814,6 +1832,10 @@ def _ring_pattern_candidates(
             continue
         candidates.append((parent, seq))
     return candidates
+
+
+def _neutral_dioxaphosphirane_ring(mol, seq: Sequence[int], _ring_set: set[int]) -> bool:
+    return all(mol.GetAtomWithIdx(idx).GetFormalCharge() == 0 for idx in seq)
 
 
 def _simple_iodine_ring_candidates(

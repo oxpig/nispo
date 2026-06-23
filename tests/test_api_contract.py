@@ -131,6 +131,21 @@ def test_functionalized_ethylidene_prefixes_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(C)(C)OC(=O)N1CCC(=C(C#N)c2ccc(F)cc2)CC1",
+        "CC(C)(C)OC(=O)N1CCC(=C(C#N)c2ccc(Cl)cn2)CC1",
+    ],
+)
+def test_cyano_aryl_alkylidene_ring_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C=[N+]([O-])c1ccc(C(=O)O)cc1",
         "C=[N+]([O-])c1ccccc1C",
     ],

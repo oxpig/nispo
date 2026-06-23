@@ -1753,6 +1753,13 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
             if _is_nitrile_carbon(mol, nidx):
                 substituent_names.append("cyano")
                 continue
+            if mol.GetAtomWithIdx(nidx).IsInRing():
+                ring = _ring_substituent_prefix(mol, nidx, idx)
+                if not ring or ring.endswith("ylidene"):
+                    substituent_names = []
+                    break
+                substituent_names.append(f"({ring})" if not ring.startswith("(") else ring)
+                continue
             name = substituent_from_root(mol, nidx, idx)
             if not name:
                 substituent_names = []

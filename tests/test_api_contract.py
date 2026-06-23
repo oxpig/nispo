@@ -2953,6 +2953,23 @@ def test_aromatic_triazole_nitroimino_orientation_remains_unsupported():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CN(C)N=[N-]",
+        "CC(C)N(N=[N-])C(C)C",
+        "CC(C)(C)N(N=[N-])C(C)(C)C",
+        "CC(C)CN(CC(C)C)N=[N-]",
+    ],
+)
+def test_aminodiazenide_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc(-c2ccc[o+]c2-c2ccccc2)cc1",
         "c1ccc(-c2cccc(-c3ccccc3)[o+]2)cc1",
     ],

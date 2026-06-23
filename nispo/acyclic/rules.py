@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import combinations
@@ -77,6 +78,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     terminal_imine_azanide_name = _name_terminal_imine_azanide(mol)
     if terminal_imine_azanide_name:
         return AcyclicNameRecord(terminal_imine_azanide_name)
+
+    aminodiazenide_name = _name_aminodiazenide(mol)
+    if aminodiazenide_name:
+        return AcyclicNameRecord(aminodiazenide_name)
 
     dialkoxy_azanide_name = _name_dialkoxy_azanide(mol)
     if dialkoxy_azanide_name:
@@ -358,6 +363,84 @@ def _name_terminal_imine_azanide(mol) -> str:
         return ""
     carbon_name = branch_prefix(mol, carbon_idx, nitrogen_idx)
     return carbon_name + "azanide" if carbon_name else ""
+
+
+def _name_aminodiazenide(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    if sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != -1:
+        return ""
+    motifs: list[tuple[int, int, int]] = []
+    for terminal in mol.GetAtoms():
+        if terminal.GetSymbol() != "N" or terminal.GetFormalCharge() != -1 or terminal.IsInRing():
+            continue
+        tidx = terminal.GetIdx()
+        heavy = [nbr.GetIdx() for nbr in terminal.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 1:
+            continue
+        diazene_idx = heavy[0]
+        diazene = mol.GetAtomWithIdx(diazene_idx)
+        diazene_bond = mol.GetBondBetweenAtoms(tidx, diazene_idx)
+        if (
+            diazene.GetSymbol() != "N"
+            or diazene.GetFormalCharge() != 0
+            or diazene.IsInRing()
+            or diazene_bond is None
+            or diazene_bond.GetBondType() != Chem.BondType.DOUBLE
+        ):
+            continue
+        owners = []
+        for nbr in diazene.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == tidx or nbr.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(diazene_idx, nidx)
+            if (
+                nbr.GetSymbol() == "N"
+                and nbr.GetFormalCharge() == 0
+                and not nbr.IsInRing()
+                and bond is not None
+                and bond.GetBondType() == Chem.BondType.SINGLE
+            ):
+                owners.append(nidx)
+        if len(owners) == 1:
+            motifs.append((tidx, diazene_idx, owners[0]))
+    if len(motifs) != 1:
+        return ""
+    terminal_idx, diazene_idx, amino_idx = motifs[0]
+    substituents = []
+    covered = {terminal_idx, diazene_idx, amino_idx}
+    for nbr in mol.GetAtomWithIdx(amino_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == diazene_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(amino_idx, nidx)
+        if nbr.GetSymbol() != "C" or bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        prefix = branch_prefix(mol, nidx, amino_idx)
+        if not prefix or prefix.startswith("(") or "[" in prefix or "]" in prefix or " " in prefix:
+            return ""
+        substituents.append(prefix)
+        covered.update(collect_subtree(mol, nidx, amino_idx))
+    if covered != set(range(mol.GetNumAtoms())) or len(substituents) != 2:
+        return ""
+    amino_prefix = _aminodiazenide_amino_prefix(substituents)
+    return amino_prefix + "diazenide" if amino_prefix else ""
+
+
+def _aminodiazenide_amino_prefix(substituents: Sequence[str]) -> str:
+    counts = Counter(substituents)
+    if len(counts) == 1:
+        name, count = next(iter(counts.items()))
+        if count != 2:
+            return ""
+        return f"di{name}amino" if name.isalpha() else f"bis({name})amino"
+    if len(substituents) != 2:
+        return ""
+    first, second = sorted(substituents)
+    if first.startswith("(") or second.startswith("("):
+        return ""
+    return f"{first}({second})amino"
 
 
 def _name_dialkoxy_azanide(mol) -> str:

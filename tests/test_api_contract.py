@@ -2531,6 +2531,37 @@ def test_phosphate_ester_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[SH2](=O)C1COC1",
+        "CN=[SH](=O)c1cccc(N)c1",
+        "Cc1ccoc1[SH2](C)=O",
+    ],
+)
+def test_lambda_sulfanone_parent_candidates_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC(C)c1cc(F)cc(C(C)C)c1NC(=O)N=[S@](N)(=O)c1cnc(C(C)(C)O)s1",
+        "[CH2+]C(C)(C)OC(=O)N=S(C)(=O)c1cccc2ncccc12",
+    ],
+)
+def test_lambda_sulfanone_parent_controls_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCc1cc(OP(=O)(Cc2ccccc2)OCC)c(-c2cccc(C)c2)c(OP(=O)(Cc2ccccc2)OCC)c1",
         "CCCCCc1cc(OP(C)(=O)OCC)c(-c2cccc(C)c2)c(OP(C)(=O)OCC)c1",
     ],

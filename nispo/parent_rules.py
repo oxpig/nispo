@@ -6984,6 +6984,33 @@ class SulfonimidamideParentRule:
             )
 
 
+class LambdaSulfanoneParentRule:
+    family = "lambda-sulfanone-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        seen: set[str] = set()
+        for sulfur_idx, ligand_records in _lambda_sulfanone_parent_records(mol, self._Chem):
+            ligand_text = "".join(f"({name})" for _atom_idx, name in ligand_records)
+            name = f"{ligand_text}-lambda6-sulfanone"
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(sulfur_idx, tuple(atom_idx for atom_idx, _name in ligand_records)),
+                parent_atoms=_heavy_atom_indices(mol),
+                source_family="lambda-sulfanone",
+                estimated_length=len(name),
+            )
+
+
 class UreaRetainedParentRule:
     family = "urea-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -12624,6 +12651,124 @@ def _sulfonimidamide_motifs(mol, Chem) -> list[dict]:
     return motifs
 
 
+def _lambda_sulfanone_parent_records(mol, Chem) -> list[tuple[int, tuple[tuple[int, str], ...]]]:
+    if not _lambda_sulfanone_formal_charges_supported(mol):
+        return []
+    records: list[tuple[int, tuple[tuple[int, str], ...]]] = []
+    for sulfur in mol.GetAtoms():
+        if (
+            sulfur.GetSymbol() != "S"
+            or sulfur.GetFormalCharge() != 0
+            or sulfur.IsInRing()
+            or int(sulfur.GetTotalValence()) != 6
+            or sulfur.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        ):
+            continue
+        sulfur_idx = sulfur.GetIdx()
+        double_o: list[int] = []
+        double_n: list[int] = []
+        single_c: list[int] = []
+        ok = True
+        for neighbor in sulfur.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sulfur_idx, neighbor_idx)
+            if bond is None:
+                ok = False
+                break
+            bond_type = bond.GetBondType()
+            if (
+                neighbor.GetSymbol() == "O"
+                and neighbor.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.DOUBLE
+            ):
+                double_o.append(neighbor_idx)
+            elif (
+                neighbor.GetSymbol() == "N"
+                and neighbor.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.DOUBLE
+            ):
+                double_n.append(neighbor_idx)
+            elif neighbor.GetSymbol() == "C" and bond_type == Chem.BondType.SINGLE:
+                single_c.append(neighbor_idx)
+            elif neighbor.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(double_o) != 1 or len(double_n) > 1 or len(single_c) > 2:
+            continue
+        ligands: list[tuple[int, str]] = []
+        for atom_idx in sorted(single_c):
+            ligand = _lambda_sulfanone_carbon_ligand(mol, atom_idx, sulfur_idx)
+            if not ligand:
+                ok = False
+                break
+            ligands.append((atom_idx, ligand))
+        if not ok:
+            continue
+        for atom_idx in sorted(double_n):
+            ligand = _lambda_sulfanone_imino_ligand(mol, atom_idx, sulfur_idx)
+            if not ligand:
+                ok = False
+                break
+            ligands.append((atom_idx, ligand))
+        if not ok or len(ligands) < 2 or len(ligands) > 3:
+            continue
+        records.append((sulfur_idx, tuple(ligands)))
+    return records
+
+
+def _lambda_sulfanone_formal_charges_supported(mol) -> bool:
+    charged_atoms = [atom for atom in mol.GetAtoms() if atom.GetFormalCharge()]
+    if not charged_atoms:
+        return True
+    nitro_atoms: set[int] = set()
+    for atom in charged_atoms:
+        if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 1:
+            continue
+        oxygen_neighbors = [
+            neighbor
+            for neighbor in atom.GetNeighbors()
+            if neighbor.GetSymbol() == "O" and neighbor.GetFormalCharge() == -1
+        ]
+        if not oxygen_neighbors:
+            continue
+        nitro_atoms.add(atom.GetIdx())
+        nitro_atoms.update(neighbor.GetIdx() for neighbor in oxygen_neighbors)
+    return all(atom.GetIdx() in nitro_atoms for atom in charged_atoms)
+
+
+def _lambda_sulfanone_carbon_ligand(mol, atom_idx: int, sulfur_idx: int) -> str:
+    ligand = _retained_parent_substituent_alias(_simple_or_branch_prefix(mol, atom_idx, sulfur_idx))
+    if not _safe_lambda_sulfanone_ligand(ligand, max_len=160):
+        return ""
+    return ligand
+
+
+def _lambda_sulfanone_imino_ligand(mol, nitrogen_idx: int, sulfur_idx: int) -> str:
+    substituents = _external_substituent_names(mol, nitrogen_idx, sulfur_idx)
+    if substituents is None or len(substituents) > 1:
+        return ""
+    if not substituents:
+        return "imino"
+    substituent = _retained_parent_substituent_alias(substituents[0])
+    if not _safe_lambda_sulfanone_ligand(substituent, max_len=90):
+        return ""
+    if any(fragment in substituent for fragment in ("acetyl", "boc", "carbonyl", "carbam", "urea")):
+        return ""
+    return substituent + "imino"
+
+
+def _safe_lambda_sulfanone_ligand(name: str, *, max_len: int) -> bool:
+    if not name or len(name) > max_len:
+        return False
+    if " " in name or "[" in name or "]" in name:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9,().'\-]+", name):
+        return False
+    if any(fragment in name for fragment in ("lambda", "sulfanone", "sulfonimidamide")):
+        return False
+    return True
+
+
 def _single_external_substituent_name(mol, atom_idx: int, blocked_idx: int) -> str:
     substituents = _external_substituent_names(mol, atom_idx, blocked_idx)
     if substituents is None or len(substituents) != 1:
@@ -18226,6 +18371,7 @@ def parent_rules(Chem) -> tuple:
     sulfonamide = SulfonamideRetainedParentRule(Chem)
     n_substituted_sulfonamide = SulfonamideParentRule(Chem)
     sulfonimidamide = SulfonimidamideParentRule(Chem)
+    lambda_sulfanone = LambdaSulfanoneParentRule(Chem)
     urea = UreaRetainedParentRule(Chem)
     sydnone_urea_amidate = SydnoneUreaAmidateRetainedParentRule(Chem)
     glutarimide = GlutarimideRetainedParentRule(Chem)
@@ -18439,6 +18585,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
         RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), n_substituted_sulfonamide.candidates),
         RuleSpec("sulfonimidamide-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonimidamide.candidates),
+        RuleSpec("lambda-sulfanone-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), lambda_sulfanone.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
         RuleSpec("sydnone-urea-amidate-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom, functional_skeleton_signal), sydnone_urea_amidate.candidates),
         RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),

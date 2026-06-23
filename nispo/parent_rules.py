@@ -1477,6 +1477,7 @@ class PhosphanyliumOxideParentRule:
         pidx = phosphorus.GetIdx()
         oxide_idx = None
         oxido_idx = None
+        hydroxy_idx = None
         ligand_idx = None
         for nbr in phosphorus.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -1500,23 +1501,36 @@ class PhosphanyliumOxideParentRule:
                 if oxido_idx is not None:
                     return
                 oxido_idx = nidx
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and bond.GetBondType() == self._Chem.BondType.SINGLE
+                and not any(other.GetIdx() != pidx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+            ):
+                if hydroxy_idx is not None:
+                    return
+                hydroxy_idx = nidx
             elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
                 if ligand_idx is not None:
                     return
                 ligand_idx = nidx
             elif nbr.GetAtomicNum() > 1:
                 return
-        if oxide_idx is None or oxido_idx is None or ligand_idx is None:
+        if oxide_idx is None or ligand_idx is None:
+            return
+        if (oxido_idx is None) == (hydroxy_idx is None):
             return
         ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
         if not ligand:
             return
-        covered = {pidx, oxide_idx, oxido_idx}
+        terminal_single_oxygen = oxido_idx if oxido_idx is not None else hydroxy_idx
+        covered = {pidx, oxide_idx, terminal_single_oxygen}
         covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
         if covered != atom_set:
             return
         ligand = _strip_outer_parentheses(ligand)
-        name = f"oxido({ligand})phosphanylium oxide"
+        prefix = "oxido" if oxido_idx is not None else "hydroxy"
+        name = f"{prefix}({ligand})phosphanylium oxide"
         yield NameCandidate(
             name,
             self.family,

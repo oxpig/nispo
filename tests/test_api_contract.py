@@ -2379,6 +2379,11 @@ def test_large_neutral_phosphine_oxide_parents_roundtrip_with_opsin(input_smiles
         "C=P([O-])([O-])[O-]",
         "CCCCC(CC)C(c1ccccc1)(c1ccccc1)P(=O)([O-])[O-]",
         "CP([O-])([O-])=S",
+        "CP([O-])([O-])([O-])c1ccccc1",
+        "CC(C)CCCCCCCP([O-])([O-])([O-])c1ccccc1",
+        "CC(C)(O)[PH]([O-])([O-])[O-]",
+        "[O-][PH]([O-])([O-])CCCCCCCCCC(c1ccccc1)c1ccccc1",
+        "[O-][PH]([O-])([O-])C1CCC(c2ccccc2)(c2ccccc2)CC1",
     ],
 )
 def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):

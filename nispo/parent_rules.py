@@ -7587,6 +7587,18 @@ def _phosphinate_carbon_ligand_text(mol, carbon_ligands: Sequence[int], phosphor
     return "".join(_parenthesized_if_complex(name) for name in ordered)
 
 
+def _trioxido_phosphorane_carbon_ligand_text(mol, carbon_ligands: Sequence[int], phosphorus_idx: int) -> str:
+    if len(carbon_ligands) != 2:
+        return ""
+    records = []
+    for ligand_idx in carbon_ligands:
+        name = _strip_outer_parentheses(_phosphorus_attached_prefix(mol, ligand_idx, phosphorus_idx))
+        if not name:
+            return ""
+        records.append((mol.GetAtomWithIdx(ligand_idx).IsInRing(), _needs_substituent_parentheses(name), name))
+    return "".join(f"({name})" for _, _, name in sorted(records))
+
+
 def _hetero_ligand_owner_names(mol, ligand_atoms: Sequence[int], phosphorus_idx: int) -> list[str]:
     names = []
     for ligand_idx in ligand_atoms:
@@ -7909,6 +7921,42 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             )
             if name:
                 names.append(name)
+            continue
+
+        if (
+            double_oxygen_count == 0
+            and anionic_oxygen_count == 3
+            and len(carbon_single_ligands) == 2
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            ligand_text = _trioxido_phosphorane_carbon_ligand_text(mol, carbon_single_ligands, pidx)
+            if ligand_text:
+                names.append(f"trioxido{ligand_text}phosphorane")
+            continue
+
+        if (
+            double_oxygen_count == 0
+            and anionic_oxygen_count == 3
+            and len(carbon_single_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            ligand_atoms = _collect_component_atoms(mol, carbon_single_ligands[0], pidx)
+            if any(mol.GetAtomWithIdx(idx).GetSymbol() == "P" for idx in ligand_atoms):
+                continue
+            prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            if prefix:
+                ligand = prefix if prefix.startswith("(") else f"({prefix})"
+                names.append(f"hydrido(trioxido){ligand}phosphorane")
             continue
 
         if (

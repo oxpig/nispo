@@ -6819,6 +6819,7 @@ _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES = {
     },
     "functional-generic-bicyclic-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
     "fused-retained-parent": {"retained-amide-parent"},
+    "generated-fused-parent": {"preferred-acyclic-skeleton-with-ring-substituents"},
     "guanidine-retained-parent": {"acyclic-parent"},
     "phosphorus-acid-parent": {"acyclic-parent"},
     "retained-topology-replacement-fused-parent": {
@@ -6833,6 +6834,15 @@ _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES = {
     "sulfonamide-retained-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
     "sulfonohydrazide-retained-parent": {"acyclic-skeleton-with-ring-substituents"},
 }
+_GENERATED_FUSED_EXTERNAL_STEREO_ACYCLIC_TEMPLATE_CAPABLE = frozenset(
+    {
+        "benzo[1,2-d]pyrazole",
+        "benzo[1,2-d]thiazole",
+        "imidazo[4,5-a]benzene",
+        "pyrimido[4,5-c]pyridine",
+        "thieno[2,3-a]benzene",
+    }
+)
 _EXTERNAL_BOND_STEREO_FRAGILITY_PARENT_FAMILIES = frozenset(
     _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES
 )
@@ -7633,6 +7643,11 @@ def _internal_bond_stereo_parent_alternative_for_fragile_choice(
         return None
     if not candidate.external_bond_stereo_parent_fragile:
         return None
+    if (
+        candidate.family == "generated-fused-parent"
+        and not _generated_fused_external_stereo_acyclic_switch_supported(candidate)
+    ):
+        return None
     if candidate.stereo is None or not candidate.stereo.bond_descriptors:
         return None
     selected_key = next((key for key, item in keyed_items if item is selected), None)
@@ -7663,6 +7678,28 @@ def _internal_bond_stereo_parent_alternative_for_fragile_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generated_fused_external_stereo_acyclic_switch_supported(candidate: NameCandidate) -> bool:
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if candidate.template_name not in _GENERATED_FUSED_EXTERNAL_STEREO_ACYCLIC_TEMPLATE_CAPABLE:
+        return False
+    if candidate.render_rank != 1:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) not in {9, 10}:
+        return False
+    if candidate.parent_aromatic_atom_count != len(candidate.parent_atoms):
+        return False
+    if candidate.suffixes:
+        return False
+    if candidate.molecule_abs_formal_charge_sum:
+        return False
+    return True
 
 
 def _has_stable_bis_indolinylidene_parent(name: str) -> bool:

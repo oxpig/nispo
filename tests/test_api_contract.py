@@ -4638,6 +4638,40 @@ def test_acyl_owner_dicarboxylate_ester_parent_roundtrips_with_opsin(input_smile
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"C/C(=N\N(CC(=O)O)C(=O)c1cc2ccccc2s1)c1ccccn1",
+        r"CN(C)C(=O)/C=C/CNCCOc1ccc(/C(=C(/CC(F)(F)F)c2ccccc2)c2ccc3[nH]nc(F)c3c2)cn1",
+    ],
+)
+def test_external_alkene_stereo_prefers_internal_acyclic_parent_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"Cc1ncn(-c2ccc(/C=N/N=c3\cc[nH]c4cc(Cl)ccc34)cc2)c1C",
+        r"CCO/N=c1\[nH]cnc2c1ncn2[C@@H]1O[C@H]([C@](C)(O)c2ccc(Cl)c(Cl)c2)[C@@H](O)[C@H]1O",
+        r"CCC(C=CC(N)=O)(CC)NCCOc1ccc(/C(=C(/CC(F)(F)F)c2ccccc2)c2ccc3n[nH]c(F)c3c2)cn1",
+        r"CN(C)C(=O)C=CCNCCOc1ccc(/C(=C(/CC(F)(F)F)c2ccccc2)c2ccc3n[nH]c(F)c3c2)cn1",
+        r"CC(O)(c1ccc(Cl)c(Cl)c1)[C@H]1O[C@@H](n2cnc3/c(=N/O)nc[nH]c32)[C@H](O)[C@@H]1O",
+        r"C#Cc1cn([C@@H]2O[C@H]([C@H](O)c3ccc(Cl)cc3)[C@@H](O)[C@H]2O)c2[nH]cn/c(=N\OC)c12",
+    ],
+)
+def test_external_alkene_stereo_generated_fused_controls_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -576,6 +576,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _acyclic_parent_alternative_for_unsaturated_neutral_amine_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _retained_amide_alternative_for_spiro_carboxamide_choice(
             keyed_items,
             selected_item,
@@ -1272,6 +1279,83 @@ def _graph_parent_alternative_for_neutral_amine_choice(
                 (
                     candidate_key[0],
                     render_rank,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_parent_alternative_for_unsaturated_neutral_amine_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "neutral-amine-parent":
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) < 10:
+        return None
+    if selected_candidate.parent_internal_unsaturated_bond_count < 2:
+        return None
+    if selected_candidate.parent_external_unsaturated_bond_count:
+        return None
+    selected_element_counts = dict(selected_candidate.parent_element_counts)
+    if selected_element_counts.get("N") != 1:
+        return None
+    if any(element not in {"C", "N"} for element in selected_element_counts):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-parent":
+            continue
+        if candidate.parent_atoms != selected_candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.parent_element_counts != selected_candidate.parent_element_counts:
+            continue
+        if candidate.parent_internal_unsaturated_bond_count < selected_candidate.parent_internal_unsaturated_bond_count:
+            continue
+        if candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 180:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 40:
+            continue
+        if candidate_key[0] > selected_key[0] + 40:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name) - item.selection_bonus,
                     len(item.name),
                     candidate_key,
                 ),

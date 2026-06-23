@@ -4641,6 +4641,23 @@ def test_acyl_owner_dicarboxylate_ester_parent_roundtrips_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        r"C=CCCN(C)CCC=C",
+        r"CCCCC/C=C\C/C=C\CCCCCCC/C=C/C(CCCCCCCCC)N(C)C",
+        r"CCCCCC=CCC=CCCCCCCCCC(=CCCN(C)C)CCCCCCCC/C=C\C/C=C\CCCCC",
+        r"CCCCC/C=C\C/C=C\CCCCCCCCC(=CCCCCN(C)C)CCCCCCCC/C=C\C/C=C\CCCCC",
+    ],
+)
+def test_unsaturated_tertiary_amine_acyclic_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         r"C/C(=N\N(CC(=O)O)C(=O)c1cc2ccccc2s1)c1ccccn1",
         r"CN(C)C(=O)/C=C/CNCCOc1ccc(/C(=C(/CC(F)(F)F)c2ccccc2)c2ccc3[nH]nc(F)c3c2)cn1",
     ],

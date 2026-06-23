@@ -4490,23 +4490,29 @@ def _n_substituted_imine_oxide_record(mol, Chem, nitrogen_idx: int) -> dict | No
         for nbr in imine.GetNeighbors()
         if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
     ]
-    if len(carbon_neighbors) != 1:
+    if len(carbon_neighbors) > 1:
         return None
     imine_bond = mol.GetBondBetweenAtoms(nitrogen_idx, imine_idx)
     stereo = _bond_stereo_descriptor(Chem, imine_bond)
-    if not stereo or _has_nonaromatic_carbon_double_bond_except(mol, Chem, imine_bond.GetIdx()):
+    if _has_nonaromatic_carbon_double_bond_except(mol, Chem, imine_bond.GetIdx()):
         return None
-    path = _terminal_imine_oxide_parent_path(mol, Chem, imine_idx, nitrogen_idx)
-    if not path:
-        return None
-    prefixes = _path_substituent_prefixes(
-        mol,
-        path,
-        skip_bonds={_bond_key(nitrogen_idx, imine_idx)},
-        skip_plain_hydrogen=True,
-    )
-    if prefixes is None:
-        return None
+    if carbon_neighbors:
+        if not stereo:
+            return None
+        path = _terminal_imine_oxide_parent_path(mol, Chem, imine_idx, nitrogen_idx)
+        if not path:
+            return None
+        prefixes = _path_substituent_prefixes(
+            mol,
+            path,
+            skip_bonds={_bond_key(nitrogen_idx, imine_idx)},
+            skip_plain_hydrogen=True,
+        )
+        if prefixes is None:
+            return None
+    else:
+        path = (imine_idx,)
+        prefixes = ()
     path_set = set(path)
     covered.update(path_set)
     for atom_idx in path:
@@ -4606,7 +4612,7 @@ def _n_substituted_imine_oxide_name(mol, record: dict) -> str:
     prefixes = [("N", record["n_substituent"]), *record["prefixes"]]
     prefix_text = _format_prefixes(prefixes)
     name = _join_prefix_parent(prefix_text, f"{parent}-1-imine oxide")
-    return f"({record['stereo']})-{name}"
+    return f"({record['stereo']})-{name}" if record["stereo"] else name
 
 
 def _amine_oxide_retained_parent_names(mol, Chem) -> list[str]:

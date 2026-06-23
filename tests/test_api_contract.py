@@ -131,6 +131,21 @@ def test_functionalized_ethylidene_prefixes_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C=[N+]([O-])c1ccc(C(=O)O)cc1",
+        "C=[N+]([O-])c1ccccc1C",
+    ],
+)
+def test_terminal_methanimine_oxide_retained_parent_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Cc1c(CN(C)C(=O)OCc2ccccc2)oc2cccc(C#N)c12",
         "CCCCNC(=O)NC1CCC(CN(C)C(=O)OCc2ccccc2)CC1",
         "COCOc1cc2oc(=O)cc(COC(=O)N(C)CCN)c2cc1Br",

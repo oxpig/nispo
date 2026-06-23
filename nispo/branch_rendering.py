@@ -399,7 +399,7 @@ def _retained_acyl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | N
     if len(ligand_candidates) != 1:
         return None
     ligand = ligand_candidates[0]
-    retained = {"ethen-1-yl": "acroyl", "methyl": "acetyl"}.get(ligand.text)
+    retained = {"ethen-1-yl": "acryloyl", "methyl": "acetyl"}.get(ligand.text)
     if retained is None:
         return None
     return _prefix_candidate(
@@ -969,7 +969,7 @@ def _ethenylcarbonyl_amino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandi
     if len(heavy) != 1:
         return None
     acyl = _retained_acyl_prefix(mol, heavy[0], idx)
-    if acyl is None or acyl.text != "acroyl":
+    if acyl is None or acyl.text != "acryloyl":
         return None
     return _prefix_candidate(
         "(ethen-1-ylcarbonyl)amino",

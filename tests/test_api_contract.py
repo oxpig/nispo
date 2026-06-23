@@ -76,6 +76,15 @@ def test_positive_replacement_heterocycle_parent_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize("input_smiles", ["C=CC(=O)[N-]C", "C=CC(=O)[N-]C(C)=O"])
+def test_acryloyl_retained_acyl_prefix_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

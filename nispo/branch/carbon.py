@@ -707,6 +707,10 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     carboxymethyl = _terminal_carboxymethyl_prefix(mol, attached_idx, idx, parent_idx)
     if carboxymethyl:
         return carboxymethyl
+    if attached.GetSymbol() == "C" and attached.GetFormalCharge() == 0 and not attached.IsInRing():
+        alpha_keto_carboxylatoethyl = _alpha_keto_carboxylatoethyl_prefix(mol, attached_idx, idx, parent_idx)
+        if alpha_keto_carboxylatoethyl:
+            return alpha_keto_carboxylatoethyl
     carbamoyloxy_methyl = _carbamoyloxy_methyl_prefix(mol, attached_idx, idx, parent_idx)
     if carbamoyloxy_methyl:
         return carbamoyloxy_methyl
@@ -880,6 +884,82 @@ def _terminal_carboxymethyl_prefix(mol, carbonyl_idx: int, methylene_idx: int, p
     if oxygen.GetFormalCharge() == 0:
         return "carboxymethyl"
     return ""
+
+
+def _alpha_keto_carboxylatoethyl_prefix(mol, keto_idx: int, methylene_idx: int, parent_idx: int) -> str:
+    methylene = mol.GetAtomWithIdx(methylene_idx)
+    if methylene.GetSymbol() != "C" or methylene.GetFormalCharge() != 0 or methylene.IsInRing():
+        return ""
+    if methylene.GetIsotope() or _path_has_isotopic_hydrogen(mol, (methylene_idx,)):
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(methylene_idx, parent_idx)
+    keto_bond = mol.GetBondBetweenAtoms(methylene_idx, keto_idx)
+    if (
+        parent_bond is None
+        or keto_bond is None
+        or parent_bond.GetBondType() != Chem.BondType.SINGLE
+        or keto_bond.GetBondType() != Chem.BondType.SINGLE
+    ):
+        return ""
+    heavy = [
+        nbr.GetIdx()
+        for nbr in methylene.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1
+    ]
+    if heavy != [keto_idx]:
+        return ""
+    keto = mol.GetAtomWithIdx(keto_idx)
+    if keto.GetSymbol() != "C" or keto.GetFormalCharge() != 0 or keto.IsInRing() or keto.GetIsotope():
+        return ""
+    double_oxygen = []
+    terminal_carboxyl = []
+    for nbr in keto.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == methylene_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(keto_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return ""
+            double_oxygen.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            if not _terminal_carboxylate(mol, nidx, keto_idx):
+                return ""
+            terminal_carboxyl.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return ""
+    if len(double_oxygen) != 1 or len(terminal_carboxyl) != 1:
+        return ""
+    return "2-carboxylato-2-oxoethyl"
+
+
+def _terminal_carboxylate(mol, carbonyl_idx: int, parent_idx: int) -> bool:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return False
+    bond_to_parent = mol.GetBondBetweenAtoms(carbonyl_idx, parent_idx)
+    if bond_to_parent is None or bond_to_parent.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    double_oxygen = []
+    single_oxygen = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+                return False
+            double_oxygen.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            if nbr.GetIsotope() or any(extra.GetIdx() != carbonyl_idx and extra.GetAtomicNum() > 1 for extra in nbr.GetNeighbors()):
+                return False
+            single_oxygen.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return False
+    if len(double_oxygen) != 1 or len(single_oxygen) != 1:
+        return False
+    return mol.GetAtomWithIdx(single_oxygen[0]).GetFormalCharge() < 0
 
 
 def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:

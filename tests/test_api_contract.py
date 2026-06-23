@@ -2958,6 +2958,7 @@ def test_intrinsic_pyrylium_ring_charge_not_duplicated(input_smiles):
         "CN(C(=N[N+](=O)[O-])N)C",
         "CNC(=N[N+](=O)[O-])NC[C@H]1CCOC1",
         "CNC(=N[N+](=O)[O-])NCc1cnc(Cl)s1",
+        r"CN/C(=N\[N+](=O)[O-])NCc1cnc(Cl)s1",
     ],
 )
 def test_nitroguanidine_retained_parents_roundtrip_with_opsin(input_smiles):
@@ -2966,6 +2967,12 @@ def test_nitroguanidine_retained_parents_roundtrip_with_opsin(input_smiles):
 
     parsed_smiles = _opsin_parse_name(generated_name)
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_nitroguanidine_external_hydrazone_stereo_remains_unsupported():
+    input_smiles = r"CCCC/C=N/N(Cc1ccc(Cl)nc1)C(N)=N[N+](=O)[O-]"
+
+    assert smiles_to_iupac(input_smiles) == ""
 
 
 @pytest.mark.parametrize(

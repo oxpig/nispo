@@ -5954,8 +5954,6 @@ def _charged_iminium_n_substituents(mol, nitrogen_idx: int, carbon_idx: int) -> 
 
 def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
     names = []
-    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
-        return names
     atom_set = set(range(mol.GetNumAtoms()))
     for carbon in mol.GetAtoms():
         if carbon.GetSymbol() != "C" or carbon.IsInRing() or carbon.GetFormalCharge() != 0:
@@ -5983,6 +5981,8 @@ def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
         if len(imino_nitro) != 1 or len(single_nitrogens) != 2:
             continue
         imino_idx, nitro_atoms = imino_nitro[0]
+        if not _nitroguanidine_core_stereo_compatible(mol, Chem, cidx, imino_idx):
+            continue
         covered.add(imino_idx)
         covered.update(nitro_atoms)
         records = []
@@ -6009,6 +6009,17 @@ def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def _nitroguanidine_core_stereo_compatible(mol, Chem, carbon_idx: int, imino_idx: int) -> bool:
+    core_bond = frozenset((carbon_idx, imino_idx))
+    for bond in mol.GetBonds():
+        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            continue
+        bond_atoms = frozenset((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))
+        if bond_atoms != core_bond:
+            return False
+    return True
 
 
 def _nitroguanidine_imino_nitro_atoms(mol, Chem, imino_nidx: int, carbon_idx: int) -> set[int]:

@@ -225,6 +225,8 @@ def _phosphorus_oxy_prefix(mol, phosphorus_idx: int, oxygen_idx: int) -> str:
     if hydroxy_count == 0 and oxido_count == 0 and len(ligand_records) == 2:
         if any(_phosphorus_oxy_ligand_needs_parentheses(ligand) for _ligand_class, ligand in ligand_records):
             return ""
+        if {ligand_class for ligand_class, _ligand in ligand_records} == {0, 1}:
+            return _phosphorus_oxy_distinct_ligand_text(ligand_records) + "phosphoryloxy"
         counts = Counter(ligand_records)
         parts = []
         for (_ligand_class, ligand) in sorted(counts):
@@ -286,6 +288,11 @@ def _phosphorus_oxy_ligand_unit(ligand: str) -> str:
     if _phosphorus_oxy_ligand_needs_parentheses(ligand):
         return f"({ligand})"
     return ligand
+
+
+def _phosphorus_oxy_distinct_ligand_text(ligand_records: Sequence[tuple[int, str]]) -> str:
+    first, second = sorted(ligand_records)
+    return _phosphorus_oxy_ligand_unit(first[1]) + f"({_phosphorus_oxy_ligand_unit(second[1])})"
 
 
 def _phosphorus_oxy_ligand_class(atom) -> int:

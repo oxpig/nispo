@@ -4331,6 +4331,15 @@ def test_phosphite_ester_parent_survives_fact_ranker_roundtrip_with_opsin(input_
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_mixed_carbon_alkoxy_phosphoryloxy_branch_roundtrips_with_opsin():
+    input_smiles = "CCCCCc1cc(OP(=O)(OC)C2CCCC2)c(-c2cccc(C)c2)c(OP(=O)(OC)C2CCCC2)c1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

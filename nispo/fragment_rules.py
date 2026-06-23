@@ -343,6 +343,7 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
         or _small_retained_template_name(mol, Chem)
         or _isodiazene_name(mol, Chem)
         or _azanol_name(mol, Chem)
+        or _nitronic_acid_or_ester_name(mol, Chem)
         or _phosphorus_oxo_cation_name(mol, Chem)
         or _sulfur_oxo_cation_name(mol, Chem)
         or _peracetate_name(mol, Chem)
@@ -394,6 +395,8 @@ def _small_standalone_polyatomic_name(mol, Chem) -> str:
         or _haloazanide_name(mol, Chem)
         or _acetonide_name(mol, Chem)
         or _nitronite_name(mol, Chem)
+        or _peroxycarbonate_name(mol, Chem)
+        or _peroxyoxalate_name(mol, Chem)
     )
 
 
@@ -1387,6 +1390,140 @@ def _nitronite_name(mol, Chem) -> str:
     if cn_bond.GetBondType() != Chem.BondType.DOUBLE or no_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
     return "nitronite" if oxygen.GetFormalCharge() == -1 else ""
+
+
+def _peroxycarbonate_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 1, "O": 4} or _total_charge(mol) != -2:
+        return ""
+    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    double_oxygen = terminal_oxido = peroxy_oxido = 0
+    for nbr in carbon.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nbr.GetIdx())
+        if nbr.GetSymbol() != "O" or bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_oxygen += 1
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        heavy = [other for other in nbr.GetNeighbors() if other.GetIdx() != carbon.GetIdx() and other.GetAtomicNum() > 1]
+        if not heavy and nbr.GetFormalCharge() < 0:
+            terminal_oxido += 1
+            continue
+        if len(heavy) == 1 and heavy[0].GetSymbol() == "O" and heavy[0].GetFormalCharge() < 0:
+            peroxy_bond = mol.GetBondBetweenAtoms(nbr.GetIdx(), heavy[0].GetIdx())
+            if peroxy_bond is None or peroxy_bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+            peroxy_oxido += 1
+            continue
+        return ""
+    return "peroxycarbonate" if double_oxygen == 1 and terminal_oxido == 1 and peroxy_oxido == 1 else ""
+
+
+def _peroxyoxalate_name(mol, Chem) -> str:
+    if _element_counts(mol) != {"C": 2, "O": 5} or _total_charge(mol) != -2:
+        return ""
+    carbons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C"]
+    cc_bond = mol.GetBondBetweenAtoms(carbons[0].GetIdx(), carbons[1].GetIdx())
+    if cc_bond is None or cc_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    has_carboxylate = False
+    has_peroxycarbonyl = False
+    for carbon in carbons:
+        double_oxygen = terminal_oxido = peroxy_oxido = 0
+        for nbr in carbon.GetNeighbors():
+            if nbr.GetSymbol() == "C":
+                continue
+            bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nbr.GetIdx())
+            if nbr.GetSymbol() != "O" or bond is None:
+                return ""
+            if bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+                double_oxygen += 1
+                continue
+            if bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+            heavy = [other for other in nbr.GetNeighbors() if other.GetIdx() != carbon.GetIdx() and other.GetAtomicNum() > 1]
+            if not heavy and nbr.GetFormalCharge() < 0:
+                terminal_oxido += 1
+                continue
+            if len(heavy) == 1 and heavy[0].GetSymbol() == "O" and heavy[0].GetFormalCharge() < 0:
+                peroxy_bond = mol.GetBondBetweenAtoms(nbr.GetIdx(), heavy[0].GetIdx())
+                if peroxy_bond is None or peroxy_bond.GetBondType() != Chem.BondType.SINGLE:
+                    return ""
+                peroxy_oxido += 1
+                continue
+            return ""
+        has_carboxylate = has_carboxylate or (double_oxygen == 1 and terminal_oxido == 1 and peroxy_oxido == 0)
+        has_peroxycarbonyl = has_peroxycarbonyl or (double_oxygen == 1 and terminal_oxido == 0 and peroxy_oxido == 1)
+    return "peroxyoxalate" if has_carboxylate and has_peroxycarbonyl else ""
+
+
+def _nitronic_acid_or_ester_name(mol, Chem) -> str:
+    if _total_charge(mol) != 0:
+        return ""
+    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0]
+    if len(nitrogens) != 1:
+        return ""
+    nitrogen = nitrogens[0]
+    carbon = None
+    oxido = None
+    neutral_oxygen = None
+    for nbr in nitrogen.GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), nbr.GetIdx())
+        if bond is None:
+            return ""
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            carbon = nbr
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() < 0:
+            oxido = nbr
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == 0:
+            neutral_oxygen = nbr
+        else:
+            return ""
+    if carbon is None or oxido is None or neutral_oxygen is None:
+        return ""
+    carbon_heavy = [
+        nbr for nbr in carbon.GetNeighbors() if nbr.GetIdx() != nitrogen.GetIdx() and nbr.GetAtomicNum() > 1
+    ]
+    oxygen_heavy = [
+        nbr for nbr in neutral_oxygen.GetNeighbors() if nbr.GetIdx() != nitrogen.GetIdx() and nbr.GetAtomicNum() > 1
+    ]
+    if not carbon_heavy and not oxygen_heavy and neutral_oxygen.GetTotalNumHs() == 1:
+        return "nitronic acid"
+    if len(carbon_heavy) == 1 and not oxygen_heavy and neutral_oxygen.GetTotalNumHs() == 1:
+        vinyl_bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), carbon_heavy[0].GetIdx())
+        if (
+            carbon_heavy[0].GetSymbol() == "C"
+            and vinyl_bond is not None
+            and vinyl_bond.GetBondType() == Chem.BondType.DOUBLE
+            and carbon_heavy[0].GetTotalNumHs() == 2
+        ):
+            return "aci-nitroethene"
+    if not carbon_heavy and len(oxygen_heavy) == 1:
+        if _is_terminal_ethoxy_owner(mol, Chem, oxygen_heavy[0].GetIdx(), neutral_oxygen.GetIdx()):
+            return "ethyl nitronate"
+    return ""
+
+
+def _is_terminal_ethoxy_owner(mol, Chem, carbon_idx: int, oxygen_idx: int) -> bool:
+    first = mol.GetAtomWithIdx(carbon_idx)
+    if first.GetSymbol() != "C" or first.GetFormalCharge() != 0 or first.IsInRing():
+        return False
+    bond_to_oxygen = mol.GetBondBetweenAtoms(carbon_idx, oxygen_idx)
+    if bond_to_oxygen is None or bond_to_oxygen.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    carbon_neighbors = [
+        nbr for nbr in first.GetNeighbors() if nbr.GetIdx() != oxygen_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(carbon_neighbors) != 1:
+        return False
+    terminal = carbon_neighbors[0]
+    bond = mol.GetBondBetweenAtoms(first.GetIdx(), terminal.GetIdx())
+    if terminal.GetSymbol() != "C" or terminal.GetFormalCharge() != 0 or bond is None:
+        return False
+    if bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    return not [nbr for nbr in terminal.GetNeighbors() if nbr.GetIdx() != first.GetIdx() and nbr.GetAtomicNum() > 1]
 
 
 def _azanol_name(mol, Chem) -> str:

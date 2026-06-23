@@ -2970,6 +2970,25 @@ def test_aminodiazenide_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCO[P+]([O-])=CC(=O)OC",
+        "O=C(O)C=[P+]([O-])O",
+        "[O-][P+]([O-])=C=S",
+        "C[N+](C)(C)CC(O)=[P+](N)[O-]",
+        "C[N+](C)(C)CC(O)=[P+]([O-])F",
+        "CCOC(=O)c1[nH]c(=[P+]([O-])c2ccc(C)cc2)c2ccccc2c1-c1ccccc1",
+    ],
+)
+def test_phosphanylium_ylidene_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1ccc(-c2ccc[o+]c2-c2ccccc2)cc1",
         "c1ccc(-c2cccc(-c3ccccc3)[o+]2)cc1",
     ],

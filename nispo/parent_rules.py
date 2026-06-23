@@ -1633,9 +1633,9 @@ class PhosphanyliumYlideneParentRule:
         if phosphorus.GetTotalNumHs() != 0:
             return
         pidx = phosphorus.GetIdx()
-        oxido_idx = None
-        ylidene_idx = None
-        ligand_idx = None
+        oxido_idxs = []
+        ylidene = []
+        ligands = []
         for nbr in phosphorus.GetNeighbors():
             nidx = nbr.GetIdx()
             bond = mol.GetBondBetweenAtoms(pidx, nidx)
@@ -1645,42 +1645,41 @@ class PhosphanyliumYlideneParentRule:
                 nbr.GetSymbol() == "O"
                 and nbr.GetFormalCharge() < 0
                 and bond.GetBondType() == self._Chem.BondType.SINGLE
-                and not any(other.GetIdx() != pidx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+                and _heavy_degree_excluding(mol, nidx, pidx) == 0
             ):
-                if oxido_idx is not None:
-                    return
-                oxido_idx = nidx
+                oxido_idxs.append(nidx)
             elif (
                 nbr.GetSymbol() == "C"
                 and nbr.GetFormalCharge() == 0
-                and not nbr.IsInRing()
                 and bond.GetBondType() == self._Chem.BondType.DOUBLE
             ):
-                if ylidene_idx is not None:
+                if ylidene:
                     return
-                ylidene_idx = nidx
-            elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
-                if ligand_idx is not None:
+                ylidene_text = _phosphanylium_ylidene_text(mol, self._Chem, nidx, pidx)
+                if not ylidene_text:
                     return
-                ligand_idx = nidx
+                ylidene.append((nidx, ylidene_text))
+            elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1 and nbr.GetFormalCharge() == 0:
+                ligand = _phosphanylium_ylidene_ligand_text(mol, nidx, pidx)
+                if not ligand:
+                    return
+                ligands.append((nidx, ligand))
             elif nbr.GetAtomicNum() > 1:
                 return
-        if oxido_idx is None or ylidene_idx is None or ligand_idx is None:
+        if len(ylidene) != 1:
             return
-        ligand = _simple_or_branch_prefix(mol, ligand_idx, pidx)
-        ylidene = _simple_or_branch_prefix(mol, ylidene_idx, pidx)
-        if not ligand or not _stable_phosphanylium_ylidene_ligand(ligand):
+        if not ((len(oxido_idxs) == 1 and len(ligands) == 1) or (len(oxido_idxs) == 2 and not ligands)):
             return
-        if not _stable_phosphanylium_ylidene_substituent(ylidene):
-            return
-        covered = {pidx, oxido_idx}
-        covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
-        covered.update(_collect_component_atoms(mol, ylidene_idx, pidx))
+        covered = {pidx, *oxido_idxs}
+        covered.update(_collect_component_atoms(mol, ylidene[0][0], pidx))
+        for ligand_idx, _ligand in ligands:
+            covered.update(_collect_component_atoms(mol, ligand_idx, pidx))
         if covered != atom_set:
             return
-        ligand = _strip_outer_parentheses(ligand)
-        ylidene = _strip_outer_parentheses(ylidene)
-        name = f"oxido({ligand})({ylidene})phosphanylium"
+        if ligands:
+            name = f"oxido({ligands[0][1]})({ylidene[0][1]})phosphanylium"
+        else:
+            name = f"dioxido({ylidene[0][1]})phosphanylium"
         yield NameCandidate(
             name,
             self.family,
@@ -1688,6 +1687,95 @@ class PhosphanyliumYlideneParentRule:
             parent_atoms=atom_set,
             sort_key=(len(name), name),
         )
+
+
+def _phosphanylium_ylidene_ligand_text(mol, ligand_idx: int, phosphorus_idx: int) -> str:
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    if ligand.GetFormalCharge() != 0:
+        return ""
+    if ligand.GetSymbol() in HALO and _heavy_degree_excluding(mol, ligand_idx, phosphorus_idx) == 0:
+        return HALO[ligand.GetSymbol()]
+    text = _strip_outer_parentheses(_simple_or_branch_prefix(mol, ligand_idx, phosphorus_idx))
+    return text if _stable_phosphanylium_ylidene_ligand(text) else ""
+
+
+def _phosphanylium_ylidene_text(mol, Chem, carbon_idx: int, phosphorus_idx: int) -> str:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return ""
+    external = [
+        nbr.GetIdx()
+        for nbr in carbon.GetNeighbors()
+        if nbr.GetIdx() != phosphorus_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(external) == 1:
+        text = _phosphanylium_terminal_ylidene_text(mol, Chem, carbon_idx, external[0])
+        if text:
+            return text
+    text = _strip_outer_parentheses(_simple_or_branch_prefix(mol, carbon_idx, phosphorus_idx))
+    return text if _stable_phosphanylium_ylidene_substituent(text) else ""
+
+
+def _phosphanylium_terminal_ylidene_text(mol, Chem, carbon_idx: int, external_idx: int) -> str:
+    external = mol.GetAtomWithIdx(external_idx)
+    bond = mol.GetBondBetweenAtoms(carbon_idx, external_idx)
+    if bond is None or external.GetFormalCharge() != 0:
+        return ""
+    if (
+        external.GetSymbol() == "S"
+        and bond.GetBondType() == Chem.BondType.DOUBLE
+        and _heavy_degree_excluding(mol, external_idx, carbon_idx) == 0
+    ):
+        return "thioxomethylidene"
+    if (
+        external.GetSymbol() == "O"
+        and bond.GetBondType() == Chem.BondType.DOUBLE
+        and _heavy_degree_excluding(mol, external_idx, carbon_idx) == 0
+    ):
+        return "oxomethylidene"
+    if external.GetSymbol() != "C" or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    double_oxygen, single_oxygen = _phosphanylium_carbonyl_oxygens(mol, Chem, external_idx, carbon_idx)
+    if len(double_oxygen) != 1 or len(single_oxygen) != 1:
+        return ""
+    owner = _phosphanylium_carbonyl_oxygen_owner(mol, single_oxygen[0], external_idx)
+    if owner == "hydroxy":
+        return "carboxymethylidene"
+    if owner:
+        return f"2-{owner}-2-oxoethylidene"
+    return ""
+
+
+def _phosphanylium_carbonyl_oxygens(mol, Chem, carbonyl_idx: int, blocked_idx: int) -> tuple[list[int], list[int]]:
+    double_oxygen = []
+    single_oxygen = []
+    for nbr in mol.GetAtomWithIdx(carbonyl_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == blocked_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if bond is None or nbr.GetSymbol() != "O" or nbr.GetFormalCharge() != 0:
+            continue
+        if bond.GetBondType() == Chem.BondType.DOUBLE and _heavy_degree_excluding(mol, nidx, carbonyl_idx) == 0:
+            double_oxygen.append(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE:
+            single_oxygen.append(nidx)
+    return double_oxygen, single_oxygen
+
+
+def _phosphanylium_carbonyl_oxygen_owner(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    heavy = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    if not heavy:
+        return "hydroxy" if oxygen.GetTotalNumHs() == 1 else ""
+    if len(heavy) != 1:
+        return ""
+    text = _strip_outer_parentheses(_simple_or_branch_prefix(mol, oxygen_idx, carbonyl_idx))
+    return text if _stable_phosphanylium_ylidene_ligand(text) else ""
 
 
 def _stable_phosphanylium_ylidene_ligand(name: str) -> bool:
@@ -1701,7 +1789,7 @@ def _stable_phosphanylium_ylidene_ligand(name: str) -> bool:
         return False
     if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
         return False
-    return name.endswith("yl")
+    return True
 
 
 def _stable_phosphanylium_ylidene_substituent(name: str) -> bool:

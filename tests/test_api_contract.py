@@ -4721,6 +4721,22 @@ def test_external_alkene_stereo_generated_fused_controls_roundtrip_with_opsin(in
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"CCn1cc2c(n1)C1(CC1)CNC2=O",
+        r"Cn1cc2c(n1)CC1(CCN(Cc3ccccc3)CC1)C2=O",
+        r"Cc1nc2c(n1C)C1(COC1)Nc1c-2cccc1[N+](=O)[O-]",
+    ],
+)
+def test_component_spiro_fused_heterocycles_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def _opsin_parse_name(name: str) -> str:
     opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
     if not opsin_jar.exists():

@@ -4,7 +4,10 @@ import re
 from collections.abc import Sequence
 
 from .branch_rules import branch_prefix
-from .candidate_facts import CandidateSafety, OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION
+from .candidate_facts import (
+    CandidateSafety,
+    OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
+)
 from .cycle_utils import ordered_ring
 from .fused_template_families import (
     candidate_generated_fused_templates,
@@ -1168,7 +1171,23 @@ def _submol_for_atoms(mol, Chem, atoms: set[int]):
     parent_to_sub: dict[int, int] = {}
     rw = Chem.RWMol()
     for old_idx in ordered:
-        atom = Chem.Atom(mol.GetAtomWithIdx(old_idx))
+        source_atom = mol.GetAtomWithIdx(old_idx)
+        atom = Chem.Atom(source_atom)
+        removed_heavy_neighbors = [
+            nbr
+            for nbr in source_atom.GetNeighbors()
+            if nbr.GetIdx() not in atoms and nbr.GetAtomicNum() > 1
+        ]
+        if removed_heavy_neighbors:
+            atom.SetNoImplicit(False)
+            if (
+                source_atom.GetSymbol() == "N"
+                and source_atom.GetFormalCharge() == 0
+                and source_atom.GetIsAromatic()
+            ):
+                atom.SetNumExplicitHs(1)
+            else:
+                atom.SetNumExplicitHs(0)
         parent_to_sub[old_idx] = rw.AddAtom(atom)
     for bond in mol.GetBonds():
         begin = bond.GetBeginAtomIdx()

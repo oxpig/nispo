@@ -1069,6 +1069,8 @@ def test_single_ring_lactam_and_thione_indicated_h_suffixes_roundtrip_with_opsin
         "CN1C(=O)/C(=C/c2ccc3[nH]ncc3c2)N=C1N[C@H]1CCCOC1",
         "CCN1CC(=O)N([C@@H]2CCN(C(=O)c3cc(/C=C4\\OC(=O)c5ccccc54)ccc3F)C2)C1=O",
         "O=C1C=C1",
+        "O=c1ccc(=O)c1=O",
+        "O=c1c(O)c(O)c(=O)c1=O",
     ],
 )
 def test_single_ring_oxo_suffix_parent_selection_roundtrips_with_opsin(input_smiles):

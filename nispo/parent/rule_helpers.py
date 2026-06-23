@@ -3675,10 +3675,10 @@ def _cycloalkapolyene_ring_size(parent_name: str) -> int | None:
         return None
     if re.search(r"^cycloprop-\d(?:,\d+)*-en", parent_name):
         return 3
-    if not re.search(r"^cyclo(?:but|hept)a-1(?:,3)*(?:,5)?-", parent_name):
+    if not re.search(r"^cyclo(?:but|pent|hept)a-1(?:,3)*(?:,5)?-", parent_name):
         return None
     for size, root in sorted(ROOTS.items(), key=lambda item: -len(item[1])):
-        if size not in {4, 7}:
+        if size not in {4, 5, 7}:
             continue
         if parent_name.startswith("cyclo" + root):
             return size

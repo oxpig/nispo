@@ -3897,6 +3897,13 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(current, proposed):
         return False
+    if not _ranker_preserves_relative_stereo_parent_over_carbocycle_switch(
+        current,
+        proposed,
+        current_key,
+        proposed_key,
+    ):
+        return False
     if not _ranker_preserves_complete_senior_functional_parent(current, proposed):
         return False
     if not _ranker_preserves_acyclic_parent_for_generated_fused(current, proposed):
@@ -5103,6 +5110,43 @@ def _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(
     if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
         return True
     return False
+
+
+def _ranker_preserves_relative_stereo_parent_over_carbocycle_switch(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    current_penalty = int(current_key[0]) if current_key else current.stability_penalty
+    proposed_penalty = int(proposed_key[0]) if proposed_key else proposed.stability_penalty
+    if proposed_penalty < current_penalty + 60:
+        return True
+    if proposed_candidate.family != "single-ring-parent":
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if proposed_candidate.parent_aromatic_atom_count or proposed_candidate.parent_hetero_atom_count:
+        return True
+    if not proposed_candidate.stereo or not proposed_candidate.stereo.atom_descriptors:
+        return True
+    parent_atoms = set(proposed_candidate.parent_atoms)
+    parent_stereo_count = sum(
+        1 for atom_idx, _descriptor in proposed_candidate.stereo.atom_descriptors if atom_idx in parent_atoms
+    )
+    if parent_stereo_count < 2:
+        return True
+    if current_candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+        return False
+    if (
+        current_candidate.family == "single-ring-parent"
+        and current_candidate.parent_atoms
+        and current_candidate.parent_aromatic_atom_count == len(current_candidate.parent_atoms)
+    ):
+        return False
+    return True
 
 
 def _ranker_preserves_complete_senior_functional_parent(
@@ -8600,6 +8644,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         _has_contextual_earlier_external_hetero_single_ring_parent_alternative(item, prepared)
     )
     single_ring_stereo_prefix_parent = _has_contextual_stereo_prefix_free_ring_alternative(item, prepared)
+    external_stereo_acyclic_parent = _has_contextual_external_stereo_acyclic_parent_alternative(item, prepared)
     retained_carbohydrate_substituent_expanded_single_ring = (
         _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared)
     )
@@ -8734,6 +8779,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or earlier_aromatic_single_ring_parent
         or earlier_external_hetero_single_ring_parent
         or single_ring_stereo_prefix_parent
+        or external_stereo_acyclic_parent
         or retained_carbohydrate_substituent_expanded_single_ring
         or aza_alias_penalty
         or spiro_penalty
@@ -9083,6 +9129,10 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 90
     if single_ring_stereo_prefix_parent:
         penalty += 150
+        if _has_one_prefix_carbocycle_parent_with_external_stereo(item.candidate):
+            penalty += 80
+    if external_stereo_acyclic_parent:
+        penalty += 80
     if retained_carbohydrate_substituent_expanded_single_ring:
         penalty -= 240
     return penalty
@@ -9159,11 +9209,14 @@ def _has_contextual_stereo_prefix_free_ring_alternative(
     if parent_count < 4 or parent_count > 8:
         return False
     current_rank = candidate.render_rank or 0
+    alternative_families = _ACYCLIC_SKELETON_PARENT_FAMILIES | {"single-ring-parent"}
+    if _has_one_prefix_carbocycle_parent_with_external_stereo(candidate):
+        alternative_families = alternative_families | _LOCANTED_STEREO_GRAPH_RING_PARENT_FAMILIES
     for other in prepared:
         if other is item or other.name == item.name:
             continue
         other_candidate = other.candidate
-        if other_candidate.family not in _ACYCLIC_SKELETON_PARENT_FAMILIES | {"single-ring-parent"}:
+        if other_candidate.family not in alternative_families:
             continue
         if other_candidate.stereo_prefix:
             continue
@@ -9182,6 +9235,61 @@ def _has_contextual_stereo_prefix_free_ring_alternative(
         if len(other.name) > 220 or len(other.name) - len(item.name) > 95:
             continue
         if other.stability_penalty >= item.stability_penalty + 70:
+            continue
+        return True
+    return False
+
+
+def _has_one_prefix_carbocycle_parent_with_external_stereo(candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.stereo_prefix or "," in candidate.stereo_prefix:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.parent_aromatic_atom_count or candidate.parent_hetero_atom_count:
+        return False
+    if not candidate.stereo or not candidate.stereo.atom_descriptors:
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    parent_stereo_count = sum(
+        1 for atom_idx, _descriptor in candidate.stereo.atom_descriptors if atom_idx in parent_atoms
+    )
+    external_stereo_count = len(candidate.stereo.atom_descriptors) - parent_stereo_count
+    return parent_stereo_count > 0 and external_stereo_count > 0
+
+
+def _has_contextual_external_stereo_acyclic_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.parent_aromatic_atom_count != len(candidate.parent_atoms):
+        return False
+    if candidate.stereo_prefix or candidate.stereo_locants:
+        return False
+    if not candidate.stereo or not candidate.stereo.atom_descriptors:
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    if any(atom_idx in parent_atoms for atom_idx, _descriptor in candidate.stereo.atom_descriptors):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family not in _ACYCLIC_SKELETON_PARENT_FAMILIES:
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if len(other_candidate.stereo_locants) < 3:
+            continue
+        if len(other.name) > 180 or len(other.name) - len(item.name) > 80:
+            continue
+        if other.stability_penalty >= item.stability_penalty + 80:
             continue
         return True
     return False

@@ -45,8 +45,21 @@ def apply_stereochemical_prefix(
     if locanted_bond_descriptors:
         bond_descriptors = _remove_represented_atom_descriptors(bond_descriptors, locanted_bond_descriptors)
     locanted_atom_descriptors = _locanted_atom_stereo_descriptors_in_name(name)
-    internal_relative_descriptor_count = _internal_relative_stereo_descriptor_count(name)
-    represented_atom_descriptors = locanted_atom_descriptors + _internal_atom_stereo_descriptors_in_name(name)
+    relative_descriptor_count = len(re.findall(r"\((?:cis|trans)\)-", name))
+    relative_descriptor_groups = _internal_relative_stereo_descriptor_groups(mol, Chem, relative_descriptor_count)
+    relative_atom_descriptors = [
+        descriptor for group in relative_descriptor_groups for descriptor in group
+    ]
+    internal_relative_descriptor_count = _internal_relative_stereo_descriptor_count(
+        relative_descriptor_count,
+        represented_relative_group_count=len(relative_descriptor_groups),
+        represented_relative_descriptors=relative_atom_descriptors,
+    )
+    represented_atom_descriptors = (
+        locanted_atom_descriptors
+        + _internal_atom_stereo_descriptors_in_name(name)
+        + relative_atom_descriptors
+    )
     descriptors = []
     if not _name_has_complete_atom_stereo(
         mol,
@@ -163,8 +176,64 @@ def _internal_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     ]
 
 
-def _internal_relative_stereo_descriptor_count(name: str) -> int:
-    return 2 * len(re.findall(r"\((?:cis|trans)\)-", name))
+def _internal_relative_stereo_descriptor_count(
+    descriptor_count: int,
+    *,
+    represented_relative_group_count: int,
+    represented_relative_descriptors: list[str],
+) -> int:
+    if descriptor_count <= 0:
+        return 0
+    if not represented_relative_descriptors:
+        return 2 * descriptor_count
+    return 2 * max(0, descriptor_count - represented_relative_group_count)
+
+
+def _internal_relative_stereo_descriptor_groups(mol, Chem, descriptor_count: int) -> list[list[str]]:
+    if descriptor_count <= 0:
+        return []
+    assigned = dict(assigned_atom_stereochemistry(mol, Chem))
+    descriptor_groups = []
+    for raw_ring in mol.GetRingInfo().AtomRings():
+        tagged = _simple_relative_ring_branch_tagged_atoms(mol, Chem, frozenset(raw_ring))
+        if tagged:
+            descriptors = [assigned[atom_idx] for atom_idx in sorted(tagged) if atom_idx in assigned]
+            if descriptors:
+                descriptor_groups.append(descriptors)
+    descriptor_groups.sort(key=lambda values: (-len(values), values))
+    return descriptor_groups[:descriptor_count]
+
+
+def _simple_relative_ring_branch_tagged_atoms(mol, Chem, ring: frozenset[int]) -> frozenset[int]:
+    tagged = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetIdx() in ring and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+    ]
+    if len(tagged) != 2:
+        return frozenset()
+    if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C" for atom_idx in ring):
+        return frozenset()
+    if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
+        return frozenset()
+    if any(_ring_external_heavy_degree(mol, atom.GetIdx(), ring) != 1 for atom in tagged):
+        return frozenset()
+    for bond in mol.GetBonds():
+        if (
+            bond.GetBeginAtomIdx() in ring
+            and bond.GetEndAtomIdx() in ring
+            and bond.GetBondType() != Chem.BondType.SINGLE
+        ):
+            return frozenset()
+    return frozenset(atom.GetIdx() for atom in tagged)
+
+
+def _ring_external_heavy_degree(mol, atom_idx: int, ring_atoms: frozenset[int]) -> int:
+    return sum(
+        1
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+        if nbr.GetIdx() not in ring_atoms and nbr.GetAtomicNum() > 1
+    )
 
 
 def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:

@@ -177,6 +177,40 @@ def test_carbamoyloxy_methyl_branches_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C1NC[C@@H](C(=O)N[C@@H](c2ccc(F)c(Cl)c2)[C@H]2CC[C@H](C(F)(F)F)CC2)N1",
+        "O=C1NC[C@@H](C(=O)N[C@H](c2ccc(F)c(Cl)c2)[C@H]2CC[C@H](C(F)(F)F)CC2)N1",
+        "C[C@@H]1C(=O)NCCN1C(=O)N[C@@H](c1ccc(F)c(Cl)c1)[C@H]1C[C@H](OCC(F)(F)F)C1",
+        "C[C@@H]1C(=O)NCCN1C(=O)N[C@H](c1ccc(F)c(Cl)c1)[C@H]1C[C@H](OCC(F)(F)F)C1",
+    ],
+)
+def test_relative_ring_branch_stereo_keeps_external_center_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CO[C@H]1CC[C@H](n2c([C@@H]3COC(=S)N3)nc3cc(-c4c(C)noc4C)ccc32)CC1",
+        "C/C=C/[C@H]1CC[C@H](c2ccc(C#N)cc2)CC1",
+        "C[C@@H]1CN(CC[C@H]2CC[C@H](NC(=O)C(C)(C)C#N)CC2)CCN1c1cccc(Cl)c1Cl",
+        "CN1C(=O)CC[C@@H]1C(=O)Nc1cc(O[C@H]2CC[C@@H](C(F)(F)F)CC2)cc2c1OCC2",
+    ],
+)
+def test_relative_ring_branch_stereo_keeps_matched_controls_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "N=C(N)NCCC[C@H](N)C(=O)/C(CC#P=O)=C(\\N)C(=O)O",
         "COC(=O)/C(C)=C/C(=N/S(=O)(=O)c1ccc(C)cc1)c1ccccc1",
         "COC(=O)/C(=C\\C(=O)O)C(O)P(=O)(O)O",

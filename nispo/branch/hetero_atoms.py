@@ -826,6 +826,8 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     if len(heavy) != 1:
         return ""
     attached = heavy[0]
+    if _nitro_branch_predicate(mol, attached, idx):
+        return "nitroimino" if _nitroimino_parent_site_supported(mol, parent_idx) else ""
     if mol.GetAtomWithIdx(attached).IsInRing():
         name = _ring_substituent_prefix(mol, attached, idx)
     else:
@@ -839,6 +841,21 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     if "-" in name or name.startswith("("):
         return f"({name})imino"
     return name + "imino"
+
+
+def _nitroimino_parent_site_supported(mol, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if not parent.IsInRing():
+        return False
+    for ring in mol.GetRingInfo().AtomRings():
+        if parent_idx not in ring or len(ring) != 5:
+            continue
+        symbols = [mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring]
+        if Counter(symbols) == Counter({"C": 2, "N": 3}) and all(
+            mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring
+        ):
+            return False
+    return True
 
 
 def _isocyanato_prefix(mol, idx: int, parent_idx: int) -> str:

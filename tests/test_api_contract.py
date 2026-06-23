@@ -2932,6 +2932,8 @@ def test_polycyclic_lambda_spiro_parents_roundtrip_with_opsin(input_smiles):
         "CN1COCN(Cc2cnc(Cl)s2)C1=N[N+](=O)[O-]",
         "O=[N+]([O-])N=C1NCCN1Cc1ccc(Cl)nc1",
         "O=[N+]([O-])N=C1NCCN1Cc1cnc(Cl)s1",
+        "O=[N+]([O-])N=c1ncocn1",
+        "O=[N+]([O-])N=c1[nH]ccn1Cc1ccc(Cl)nc1",
     ],
 )
 def test_cyclic_nitroimine_parents_roundtrip_with_opsin(input_smiles):
@@ -2940,6 +2942,12 @@ def test_cyclic_nitroimine_parents_roundtrip_with_opsin(input_smiles):
 
     parsed_smiles = _opsin_parse_name(generated_name)
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_aromatic_triazole_nitroimino_orientation_remains_unsupported():
+    input_smiles = "O=[N+]([O-])N=c1[nH]cn[nH]1"
+
+    assert smiles_to_iupac(input_smiles) == ""
 
 
 @pytest.mark.parametrize(

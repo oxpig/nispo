@@ -88,6 +88,32 @@ def test_acryloyl_retained_acyl_prefix_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "[NH-]CC[NH-]",
+        "[N-]=[N+]=NCCC[NH-]",
+        "[NH-]c1ccc([NH-])cc1",
+        "[NH-]n1ccc2ccccc21",
+    ],
+)
+def test_anionic_nitrogen_substituent_prefixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_sulfonyl_carbonyl_azanide_retained_parent_survives_ranker_switch():
+    input_smiles = "O=C(O)CC[n+]1cc(C(=O)[N-]S(=O)(=O)C2CC2)c2ccccc2n1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Cc1c(CN(C)C(=O)OCc2ccccc2)oc2cccc(C#N)c12",
         "CCCCNC(=O)NC1CCC(CN(C)C(=O)OCc2ccccc2)CC1",
         "COCOc1cc2oc(=O)cc(COC(=O)N(C)CCN)c2cc1Br",

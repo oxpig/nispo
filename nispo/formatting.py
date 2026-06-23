@@ -422,6 +422,8 @@ def _multiplied_prefix_needs_parentheses(name: str) -> bool:
         return True
     if name.endswith("phosphoryloxy"):
         return True
+    if name.endswith("azanidyl"):
+        return True
     if _has_leading_multiplier(name):
         return True
     return name.endswith("aniumyl") or name.endswith("oniumyl")

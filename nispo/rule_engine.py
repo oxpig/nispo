@@ -3956,6 +3956,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_clean_aromatic_parent_over_terminal_carbonyl_switch(current, proposed):
         return False
+    if not _ranker_preserves_small_inorganic_retained_parent(current, proposed):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -3971,6 +3973,15 @@ def _candidate_fact_ranked_switch_is_safe(
     if len(proposed_candidate.parent_atoms) <= len(current_candidate.parent_atoms):
         return True
     return False
+
+
+def _ranker_preserves_small_inorganic_retained_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    if current.candidate.family != "small-inorganic-retained-parent":
+        return True
+    return proposed.candidate.family not in _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES
 
 
 def _ranker_preserves_clean_aromatic_parent_over_terminal_carbonyl_switch(

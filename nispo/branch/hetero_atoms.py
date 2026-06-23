@@ -580,9 +580,7 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
                 parts.append(name)
         return "".join(parts) + "azaniumyl"
     if atom.GetFormalCharge() < 0:
-        azanidyl = _azanidyl_prefix(mol, idx, parent_idx)
-        if azanidyl:
-            return azanidyl
+        return _azanidyl_prefix(mol, idx, parent_idx)
     if atom.GetFormalCharge() != 0:
         return ""
     heavy = _nonplain_hydrogen_neighbor_indices(atom, parent_idx)
@@ -760,7 +758,7 @@ def _needs_explicit_n_ligand_name(name: str) -> bool:
 
 def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
     parent = mol.GetAtomWithIdx(parent_idx)
-    if parent.GetFormalCharge() <= 0:
+    if parent.GetFormalCharge() < 0:
         return ""
     heavy = _nonplain_hydrogen_neighbor_indices(mol.GetAtomWithIdx(idx), parent_idx)
     if not heavy:

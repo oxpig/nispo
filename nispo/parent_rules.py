@@ -3754,6 +3754,166 @@ def _oxirane_dione_name(mol, Chem) -> str:
     return ""
 
 
+class PiperazineDioneYlideneRetainedParentRule:
+    family = "piperazine-dione-ylidene-retained-parent"
+    priority = parent_priority("senior-functional-exception")
+
+    def __init__(self, Chem):
+        self._Chem = Chem
+
+    def candidates(self, ctx):
+        seen = set()
+        for name in _piperazine_dione_ylidene_names(ctx.mol, self._Chem):
+            if name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(ctx.mol.GetNumAtoms())),
+                sort_key=(len(name), name),
+                estimated_length=len(name),
+            )
+
+
+def _piperazine_dione_ylidene_names(mol, Chem) -> list[str]:
+    atom_set = set(range(mol.GetNumAtoms()))
+    names: list[str] = []
+    for ring in mol.GetRingInfo().AtomRings():
+        if len(ring) != 6:
+            continue
+        ring_set = set(ring)
+        if ring_system_extends_core(mol, ring_set):
+            continue
+        ordered = ordered_ring(mol, ring)
+        if not ordered:
+            continue
+        for seq in _cyclic_ring_sequences(ordered):
+            record = _piperazine_dione_sequence_name(mol, Chem, seq, ring_set)
+            if record is None:
+                continue
+            name, covered = record
+            if covered == atom_set:
+                names.append(name)
+    return sorted(dict.fromkeys(names), key=lambda item: (len(item), item))
+
+
+def _piperazine_dione_sequence_name(
+    mol,
+    Chem,
+    seq: Sequence[int],
+    ring_set: set[int],
+) -> tuple[str, set[int]] | None:
+    if mol.GetAtomWithIdx(seq[0]).GetSymbol() != "N" or mol.GetAtomWithIdx(seq[3]).GetSymbol() != "N":
+        return None
+    if any(mol.GetAtomWithIdx(idx).GetFormalCharge() != 0 for idx in seq):
+        return None
+    carbonyl_oxygens = [
+        _piperazine_dione_carbonyl_oxygen(mol, Chem, seq[1], ring_set),
+        _piperazine_dione_carbonyl_oxygen(mol, Chem, seq[4], ring_set),
+    ]
+    if any(oxygen is None for oxygen in carbonyl_oxygens):
+        return None
+    ylidene_records = [
+        _piperazine_dione_ylidene_substituent(mol, Chem, seq[2], ring_set),
+        _piperazine_dione_ylidene_substituent(mol, Chem, seq[5], ring_set),
+    ]
+    if any(record is None for record in ylidene_records):
+        return None
+    covered = set(seq)
+    covered.update(oxygen for oxygen in carbonyl_oxygens if oxygen is not None)
+    for _, atoms in ylidene_records:
+        covered.update(atoms)
+    name = (
+        f"3-{ylidene_records[0][0]}-"
+        f"6-{ylidene_records[1][0]}"
+        "piperazine-2,5-dione"
+    )
+    return name, covered
+
+
+def _piperazine_dione_carbonyl_oxygen(mol, Chem, carbon_idx: int, ring_set: set[int]) -> int | None:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return None
+    oxygens = []
+    for nbr in carbon.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx in ring_set:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    return oxygens[0] if len(oxygens) == 1 else None
+
+
+def _piperazine_dione_ylidene_substituent(
+    mol,
+    Chem,
+    carbon_idx: int,
+    ring_set: set[int],
+) -> tuple[str, set[int]] | None:
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+        return None
+    matches = []
+    for nbr in carbon.GetNeighbors():
+        exo_idx = nbr.GetIdx()
+        if exo_idx in ring_set:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbon_idx, exo_idx)
+        if (
+            nbr.GetSymbol() != "C"
+            or nbr.GetFormalCharge() != 0
+            or nbr.IsInRing()
+            or bond is None
+            or bond.GetBondType() != Chem.BondType.DOUBLE
+        ):
+            continue
+        if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+            continue
+        owners = [
+            owner.GetIdx()
+            for owner in nbr.GetNeighbors()
+            if owner.GetIdx() != carbon_idx and owner.GetAtomicNum() > 1
+        ]
+        if len(owners) != 1:
+            continue
+        owner_idx = owners[0]
+        owner_bond = mol.GetBondBetweenAtoms(exo_idx, owner_idx)
+        if owner_bond is None or owner_bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        prefix = _simple_or_branch_prefix(mol, owner_idx, exo_idx)
+        if not prefix or _unstable_retained_functional_parent_substituent(prefix):
+            continue
+        component = _collect_component_atoms(mol, owner_idx, exo_idx)
+        if component & ring_set:
+            continue
+        unit = _piperazine_dione_methylidene_unit(prefix)
+        if not unit:
+            continue
+        matches.append((unit, {exo_idx} | component))
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _piperazine_dione_methylidene_unit(prefix: str) -> str:
+    prefix = _strip_outer_parentheses(prefix)
+    if not prefix or " " in prefix or "[" in prefix or "]" in prefix:
+        return ""
+    return f"({_parenthesized_if_complex(prefix)}methylidene)"
+
+
 class AzidobenzylideneCyclohexanoneRetainedParentRule:
     family = "azidobenzylidene-cyclohexanone-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -19273,6 +19433,7 @@ def parent_rules(Chem) -> tuple:
     thiadiazole_dithio = ThiadiazoleDithioRetainedParentRule(Chem)
     oxazinone = OxazinoneRetainedParentRule(Chem)
     oxirane_dione = OxiraneDioneRetainedParentRule(Chem)
+    piperazine_dione_ylidene = PiperazineDioneYlideneRetainedParentRule(Chem)
     azidobenzylidene_cyclohexanone = AzidobenzylideneCyclohexanoneRetainedParentRule(Chem)
     bis_diethylaminobenzylidene_cyclopentanone = BisDiethylaminobenzylideneCyclopentanoneRetainedParentRule(Chem)
     cyclopropane_triylidene_nitrile = CyclopropaneTriylideneNitrileRetainedParentRule(Chem)
@@ -19451,6 +19612,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("thiadiazole-dithio-retained-parent", parent_priority("senior-functional-exception"), (), thiadiazole_dithio.candidates),
         RuleSpec("oxazinone-retained-parent", parent_priority("senior-functional-exception"), (), oxazinone.candidates),
         RuleSpec("oxirane-dione-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), oxirane_dione.candidates),
+        RuleSpec(
+            "piperazine-dione-ylidene-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (min_ring_count(1), functional_skeleton_signal),
+            piperazine_dione_ylidene.candidates,
+        ),
         RuleSpec(
             "azidobenzylidene-cyclohexanone-retained-parent",
             parent_priority("senior-functional-exception"),

@@ -5508,7 +5508,9 @@ class PnictogenHydrideParentRule:
         implicit_hydrogens = pnictogen.GetTotalNumHs()
         if len(neighbors) + implicit_hydrogens != 3 or not 1 <= len(neighbors) <= 3:
             return
-        if any(mol.GetAtomWithIdx(nidx).GetSymbol() not in {"C", "Si"} for nidx in neighbors):
+        neighbor_symbols = tuple(mol.GetAtomWithIdx(nidx).GetSymbol() for nidx in neighbors)
+        mixed_phosphane = _mixed_phosphane_hydride_scope(mol, self._Chem, pidx, neighbors)
+        if not mixed_phosphane and any(symbol not in {"C", "Si"} for symbol in neighbor_symbols):
             return
         if any(
             mol.GetBondBetweenAtoms(pidx, nidx).GetBondType() != self._Chem.BondType.SINGLE
@@ -5516,14 +5518,106 @@ class PnictogenHydrideParentRule:
         ):
             return
         names = []
+        covered = {pidx}
         for nidx in neighbors:
-            prefix = _simple_or_branch_prefix(mol, nidx, pidx)
-            if not prefix:
-                return
+            if mixed_phosphane:
+                atom = mol.GetAtomWithIdx(nidx)
+                if atom.GetSymbol() in HALO:
+                    prefix = HALO[atom.GetSymbol()]
+                    covered.add(nidx)
+                else:
+                    prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+                    if not prefix:
+                        return
+                    covered.update(_collect_component_atoms(mol, nidx, pidx))
+            else:
+                prefix = _simple_or_branch_prefix(mol, nidx, pidx)
+                if not prefix:
+                    return
             names.append(prefix)
-        name = _pnictogen_hydride_name(names, PNICTOGEN_HYDRIDE_PARENTS[pnictogen.GetSymbol()])
+        if mixed_phosphane and covered != set(range(mol.GetNumAtoms())):
+            return
+        if mixed_phosphane and any(name in HALO.values() for name in names):
+            name = _halophosphane_hydride_name(names)
+        else:
+            name = _pnictogen_hydride_name(names, PNICTOGEN_HYDRIDE_PARENTS[pnictogen.GetSymbol()])
         if name:
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(mol.GetNumAtoms())) if mixed_phosphane else frozenset(),
+                source_family="mixed-phosphane-hydride" if mixed_phosphane else "",
+                sort_key=(len(name), name),
+                estimated_length=len(name),
+            )
+
+
+def _mixed_phosphane_hydride_scope(mol, Chem, phosphorus_idx: int, neighbors: Sequence[int]) -> bool:
+    phosphorus = mol.GetAtomWithIdx(phosphorus_idx)
+    if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
+        return False
+    symbols = tuple(mol.GetAtomWithIdx(nidx).GetSymbol() for nidx in neighbors)
+    if not symbols or any(symbol not in {"C", "N", "O", *HALO} for symbol in symbols):
+        return False
+    if all(symbol == "N" for symbol in symbols) or all(symbol == "O" for symbol in symbols):
+        return False
+    if all(symbol in HALO for symbol in symbols):
+        return False
+    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+        return False
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+        return False
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+        return False
+    if mol.GetNumAtoms() > 48:
+        return False
+    hydroxy_oxygen_neighbors = 0
+    for nidx, symbol in zip(neighbors, symbols):
+        if symbol != "O":
+            continue
+        oxygen = mol.GetAtomWithIdx(nidx)
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if (
+            bond is not None
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and oxygen.GetFormalCharge() == 0
+            and len([nbr for nbr in oxygen.GetNeighbors() if nbr.GetAtomicNum() > 1]) == 1
+            and oxygen.GetTotalNumHs() == 1
+        ):
+            hydroxy_oxygen_neighbors += 1
+    if hydroxy_oxygen_neighbors >= 2 and any(symbol == "C" for symbol in symbols):
+        return False
+    if any(symbol in HALO for symbol in symbols):
+        rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+        for nidx in neighbors:
+            if mol.GetAtomWithIdx(nidx).GetSymbol() in HALO:
+                continue
+            component = set(_collect_component_atoms(mol, nidx, phosphorus_idx))
+            if sum(1 for ring in rings if ring <= component) > 3:
+                return False
+    return True
+
+
+def _halophosphane_hydride_name(names: Sequence[str]) -> str:
+    counts = Counter(names)
+    halo_names = set(HALO.values())
+    pieces = []
+    for name in sorted(name for name in counts if name in halo_names):
+        count = counts[name]
+        multiplier = MULT.get(count, "") if count > 1 else ""
+        pieces.append(multiplier + name)
+    for name in sorted(name for name in counts if name not in halo_names):
+        bare = _strip_outer_parentheses(name)
+        count = counts[name]
+        if count == 1:
+            pieces.append(f"({bare})")
+            continue
+        multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
+        if not multiplier:
+            return ""
+        pieces.append(f"{multiplier}({bare})")
+    return "".join(pieces) + "phosphane" if pieces else ""
 
 
 class OxidoNitrosoAzaniumRule:

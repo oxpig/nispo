@@ -263,6 +263,40 @@ def test_hydroxy_oxido_phosphoryl_branches_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1ccc(P(N2CCCC2)N2CCCC2)cc1",
+        "CC(C)(C)P(N1CCCC1)N1CCCC1",
+        "C1CCC(P(N2CCCCC2)N2CCCCC2)CC1",
+        "NPc1cc2ccccc2[nH]1",
+        "NC(=O)PO",
+    ],
+)
+def test_mixed_phosphane_hydride_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "COc1ccc(-c2ccc3ccn(P(Cl)n4ccc5ccc(-c6ccc(OC)cc6)cc54)c3c2)cc1",
+        "CCCCCP(Br)c1ccccc1",
+        "ClP(Cc1ccccc1)c1ccccc1",
+    ],
+)
+def test_halophosphane_hydride_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "COO[SH4]c1ccncn1",
         "Cc1ccc(OO[SH4]n2ccc3cccnc32)cc1",
     ],

@@ -95,6 +95,10 @@ def sulfur_oxo_retained_parent_signal(ctx) -> bool:
     return ctx.profile.has_sulfur_oxo_retained_parent_signal
 
 
+def sulfinate_retained_parent_signal(ctx) -> bool:
+    return ctx.profile.has_functional_skeleton_signal or ctx.profile.has_sulfur_oxo_retained_parent_signal
+
+
 def dithiocarbonate_signal(ctx) -> bool:
     mol = ctx.mol
     Chem = ctx.Chem

@@ -83,6 +83,7 @@ from .rule_dispatch import (
     nonring_positive_phosphorus,
     nonring_positive_sulfur,
     spiro_topology,
+    sulfinate_retained_parent_signal,
     sulfur_oxo_retained_parent_signal,
 )
 from .rule_priority import parent_priority
@@ -9326,9 +9327,22 @@ def _thiooxo_ester_names(mol, Chem) -> list[str]:
 
 def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
     names = []
+    simple_name = _simple_sulfinate_family_name(mol, Chem)
+    if simple_name:
+        names.append(simple_name)
     for sulfur in mol.GetAtoms():
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
+        record = _sulfenate_retained_parent_record(mol, Chem, sulfur.GetIdx())
+        if record and record["covered_atoms"] == set(range(mol.GetNumAtoms())):
+            name = _sulfenate_name_from_substituent(record["substituent"])
+            if name:
+                names.append(name)
+        record = _thiosulfinate_retained_parent_record(mol, Chem, sulfur.GetIdx())
+        if record and record["covered_atoms"] == set(range(mol.GetNumAtoms())):
+            substituent = record["substituent"]
+            if substituent:
+                names.append(substituent + "thiosulfinate")
         record = _sulfonothioate_retained_parent_record(mol, Chem, sulfur.GetIdx())
         if record and record["covered_atoms"] == set(range(mol.GetNumAtoms())):
             substituent = record["substituent"]
@@ -9341,6 +9355,168 @@ def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
         if substituent:
             names.append(substituent + "sulfinate")
     return names
+
+
+def _simple_sulfinate_family_name(mol, Chem) -> str:
+    element_counts = Counter(atom.GetSymbol() for atom in mol.GetAtoms())
+    if element_counts == {"C": 1, "O": 2, "S": 1}:
+        sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
+        carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+        oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"]
+        if (
+            sulfur.GetFormalCharge() == 0
+            and carbon.GetFormalCharge() == 0
+            and any(oxygen.GetFormalCharge() == -1 for oxygen in oxygens)
+            and any(
+                _has_bond_type(mol, Chem, sulfur.GetIdx(), oxygen.GetIdx(), Chem.BondType.DOUBLE)
+                for oxygen in oxygens
+            )
+            and any(
+                _has_bond_type(mol, Chem, sulfur.GetIdx(), oxygen.GetIdx(), Chem.BondType.SINGLE)
+                for oxygen in oxygens
+                if oxygen.GetFormalCharge() == -1
+            )
+            and _has_bond_type(mol, Chem, sulfur.GetIdx(), carbon.GetIdx(), Chem.BondType.DOUBLE)
+        ):
+            return "methylenesulfinate"
+
+    if element_counts == {"C": 1, "O": 4, "S": 2}:
+        carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+        sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"]
+        if carbon.GetFormalCharge() != 0:
+            return ""
+        for sulfur in sulfurs:
+            if sulfur.GetFormalCharge() != 0:
+                return ""
+            if not _has_bond_type(mol, Chem, sulfur.GetIdx(), carbon.GetIdx(), Chem.BondType.SINGLE):
+                return ""
+            oxygens = [
+                nbr
+                for nbr in sulfur.GetNeighbors()
+                if nbr.GetSymbol() == "O"
+            ]
+            if len(oxygens) != 2:
+                return ""
+            if not any(
+                oxygen.GetFormalCharge() == -1
+                and _has_bond_type(mol, Chem, sulfur.GetIdx(), oxygen.GetIdx(), Chem.BondType.SINGLE)
+                for oxygen in oxygens
+            ):
+                return ""
+            if not any(
+                oxygen.GetFormalCharge() == 0
+                and _has_bond_type(mol, Chem, sulfur.GetIdx(), oxygen.GetIdx(), Chem.BondType.DOUBLE)
+                for oxygen in oxygens
+            ):
+                return ""
+        return "methanedisulfinate"
+
+    return ""
+
+
+def _has_bond_type(mol, Chem, left_idx: int, right_idx: int, bond_type) -> bool:
+    bond = mol.GetBondBetweenAtoms(left_idx, right_idx)
+    return bond is not None and bond.GetBondType() == bond_type
+
+
+def _sulfenate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:
+    carbon_neighbors = []
+    terminal_oxido = 0
+    covered_atoms = {sulfur_idx}
+    for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == -1
+            and len(nbr.GetNeighbors()) == 1
+        ):
+            terminal_oxido += 1
+            covered_atoms.add(nidx)
+            continue
+        return None
+    if len(carbon_neighbors) != 1 or terminal_oxido != 1:
+        return None
+    carbon_idx = carbon_neighbors[0]
+    substituent = _simple_or_branch_prefix(mol, carbon_idx, sulfur_idx)
+    if not substituent:
+        return None
+    covered_atoms.add(carbon_idx)
+    covered_atoms.update(_collect_component_atoms(mol, carbon_idx, sulfur_idx))
+    return {
+        "substituent": _retained_parent_substituent_alias(substituent),
+        "covered_atoms": covered_atoms,
+    }
+
+
+def _thiosulfinate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:
+    carbon_neighbors = []
+    terminal_oxido = 0
+    double_sulfur = 0
+    covered_atoms = {sulfur_idx}
+    for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return None
+        if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            carbon_neighbors.append(nidx)
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and bond.GetBondType() == Chem.BondType.SINGLE
+            and nbr.GetFormalCharge() == -1
+            and len(nbr.GetNeighbors()) == 1
+        ):
+            terminal_oxido += 1
+            covered_atoms.add(nidx)
+            continue
+        if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetFormalCharge() == 0:
+            double_sulfur += 1
+            covered_atoms.add(nidx)
+            continue
+        return None
+    if len(carbon_neighbors) != 1 or terminal_oxido != 1 or double_sulfur != 1:
+        return None
+    carbon_idx = carbon_neighbors[0]
+    substituent = _simple_or_branch_prefix(mol, carbon_idx, sulfur_idx)
+    if not substituent:
+        return None
+    covered_atoms.add(carbon_idx)
+    covered_atoms.update(_collect_component_atoms(mol, carbon_idx, sulfur_idx))
+    return {
+        "substituent": _retained_parent_substituent_alias(substituent),
+        "covered_atoms": covered_atoms,
+    }
+
+
+def _sulfenate_name_from_substituent(substituent: str) -> str:
+    alkane_stems = {
+        "methyl": "methane",
+        "ethyl": "ethane",
+        "propyl": "propane",
+        "butyl": "butane",
+        "pentyl": "pentane",
+        "hexyl": "hexane",
+        "heptyl": "heptane",
+        "octyl": "octane",
+        "nonyl": "nonane",
+        "decyl": "decane",
+    }
+    if substituent in alkane_stems:
+        return alkane_stems[substituent] + "sulfenate"
+    if substituent == "phenyl":
+        return "benzenesulfenate"
+    cyclo_match = re.fullmatch(r"cyclo([a-z]+)yl", substituent)
+    if cyclo_match:
+        return f"cyclo{cyclo_match.group(1)}anesulfenate"
+    return ""
 
 
 def _sulfonothioate_retained_parent_record(mol, Chem, sulfur_idx: int) -> dict | None:
@@ -19599,7 +19775,12 @@ def parent_rules(Chem) -> tuple:
             phosphate_ester.candidates,
         ),
         RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
-        RuleSpec("sulfinate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfinate.candidates),
+        RuleSpec(
+            "sulfinate-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (sulfinate_retained_parent_signal,),
+            sulfinate.candidates,
+        ),
         RuleSpec("sulfur-oxo-retained-parent", parent_priority("senior-functional-exception"), (sulfur_oxo_retained_parent_signal,), sulfur_oxo.candidates),
         RuleSpec("phosphorothioic-triamide-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), phosphorothioic_triamide.candidates),
         RuleSpec("dithiophosphate-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), dithiophosphate.candidates),

@@ -252,6 +252,15 @@ def _has_sulfur_oxo_retained_parent_signal(mol) -> bool:
         if charge != 0:
             continue
         if (
+            hydrogens == 0
+            and facts["single_c"] == 1
+            and facts["terminal_oxido"] == 1
+            and facts["double_o"] == 0
+            and facts["double_s"] in {0, 1}
+            and facts["other_heavy"] == 0
+        ):
+            return True
+        if (
             hydrogens == 1
             and facts["double_o"] == 1
             and facts["single_n"] == 1
@@ -282,6 +291,7 @@ def _sulfur_oxo_neighbor_facts(mol, sulfur_idx: int) -> dict[str, int]:
         "single_n": 0,
         "double_n": 0,
         "single_s": 0,
+        "double_s": 0,
         "other_heavy": 0,
     }
     for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
@@ -305,8 +315,13 @@ def _sulfur_oxo_neighbor_facts(mol, sulfur_idx: int) -> dict[str, int]:
             counts["single_n"] += 1
         elif symbol == "N" and nbr.GetFormalCharge() == 0 and order == 2.0:
             counts["double_n"] += 1
-        elif symbol == "S" and nbr.GetFormalCharge() == 0 and order == 1.0:
-            counts["single_s"] += 1
+        elif symbol == "S" and nbr.GetFormalCharge() == 0:
+            if order == 1.0:
+                counts["single_s"] += 1
+            elif order == 2.0:
+                counts["double_s"] += 1
+            else:
+                counts["other_heavy"] += 1
         elif nbr.GetAtomicNum() > 1:
             counts["other_heavy"] += 1
     return counts

@@ -4234,6 +4234,11 @@ def test_single_ring_stereo_prefix_alternatives_roundtrip_with_opsin(input_smile
         "CCCCS(=O)[O-]",
         "CC(C)(C)c1ccc(S(=O)[O-])cc1",
         "O=C([O-])C(O)S(=O)[O-]",
+        "[O-]SC1CCCCC1",
+        "CCCCS([O-])=S",
+        "[O-]S(=S)C=Cc1ccccc1",
+        "O=S([O-])CS(=O)[O-]",
+        "C=[SH](=O)[O-]",
     ],
 )
 def test_sulfinate_retained_parents_roundtrip_with_opsin(input_smiles):

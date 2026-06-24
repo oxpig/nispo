@@ -13716,6 +13716,8 @@ class AcyclicSkeletonWithRingSubstituentsRule:
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
             return
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if (
             name
             and mol.GetRingInfo().NumRings() >= 2
@@ -13756,6 +13758,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
             return
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -13785,6 +13789,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
         name = name_record.name
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
             return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
@@ -13953,6 +13959,9 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if (
             name
             and "ium" in name
@@ -13963,7 +13972,7 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -13991,6 +14000,9 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -13999,7 +14011,7 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -14025,6 +14037,9 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
@@ -14036,7 +14051,7 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(mol),
+                parent_atoms=parent_atoms,
                 source_family=source_family,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
@@ -14062,6 +14077,9 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
+        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
+        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if (
@@ -14075,7 +14093,7 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
                 self.family,
                 self.priority,
                 sort_key=(len(name), name),
-                parent_atoms=_nonring_heavy_atom_indices(ctx.mol),
+                parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
@@ -14204,6 +14222,92 @@ def _heavy_atom_indices(mol) -> frozenset[int]:
 
 def _nonring_heavy_atom_indices(mol) -> frozenset[int]:
     return frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+
+
+def _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(
+    ctx,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    """Leave cyclic parents in charge when an acyclic skeleton is only an S=N branch holder."""
+
+    mol = ctx.mol
+    if mol.GetRingInfo().NumRings() == 0:
+        return False
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    if not parent_set:
+        return False
+    ring_atoms = frozenset(
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() > 1 and atom.IsInRing()
+    )
+    if parent_set & ring_atoms:
+        return False
+    return _has_ring_attached_sulfur_imidoyl_branch(mol, parent_set, ring_atoms)
+
+
+def _has_ring_attached_sulfur_imidoyl_branch(
+    mol,
+    parent_atoms: frozenset[int],
+    ring_atoms: frozenset[int],
+) -> bool:
+    for sulfur in mol.GetAtoms():
+        sulfur_idx = sulfur.GetIdx()
+        if sulfur_idx not in parent_atoms:
+            continue
+        if sulfur.GetAtomicNum() != 16 or sulfur.IsInRing() or sulfur.GetFormalCharge() != 0:
+            continue
+        if sulfur.GetIsotope():
+            continue
+        double_oxygens: list[int] = []
+        imino_nitrogens: list[int] = []
+        single_heavy: list[int] = []
+        unsupported = False
+        for neighbor in sulfur.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if neighbor.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+            if bond is None:
+                unsupported = True
+                break
+            order = bond.GetBondTypeAsDouble()
+            if neighbor.GetAtomicNum() == 8 and order == 2.0 and _is_terminal_hetero_atom(neighbor, sulfur_idx):
+                double_oxygens.append(nidx)
+            elif neighbor.GetAtomicNum() == 7 and order == 2.0 and neighbor.GetFormalCharge() == 0:
+                imino_nitrogens.append(nidx)
+            elif order == 1.0:
+                single_heavy.append(nidx)
+            else:
+                unsupported = True
+                break
+        if unsupported or len(imino_nitrogens) != 1 or len(double_oxygens) > 1:
+            continue
+        imino_idx = imino_nitrogens[0]
+        if imino_idx not in parent_atoms:
+            continue
+        ring_single = [idx for idx in single_heavy if idx in ring_atoms]
+        nonring_single = [idx for idx in single_heavy if idx not in ring_atoms]
+        if (
+            len(ring_single) == 1
+            and len(nonring_single) == 1
+            and mol.GetAtomWithIdx(nonring_single[0]).GetAtomicNum() == 7
+        ):
+            return True
+        if (
+            len(double_oxygens) == 1
+            and len(ring_single) == 2
+            and all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in ring_single)
+        ):
+            return True
+    return False
+
+
+def _is_terminal_hetero_atom(atom, parent_idx: int) -> bool:
+    return not any(
+        neighbor.GetIdx() != parent_idx and neighbor.GetAtomicNum() > 1
+        for neighbor in atom.GetNeighbors()
+    )
 
 
 def _senior_azolone_ring_atom_sets(mol) -> tuple[frozenset[int], ...]:

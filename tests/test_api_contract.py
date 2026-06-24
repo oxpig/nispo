@@ -3353,6 +3353,22 @@ def test_sulfonimidamide_parent_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCc1csc([S@](N)(=O)=NC(=O)[C@@H](N)CC(C)C)c1",
+        "CN=[S@@](=O)(c1cccc(C(F)(F)F)c1)c1nnc(C)cc1C(=O)OC",
+        "CC(C)(C)OC(=O)N=[S@@](=O)(NC(=O)Nc1c2c(cc3c1CCC3)CCC2)c1ccc(CO)cc1",
+    ],
+)
+def test_sulfur_imidoyl_ring_parent_deferral_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "NC(=O)C1CC[SH2]CC1",
         "O=C(Nc1ccc(Br)cc1)c1cnc[se]1",
         "CN(C)C(=O)c1cccnc1",

@@ -241,6 +241,22 @@ def test_external_bond_stereo_parent_alternatives_roundtrip_with_opsin(input_smi
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"COc1cc(/C=C2/C(C)=C(CC(=O)O)c3cc(OC)ccc32)cc(OC)c1",
+        r"COc1cc2c(cc1OC)/C(=C\c1cc(OC)c(OC)c(OC)c1)C(C)=C2CC(=O)O",
+        r"Cc1[nH]c2c(c1C(=O)O)C(C1CC1)C/C2=C1/C(=O)Nc2ccc(F)cc21",
+    ],
+)
+def test_carbofused_arylidene_stereo_projection_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize("input_smiles", ["C1=C[N]N=C1", "C1=CSC[N]1"])
 def test_lambda2_unsaturated_heterocycles_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)

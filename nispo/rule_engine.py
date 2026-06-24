@@ -14735,7 +14735,7 @@ def _finalize_candidate_name(
         name = f"({candidate.stereo_prefix})-{name}"
         structured_stereo_applied = True
     elif candidate.stereo_locants:
-        invert_unlocanted_bond_stereo = _candidate_needs_indene_exocyclic_carbon_stereo_inversion(
+        invert_unlocanted_bond_stereo = _candidate_needs_exocyclic_bond_stereo_inversion(
             mol,
             Chem,
             candidate,
@@ -14792,7 +14792,7 @@ def _finalize_candidate_name(
             Chem,
             name,
             atom_order=_fallback_stereo_atom_order(candidate.family, name),
-            invert_unlocanted_bond_stereo=_candidate_needs_indene_exocyclic_carbon_stereo_inversion(
+            invert_unlocanted_bond_stereo=_candidate_needs_exocyclic_bond_stereo_inversion(
                 mol,
                 Chem,
                 candidate,
@@ -14800,6 +14800,13 @@ def _finalize_candidate_name(
         )
     name = _apply_uniform_isotope_label(mol, name)
     return name if len(name) <= max_length else ""
+
+
+def _candidate_needs_exocyclic_bond_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
+    return (
+        _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candidate)
+        or _candidate_needs_carbofused_arylidene_substituent_stereo_inversion(mol, Chem, candidate)
+    )
 
 
 def _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
@@ -14838,6 +14845,103 @@ def _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candida
         and {"1", "2", "3"}.issubset(external_numeric_locants)
         and "7" not in external_numeric_locants
     )
+
+
+def _candidate_needs_carbofused_arylidene_substituent_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
+    """Invert OPSIN's ylidene-substituent E/Z projection for arylidene indenes.
+
+    Direct indene parents already roundtrip with RDKit's descriptor.  The
+    inversion is only needed when the carbofused five-member endpoint is outside
+    the selected parent and is rendered through a substituent/branch path.
+    """
+
+    if not candidate.parent_atoms:
+        return False
+    stereo_bonds = _assigned_double_stereo_bonds(mol, Chem)
+    if len(stereo_bonds) != 1:
+        return False
+    bond = stereo_bonds[0]
+    if bond.IsInRing():
+        return False
+    begin_idx = bond.GetBeginAtomIdx()
+    end_idx = bond.GetEndAtomIdx()
+    begin_atom = mol.GetAtomWithIdx(begin_idx)
+    end_atom = mol.GetAtomWithIdx(end_idx)
+    if begin_atom.GetAtomicNum() != 6 or end_atom.GetAtomicNum() != 6:
+        return False
+    if begin_atom.GetIsAromatic() or end_atom.GetIsAromatic():
+        return False
+    begin_in_ring = begin_atom.IsInRing()
+    end_in_ring = end_atom.IsInRing()
+    if begin_in_ring == end_in_ring:
+        return False
+    ring_idx, outer_idx = (begin_idx, end_idx) if begin_in_ring else (end_idx, begin_idx)
+    parent_atoms = set(candidate.parent_atoms)
+    if ring_idx in parent_atoms:
+        return False
+    ring_substituent_neighbors = [
+        nbr.GetIdx()
+        for nbr in mol.GetAtomWithIdx(ring_idx).GetNeighbors()
+        if nbr.GetIdx() != outer_idx and nbr.GetAtomicNum() > 1
+    ]
+    if any(nidx in parent_atoms for nidx in ring_substituent_neighbors):
+        return False
+    return (
+        _atom_in_carbofused_five_ring_with_aromatic_fusion(mol, ring_idx)
+        and _atom_has_aromatic_neighbor_except(mol, ring_idx, outer_idx)
+        and _atom_has_aromatic_neighbor_except(mol, outer_idx, ring_idx)
+    )
+
+
+def _assigned_double_stereo_bonds(mol, Chem):
+    return [
+        bond
+        for bond in mol.GetBonds()
+        if bond.GetBondType() == Chem.BondType.DOUBLE
+        and bond.GetStereo()
+        in {
+            Chem.BondStereo.STEREOE,
+            Chem.BondStereo.STEREOTRANS,
+            Chem.BondStereo.STEREOZ,
+            Chem.BondStereo.STEREOCIS,
+        }
+    ]
+
+
+def _atom_has_aromatic_neighbor_except(mol, atom_idx: int, blocked_idx: int) -> bool:
+    return any(
+        nbr.GetIdx() != blocked_idx and nbr.GetAtomicNum() > 1 and nbr.GetIsAromatic()
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+    )
+
+
+def _atom_in_carbofused_five_ring_with_aromatic_fusion(mol, atom_idx: int) -> bool:
+    for ring in mol.GetRingInfo().AtomRings():
+        if atom_idx not in ring or len(ring) != 5:
+            continue
+        if any(mol.GetAtomWithIdx(idx).GetAtomicNum() != 6 for idx in ring):
+            continue
+        if _ring_has_exocyclic_carbonyl(mol, ring):
+            continue
+        aromatic_count = sum(1 for idx in ring if mol.GetAtomWithIdx(idx).GetIsAromatic())
+        if aromatic_count == 2:
+            return True
+    return False
+
+
+def _ring_has_exocyclic_carbonyl(mol, ring: tuple[int, ...]) -> bool:
+    ring_atoms = set(ring)
+    for atom_idx in ring_atoms:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetAtomicNum() != 6:
+            continue
+        for nbr in atom.GetNeighbors():
+            if nbr.GetIdx() in ring_atoms or nbr.GetAtomicNum() != 8:
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx())
+            if bond is not None and int(bond.GetBondTypeAsDouble()) == 2:
+                return True
+    return False
 
 
 _MIXED_STEREO_COMPLEX_PARENT_FAMILIES = frozenset(

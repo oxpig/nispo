@@ -692,7 +692,13 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             name = prefix_text + separator + suffix
         else:
             name = suffix
-        stereo_prefix = _simple_ring_substituent_stereo_prefix(mol, seq)
+        stereo_prefix = _simple_ring_substituent_stereo_prefix(
+            mol,
+            seq,
+            parent_name,
+            attachment_idx=attachment_idx,
+            parent_idx=parent_idx,
+        )
         if stereo_prefix:
             name = f"({stereo_prefix})-{name}"
         locants = sorted(pos[idx] for idx, _ in raw_subs)
@@ -843,7 +849,14 @@ _RESOURCE_RING_ALIAS_EQUIVALENTS = {
 }
 
 
-def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
+def _simple_ring_substituent_stereo_prefix(
+    mol,
+    seq: Sequence[int],
+    parent_name: str = "",
+    *,
+    attachment_idx: int | None = None,
+    parent_idx: int | None = None,
+) -> str:
     if not seq:
         return ""
     seq_set = set(seq)
@@ -852,6 +865,22 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
         for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
         if descriptor in {"R", "S"} and idx in seq_set
     ]
+    relative = _simple_ring_relative_cis_trans_prefix(
+        mol,
+        seq,
+        allow_hetero=parent_name in _RELATIVE_STEREO_SUBSTITUENT_PARENTS,
+    )
+    relative_parent_scope = parent_name in _RELATIVE_STEREO_SUBSTITUENT_PARENTS and _relative_dioxane_scope(
+        mol,
+        seq,
+        parent_idx,
+    )
+    if relative:
+        if parent_name in _RELATIVE_STEREO_SUBSTITUENT_PARENTS:
+            if relative_parent_scope:
+                return relative
+        elif len(centers) < 2:
+            return relative
     if len(centers) < 2:
         relative = _simple_ring_relative_cis_trans_prefix(mol, seq)
         if relative:
@@ -865,7 +894,12 @@ def _simple_ring_substituent_stereo_prefix(mol, seq: Sequence[int]) -> str:
     )
 
 
-def _simple_ring_relative_cis_trans_prefix(mol, seq: Sequence[int]) -> str:
+def _simple_ring_relative_cis_trans_prefix(
+    mol,
+    seq: Sequence[int],
+    *,
+    allow_hetero: bool = False,
+) -> str:
     """Return a relative cis/trans descriptor for tagged disubstituted rings.
 
     RDKit reports some symmetric cycloalkane stereocentres as lowercase
@@ -883,7 +917,10 @@ def _simple_ring_relative_cis_trans_prefix(mol, seq: Sequence[int]) -> str:
     ]
     if len(tagged) != 2:
         return ""
-    if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C" for atom_idx in seq_set):
+    if allow_hetero:
+        if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() not in {"C", "O"} for atom_idx in seq_set):
+            return ""
+    elif any(mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C" for atom_idx in seq_set):
         return ""
     if any(atom.GetSymbol() != "C" or atom.GetIsAromatic() for atom in tagged):
         return ""
@@ -898,6 +935,24 @@ def _simple_ring_relative_cis_trans_prefix(mol, seq: Sequence[int]) -> str:
         return ""
     tags = [atom.GetChiralTag() for atom in tagged]
     return "cis" if tags[0] == tags[1] else "trans"
+
+
+_RELATIVE_STEREO_SUBSTITUENT_PARENTS = {
+    "1,3-dioxan",
+    "1,3-dioxane",
+}
+
+
+def _relative_dioxane_scope(mol, seq: Sequence[int], parent_idx: int | None) -> bool:
+    seq_set = set(seq)
+    if sum(_ring_atom_external_degree(mol, atom_idx, seq_set) for atom_idx in seq_set) != 2:
+        return False
+    if parent_idx is None:
+        return False
+    for ring in mol.GetRingInfo().AtomRings():
+        if parent_idx in ring and len(ring) <= 3:
+            return False
+    return True
 
 
 def _ring_atom_external_degree(mol, atom_idx: int, ring_atoms: set[int]) -> int:

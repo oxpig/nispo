@@ -211,6 +211,21 @@ def test_relative_ring_branch_stereo_keeps_matched_controls_roundtrip_with_opsin
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC[C@@H]1CCCC[C@@H]([C@H]2OC[C@@H](N(C)C)CO2)[C@@H]2CC[C@H]2CN2C[C@@]3(CCCc4cc(Cl)ccc43)COc3ccc(cc32)C(=O)NS1(=O)=O",
+        "CC[C@@H]1CCCC[C@@H]([C@H]2OC[C@H](N(C)C)CO2)[C@H]2CC[C@H]2CN2C[C@@]3(CCCc4cc(Cl)ccc43)COc3ccc(cc32)C(=O)NS1(=O)=O",
+    ],
+)
+def test_dioxane_branch_relative_stereo_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "N=C(N)NCCC[C@H](N)C(=O)/C(CC#P=O)=C(\\N)C(=O)O",
         "COC(=O)/C(C)=C/C(=N/S(=O)(=O)c1ccc(C)cc1)c1ccccc1",
         "COC(=O)/C(=C\\C(=O)O)C(O)P(=O)(O)O",

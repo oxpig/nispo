@@ -28,6 +28,7 @@ class StructuralProfile:
     nonring_neutral_pnictogen_count: int
     nonring_neutral_group14_count: int
     sulfur_oxo_retained_parent_signal: bool
+    terminal_n_oxide_count: int
     aromatic_atom_count: int
 
     @property
@@ -105,6 +106,10 @@ class StructuralProfile:
     def has_sulfur_oxo_retained_parent_signal(self) -> bool:
         return self.sulfur_oxo_retained_parent_signal
 
+    @property
+    def has_terminal_n_oxide(self) -> bool:
+        return self.terminal_n_oxide_count > 0
+
 
 
 def structural_profile(mol, Chem=None) -> StructuralProfile:
@@ -132,6 +137,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     nonring_neutral_pnictogen = 0
     nonring_neutral_group14 = 0
     aromatic_atoms = 0
+    terminal_n_oxide = 0
     nonring_carbon_double_neighbors: dict[int, set[int]] = {}
     nonring_carbon_single_bonds: list[tuple[int, int]] = []
     for idx, symbol in enumerate(view.symbols):
@@ -200,6 +206,18 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
             nitrile_like += 1
         if "S" in symbols and "O" in symbols:
             sulfone_like += 1
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0:
+            continue
+        nidx = nitrogen.GetIdx()
+        for oxygen in nitrogen.GetNeighbors():
+            if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() >= 0:
+                continue
+            bond = mol.GetBondBetweenAtoms(nidx, oxygen.GetIdx())
+            if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+                continue
+            if sum(1 for nbr in oxygen.GetNeighbors() if nbr.GetAtomicNum() > 1) == 1:
+                terminal_n_oxide += 1
     conjugated_diene = sum(
         1
         for begin_idx, end_idx in nonring_carbon_single_bonds
@@ -230,6 +248,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         nonring_neutral_pnictogen_count=nonring_neutral_pnictogen,
         nonring_neutral_group14_count=nonring_neutral_group14,
         sulfur_oxo_retained_parent_signal=_has_sulfur_oxo_retained_parent_signal(mol),
+        terminal_n_oxide_count=terminal_n_oxide,
         aromatic_atom_count=aromatic_atoms,
     )
 

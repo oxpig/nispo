@@ -4049,6 +4049,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_small_inorganic_retained_parent(current, proposed):
         return False
+    if not _ranker_preserves_exact_retained_n_oxide_parent(current, proposed):
+        return False
     if current_candidate.family == "phosphite-ester-parent" and proposed_candidate.family != current_candidate.family:
         return False
     if current_candidate.family not in _RANKER_PROTECTED_SENIOR_FUNCTIONAL_FAMILIES:
@@ -4073,6 +4075,31 @@ def _ranker_preserves_small_inorganic_retained_parent(
     if current.candidate.family != "small-inorganic-retained-parent":
         return True
     return proposed.candidate.family not in _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES
+
+
+def _ranker_preserves_exact_retained_n_oxide_parent(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "exact-retained-n-oxide-parent":
+        return True
+    if proposed_candidate.family not in {
+        "fused-retained-parent",
+        "generated-oxido-fused-parent",
+        "oxido-fused-retained-parent",
+    }:
+        return True
+    if current_candidate.priority >= proposed_candidate.priority:
+        return True
+    if not candidate_has_complete_graph(current_candidate):
+        return True
+    if current_candidate.charge is None or "oxide" not in current_candidate.charge.rendered_terms:
+        return True
+    if len(proposed_candidate.parent_atoms) >= len(current_candidate.parent_atoms):
+        return True
+    return False
 
 
 def _ranker_preserves_clean_aromatic_parent_over_terminal_carbonyl_switch(
@@ -6601,9 +6628,20 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
     penalty += _kekulized_polycyclic_bridge_unsaturation_penalty(candidate)
     if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in candidate_safety_reasons(candidate):
         penalty += 80
+    penalty += _unsupported_charge_rendering_penalty(candidate)
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
     return penalty
+
+
+def _unsupported_charge_rendering_penalty(candidate: NameCandidate) -> int:
+    safety = candidate.safety
+    if safety is None or safety.charge_supported:
+        return 0
+    charge = candidate.charge
+    if charge is None or charge.rendered_terms:
+        return 0
+    return 40
 
 
 def _kekulized_polycyclic_late_render_rank_penalty(name: str, candidate: NameCandidate) -> int:

@@ -1350,12 +1350,116 @@ def _simple_nitrogen_prefix(mol, atom, idx: int, parent_idx: int, order: float) 
     if order == 1.0:
         if not heavy:
             return _prefix_candidate("amino", {idx}, idx, parent_idx, "terminal-nitrogen")
+        cyclic_sulfanone = _simple_cyclic_lambda_sulfanone_imino_amino_prefix(
+            mol,
+            idx,
+            parent_idx,
+            heavy,
+        )
+        if cyclic_sulfanone is not None:
+            return cyclic_sulfanone
         if len(heavy) in {1, 2} and all(_is_terminal_methyl(mol, nbr_idx, idx) for nbr_idx in heavy):
             text = "methylamino" if len(heavy) == 1 else "dimethylamino"
             return _prefix_candidate(text, {idx, *heavy}, idx, parent_idx, "methylamino")
     if order == 2.0 and not heavy:
         return _prefix_candidate("imino", {idx}, idx, parent_idx, "terminal-nitrogen")
     return None
+
+
+def _simple_cyclic_lambda_sulfanone_imino_amino_prefix(
+    mol,
+    nitrogen_idx: int,
+    parent_idx: int,
+    heavy: list[int],
+) -> PrefixCandidate | None:
+    if len(heavy) != 1:
+        return None
+    sulfur_idx = heavy[0]
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if (
+        sulfur.GetSymbol() != "S"
+        or sulfur.GetFormalCharge() != 0
+        or not sulfur.IsInRing()
+        or sulfur.GetIsotope()
+        or _atom_has_assigned_stereo(sulfur)
+        or int(sulfur.GetTotalValence()) != 6
+    ):
+        return None
+    ns_bond = mol.GetBondBetweenAtoms(nitrogen_idx, sulfur_idx)
+    if ns_bond is None or ns_bond.GetBondTypeAsDouble() != 2.0:
+        return None
+    oxo_atoms = []
+    ring_carbon_neighbors = []
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return None
+        if nidx == nitrogen_idx:
+            continue
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and bond.GetBondTypeAsDouble() == 2.0
+            and not any(other.GetIdx() != sulfur_idx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+        ):
+            oxo_atoms.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondTypeAsDouble() == 1.0 and nbr.IsInRing():
+            ring_carbon_neighbors.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(oxo_atoms) != 1 or len(ring_carbon_neighbors) != 2:
+        return None
+    ring = _single_saturated_sulfur_ring(mol, sulfur_idx)
+    if ring is None:
+        return None
+    parent = {4: "thietan", 5: "thiolan", 6: "thian"}.get(len(ring))
+    if parent is None:
+        return None
+    atoms = {nitrogen_idx, oxo_atoms[0], *ring}
+    text = f"(1-oxido-lambda6-{parent}-1-ylidene)amino"
+    return _prefix_candidate(
+        text,
+        atoms,
+        nitrogen_idx,
+        parent_idx,
+        "cyclic-lambda-sulfanone-imino-amino",
+    )
+
+
+def _single_saturated_sulfur_ring(mol, sulfur_idx: int) -> frozenset[int] | None:
+    rings = [tuple(ring) for ring in mol.GetRingInfo().AtomRings() if sulfur_idx in ring]
+    if len(rings) != 1:
+        return None
+    ring = rings[0]
+    if len(ring) not in {4, 5, 6}:
+        return None
+    ring_set = set(ring)
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetFormalCharge() != 0 or atom.GetIsotope() or _atom_has_assigned_stereo(atom):
+            return None
+        if atom_idx == sulfur_idx:
+            if atom.GetSymbol() != "S":
+                return None
+        elif atom.GetSymbol() != "C":
+            return None
+        ring_neighbors = 0
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is None:
+                return None
+            if nidx in ring_set:
+                if bond.GetBondTypeAsDouble() != 1.0:
+                    return None
+                ring_neighbors += 1
+            elif atom_idx != sulfur_idx and nbr.GetAtomicNum() > 1:
+                return None
+        if ring_neighbors != 2:
+            return None
+    return frozenset(ring)
 
 
 def _prefix_candidate(

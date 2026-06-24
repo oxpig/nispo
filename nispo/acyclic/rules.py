@@ -39,6 +39,15 @@ from ..stereochemistry import assigned_atom_stereochemistry
 MAX_ACYCLIC_PARENT_PATHS = 16
 MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR = 2
 _SATURATED_CHAIN_PARENT_STEMS = frozenset(f"{root}an" for root in ROOTS.values())
+_CHARGE_PRESERVING_PREFIX_TERMS = frozenset(
+    (
+        "carboxylato",
+        "phosphonato",
+        "phosphonatooxy",
+        "sulfinato",
+        "sulfonato",
+    )
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1388,9 +1397,23 @@ def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
         if view.bond_orders.get(_bond_key(a, b), 1.0) != 1.0:
             locants.append(bond_locant)
             suffix_bonus += 1
-    descriptor = (-len(path), -suffix_bonus, tuple(locants), -carbon_count)
+    charge_prefix_count = _path_charge_preserving_prefix_count(mol, path)
+    descriptor = (-charge_prefix_count, -len(path), -suffix_bonus, tuple(locants), -carbon_count)
     cache[path] = descriptor
     return descriptor
+
+
+def _path_charge_preserving_prefix_count(mol, path: Sequence[int]) -> int:
+    if not any(atom.GetFormalCharge() for atom in mol.GetAtoms()):
+        return 0
+    prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+    if prefixes is None:
+        return 0
+    return sum(1 for _locant, prefix in prefixes if _prefix_preserves_formal_charge(prefix))
+
+
+def _prefix_preserves_formal_charge(prefix: str) -> bool:
+    return any(term in prefix for term in _CHARGE_PRESERVING_PREFIX_TERMS)
 
 
 def _acyclic_graph_view(mol) -> _AcyclicGraphView:

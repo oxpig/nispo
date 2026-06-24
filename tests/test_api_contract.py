@@ -358,6 +358,21 @@ def test_sulfur_ylidene_amino_fused_branches_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[C@H](NC(=O)c1cc(Cl)cc(Cl)c1)c1ncnn1-c1ccc(N=S2(=O)CCC2)cn1",
+        "Cn1cc(-c2ccncc2)c(-c2ccc(OCc3nc4ccccc4cc3C(=O)N=S3(=O)CCCC3)cc2)n1",
+    ],
+)
+def test_cyclic_lambda_sulfanone_imino_amino_prefixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Nc1cnc2[nH]nc(-c3nc4ccc(F)cc4[nH]3)c2c1",
         "CNC(=O)Nc1ccc2c(c1)nc([C@@H]1CCCC(=O)N1c1ccc(F)c(F)c1)n2[C@H]1CC[C@H](OC)CC1",
         "C[C@H](Cc1nc2c(Cl)cccc2[nH]1)C(=O)N[C@@H]1C(=O)N2CCCN2Cc2ccccc21",
@@ -1631,6 +1646,23 @@ def test_tertiary_amine_oxide_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "COc1ccc2c3c1O[C@H]1[C@@H](O)C=C[C@H]4[C@@H](C2)[N+](C)([O-])CC[C@@]341",
+        "COc1ccc2c3c1O[C@H]1C(=O)CC[C@@]4(O)[C@@H](C2)[N+](C)([O-])CC[C@]314",
+        "c1cc[n+]([O-])cc1",
+        "c1ccc2c(c1)cc[n+]([O-])c2",
+    ],
+)
+def test_retained_parent_n_oxide_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "[O-][NH+](Cc1ccccc1)C1CCCCC1",
         "[O-][NH+](CC)C1CCCCC1",
     ],
@@ -2640,6 +2672,7 @@ def test_large_neutral_phosphine_oxide_parents_roundtrip_with_opsin(input_smiles
         "CC(C)(O)[PH]([O-])([O-])[O-]",
         "[O-][PH]([O-])([O-])CCCCCCCCCC(c1ccccc1)c1ccccc1",
         "[O-][PH]([O-])([O-])C1CCC(c2ccccc2)(c2ccccc2)CC1",
+        "C[N+](C)(C)CC[PH](=O)[O-]",
     ],
 )
 def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles):
@@ -2657,6 +2690,8 @@ def test_charged_organophosphorus_oxo_parents_roundtrip_with_opsin(input_smiles)
         "C=CO[P+](=O)O",
         "O=C(Cc1ccc(I)cc1)NC[P+](=O)O",
         "O=[P+]([O-])c1cccc2c1ccc1ccccc12",
+        "C#CCO[P+](=O)OCC#C",
+        "C[C@@H](O[P+](C)=O)C(C)(C)C",
     ],
 )
 def test_phosphanylium_oxide_parents_roundtrip_with_opsin(input_smiles):
@@ -3310,6 +3345,7 @@ def test_aminodiazenide_retained_parents_roundtrip_with_opsin(input_smiles):
         "[O-][P+]([O-])=C=S",
         "C[N+](C)(C)CC(O)=[P+](N)[O-]",
         "C[N+](C)(C)CC(O)=[P+]([O-])F",
+        "CCC(C(=O)O)=[P+]([O-])CO",
         "CCOC(=O)c1[nH]c(=[P+]([O-])c2ccc(C)cc2)c2ccccc2c1-c1ccccc1",
     ],
 )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from functools import lru_cache
 
 from .branch_rules import branch_prefix
 from .candidate_facts import (
@@ -49,6 +50,9 @@ _REPLACEMENT_TERMS = (
     "oxa",
     "aza",
 )
+
+_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 48
+_COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT = 72
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -245,85 +249,91 @@ def _component_dispiro_candidates_for_blocks(
         return []
 
     candidates: list[NameCandidate] = []
-    for left in left_components[:6]:
-        for center in center_components[:6]:
-            if left_spiro not in center.locants or right_spiro not in center.locants:
-                continue
-            for right in right_components[:6]:
-                locants = {}
-                locants.update(left.locants)
-                locants.update({idx: _prime_locant(locant) for idx, locant in center.locants.items()})
-                locants.update({idx: _double_prime_locant(locant) for idx, locant in right.locants.items()})
-                covered_external_atoms = (
-                    set(left.covered_external_atoms)
-                    | set(center.covered_external_atoms)
-                    | set(right.covered_external_atoms)
-                )
-                substituent_prefixes = _external_substituent_prefixes(
-                    ctx.mol,
-                    ring_system_atoms,
-                    locants,
-                    covered_external_atoms=covered_external_atoms,
-                )
-                if substituent_prefixes is None:
-                    continue
-                component_prefixes = []
-                replacement_prefixes = []
-                _extend_component_prefix_groups(component_prefixes, replacement_prefixes, left.replacement_prefixes)
-                _extend_component_prefix_groups(
-                    component_prefixes,
-                    replacement_prefixes,
-                    center.replacement_prefixes,
-                    locant_transform=_prime_locant,
-                )
-                _extend_component_prefix_groups(
-                    component_prefixes,
-                    replacement_prefixes,
-                    right.replacement_prefixes,
-                    locant_transform=_double_prime_locant,
-                )
-                substituent_prefixes.extend(component_prefixes)
-                prefix_text = _component_spiro_prefix_text(substituent_prefixes, replacement_prefixes)
-                dispiro_name = (
-                    "dispiro["
-                    f"{_component_parent_text(left.parent_name)}-{left.locants[left_spiro]},"
-                    f"{_prime_locant(center.locants[left_spiro])}-{_component_parent_text(center.parent_name)}-"
-                    f"{_prime_locant(center.locants[right_spiro])},"
-                    f"{_double_prime_locant(right.locants[right_spiro])}-{_component_parent_text(right.parent_name)}"
-                    "]"
-                )
-                if _has_unpromoted_component_replacement(dispiro_name):
-                    continue
-                name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
-                render_rank = _component_spiro_render_rank(left, center, right)
-                graph_atoms = frozenset(ring_system_atoms)
-                candidates.append(
-                    NameCandidate(
-                        name=name,
-                        family="component-dispiro-parent",
-                        priority=priority,
-                        sort_key=(
-                            left.component_rank + center.component_rank + right.component_rank,
-                            len(replacement_prefixes),
-                            (left.component_order, center.component_order, right.component_order),
-                            (
-                                left.numbering_key,
-                                center.numbering_key,
-                                right.numbering_key,
-                            ),
-                            _locant_key_for_text(name),
-                            len(name),
-                            name,
-                        ),
-                        stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, ctx.Chem, locants),
-                        stereo_locants=_component_spiro_stereo_locants(locants),
-                        parent_atoms=graph_atoms,
-                        ring_system_atoms=graph_atoms,
-                        safety=_combined_component_safety(left, center, right),
-                        render_cost=_combined_component_render_cost(left, center, right),
-                        render_rank=render_rank,
-                    )
-                )
+    component_triples = sorted(
+        (
+            (_component_pre_render_key(left, center, right), left, center, right)
+            for left in left_components[:6]
+            for center in center_components[:6]
+            if left_spiro in center.locants and right_spiro in center.locants
+            for right in right_components[:6]
+        ),
+        key=lambda item: item[0],
+    )
+    for _triple_key, left, center, right in component_triples[:_COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT]:
+        locants = {}
+        locants.update(left.locants)
+        locants.update({idx: _prime_locant(locant) for idx, locant in center.locants.items()})
+        locants.update({idx: _double_prime_locant(locant) for idx, locant in right.locants.items()})
+        covered_external_atoms = (
+            set(left.covered_external_atoms)
+            | set(center.covered_external_atoms)
+            | set(right.covered_external_atoms)
+        )
+        substituent_prefixes = _external_substituent_prefixes(
+            ctx.mol,
+            ring_system_atoms,
+            locants,
+            covered_external_atoms=covered_external_atoms,
+        )
+        if substituent_prefixes is None:
+            continue
+        component_prefixes = []
+        replacement_prefixes = []
+        _extend_component_prefix_groups(component_prefixes, replacement_prefixes, left.replacement_prefixes)
+        _extend_component_prefix_groups(
+            component_prefixes,
+            replacement_prefixes,
+            center.replacement_prefixes,
+            locant_transform=_prime_locant,
+        )
+        _extend_component_prefix_groups(
+            component_prefixes,
+            replacement_prefixes,
+            right.replacement_prefixes,
+            locant_transform=_double_prime_locant,
+        )
+        substituent_prefixes.extend(component_prefixes)
+        prefix_text = _component_spiro_prefix_text(substituent_prefixes, replacement_prefixes)
+        dispiro_name = (
+            "dispiro["
+            f"{_component_parent_text(left.parent_name)}-{left.locants[left_spiro]},"
+            f"{_prime_locant(center.locants[left_spiro])}-{_component_parent_text(center.parent_name)}-"
+            f"{_prime_locant(center.locants[right_spiro])},"
+            f"{_double_prime_locant(right.locants[right_spiro])}-{_component_parent_text(right.parent_name)}"
+            "]"
+        )
+        if _has_unpromoted_component_replacement(dispiro_name):
+            continue
+        name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
+        render_rank = _component_spiro_render_rank(left, center, right)
+        graph_atoms = frozenset(ring_system_atoms)
+        candidates.append(
+            NameCandidate(
+                name=name,
+                family="component-dispiro-parent",
+                priority=priority,
+                sort_key=(
+                    left.component_rank + center.component_rank + right.component_rank,
+                    len(replacement_prefixes),
+                    (left.component_order, center.component_order, right.component_order),
+                    (
+                        left.numbering_key,
+                        center.numbering_key,
+                        right.numbering_key,
+                    ),
+                    _locant_key_for_text(name),
+                    len(name),
+                    name,
+                ),
+                stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, ctx.Chem, locants),
+                stereo_locants=_component_spiro_stereo_locants(locants),
+                parent_atoms=graph_atoms,
+                ring_system_atoms=graph_atoms,
+                safety=_combined_component_safety(left, center, right),
+                render_cost=_combined_component_render_cost(left, center, right),
+                render_rank=render_rank,
+            )
+        )
     return candidates
 
 
@@ -614,64 +624,83 @@ def _poly_component_spiro_candidates_for_split(
         return []
 
     candidates: list[NameCandidate] = []
-    for left_component in left_components[:12]:
-        for right_component in right_components[:12]:
-            component_prefixes = []
-            parent_prefixes = []
-            _extend_component_prefix_groups(component_prefixes, parent_prefixes, left_component.replacement_prefixes)
-            _extend_component_prefix_groups(
-                component_prefixes,
-                parent_prefixes,
-                right_component.replacement_prefixes,
-                locant_transform=_prime_locant,
+    component_pairs = sorted(
+        (
+            (_component_pre_render_key(left_component, right_component), left_component, right_component)
+            for left_component in left_components[:12]
+            for right_component in right_components[:12]
+        ),
+        key=lambda item: item[0],
+    )
+    for _pair_key, left_component, right_component in component_pairs[:_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT]:
+        component_prefixes = []
+        parent_prefixes = []
+        _extend_component_prefix_groups(component_prefixes, parent_prefixes, left_component.replacement_prefixes)
+        _extend_component_prefix_groups(
+            component_prefixes,
+            parent_prefixes,
+            right_component.replacement_prefixes,
+            locant_transform=_prime_locant,
+        )
+        locants = _combined_locants(left_component, left_to_parent, right_component, right_to_parent)
+        covered_external_atoms = (left_expanded | right_expanded) - ring_system_atoms
+        substituent_prefixes = _external_substituent_prefixes(
+            ctx.mol,
+            ring_system_atoms,
+            locants,
+            covered_external_atoms=covered_external_atoms,
+        )
+        if substituent_prefixes is None:
+            continue
+        substituent_prefixes.extend(component_prefixes)
+        prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
+        spiro_name = (
+            "spiro["
+            f"{_component_parent_text(left_component.parent_name)}-{left_component.spiro_locant},"
+            f"{_prime_locant(right_component.spiro_locant)}-{_component_parent_text(right_component.parent_name)}"
+            "]"
+        )
+        if _has_unpromoted_component_replacement(spiro_name):
+            continue
+        name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+        render_rank = _component_spiro_render_rank(left_component, right_component)
+        graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
+        candidates.append(
+            NameCandidate(
+                name=name,
+                family="poly-component-spiro-parent",
+                priority=priority,
+                sort_key=(
+                    left_component.component_rank + right_component.component_rank,
+                    len(parent_prefixes),
+                    (left_component.component_order, right_component.component_order),
+                    (left_component.numbering_key, right_component.numbering_key),
+                    _locant_key_for_text(name),
+                    len(name),
+                    name,
+                ),
+                stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
+                stereo_locants=_component_spiro_stereo_locants(locants),
+                parent_atoms=graph_atoms,
+                ring_system_atoms=graph_atoms,
+                safety=_combined_component_safety(left_component, right_component),
+                render_cost=_combined_component_render_cost(left_component, right_component),
+                render_rank=render_rank,
             )
-            locants = _combined_locants(left_component, left_to_parent, right_component, right_to_parent)
-            covered_external_atoms = (left_expanded | right_expanded) - ring_system_atoms
-            substituent_prefixes = _external_substituent_prefixes(
-                ctx.mol,
-                ring_system_atoms,
-                locants,
-                covered_external_atoms=covered_external_atoms,
-            )
-            if substituent_prefixes is None:
-                continue
-            substituent_prefixes.extend(component_prefixes)
-            prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
-            spiro_name = (
-                "spiro["
-                f"{_component_parent_text(left_component.parent_name)}-{left_component.spiro_locant},"
-                f"{_prime_locant(right_component.spiro_locant)}-{_component_parent_text(right_component.parent_name)}"
-                "]"
-            )
-            if _has_unpromoted_component_replacement(spiro_name):
-                continue
-            name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
-            render_rank = _component_spiro_render_rank(left_component, right_component)
-            graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
-            candidates.append(
-                NameCandidate(
-                    name=name,
-                    family="poly-component-spiro-parent",
-                    priority=priority,
-                    sort_key=(
-                        left_component.component_rank + right_component.component_rank,
-                        len(parent_prefixes),
-                        (left_component.component_order, right_component.component_order),
-                        (left_component.numbering_key, right_component.numbering_key),
-                        _locant_key_for_text(name),
-                        len(name),
-                        name,
-                    ),
-                    stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
-                    stereo_locants=_component_spiro_stereo_locants(locants),
-                    parent_atoms=graph_atoms,
-                    ring_system_atoms=graph_atoms,
-                    safety=_combined_component_safety(left_component, right_component),
-                    render_cost=_combined_component_render_cost(left_component, right_component),
-                    render_rank=render_rank,
-                )
-            )
+        )
     return candidates
+
+
+def _component_pre_render_key(*components: _Component) -> tuple:
+    return (
+        sum(component.component_rank for component in components),
+        sum(len(component.replacement_prefixes) for component in components),
+        tuple(component.component_order for component in components),
+        tuple(component.numbering_key for component in components),
+        tuple(_locant_key(component.spiro_locant) for component in components),
+        sum(len(component.parent_name) for component in components),
+        tuple(component.parent_name for component in components),
+    )
 
 
 def _extend_component_prefix_groups(
@@ -706,6 +735,17 @@ def _component_spiro_prefix_text(
     ``3'-ethoxycarbonyl-1',2',4'-triaza-spiro[...]``.
     """
 
+    return _cached_component_spiro_prefix_text(
+        tuple(substituent_prefixes),
+        tuple(replacement_prefixes),
+    )
+
+
+@lru_cache(maxsize=32768)
+def _cached_component_spiro_prefix_text(
+    substituent_prefixes: tuple[tuple[str, str], ...],
+    replacement_prefixes: tuple[tuple[str, str], ...],
+) -> str:
     substituent_text = _format_prefixes(substituent_prefixes)
     replacement_text = _format_prefixes(replacement_prefixes)
     if substituent_text and replacement_text:
@@ -723,7 +763,7 @@ def _component_spiro_stereo_prefix(mol, Chem, locants: dict[int, str]) -> str:
     seen = set()
     for idx, descriptor in centers:
         locant = locants.get(idx, "")
-        if not re.match(r"^\d+'*$", locant):
+        if not _is_component_stereo_prefix_locant(locant):
             return ""
         text = f"{locant}{descriptor}"
         if text in seen:
@@ -737,8 +777,21 @@ def _component_spiro_stereo_locants(locants: dict[int, str]) -> tuple[tuple[int,
     return tuple(
         (int(atom_idx), str(locant))
         for atom_idx, locant in locants.items()
-        if re.match(r"^\d+'?$", str(locant))
+        if _is_component_stereo_locant(str(locant))
     )
+
+
+def _is_component_stereo_prefix_locant(locant: str) -> bool:
+    base = str(locant).rstrip("'")
+    return bool(base) and base.isdigit()
+
+
+def _is_component_stereo_locant(locant: str) -> bool:
+    text = str(locant)
+    if text.endswith("''"):
+        return False
+    base = text[:-1] if text.endswith("'") else text
+    return bool(base) and base.isdigit()
 
 
 class _Component:
@@ -1280,6 +1333,9 @@ def _double_prime_locant(locant: str) -> str:
 
 
 def _locant_key(locant: str) -> tuple[int, str]:
+    base = locant.rstrip("'")
+    if base.isdigit():
+        return (int(base), locant)
     digits = "".join(ch for ch in locant if ch.isdigit())
     return (int(digits) if digits else 999, locant)
 

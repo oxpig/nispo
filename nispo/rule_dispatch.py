@@ -95,6 +95,10 @@ def sulfur_oxo_retained_parent_signal(ctx) -> bool:
     return ctx.profile.has_sulfur_oxo_retained_parent_signal
 
 
+def terminal_n_oxide_signal(ctx) -> bool:
+    return ctx.profile.has_terminal_n_oxide
+
+
 def sulfinate_retained_parent_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal or ctx.profile.has_sulfur_oxo_retained_parent_signal
 

@@ -2931,6 +2931,7 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "carboxy": "carboxylic acid",
     "carboxylato": "carboxylate",
     "cyano": "carbonitrile",
+    "oxidosulfanyl": "sulfenate",
 }
 _STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH = 152
 
@@ -2984,14 +2985,22 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
 
     supports_parent = _supports_single_ring_functional_suffix_parent(parent_name)
     supports_ester_parent = supports_parent or parent_name == "benzene"
+    supports_sulfenate_parent = supports_parent or _supports_sulfenate_suffix_parent(parent_name)
     if not supports_parent and not (
         supports_ester_parent
         and any(prefix in _SINGLE_RING_ESTER_SUFFIX_OWNERS for _loc, prefix in prefixes)
+    ) and not (
+        supports_sulfenate_parent
+        and any(prefix == "oxidosulfanyl" for _loc, prefix in prefixes)
     ):
         return ""
     best_key = None
     best_name = ""
-    for matched, suffix_base, n_substituent in _iter_single_ring_functional_suffix_terms(prefixes, supports_parent):
+    for matched, suffix_base, n_substituent in _iter_single_ring_functional_suffix_terms(
+        prefixes,
+        supports_parent,
+        supports_sulfenate_parent=supports_sulfenate_parent,
+    ):
         suffix_locs = [loc for loc, _prefix in matched]
         matched_set = set(matched)
         remaining = [
@@ -3058,14 +3067,20 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
 def _iter_single_ring_functional_suffix_terms(
     prefixes: Sequence[tuple[str, str]],
     supports_parent: bool,
+    *,
+    supports_sulfenate_parent: bool = False,
 ) -> list[tuple[tuple[tuple[str, str], ...], str, str]]:
-    if not supports_parent:
+    if not supports_parent and not supports_sulfenate_parent:
         return []
     terms = []
     for prefix, suffix_base in _SINGLE_RING_FUNCTIONAL_SUFFIXES.items():
+        if not supports_parent and suffix_base != "sulfenate":
+            continue
         matched = tuple((loc, candidate_prefix) for loc, candidate_prefix in prefixes if candidate_prefix == prefix)
         if matched:
             terms.append((matched, suffix_base, ""))
+    if not supports_parent:
+        return terms
     for loc, prefix in prefixes:
         if prefix in _SINGLE_RING_FUNCTIONAL_SUFFIXES:
             continue
@@ -3184,8 +3199,10 @@ def _allow_fused_functional_suffix(
     n_substituent: str,
     indicated_h_locs: Sequence[str],
 ) -> bool:
-    if suffix_base not in {"carboxamide", "carboxylate", "carboxylic acid", "carbonitrile"}:
+    if suffix_base not in {"carboxamide", "carboxylate", "carboxylic acid", "carbonitrile", "sulfenate"}:
         return False
+    if suffix_base == "sulfenate":
+        return _supports_fused_functional_suffix_parent(parent_name) or _supports_sulfenate_suffix_parent(parent_name)
     if suffix_base == "carbonitrile" and "benzimidazole" in parent_name:
         return False
     if suffix_base in {"carboxylate", "carboxylic acid"} and re.search(r"(?:^|-)(?:\d+[a-z]?\([^)]*H\)-)?one\b", parent_name):
@@ -3227,6 +3244,52 @@ def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
             "quinazoline",
             "quinoline",
             "quinoxaline",
+            "triazolo[",
+        )
+    )
+
+
+def _supports_sulfenate_suffix_parent(parent_name: str) -> bool:
+    if parent_name == "benzene":
+        return True
+    return any(
+        stem in parent_name
+        for stem in (
+            "benzimidazol",
+            "benzothiazol",
+            "benzoxazol",
+            "benzotriazol",
+            "cinnolin",
+            "furan",
+            "imidazo[",
+            "imidazol",
+            "indazol",
+            "indeno[",
+            "indol",
+            "isoquinolin",
+            "isothiazol",
+            "isoxazol",
+            "naphthalen",
+            "naphthyridin",
+            "oxadiazol",
+            "oxazol",
+            "purin",
+            "pteridin",
+            "pyrazin",
+            "pyrazol",
+            "pyridazin",
+            "pyridin",
+            "pyrimido[",
+            "pyrimidin",
+            "pyrrolo[",
+            "pyrrol",
+            "quinazolin",
+            "quinolin",
+            "quinoxalin",
+            "thiadiazol",
+            "thiazol",
+            "thiophen",
+            "triazol",
             "triazolo[",
         )
     )

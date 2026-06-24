@@ -2654,6 +2654,22 @@ def test_phosphanylium_oxide_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "[O-]Sc1ccccc1",
+        "[O-]Sc1ccc2ccccc2c1",
+        "[O-]Sc1cccnc1",
+    ],
+)
+def test_ring_sulfenate_suffixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C([O-])C(=O)CNCCc1c[nH]cn1",
         "O=C([O-])C(=O)Cc1ccccc1",
     ],

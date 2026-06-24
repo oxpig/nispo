@@ -14775,6 +14775,7 @@ def _finalize_candidate_name(
         name = _apply_uniform_isotope_label(mol, name)
         return name if len(name) <= max_length else ""
     skip_fallback_stereo = candidate.family in {
+        "phosphite-ester-parent",
         "retained-acid-ester-parent",
         "retained-amide-parent",
         "carbamate-retained-parent",

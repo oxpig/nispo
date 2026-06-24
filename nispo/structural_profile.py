@@ -24,8 +24,10 @@ class StructuralProfile:
     nonring_positive_phosphorus_count: int
     nonring_neutral_nitrogen_count: int
     nonring_neutral_phosphorus_count: int
+    ring_neutral_phosphorus_count: int
     nonring_neutral_pnictogen_count: int
     nonring_neutral_group14_count: int
+    sulfur_oxo_retained_parent_signal: bool
     aromatic_atom_count: int
 
     @property
@@ -80,6 +82,10 @@ class StructuralProfile:
         return self.nonring_neutral_phosphorus_count > 0
 
     @property
+    def has_neutral_phosphorus(self) -> bool:
+        return self.nonring_neutral_phosphorus_count + self.ring_neutral_phosphorus_count > 0
+
+    @property
     def has_nonring_neutral_pnictogen(self) -> bool:
         return self.nonring_neutral_pnictogen_count > 0
 
@@ -94,6 +100,10 @@ class StructuralProfile:
     @property
     def has_kekulized_polycycle_signal(self) -> bool:
         return self.has_aromatic_atom or self.ring_count >= 3
+
+    @property
+    def has_sulfur_oxo_retained_parent_signal(self) -> bool:
+        return self.sulfur_oxo_retained_parent_signal
 
 
 
@@ -118,6 +128,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     nonring_positive_phosphorus = 0
     nonring_neutral_nitrogen = 0
     nonring_neutral_phosphorus = 0
+    ring_neutral_phosphorus = 0
     nonring_neutral_pnictogen = 0
     nonring_neutral_group14 = 0
     aromatic_atoms = 0
@@ -127,6 +138,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         if view.aromatic_atoms[idx]:
             aromatic_atoms += 1
         if view.ring_atoms[idx]:
+            if symbol == "P" and view.formal_charges[idx] == 0:
+                ring_neutral_phosphorus += 1
             continue
         if view.formal_charges[idx] > 0:
             if symbol == "S":
@@ -213,10 +226,90 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         nonring_positive_phosphorus_count=nonring_positive_phosphorus,
         nonring_neutral_nitrogen_count=nonring_neutral_nitrogen,
         nonring_neutral_phosphorus_count=nonring_neutral_phosphorus,
+        ring_neutral_phosphorus_count=ring_neutral_phosphorus,
         nonring_neutral_pnictogen_count=nonring_neutral_pnictogen,
         nonring_neutral_group14_count=nonring_neutral_group14,
+        sulfur_oxo_retained_parent_signal=_has_sulfur_oxo_retained_parent_signal(mol),
         aromatic_atom_count=aromatic_atoms,
     )
+
+
+def _has_sulfur_oxo_retained_parent_signal(mol) -> bool:
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.IsInRing():
+            continue
+        facts = _sulfur_oxo_neighbor_facts(mol, sulfur.GetIdx())
+        charge = sulfur.GetFormalCharge()
+        hydrogens = sulfur.GetTotalNumHs()
+        if (
+            charge == 1
+            and hydrogens == 0
+            and facts["double_o"] == 2
+            and facts["single_c"] == 1
+            and facts["other_heavy"] == 0
+        ):
+            return True
+        if charge != 0:
+            continue
+        if (
+            hydrogens == 1
+            and facts["double_o"] == 1
+            and facts["single_n"] == 1
+            and facts["other_heavy"] == 0
+        ):
+            return True
+        if (
+            hydrogens == 2
+            and facts["double_o"] == 1
+            and facts["double_n"] == 1
+            and facts["other_heavy"] == 0
+        ):
+            return True
+        if facts["single_s"] != 1 or facts["other_heavy"] != 0:
+            continue
+        if hydrogens == 1 and facts["terminal_oxido"] == 0 and facts["double_o"] in {1, 2}:
+            return True
+        if hydrogens == 0 and facts["double_o"] == 1 and facts["terminal_oxido"] == 1:
+            return True
+    return False
+
+
+def _sulfur_oxo_neighbor_facts(mol, sulfur_idx: int) -> dict[str, int]:
+    counts = {
+        "double_o": 0,
+        "terminal_oxido": 0,
+        "single_c": 0,
+        "single_n": 0,
+        "double_n": 0,
+        "single_s": 0,
+        "other_heavy": 0,
+    }
+    for nbr in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors():
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nbr.GetIdx())
+        if bond is None:
+            continue
+        order = bond.GetBondTypeAsDouble()
+        symbol = nbr.GetSymbol()
+        if symbol == "O" and nbr.GetFormalCharge() == 0 and order == 2.0:
+            counts["double_o"] += 1
+        elif (
+            symbol == "O"
+            and nbr.GetFormalCharge() == -1
+            and len(nbr.GetNeighbors()) == 1
+            and order == 1.0
+        ):
+            counts["terminal_oxido"] += 1
+        elif symbol == "C" and order == 1.0:
+            counts["single_c"] += 1
+        elif symbol == "N" and nbr.GetFormalCharge() == 0 and order == 1.0:
+            counts["single_n"] += 1
+        elif symbol == "N" and nbr.GetFormalCharge() == 0 and order == 2.0:
+            counts["double_n"] += 1
+        elif symbol == "S" and nbr.GetFormalCharge() == 0 and order == 1.0:
+            counts["single_s"] += 1
+        elif nbr.GetAtomicNum() > 1:
+            counts["other_heavy"] += 1
+    return counts
 
 
 def _has_halogen_neighbor(atom, excluded_idx: int) -> bool:

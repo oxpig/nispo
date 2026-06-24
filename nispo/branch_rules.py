@@ -24,6 +24,7 @@ from .formatting import (
     unsaturated_parent as _unsaturated_parent,
 )
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from .simple_prefixes import simple_external_prefix
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -129,6 +130,12 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
     in_progress.add(key)
     try:
+        prefix = simple_external_prefix(mol, idx, parent_idx)
+        if prefix:
+            cache[key] = prefix
+            if telemetry is not None:
+                telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
+            return prefix
         render_ctx = branch_render_context(mol, Chem)
         prefix = select_branch_prefix_text(
             render_ctx,

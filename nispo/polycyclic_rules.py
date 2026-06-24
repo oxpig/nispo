@@ -1748,6 +1748,16 @@ def _unsat_sort_key(locant: str) -> tuple[int, int]:
 
 
 def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], parent: str) -> str:
+    cache = mol_cache_dict(mol, "decorate_polycyclic_parent_cache")
+    cache_key = (
+        tuple(seq),
+        tuple(sorted(core_atoms)),
+        parent,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
+    if cache_key in cache:
+        return cache[cache_key]
     parent = _append_polycyclic_parent_isotope_suffixes(mol, seq, parent)
     pos = {idx: str(loc) for loc, idx in enumerate(seq, start=1)}
     prefixes = []
@@ -1759,10 +1769,13 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
                 continue
             prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
+                cache[cache_key] = ""
                 return ""
             prefixes.append((locant, prefix))
     prefix_text = _format_prefixes(prefixes)
-    return _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    cache[cache_key] = name
+    return name
 
 
 def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:

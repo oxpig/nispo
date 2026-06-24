@@ -2008,6 +2008,44 @@ def test_neutral_iodane_parent_roundtrips_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "c1ccc([IH]c2ccccc2)cc1",
+        "CC(C)(C)c1ccc([IH]c2ccc(C(C)(C)C)cc2)cc1",
+        "FC(F)(F)CO[IH]OCC(F)(F)F",
+        "[IH2]c1ccccc1",
+        "Cc1ccc(S(=O)(=O)O[IH]O)cc1",
+        "CO[I+2]([O-])[O-]",
+        "CC(C)(C)O[I+3]([O-])([O-])[O-]",
+        "CC(=O)O[I+][O-]",
+        "O=S(=O)(O[I+][O-])C(F)(F)F",
+    ],
+)
+def test_iodine_lambda3_and_oxo_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCCCCSSc1nnc(SSCCCCCCCCC)s1",
+        "CCCCCCSSc1nsc(SSCCCCCC)n1",
+        "CCCCCCSSc1nnsc1SSCCCCCC",
+    ],
+)
+def test_thiadiazole_dithio_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C1=C[IH]C=C1",
         "CC1=CC=C[IH]1",
         "C1=C[IH]C[IH]1",
@@ -2442,6 +2480,24 @@ def test_neutral_triester_phosphite_parents_roundtrip_with_opsin(input_smiles):
     ],
 )
 def test_mixed_p3_anionic_phosphorus_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CCCCCCCC/C=C\\CCCCCCCCOP([O-])OCCCCCCCC/C=C\\CCCCCCCC",
+        "CCCCCCCC/C=C\\CCCCCCCC(=O)OP([O-])OC(=O)CCCCCCC/C=C\\CCCCCCCC",
+        "CCC1OP([O-])O1",
+        "CC1(C)COP([O-])OC1",
+        "[O-]P1OCCCCCCO1",
+    ],
+)
+def test_phosphite_retained_renderer_variants_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 
@@ -3235,6 +3291,21 @@ def test_diazepinone_retained_parent_templates_roundtrip_with_opsin(input_smiles
 
 def test_bis_sulfonium_sulfide_retained_parent_roundtrips_with_opsin():
     input_smiles = "c1ccc([S+](c2ccccc2)c2ccc(Sc3ccc([S+](c4ccccc4)c4ccccc4)cc3)cc2)cc1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[S+](C)CCCCCCCCCC[S+](C)C",
+        "c1ccc([S+](c2ccccc2)c2ccc([S+](c3ccccc3)c3ccccc3)cc2)cc1",
+    ],
+)
+def test_sulfonium_parent_variants_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 
@@ -4097,6 +4168,28 @@ def test_single_ring_stereo_prefix_alternatives_roundtrip_with_opsin(input_smile
     ],
 )
 def test_sulfinate_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CN(C)[SH]=O",
+        "C#CCN[SH]=O",
+        "CN=[SH2]=O",
+        "O=[SH2]=Nc1ccccc1",
+        "CS[SH](=O)=O",
+        "CS(=O)S(=O)[O-]",
+        "Cc1ccc(S(=O)(=O)S(=O)[O-])cc1",
+        "Cc1ccc([S+](=O)=O)cc1",
+        "O=[S+](=O)C(F)(F)F",
+    ],
+)
+def test_sulfur_oxo_retained_parent_variants_roundtrip_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

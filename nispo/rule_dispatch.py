@@ -63,6 +63,10 @@ def nonring_neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_phosphorus
 
 
+def neutral_phosphorus(ctx) -> bool:
+    return ctx.profile.has_neutral_phosphorus
+
+
 def nonring_neutral_pnictogen(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_pnictogen
 
@@ -85,6 +89,10 @@ def imino_skeleton_signal(ctx) -> bool:
 
 def functional_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal
+
+
+def sulfur_oxo_retained_parent_signal(ctx) -> bool:
+    return ctx.profile.has_sulfur_oxo_retained_parent_signal
 
 
 def dithiocarbonate_signal(ctx) -> bool:

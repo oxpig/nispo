@@ -278,6 +278,21 @@ def test_lambda6_dioxythio_branches_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cc1ccc(-c2c(C(C)C)nc(N=S(C)(C)=O)c3cc4[nH]ncc4cc23)cc1",
+        "CC(C)c1nc(N=S(C)(=O)c2ccccc2)c2cc3[nH]ncc3cc2c1-c1ccc(F)cc1",
+    ],
+)
+def test_sulfur_ylidene_amino_fused_branches_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "Nc1cnc2[nH]nc(-c3nc4ccc(F)cc4[nH]3)c2c1",
         "CNC(=O)Nc1ccc2c(c1)nc([C@@H]1CCCC(=O)N1c1ccc(F)c(F)c1)n2[C@H]1CC[C@H](OC)CC1",
         "C[C@H](Cc1nc2c(Cl)cccc2[nH]1)C(=O)N[C@@H]1C(=O)N2CCCN2Cc2ccccc21",

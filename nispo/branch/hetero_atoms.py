@@ -25,6 +25,7 @@ from .functional_groups import (
     _is_nitroso_attachment,
     _is_tbdms_group,
     _is_trimethylsilyl_group,
+    _ligand_text,
     _phosphorus_prefix,
     _sulfur_prefix,
     substituent_from_root,
@@ -558,6 +559,9 @@ def _nitrogen_prefix(mol, idx: int, parent_idx: int) -> str:
     amidino_amino = _amidino_amino_prefix(mol, idx, parent_idx)
     if amidino_amino:
         return amidino_amino
+    sulfur_ylidene_amino = _sulfur_ylidene_amino_prefix(mol, idx, parent_idx)
+    if sulfur_ylidene_amino:
+        return sulfur_ylidene_amino
     if _is_azido_attachment(mol, idx, parent_idx):
         return "azido"
     if _nitro_branch_predicate(mol, idx, parent_idx):
@@ -628,6 +632,94 @@ def _nitrogen_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
         or branch_prefix(mol, idx, parent_idx)
         or substituent_from_root(mol, idx, parent_idx)
     )
+
+
+def _sulfur_ylidene_amino_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if not _parent_ring_system_has_adjacent_nitrogens(mol, parent_idx):
+        return ""
+    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1]
+    if len(heavy) != 1:
+        return ""
+    sulfur_idx = heavy[0]
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    nitrogen_sulfur_bond = mol.GetBondBetweenAtoms(idx, sulfur_idx)
+    if (
+        sulfur.GetSymbol() != "S"
+        or sulfur.GetFormalCharge() != 0
+        or sulfur.IsInRing()
+        or sulfur.GetIsotope()
+        or nitrogen_sulfur_bond is None
+        or nitrogen_sulfur_bond.GetBondType() != Chem.BondType.DOUBLE
+    ):
+        return ""
+
+    double_oxygen_count = 0
+    ligands = []
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return ""
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and not nbr.GetIsotope()
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+        ):
+            if any(extra.GetIdx() != sulfur_idx and extra.GetAtomicNum() > 1 for extra in nbr.GetNeighbors()):
+                return ""
+            double_oxygen_count += 1
+            continue
+        if bond.GetBondType() != Chem.BondType.SINGLE or nbr.GetSymbol() != "C":
+            return ""
+        if nbr.GetFormalCharge() != 0 or nbr.GetIsotope():
+            return ""
+        ligand = branch_prefix(mol, nidx, sulfur_idx) or substituent_from_root(mol, nidx, sulfur_idx)
+        if not ligand:
+            return ""
+        ligands.append(ligand)
+    if double_oxygen_count != 1 or len(ligands) != 2:
+        return ""
+    ligand_text = _ligand_text(ligands)
+    return f"{ligand_text}(oxo)-lambda6-sulfanylideneamino" if ligand_text else ""
+
+
+def _parent_ring_system_has_adjacent_nitrogens(mol, parent_idx: int) -> bool:
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if not parent.IsInRing():
+        return False
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    systems = []
+    for ring in rings:
+        merged = ring
+        remaining = []
+        for system in systems:
+            if merged & system:
+                merged |= system
+            else:
+                remaining.append(system)
+        remaining.append(merged)
+        systems = remaining
+    parent_system = next((system for system in systems if parent_idx in system), set())
+    if not parent_system:
+        return False
+    for bond in mol.GetBonds():
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        if begin.GetIdx() not in parent_system or end.GetIdx() not in parent_system:
+            continue
+        if begin.GetSymbol() == "N" and end.GetSymbol() == "N" and begin.IsInRing() and end.IsInRing():
+            return True
+    return False
 
 
 def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequence[str]) -> str:

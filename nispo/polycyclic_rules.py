@@ -563,6 +563,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
         )
     )
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
+    candidate_pool_limit = max(candidate_limit * 4, candidate_limit + 24)
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
     ) and _use_large_hetero_kekulized_bridge_order(
@@ -584,12 +585,6 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 if completed is None:
                     continue
                 seq, bracket = completed
-                parent = _generic_polycyclic_parent(mol, seq, bracket)
-                if not parent:
-                    continue
-                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-                if not name:
-                    continue
                 topology_mismatches = _opsin_bridge_topology_mismatch_count(mol, seq, bracket)
                 reused_lower_bridge_endpoints = (
                     _reused_lower_secondary_bridge_endpoint_count(bracket)
@@ -598,13 +593,12 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                 )
                 topology_fragility = topology_mismatches + reused_lower_bridge_endpoints
                 if use_large_hetero_bridge_order:
-                    key = (
+                    key_prefix = (
                         topology_fragility,
                         _large_hetero_kekulized_bridge_preference_key(mol, seq, atoms, bracket),
-                        name,
                     )
                 elif use_stereo_hetero_macrocycle_bridge_order:
-                    key = (
+                    key_prefix = (
                         topology_fragility,
                         _stereo_hetero_kekulized_macrocycle_bridge_preference_key(
                             mol,
@@ -612,10 +606,9 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                             atoms,
                             bracket,
                         ),
-                        name,
                     )
                 else:
-                    key = (
+                    key_prefix = (
                         topology_fragility,
                         _secondary_bridge_preference_key(
                             bracket,
@@ -625,16 +618,25 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                             ),
                         ),
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
-                        name,
                     )
-                unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
-                candidates.append((key, name, tuple(seq), unsaturation_mismatches, topology_fragility))
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
-                    return [
-                        (name, seq, unsaturation_mismatches, topology_fragility)
-                        for _key, name, seq, unsaturation_mismatches, topology_fragility in candidates[:candidate_limit]
-                    ]
+                    worst_key_prefix = candidates[candidate_limit - 1][0][:-1]
+                    if key_prefix > worst_key_prefix:
+                        continue
+
+                parent = _generic_polycyclic_parent(mol, seq, bracket)
+                if not parent:
+                    continue
+                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                if not name:
+                    continue
+                key = (*key_prefix, name)
+                unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
+                candidates.append((key, name, tuple(seq), unsaturation_mismatches, topology_fragility))
+                if len(candidates) > candidate_pool_limit:
+                    candidates.sort(key=lambda item: item[0])
+                    del candidates[candidate_limit:]
     candidates.sort(key=lambda item: item[0])
     return [
         (name, seq, unsaturation_mismatches, topology_fragility)
@@ -994,28 +996,30 @@ def _secondary_bridge_completion(
 def _secondary_bridge_base_path_sets(
     graph: dict[int, set[int]], atoms: set[int], a: int, b: int, *, allow_relaxed: bool
 ) -> list[tuple[tuple[int, ...], ...]]:
-    exact = _bridge_paths(graph, atoms, a, b)
+    path_infos = (
+        _simple_path_infos(graph, a, b, max_paths=36)
+        if allow_relaxed
+        else _simple_path_infos(graph, a, b, max_paths=12)
+    )
+    exact = _bridge_paths_with_count_from_infos(path_infos[:12], atoms, a, b, 3)
     if exact:
         return [tuple(exact)]
     if not allow_relaxed:
         return []
 
-    paths = [
-        (path, frozenset(path[1:-1]), len(path) - 2)
-        for path in _simple_paths(graph, a, b, max_paths=36)
-    ]
     candidates = []
-    endpoints = {a, b}
-    for selected in combinations(paths, 3):
+    endpoints_mask = (1 << a) | (1 << b)
+    atom_mask = _atom_bitmask(atoms)
+    for selected in combinations(path_infos, 3):
         first, second, third = selected
         if first[1] & second[1] or first[1] & third[1] or second[1] & third[1]:
             continue
-        covered = set().union(first[1], second[1], third[1], endpoints)
-        if not covered <= atoms:
+        covered_mask = first[1] | second[1] | third[1] | endpoints_mask
+        if covered_mask & ~atom_mask:
             continue
         selected_paths = (first[0], second[0], third[0])
         key = (
-            -len(covered),
+            -covered_mask.bit_count(),
             sorted((first[2], second[2], third[2]), reverse=True),
             selected_paths,
         )
@@ -1157,26 +1161,54 @@ def _bridgehead_pair_candidates(
 def _bridge_paths_with_count(
     graph: dict[int, set[int]], atoms: set[int], a: int, b: int, path_count: int
 ) -> list[tuple[int, ...]]:
-    paths = [
-        (path, frozenset(path[1:-1]), len(path) - 2)
-        for path in _simple_paths(graph, a, b, max_paths=12)
+    return _bridge_paths_with_count_from_infos(
+        _simple_path_infos(graph, a, b, max_paths=12),
+        atoms,
+        a,
+        b,
+        path_count,
+    )
+
+
+def _simple_path_infos(
+    graph: dict[int, set[int]], start: int, end: int, *, max_paths: int
+) -> list[tuple[tuple[int, ...], int, int]]:
+    return [
+        (path, _atom_bitmask(path[1:-1]), len(path) - 2)
+        for path in _simple_paths(graph, start, end, max_paths=max_paths)
     ]
-    if len(paths) < path_count:
+
+
+def _atom_bitmask(atoms) -> int:
+    mask = 0
+    for idx in atoms:
+        mask |= 1 << idx
+    return mask
+
+
+def _bridge_paths_with_count_from_infos(
+    path_infos: Sequence[tuple[tuple[int, ...], int, int]],
+    atoms: set[int],
+    a: int,
+    b: int,
+    path_count: int,
+) -> list[tuple[int, ...]]:
+    if len(path_infos) < path_count:
         return []
+    atom_mask = _atom_bitmask(atoms)
+    endpoints_mask = (1 << a) | (1 << b)
     valid = []
-    for selected in combinations(paths, path_count):
-        internal_atoms: set[int] = set()
+    for selected in combinations(path_infos, path_count):
+        internal_mask = 0
         has_overlap = False
-        for _path, internals, _length in selected:
-            if internal_atoms & internals:
+        for _path, mask, _length in selected:
+            if internal_mask & mask:
                 has_overlap = True
                 break
-            internal_atoms.update(internals)
+            internal_mask |= mask
         if has_overlap:
             continue
-        covered = set(internal_atoms)
-        covered.update((a, b))
-        if covered == atoms:
+        if (internal_mask | endpoints_mask) == atom_mask:
             selected_paths = tuple(item[0] for item in selected)
             length_key = sorted((item[2] for item in selected), reverse=True)
             valid.append((length_key, selected_paths))

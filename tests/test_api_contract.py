@@ -1992,6 +1992,28 @@ def test_small_retained_oxirane_and_benziodoxolone_parents_roundtrip_with_opsin(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "FC(F)(F)I1OCc2ccccc21",
+        "ClI1OCc2ccccc21",
+        "CC1(C)OI(F)c2ccccc21",
+        "C#CC1O[IH](=O)c2ccccc21",
+        "O=I1(C(F)(F)F)OCc2ccccc21",
+        "O=C1OI(O)c2ccccc21",
+        "O=C1O[IH]C2=CC=CCC12",
+        "Cc1ccc2c(c1)C(=O)O[IH]2",
+        "CC(=O)OI1OCc2ccccc21",
+    ],
+)
+def test_extended_benziodoxole_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "ClI(c1ccccc1)c1ccccc1",
         "Cc1ccc(I(Cl)c2ccccc2)cc1",
         "CC(C)(C)c1ccc(I(Cl)c2ccccc2)cc1",

@@ -4206,10 +4206,15 @@ class BenziodoxoleRetainedParentRule:
         )
         self._lactone = Chem.MolFromSmarts("O=C1O[I]([#6])c2ccccc21")
         self._hydride_lactone = Chem.MolFromSmarts("O=C1O[IH]c2ccccc21")
+        self._dihydro_hydride_lactone = Chem.MolFromSmarts("O=C1O[IH]C2=CC=CCC12")
+        self._hydroxy_lactone = Chem.MolFromSmarts("O=C1O[I](O)c2ccccc21")
         self._halo_lactone = Chem.MolFromSmarts("O=C1O[I]([F,Cl,Br,I])c2ccccc21")
-        self._geminal = Chem.MolFromSmarts("[#6]C1([#6])O[I]([#6])c2ccccc21")
+        self._geminal = Chem.MolFromSmarts("[#6]C1([#6])O[I]([#6,F,Cl,Br,I])c2ccccc21")
         self._iodoxy_lactone = Chem.MolFromSmarts("O=C1O[I](=O)(O)c2ccccc21")
         self._hydride = Chem.MolFromSmarts("c1ccc2c(c1)CO[I]2")
+        self._substituted_hydride = Chem.MolFromSmarts("[!#1][I]1OCc2ccccc21")
+        self._oxo_substituted_hydride = Chem.MolFromSmarts("O=[I]1([!#1])OCc2ccccc21")
+        self._oxo_ring_substituted_hydride = Chem.MolFromSmarts("[#6]C1O[IH](=O)c2ccccc21")
 
     def candidates(self, ctx):
         mol = ctx.mol
@@ -4217,10 +4222,15 @@ class BenziodoxoleRetainedParentRule:
         for pattern, namer in (
             (self._triacyloxy_lactone, _benziodoxole_triacyloxy_lactone_name),
             (self._iodoxy_lactone, _benziodoxole_iodoxy_lactone_name),
+            (self._hydroxy_lactone, _benziodoxole_hydroxy_lactone_name),
             (self._lactone, _benziodoxole_lactone_name),
+            (self._dihydro_hydride_lactone, _benziodoxole_dihydro_hydride_lactone_name),
             (self._hydride_lactone, _benziodoxole_hydride_lactone_name),
             (self._halo_lactone, _benziodoxole_halo_lactone_name),
             (self._geminal, _benziodoxole_geminal_name),
+            (self._oxo_substituted_hydride, _benziodoxole_oxo_substituted_hydride_name),
+            (self._oxo_ring_substituted_hydride, _benziodoxole_oxo_ring_substituted_hydride_name),
+            (self._substituted_hydride, _benziodoxole_substituted_hydride_name),
             (self._hydride, _benziodoxole_hydride_name),
         ):
             if pattern is None:
@@ -4278,6 +4288,31 @@ def _benziodoxole_lactone_name(mol, Chem, match: Sequence[int]) -> str:
 
 
 def _benziodoxole_hydride_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    iodine_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if (
+            atom.GetSymbol() == "I"
+            and atom.IsInRing()
+            and atom.GetFormalCharge() == 0
+            and atom.GetTotalNumHs() == 1
+        )
+    ]
+    if len(iodine_atoms) != 1:
+        return ""
+    if set(match) == set(range(mol.GetNumAtoms())):
+        return "3,2-benziodoxol-3-one"
+    substituents = _benziodoxole_hydride_lactone_ring_substituents(mol, match)
+    if len(substituents) != 1:
+        return ""
+    locant, prefix, covered = substituents[0]
+    if set(match) | covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix = _parenthesized_if_complex(_strip_outer_parentheses(prefix))
+    return f"{locant}-{prefix}-3,2-benziodoxol-3-one"
+
+
+def _benziodoxole_dihydro_hydride_lactone_name(mol, Chem, match: Sequence[int]) -> str:
     if set(match) != set(range(mol.GetNumAtoms())):
         return ""
     iodine_atoms = [
@@ -4292,7 +4327,32 @@ def _benziodoxole_hydride_lactone_name(mol, Chem, match: Sequence[int]) -> str:
     ]
     if len(iodine_atoms) != 1:
         return ""
-    return "3,2-benziodoxol-3-one"
+    return "3,4-dihydro-1,2-benziodoxol-3-one"
+
+
+def _benziodoxole_hydride_lactone_ring_substituents(
+    mol,
+    match: Sequence[int],
+) -> list[tuple[str, str, set[int]]]:
+    locants = {
+        match[8]: "4",
+        match[7]: "5",
+        match[6]: "6",
+        match[5]: "7",
+    }
+    parent_atoms = set(match)
+    substituents: list[tuple[str, str, set[int]]] = []
+    for atom_idx, locant in locants.items():
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in parent_atoms:
+                continue
+            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
+            if not prefix:
+                continue
+            substituents.append((locant, prefix, _collect_component_atoms(mol, nidx, atom_idx)))
+    return substituents
 
 
 def _benziodoxole_halo_lactone_name(mol, Chem, match: Sequence[int]) -> str:
@@ -4315,6 +4375,30 @@ def _benziodoxole_halo_lactone_name(mol, Chem, match: Sequence[int]) -> str:
         return ""
     halo = HALO[halogen_neighbors[0].GetSymbol()]
     return f"1-{halo}-1,2-benziodoxol-3-one"
+
+
+def _benziodoxole_hydroxy_lactone_name(mol, Chem, match: Sequence[int]) -> str:
+    if set(match) != set(range(mol.GetNumAtoms())):
+        return ""
+    iodine_atoms = [
+        atom
+        for atom in mol.GetAtoms()
+        if atom.GetSymbol() == "I" and atom.IsInRing() and atom.GetFormalCharge() == 0
+    ]
+    if len(iodine_atoms) != 1:
+        return ""
+    iodine_idx = iodine_atoms[0].GetIdx()
+    hydroxy_neighbors = [
+        nbr
+        for nbr in mol.GetAtomWithIdx(iodine_idx).GetNeighbors()
+        if nbr.GetSymbol() == "O"
+        and not nbr.IsInRing()
+        and (bond := mol.GetBondBetweenAtoms(iodine_idx, nbr.GetIdx())) is not None
+        and bond.GetBondType() == Chem.BondType.SINGLE
+    ]
+    if len(hydroxy_neighbors) != 1:
+        return ""
+    return "1-hydroxy-1,2-benziodoxol-3-one"
 
 
 def _benziodoxole_geminal_name(mol, Chem, match: Sequence[int]) -> str:
@@ -4346,6 +4430,56 @@ def _benziodoxole_geminal_name(mol, Chem, match: Sequence[int]) -> str:
         geminal_prefix = f"3,3-di{ring_prefix}"
     iodine_prefix = _parenthesized_if_complex(_strip_outer_parentheses(iodine_prefix))
     return f"{geminal_prefix}-1-{iodine_prefix}-1,2-benziodoxole"
+
+
+def _benziodoxole_oxo_substituted_hydride_name(mol, Chem, match: Sequence[int]) -> str:
+    iodine_idx = match[1]
+    substituent_idx = match[2]
+    covered = set(match)
+    covered.update(_collect_component_atoms(mol, substituent_idx, iodine_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, iodine_idx)
+    if not prefix:
+        return ""
+    prefix = _parenthesized_if_complex(_strip_outer_parentheses(prefix))
+    return f"1-oxo-1-{prefix}-1,2-benziodoxole"
+
+
+def _benziodoxole_oxo_ring_substituted_hydride_name(mol, Chem, match: Sequence[int]) -> str:
+    substituent_idx = match[0]
+    ring_carbon_idx = match[1]
+    covered = set(match)
+    covered.update(_collect_component_atoms(mol, substituent_idx, ring_carbon_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, ring_carbon_idx)
+    if not prefix:
+        return ""
+    prefix = _parenthesized_if_complex(_strip_outer_parentheses(prefix))
+    return f"3-{prefix}-1-oxo-1,2-benziodoxole"
+
+
+def _benziodoxole_substituted_hydride_name(mol, Chem, match: Sequence[int]) -> str:
+    substituent_idx = match[0]
+    iodine_idx = match[1]
+    iodine = mol.GetAtomWithIdx(iodine_idx)
+    for nbr in iodine.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == substituent_idx or nbr.IsInRing():
+            continue
+        bond = mol.GetBondBetweenAtoms(iodine_idx, nidx)
+        if bond is not None and nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            return ""
+    covered = set(match)
+    covered.update(_collect_component_atoms(mol, substituent_idx, iodine_idx))
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    prefix = _simple_or_branch_prefix(mol, substituent_idx, iodine_idx)
+    if not prefix:
+        return ""
+    prefix = _parenthesized_if_complex(_strip_outer_parentheses(prefix))
+    return f"1-{prefix}-1,2-benziodoxole"
 
 
 def _benziodoxole_iodoxy_lactone_name(mol, Chem, match: Sequence[int]) -> str:

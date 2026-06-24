@@ -59,6 +59,17 @@ def parent_chain_name(mol, path: Sequence[int], *, as_substituent: bool = False)
 def replacement_prefixes(mol, path: Sequence[int]) -> list[tuple[str, str]]:
     return _branch_rules().replacement_prefixes(mol, path)
 
+
+def _sulfur_imidoyl_s_group(name: str) -> str:
+    if not name:
+        return ""
+    if re.fullmatch(r"[A-Za-z]+", name):
+        return name
+    if name.startswith("(") and name.endswith(")"):
+        return name
+    return f"({name})"
+
+
 def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
@@ -246,7 +257,7 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
         return ""
     if not n_group:
         return f"{s_group}sulfinimidoyl"
-    return f"N-({n_group})-S-{s_group}sulfinimidoyl"
+    return f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfinimidoyl"
 
 
 def _metal_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -707,7 +718,7 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
         return ""
     if not n_group:
         return f"{s_group}sulfonimidoyl"
-    return f"N-({n_group})-S-{s_group}sulfonimidoyl"
+    return f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfonimidoyl"
 
 
 def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:

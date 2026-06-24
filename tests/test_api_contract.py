@@ -4215,6 +4215,23 @@ def test_high_impact_large_fused_retained_templates_roundtrip_with_opsin(input_s
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=c1[c-]c(-c2cccc3ccccc23)c2ccccc2o1",
+        "COc1cc(-c2cc(=O)c3c(O)c(C/C=C(\\C)CCC=C(C)C)c(O)cc3o2)ccc1[O-]",
+        "COc1c(O)cc2oc(-c3ccc(O)c([O-])c3)c(OC)c(=O)c2c1O",
+        "C=CN(CCNC(=O)C(C#N)=C1c2ccccc2Sc2ccccc21)C(C)=O",
+    ],
+)
+def test_biochemical_retained_fused_charge_parent_ordering_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(=O)N1CCC[C@H](NS(=O)(=O)C2CCCCC2)[C@@H]1CO[C@H]1CC[C@@H](C(C)C)CC1",
         "NC[C@H]1CC[C@H](C(F)(F)c2cc(Cl)nc(N3CCN(S(=O)(=O)c4ccc(N5C[C@H](N)CC5=O)cc4)CC3)c2)CC1",
         "CS(=O)(=O)[C@H]1CCC[C@H](CN=C=S)C1",

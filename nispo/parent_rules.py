@@ -16187,12 +16187,14 @@ class FusedParentRule:
         ):
             if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
                 continue
+            charge_penalty = _biochemical_unrendered_parent_charge_penalty(mol, template, match)
             facts.append(
                 _RetainedFusedCandidateFacts(
                     template=template,
                     match=tuple(match),
                     topology_query=False,
                     structural_key=_retained_fused_fact_sort_key(mol, template, match, topology_query=False),
+                    unrendered_charge_penalty=charge_penalty,
                 )
             )
             exact_facts += 1
@@ -16207,12 +16209,14 @@ class FusedParentRule:
         ):
             if not _retained_topology_fused_match_is_hydrogen_compatible(mol, template, match):
                 continue
+            charge_penalty = _biochemical_unrendered_parent_charge_penalty(mol, template, match)
             facts.append(
                 _RetainedFusedCandidateFacts(
                     template=template,
                     match=tuple(match),
                     topology_query=True,
                     structural_key=_retained_fused_fact_sort_key(mol, template, match, topology_query=True),
+                    unrendered_charge_penalty=charge_penalty,
                 )
             )
             topology_facts += 1
@@ -16272,6 +16276,7 @@ class _RetainedFusedCandidateFacts:
     match: tuple[int, ...]
     topology_query: bool
     structural_key: tuple
+    unrendered_charge_penalty: int = 0
 
 
 def _retained_fused_fact_sort_key(
@@ -16284,6 +16289,7 @@ def _retained_fused_fact_sort_key(
     template_name = template_record_name(template)
     return (
         1 if topology_query else 0,
+        _biochemical_unrendered_parent_charge_penalty(mol, template, match),
         _template_source_rank(template),
         _hydrogenated_template_penalty(template_name),
         -len(match),
@@ -16302,8 +16308,22 @@ def _retained_fused_render_set(
     if len(facts) <= _RETAINED_FUSED_RENDER_SET_SIZE:
         if any(_retained_benzimidazole_h_fact_is_meaningful(fact) for fact in facts):
             return tuple(sorted(facts, key=lambda fact: fact.structural_key))
+        if any(_retained_fused_biochemical_charge_fact_is_meaningful(fact) for fact in facts):
+            return tuple(
+                fact
+                for _index, fact in sorted(
+                    enumerate(facts),
+                    key=lambda indexed: (indexed[1].unrendered_charge_penalty, indexed[0]),
+                )
+            )
         return facts
     return tuple(sorted(facts, key=lambda fact: fact.structural_key)[:_RETAINED_FUSED_RENDER_SET_SIZE])
+
+
+def _retained_fused_biochemical_charge_fact_is_meaningful(
+    fact: _RetainedFusedCandidateFacts,
+) -> bool:
+    return bool(fact.unrendered_charge_penalty)
 
 
 def _retained_benzimidazole_h_fact_is_meaningful(fact: _RetainedFusedCandidateFacts) -> bool:
@@ -17970,6 +17990,27 @@ def _retained_fused_source_family(
     if _has_purin_thioxo_parent_shape(mol, template, match):
         return _PURIN_THIOXO_SOURCE_FAMILY
     return str(template.get("source_family", "") if default is None else default)
+
+
+def _biochemical_unrendered_parent_charge_penalty(
+    mol,
+    template: dict,
+    match: Sequence[int],
+) -> int:
+    source_family = str(template.get("source_family", ""))
+    if "biochemical" not in source_family:
+        return 0
+    charge = _polycyclic_parent_charge_evidence(mol, match)
+    if charge is None or charge.rendered_terms:
+        return 0
+    charge_abs_sum = sum(abs(mol.GetAtomWithIdx(idx).GetFormalCharge()) for idx in charge.charged_atoms)
+    template_mol = template_record_mol(template)
+    if (
+        _formal_charge(template_mol) == charge.formal_charge
+        and _abs_formal_charge_sum(template_mol) >= charge_abs_sum
+    ):
+        return 0
+    return 1
 
 
 def _has_purin_6_amine_parent_shape(mol, template: dict, match: Sequence[int]) -> bool:

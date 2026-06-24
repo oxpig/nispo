@@ -334,14 +334,22 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
         if hydroxy_count == 0 and oxido_count == 2:
             return "phosphonato"
         return ""
-    if hydroxy_count or oxido_count:
-        return ""
     ligand_names = []
     for nidx in other_heavy:
         ligand = branch_prefix(mol, nidx, idx)
         if not ligand:
             return ""
         ligand_names.append(ligand)
+    if hydroxy_count or oxido_count:
+        if hydroxy_count + oxido_count != 1:
+            return ""
+        if not ligand_names:
+            return ""
+        if any(_subtree_has_assigned_stereo(mol, nidx, idx) for nidx in other_heavy):
+            return ""
+        modifier = "hydroxy" if hydroxy_count else "oxido"
+        ligand_text = _phosphoryl_ligand_text(ligand_names)
+        return ligand_text + modifier + "phosphoryl" if ligand_text else ""
     if len(ligand_names) < 2:
         return ""
     if mol.GetAtomWithIdx(parent_idx).GetSymbol() == "N":
@@ -501,6 +509,19 @@ def _phosphoryl_parent_atom_has_direct_carbon_double_bond(mol, phosphorus_idx: i
             continue
         other = bond.GetOtherAtom(parent)
         if other.GetIdx() != phosphorus_idx and other.GetSymbol() == "C":
+            return True
+    return False
+
+
+def _subtree_has_assigned_stereo(mol, start_idx: int, blocked_idx: int) -> bool:
+    atoms = collect_subtree(mol, start_idx, blocked_idx)
+    for atom_idx in atoms:
+        if mol.GetAtomWithIdx(atom_idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return True
+    for bond in mol.GetBonds():
+        if bond.GetStereo() == Chem.BondStereo.STEREONONE:
+            continue
+        if bond.GetBeginAtomIdx() in atoms and bond.GetEndAtomIdx() in atoms:
             return True
     return False
 

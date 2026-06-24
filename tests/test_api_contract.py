@@ -4273,6 +4273,7 @@ def test_sulfinate_retained_parents_roundtrip_with_opsin(input_smiles):
         "C#CCN[SH]=O",
         "CN=[SH2]=O",
         "O=[SH2]=Nc1ccccc1",
+        "CCC[SH](=O)=O",
         "CS[SH](=O)=O",
         "CS(=O)S(=O)[O-]",
         "Cc1ccc(S(=O)(=O)S(=O)[O-])cc1",

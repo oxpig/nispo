@@ -252,6 +252,13 @@ def _has_sulfur_oxo_retained_parent_signal(mol) -> bool:
         if charge != 0:
             continue
         if (
+            hydrogens == 1
+            and facts["double_o"] == 2
+            and facts["single_c"] == 1
+            and facts["other_heavy"] == 0
+        ):
+            return True
+        if (
             hydrogens == 0
             and facts["single_c"] == 1
             and facts["terminal_oxido"] == 1

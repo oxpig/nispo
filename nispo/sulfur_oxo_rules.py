@@ -25,6 +25,7 @@ class SulfurOxoRetainedParentRule:
             *_sulfinamide_names(mol, self._Chem),
             *_sulfoximine_names(mol, self._Chem),
             *_sulfonylium_names(mol, self._Chem),
+            *_sulfonyl_hydride_names(mol, self._Chem),
             *_thiosulfur_oxo_names(mol, self._Chem),
         ):
             if name in seen:
@@ -175,6 +176,45 @@ def _sulfonylium_names(mol, Chem) -> list[str]:
         covered.update(_collect_component_atoms(mol, owner_idx, sidx))
         if covered == atom_set:
             names.append(owner + "sulfonylium")
+    return names
+
+
+def _sulfonyl_hydride_names(mol, Chem) -> list[str]:
+    names: list[str] = []
+    atom_set = _heavy_atom_indices(mol)
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
+            continue
+        sidx = sulfur.GetIdx()
+        if sulfur.GetTotalNumHs() != 1:
+            continue
+        double_o: list[int] = []
+        carbon_neighbors: list[int] = []
+        covered = {sidx}
+        ok = True
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(sidx, nidx)
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_o.append(nidx)
+                covered.add(nidx)
+            elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                carbon_neighbors.append(nidx)
+            elif nbr.GetAtomicNum() > 1:
+                ok = False
+                break
+        if not ok or len(double_o) != 2 or len(carbon_neighbors) != 1:
+            continue
+        owner_idx = carbon_neighbors[0]
+        owner = _safe_owner_prefix(mol, owner_idx, sidx)
+        if not owner:
+            continue
+        covered.update(_collect_component_atoms(mol, owner_idx, sidx))
+        if covered == atom_set:
+            names.append(owner + "sulfonyl hydride")
     return names
 
 

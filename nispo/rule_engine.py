@@ -702,6 +702,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _aromatic_single_ring_alternative_for_alkene_stereo_acyclic_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _internal_bond_stereo_parent_alternative_for_fragile_choice(
             keyed_items,
             selected_item,
@@ -6968,6 +6975,14 @@ _GENERATED_FUSED_EXTERNAL_STEREO_ACYCLIC_TEMPLATE_CAPABLE = frozenset(
 _EXTERNAL_BOND_STEREO_FRAGILITY_PARENT_FAMILIES = frozenset(
     _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES
 )
+_ALKENE_STEREO_ACYCLIC_RING_PARENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
 
 _GENERATED_FUSED_SAME_ATOMS_RETAINED_TEMPLATE_BLOCKLIST = frozenset({"1H-benzimidazole"})
 _PYRIDOPYRROLE_ACYCLIC_DECOMPOSITION_TEMPLATES = frozenset(
@@ -7753,6 +7768,117 @@ def _has_contextual_exocyclic_fused_single_ring_alternative(
             continue
         return True
     return False
+
+
+def _aromatic_single_ring_alternative_for_alkene_stereo_acyclic_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    candidate = selected.candidate
+    if candidate.family not in _ALKENE_STEREO_ACYCLIC_RING_PARENT_FAMILIES:
+        return None
+    if candidate.stereo is None or not candidate.stereo.bond_descriptors:
+        return None
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return None
+    if candidate.charge is not None or candidate.suffixes:
+        return None
+    if candidate.molecule_abs_formal_charge_sum:
+        return None
+    if candidate_safety_reasons(candidate):
+        return None
+    if len(candidate.parent_atoms) < 9:
+        return None
+
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, other in keyed_items:
+        if other is selected or other.name == selected.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "single-ring-parent":
+            continue
+        if other_candidate.stereo is None or not other_candidate.stereo.bond_descriptors:
+            continue
+        if other_candidate.charge is not None or other_candidate.suffixes:
+            continue
+        if other_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        other_parent_count = len(other_candidate.parent_atoms)
+        if other_parent_count not in {5, 6}:
+            continue
+        if other_candidate.parent_aromatic_atom_count != other_parent_count:
+            continue
+        if other_candidate.parent_hetero_atom_count > 2:
+            continue
+        if other_candidate.priority == 61:
+            if other_candidate.parent_terminal_hetero_substituent_count:
+                continue
+            if other_candidate.parent_external_oxygen_substituent_count:
+                continue
+            if other_candidate.parent_hetero_atom_count and other_parent_count != 5:
+                continue
+            if other_candidate.parent_hetero_atom_count > 1:
+                continue
+        elif other_candidate.priority == 30:
+            if other_candidate.parent_hetero_atom_count and other_parent_count != 5:
+                continue
+            if other_candidate.parent_external_nitrogen_substituent_count:
+                continue
+            if candidate_key[0] < 200 and len(candidate.parent_atoms) < 13:
+                continue
+            if (
+                other_candidate.render_rank is not None
+                and other_candidate.render_rank > 1
+                and other.selection_bonus <= 0
+            ):
+                continue
+            if other_candidate.parent_terminal_hetero_substituent_count and candidate_key[0] < 200:
+                continue
+            if (
+                other_candidate.parent_external_oxygen_substituent_count
+                and candidate_key[0] < 200
+                and other_candidate.render_rank != 1
+            ):
+                continue
+        else:
+            continue
+        if other_candidate.external_bond_stereo_parent_fragile:
+            continue
+        if other_candidate.render_rank is not None and other_candidate.render_rank > 3:
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(selected.name) > 130:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        if other.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if other_candidate.priority > candidate.priority + 80:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    _candidate_selection_render_rank_key(other_candidate),
+                    len(other.name) - other.selection_bonus,
+                    len(other.name),
+                    candidate_key,
+                ),
+                other,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _internal_bond_stereo_parent_alternative_for_fragile_choice(

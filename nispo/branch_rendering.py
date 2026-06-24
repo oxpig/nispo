@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from .branch.graph_facts import branch_miss_shape_key
@@ -100,7 +101,11 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
     if symbol == "O":
         return _tbdms_silanoxy_prefix(mol, idx, parent_idx)
     if symbol == "P":
-        return _bis_oxidanidyl_phosphanyl_prefix(mol, idx, parent_idx)
+        return _structured_phosphoryl_prefix(mol, idx, parent_idx) or _bis_oxidanidyl_phosphanyl_prefix(
+            mol,
+            idx,
+            parent_idx,
+        )
     if atom.IsInRing():
         return _simple_ring_prefix(mol, idx, parent_idx)
     if symbol == "C":
@@ -121,6 +126,7 @@ def _local_functional_prefix_candidate(mol, idx: int, parent_idx: int) -> Prefix
             or _nitro_prefix(mol, idx, parent_idx)
             or _sulfinylamino_prefix(mol, idx, parent_idx)
             or _mesylamino_prefix(mol, idx, parent_idx)
+            or _sulfonylamino_prefix(mol, idx, parent_idx)
             or _ethenylcarbonyl_amino_prefix(mol, idx, parent_idx)
             or _retained_amido_prefix(mol, idx, parent_idx)
             or _bocamino_prefix(mol, idx, parent_idx)
@@ -842,6 +848,125 @@ def _bis_oxidanidyl_phosphanyl_prefix(mol, idx: int, parent_idx: int) -> PrefixC
     )
 
 
+def _structured_phosphoryl_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "P" or atom.GetFormalCharge() != 0 or atom.GetIsotope() or atom.IsInRing():
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygen = []
+    ligand_records = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.GetIsotope()
+            and not nbr.IsInRing()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 2.0
+            and not any(other.GetIdx() != idx and other.GetAtomicNum() > 1 for other in nbr.GetNeighbors())
+        ):
+            double_oxygen.append(nidx)
+            continue
+        ligand = _phosphoryl_ligand_candidate(mol, nidx, idx)
+        if ligand is None:
+            return None
+        ligand_records.append(ligand)
+    if len(double_oxygen) != 1 or len(ligand_records) != 2:
+        return None
+    ligand_text = _phosphoryl_ligand_text([ligand.text for ligand in ligand_records])
+    if not ligand_text:
+        return None
+    atoms = {idx, double_oxygen[0]}
+    for ligand in ligand_records:
+        atoms.update(ligand.atoms)
+    return _prefix_candidate(
+        ligand_text + "phosphoryl",
+        atoms,
+        idx,
+        parent_idx,
+        "structured-phosphoryl",
+    )
+
+
+def _phosphoryl_ligand_candidate(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if bond is None or bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    candidates = simple_external_prefix_candidates(mol, idx, parent_idx)
+    if candidates:
+        candidate = candidates[0]
+    elif atom.IsInRing():
+        candidate = _simple_ring_prefix(mol, idx, parent_idx)
+    else:
+        candidate = None
+    if candidate is None:
+        return None
+    if not _safe_phosphoryl_ligand_text(candidate.text):
+        return None
+    return candidate
+
+
+def _safe_phosphoryl_ligand_text(text: str) -> bool:
+    if not text or len(text) > 70:
+        return False
+    if " " in text or "[" in text or "]" in text:
+        return False
+    if not all(ch.isalnum() or ch in ",().'-" for ch in text):
+        return False
+    forbidden = ("carbonyl", "carbam", "phosph", "sulfon", "sulfin")
+    return not any(fragment in text for fragment in forbidden)
+
+
+def _phosphoryl_ligand_text(ligands: list[str]) -> str:
+    counts = Counter(ligands)
+    pieces = []
+    for ligand in sorted(counts, key=_phosphoryl_ligand_sort_key):
+        count = counts[ligand]
+        unit = _phosphoryl_ligand_unit(ligand)
+        if count == 1:
+            pieces.append(unit)
+        elif _needs_complex_phosphoryl_ligand(ligand):
+            pieces.append(f"{MULT.get(count, '')}({unit})")
+        else:
+            pieces.append(MULT.get(count, "") + ligand)
+    return "".join(pieces)
+
+
+def _phosphoryl_ligand_unit(ligand: str) -> str:
+    return f"({ligand})" if _needs_complex_phosphoryl_ligand(ligand) else ligand
+
+
+def _needs_complex_phosphoryl_ligand(ligand: str) -> bool:
+    return "-" in ligand or ligand[:1].isdigit() or ligand.startswith("(")
+
+
+def _phosphoryl_ligand_sort_key(ligand: str) -> tuple[int, str]:
+    simple_alkyl = {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "butyl",
+        "pentyl",
+        "hexyl",
+        "heptyl",
+        "octyl",
+        "nonyl",
+        "decyl",
+    }
+    if ligand in simple_alkyl:
+        return (0, ligand)
+    if _needs_complex_phosphoryl_ligand(ligand):
+        return (2, ligand)
+    return (1, ligand)
+
+
 def _single_heavy_neighbor_with_symbol(
     mol,
     atom_idx: int,
@@ -950,6 +1075,102 @@ def _mesylamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None
     if ligand is None:
         return None
     return _prefix_candidate("mesylamino", {idx, *ligand.atoms}, idx, parent_idx, "mesylamino")
+
+
+def _sulfonylamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "N" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    parent = mol.GetAtomWithIdx(parent_idx)
+    if parent.GetSymbol() != "C":
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    heavy = [
+        nbr.GetIdx()
+        for nbr in atom.GetNeighbors()
+        if nbr.GetIdx() != parent_idx and not (nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0)
+    ]
+    if len(heavy) != 1:
+        return None
+    sulfur_idx = heavy[0]
+    ligand = _sulfonyl_ligand_prefix(mol, sulfur_idx, idx)
+    if ligand is None:
+        return None
+    if not _safe_sulfonylamino_ligand_text(ligand.text):
+        return None
+    return _prefix_candidate(
+        ligand.text + "sulfonylamino",
+        {idx, *ligand.atoms},
+        idx,
+        parent_idx,
+        "sulfonylamino",
+    )
+
+
+def _sulfonyl_ligand_prefix(mol, sulfur_idx: int, nitrogen_idx: int) -> PrefixCandidate | None:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing() or sulfur.GetIsotope():
+        return None
+    ns_bond = mol.GetBondBetweenAtoms(sulfur_idx, nitrogen_idx)
+    if ns_bond is None or ns_bond.GetBondTypeAsDouble() != 1.0:
+        return None
+    double_oxygens = []
+    ligand_indices = []
+    for nbr in sulfur.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if (
+            nbr.GetSymbol() == "O"
+            and nbr.GetFormalCharge() == 0
+            and not nbr.IsInRing()
+            and not nbr.GetIsotope()
+            and bond is not None
+            and bond.GetBondTypeAsDouble() == 2.0
+            and not any(extra.GetIdx() != sulfur_idx and extra.GetAtomicNum() > 1 for extra in nbr.GetNeighbors())
+        ):
+            double_oxygens.append(nidx)
+        elif bond is not None and bond.GetBondTypeAsDouble() == 1.0 and nbr.GetAtomicNum() > 1:
+            ligand_indices.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 2 or len(ligand_indices) != 1:
+        return None
+    ligand_idx = ligand_indices[0]
+    candidates = simple_external_prefix_candidates(mol, ligand_idx, sulfur_idx)
+    if candidates:
+        ligand = candidates[0]
+    elif mol.GetAtomWithIdx(ligand_idx).IsInRing():
+        ligand = _simple_ring_prefix(mol, ligand_idx, sulfur_idx)
+    else:
+        ligand = None
+    if ligand is None:
+        return None
+    return _prefix_candidate(
+        ligand.text,
+        {sulfur_idx, *double_oxygens, *ligand.atoms},
+        sulfur_idx,
+        nitrogen_idx,
+        "sulfonyl-ligand",
+    )
+
+
+def _safe_sulfonylamino_ligand_text(text: str) -> bool:
+    if not text or len(text) > 90:
+        return False
+    if " " in text or "[" in text or "]" in text or "(" in text or ")" in text:
+        return False
+    if not text.endswith(("yl", "yl'", "furyl", "thienyl")):
+        return False
+    if not all(ch.isalnum() or ch in ",.'-" for ch in text):
+        return False
+    forbidden = ("carbonyl", "carbam", "phosph", "sulfon", "sulfin", "sulf")
+    return not any(fragment in text for fragment in forbidden)
 
 
 def _ethenylcarbonyl_amino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | None:

@@ -1813,7 +1813,7 @@ def _name_polycyclic_substituent(
 
 
 def _polycyclic_substituent_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
-    if not seq or _has_assigned_bond_stereo(mol, Chem):
+    if not seq or (_sequence_has_spiro_center(mol, seq) and _has_assigned_bond_stereo(mol, Chem)):
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     centers = [
@@ -1827,6 +1827,17 @@ def _polycyclic_substituent_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(centers, key=lambda item: locants[item[0]])
     )
+
+
+def _sequence_has_spiro_center(mol, seq: Sequence[int]) -> bool:
+    seq_set = set(seq)
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= seq_set]
+    for idx in seq:
+        containing = [ring for ring in rings if idx in ring]
+        for left, right in combinations(containing, 2):
+            if left & right == {idx}:
+                return True
+    return False
 
 
 def _polycyclic_substituent_suffix(parent: str, locant: int) -> str:

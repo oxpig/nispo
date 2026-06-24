@@ -1417,6 +1417,23 @@ def test_repeated_locanted_substituent_stereo_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(/C=C/C=C(C)/C=C/[C@@]12O[C@]1(C)C[C@@H](O)CC2(C)C)=C\\C=C\\C=C(C)\\C=C\\C=C(C)\\C=C\\[C@@]12O[C@]1(C)C[C@@H](O)CC2(C)C",
+        "C=CC(C)(C)c1[nH]c2ccccc2c1/C=C1\\NC(=O)[C@@]2(C[C@@H](C)C=C[C@H]2/C=C/c2c(OC)cc(CC=C(C)C)c(OC)c2C=O)NC1=O",
+        "C[C@@H]1OCC2(CCN(c3nc4[nH]nc(C#CC(C)(C)O)c4c(=O)n3C)CC2)[C@@H]1N",
+        "C[C@@H](NC(=O)c1cn([C@@H]2CC23CC3)c(=O)cc1NC1[C@H]2CN(C)C[C@@H]12)c1cccc(C(F)(F)F)c1F",
+    ],
+)
+def test_polycyclic_substituent_stereo_roundtrips_with_external_stereo_controls(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CC(N)C(=O)O",
         "CC[C@@H](C)[C@@H](N)C(=O)O",
         "OC[C@H]1O[C@@H](O[C@H]2[C@H](O)[C@@H](O)[C@@H](O)O[C@@H]2CO)[C@H](O)[C@@H](O)[C@H]1O",

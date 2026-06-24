@@ -134,6 +134,10 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         sulfimidoyl = _sulfimidoyl_prefix(mol, idx, parent_idx)
         if sulfimidoyl:
             return sulfimidoyl
+        if len(heavy) == 1 and mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "O":
+            lambda6_dioxy = _lambda6_dioxythio_prefix(mol, idx, parent_idx, heavy)
+            if lambda6_dioxy:
+                return lambda6_dioxy
     if not heavy:
         return "sulfanyl"
     if len(heavy) == 1:
@@ -620,6 +624,75 @@ def _lambda6_tetrafluorosulfanyl_ligand_prefix(mol, ligand_idx: int, sulfur_idx:
     if ligand.GetSymbol() == "C":
         return _lambda6_fluoroethyl_ligand_prefix(mol, ligand_idx, sulfur_idx)
     return ""
+
+
+def _lambda6_dioxythio_prefix(mol, sulfur_idx: int, parent_idx: int, non_parent: Sequence[int]) -> str:
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0:
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(sulfur_idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    if len(non_parent) != 1:
+        return ""
+
+    oxygen_idx = non_parent[0]
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    sulfur_oxygen_bond = mol.GetBondBetweenAtoms(sulfur_idx, oxygen_idx)
+    if (
+        oxygen.GetSymbol() != "O"
+        or oxygen.GetFormalCharge() != 0
+        or sulfur_oxygen_bond is None
+        or sulfur_oxygen_bond.GetBondType() != Chem.BondType.SINGLE
+    ):
+        return ""
+
+    distal_oxygens = []
+    for neighbor in oxygen.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == sulfur_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(oxygen_idx, nidx)
+        if (
+            neighbor.GetSymbol() == "O"
+            and neighbor.GetFormalCharge() == 0
+            and bond is not None
+            and bond.GetBondType() == Chem.BondType.SINGLE
+        ):
+            distal_oxygens.append(nidx)
+        elif neighbor.GetAtomicNum() > 1:
+            return ""
+    if len(distal_oxygens) != 1:
+        return ""
+
+    ligand = _dioxythio_ligand_prefix(mol, distal_oxygens[0], oxygen_idx)
+    return f"{_sulfur_imidoyl_s_group(ligand)}dioxy-lambda6-thio" if ligand else ""
+
+
+def _dioxythio_ligand_prefix(mol, oxygen_idx: int, blocked_idx: int) -> str:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
+        return ""
+    ligands = []
+    for neighbor in oxygen.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == blocked_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(oxygen_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if neighbor.GetAtomicNum() > 1:
+            ligands.append(nidx)
+    if len(ligands) != 1:
+        return ""
+
+    ligand_idx = ligands[0]
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    if ligand.GetSymbol() in HALO:
+        return HALO[ligand.GetSymbol()] if _is_terminal_halogen_ligand(mol, ligand_idx, oxygen_idx) else ""
+    if ligand.IsInRing():
+        return _ring_substituent_prefix(mol, ligand_idx, oxygen_idx)
+    return branch_prefix(mol, ligand_idx, oxygen_idx) or substituent_from_root(mol, ligand_idx, oxygen_idx)
 
 
 def _lambda6_fluoroethyl_ligand_prefix(mol, carbon_idx: int, sulfur_idx: int) -> str:

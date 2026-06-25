@@ -4375,6 +4375,30 @@ def test_complex_azaniumylidene_branch_multiplier_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CC(=O)N(C)N(Cc1ccc(Br)cc1F)C(=O)c1ccc2nc(N)c3c(C)ncn3c2c1",
+        "CN(C(=O)[C@@H]1C=C2c3cccc4[nH]cc(c34)C[C@H]2[NH+](C)C1)N(C)S(=O)(=O)c1ccccc1",
+    ],
+)
+def test_complex_carbamoyl_n_ligands_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_acylamido_methyl_branch_roundtrips_with_opsin():
+    input_smiles = "N#CCC(=O)NCC12CCC(C1)C1CCCC12CNC(=O)CC#N"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCS(=O)[O-]",
         "CC(C)(C)c1ccc(S(=O)[O-])cc1",
         "O=C([O-])C(O)S(=O)[O-]",

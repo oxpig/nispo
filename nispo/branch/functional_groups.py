@@ -1040,11 +1040,15 @@ def _carbamoyl_substituent_name(
             else:
                 parts.append(f"{locants}-{MULT.get(count, '')}{name}")
         else:
-            if "-" in name or name.startswith("("):
+            if _carbamoyl_n_ligand_needs_parentheses(name):
                 parts.append(f"N-({name})")
             else:
                 parts.append(f"N-{name}")
     return "-".join(parts) + "carbamoyl"
+
+
+def _carbamoyl_n_ligand_needs_parentheses(name: str) -> bool:
+    return "-" in name or "(" in name or ")" in name
 
 
 def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:

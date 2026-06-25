@@ -767,10 +767,15 @@ def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
     if atom.GetFormalCharge() != 0:
         return ""
     if atom.GetSymbol() == "N":
-        amino = _nitrogen_prefix(mol, hetero_idx, methylene_idx)
-        if not amino or not amino.endswith("amino"):
+        nitrogen_prefix = _nitrogen_prefix(mol, hetero_idx, methylene_idx)
+        if not nitrogen_prefix:
             return ""
-        return f"({amino})methyl" if _complex_hetero_methyl_prefix(amino) else amino + "methyl"
+        if nitrogen_prefix.endswith("amino"):
+            if _complex_hetero_methyl_prefix(nitrogen_prefix):
+                return f"({nitrogen_prefix})methyl"
+            return nitrogen_prefix + "methyl"
+        if nitrogen_prefix.endswith("amido"):
+            return f"({nitrogen_prefix})methyl"
     return ""
 
 

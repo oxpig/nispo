@@ -604,6 +604,20 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _single_ring_alternative_for_zero_parent_retained_functional_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _single_ring_alternative_for_small_ring_phosphorus_acid_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _acyclic_skeleton_alternative_for_ring_carboxamide_choice(
             keyed_items,
             selected_item,
@@ -1466,6 +1480,156 @@ def _retained_amide_alternative_for_spiro_carboxamide_choice(
             (
                 (
                     candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_ZERO_PARENT_RETAINED_FUNCTIONAL_SINGLE_RING_FAMILIES = frozenset(
+    {
+        "beta-dicarbonyl-parent",
+        "carbamate-retained-parent",
+        "organophosphorus-oxide-parent",
+        "sulfonamide-retained-parent",
+    }
+)
+
+
+def _single_ring_alternative_for_zero_parent_retained_functional_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _ZERO_PARENT_RETAINED_FUNCTIONAL_SINGLE_RING_FAMILIES:
+        return None
+    if selected_candidate.priority != 9:
+        return None
+    if selected_candidate.parent_atoms or selected_candidate.locants:
+        return None
+    if candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if candidate.priority not in {30, 61}:
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 3:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_atom_count = len(candidate.parent_atoms)
+        if candidate_parent_atom_count < 4 or candidate_parent_atom_count > 12:
+            continue
+        if len(candidate.locants) != candidate_parent_atom_count:
+            continue
+        if candidate.charge is not None or candidate.prefixes:
+            continue
+        if len(candidate.suffixes) > 1:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 240:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    candidate.priority,
+                    _candidate_selection_render_rank_key(candidate),
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _single_ring_alternative_for_small_ring_phosphorus_acid_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "phosphorus-acid-parent":
+        return None
+    if selected_candidate.priority != 9:
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) > 20:
+        return None
+    if _candidate_parent_element_count(selected_candidate, "P") != 1:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.prefixes or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if candidate.priority != 30:
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 3:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != 3 or len(candidate.locants) != 3:
+            continue
+        if candidate.charge is not None or candidate.prefixes or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 160:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    _candidate_selection_render_rank_key(candidate),
+                    len(item.name) - item.selection_bonus,
                     len(item.name),
                     candidate_key,
                 ),
@@ -5603,6 +5767,26 @@ def _ranker_preserves_complete_single_ring_parent_over_acyclic_skeleton(
         return True
     current_parent_count = len(current_candidate.parent_atoms)
     proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if (
+        current_parent_count == 6
+        and proposed_parent_count >= 12
+        and current_candidate.parent_aromatic_atom_count == current_parent_count
+        and current_candidate.parent_hetero_atom_count == 0
+        and len(current_candidate.locants) == current_parent_count
+        and current_candidate.render_rank is not None
+        and current_candidate.render_rank <= 2
+        and not current_candidate.suffixes
+        and current_candidate.charge is None
+        and proposed_candidate.parent_aromatic_atom_count == 0
+        and proposed_candidate.parent_hetero_atom_count == 0
+        and not proposed_candidate.locants
+        and not proposed_candidate.suffixes
+        and proposed_candidate.charge is None
+        and not candidate_safety_reasons(current_candidate)
+        and not candidate_safety_reasons(proposed_candidate)
+        and len(current.name) - len(proposed.name) <= 90
+    ):
+        return False
     if proposed_parent_count > current_parent_count + 5:
         return True
     if current_candidate.suffixes and proposed_parent_count >= current_parent_count + 5:

@@ -5246,6 +5246,52 @@ def test_compact_nitrile_carbamate_control_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        r"CC(C)(C)OC(=O)NCCCCC1C[N@@]1Cc1ccccc1",
+        r"COc1cc(CCC(=O)C(=Cc2ccc(F)cc2)C(=O)CCc2ccc(O)c(OC)c2)ccc1O",
+        r"NS(=O)(=O)c1ccc([C@@H]2C[C@H]2c2nsc(=O)[nH]2)cc1",
+        r"CCP(C)(=O)c1cc2c(N[C@H](C)c3cccc(C(F)(F)[C@@H](C)O)c3F)nc(C)nc2cn1",
+    ],
+)
+def test_zero_parent_retained_functional_choices_defer_to_single_ring_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"CCOP(=O)(OCC)[N@]1CC1C",
+        r"C[C@H]1C[N@@]1P(=O)(Oc1ccccc1)Oc1ccccc1",
+    ],
+)
+def test_small_ring_phosphorus_acid_choices_defer_to_single_ring_parent(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"CC(C)(C)CC(C=C(c1ccccc1)c1ccccc1)=C(C(=O)O)C(=O)O",
+    ],
+)
+def test_fact_ranker_preserves_aromatic_single_ring_parent_over_acyclic_skeleton(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         r"CCn1cc2c(n1)C1(CC1)CNC2=O",
         r"Cn1cc2c(n1)CC1(CCN(Cc3ccccc3)CC1)C2=O",
         r"Cc1nc2c(n1C)C1(COC1)Nc1c-2cccc1[N+](=O)[O-]",

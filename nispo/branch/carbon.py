@@ -130,6 +130,9 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     locanted_chain = _locanted_acyclic_substituent_chain_prefix(mol, idx, parent_idx)
     if locanted_chain:
         return _with_root_carbon_isotope(mol, idx, locanted_chain)
+    terminal_locanted_chain = _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx, parent_idx)
+    if terminal_locanted_chain:
+        return _with_root_carbon_isotope(mol, idx, terminal_locanted_chain)
     substituted_alkyl = _simple_substituted_alkyl_prefix(mol, idx, parent_idx)
     if substituted_alkyl:
         return _with_root_carbon_isotope(mol, idx, substituted_alkyl)
@@ -402,6 +405,83 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
             (
                 -len(path),
                 root_locant,
+                _substituent_path_locant_key(mol, path, atoms, parent_idx),
+                len(name),
+                name,
+            )
+        )
+    if not candidates:
+        return ""
+    candidates.sort()
+    return candidates[0][-1]
+
+
+def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -> str:
+    """Render terminal acyclic alkenyl/alkynyl branches with internal stereo.
+
+    The non-terminal locanted-chain renderer needs two carbon leaves.  A branch
+    attached through one end of the chain has only one non-attachment leaf, so
+    assigned alkene stereo otherwise falls through to the legacy unlocanted
+    ``2-penten-1-yl`` style and may be hoisted as a molecule-level ``(Z)``.
+    Hetero-functional side branches are allowed only when the chosen path has
+    bond stereo but no path atom stereocenters; atom-stereo functional chains
+    are OPSIN-fragile and are better handled by retained functional parents.
+    """
+
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    atoms = collect_subtree(mol, idx, parent_idx)
+    if len(atoms) < 3 or len(atoms) > 18:
+        return ""
+    if any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
+        return ""
+    if _subtree_has_isotopic_hydrogen(mol, atoms):
+        return ""
+    carbon_atoms = {
+        atom_idx
+        for atom_idx in atoms
+        if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
+        and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
+        and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
+        and not _is_nitrile_carbon(mol, atom_idx)
+        and not _is_isocyano_carbon(mol, atom_idx)
+    }
+    if idx not in carbon_atoms or len(carbon_atoms) < 3:
+        return ""
+    carbon_degrees = {
+        atom_idx: sum(
+            1
+            for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors()
+            if nbr.GetIdx() in carbon_atoms
+            and mol.GetBondBetweenAtoms(atom_idx, nbr.GetIdx()).GetBondType()
+            in {Chem.BondType.SINGLE, Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}
+        )
+        for atom_idx in carbon_atoms
+    }
+    if carbon_degrees.get(idx) != 1:
+        return ""
+    leaves = [atom_idx for atom_idx, degree in carbon_degrees.items() if atom_idx != idx and degree <= 1]
+    if not leaves:
+        return ""
+    candidates = []
+    for leaf in leaves:
+        path = tuple(Chem.rdmolops.GetShortestPath(mol, idx, leaf))
+        if not path or any(atom_idx not in carbon_atoms for atom_idx in path):
+            continue
+        if not _path_bonds_supported(mol, path):
+            continue
+        stereo_prefix = _locanted_substituent_path_stereo_prefix(mol, path, atoms)
+        if not stereo_prefix:
+            continue
+        if carbon_atoms != atoms and any(piece.endswith(("R", "S")) for piece in stereo_prefix.split(",")):
+            continue
+        name = _locanted_substituent_path_name(mol, path, atoms, idx, parent_idx)
+        if not name:
+            continue
+        candidates.append(
+            (
+                -len(path),
                 _substituent_path_locant_key(mol, path, atoms, parent_idx),
                 len(name),
                 name,

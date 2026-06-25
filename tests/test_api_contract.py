@@ -402,6 +402,15 @@ def test_external_relative_stereo_ring_branch_parent_roundtrips_with_opsin(input
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_terminal_alkenyl_branch_stereo_roundtrips_with_opsin():
+    input_smiles = r"CC/C=C\CC1OC1CC=CCCCCCCCC"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

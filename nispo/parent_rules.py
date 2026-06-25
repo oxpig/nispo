@@ -15385,6 +15385,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             return
         if _nonring_heavy_atom_count(mol) < 2:
             return
+        if not _may_have_chain_dominant_acyclic_parent(mol):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
         parent_atoms = _nonring_heavy_atom_indices(mol)
@@ -15697,6 +15699,35 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
                 estimated_length=len(name),
             )
+
+
+def _may_have_chain_dominant_acyclic_parent(mol) -> bool:
+    """Cheap graph superset for chain-dominant acyclic parent rendering."""
+
+    ring_atoms = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() > 1 and atom.IsInRing()
+    }
+    nonring_atoms = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() > 1 and not atom.IsInRing()
+    }
+    if not ring_atoms or len(nonring_atoms) < 2:
+        return False
+    if len(nonring_atoms) >= len(ring_atoms):
+        return True
+    if mol.GetRingInfo().NumRings() > 1 and len(nonring_atoms) >= 4:
+        return True
+    if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in nonring_atoms):
+        return True
+    return any(
+        bond.GetBondTypeAsDouble() > 1.0
+        and bond.GetBeginAtomIdx() in nonring_atoms
+        and bond.GetEndAtomIdx() in nonring_atoms
+        for bond in mol.GetBonds()
+    )
 
 
 def _chain_dominates_single_ring(mol, name: str) -> bool:

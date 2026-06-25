@@ -1958,6 +1958,8 @@ def _functionalized_carbon_methylidene_substituent(mol, carbon_idx: int, ylidene
     if not _subtree_has_functional_carbon_evidence(mol, subtree):
         return ""
     name = _carbon_branch_prefix(mol, carbon_idx, ylidene_idx)
+    if name in {"carboxy", "carboxylato", "formyl", "carbamyl"} or name.endswith("oxycarbonyl"):
+        return name
     if not name or not name.endswith("yl") or name.endswith("ylidene"):
         return ""
     return name

@@ -5,7 +5,8 @@ import re
 from .molecule_cache import mol_cache_get, mol_cache_set
 
 
-_STEREO_ATOM_LOCANT_RE = re.compile(r"^\d+'?$")
+_STEREO_LOCANT_TEXT = r"\d+(?:[a-z])?'?"
+_STEREO_ATOM_LOCANT_RE = re.compile(rf"^{_STEREO_LOCANT_TEXT}$")
 _STEREO_MULTIPLIERS = {
     "bis": 2,
     "tris": 3,
@@ -154,13 +155,14 @@ def _has_assigned_bond_stereo(mol, Chem) -> bool:
 
 
 def _has_leading_stereochemical_prefix(name: str) -> bool:
-    return bool(re.match(r"^\((?:\d*[RSZE](?:,\d*[RSZE])*)\)-", name))
+    descriptor = rf"(?:{_STEREO_LOCANT_TEXT})?[RSZE]"
+    return bool(re.match(rf"^\((?:{descriptor}(?:,{descriptor})*)\)-", name))
 
 
 def _locanted_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     descriptors = [
         descriptor[-1]
-        for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name)
+        for descriptor in re.findall(rf"(?<![A-Za-z]){_STEREO_LOCANT_TEXT}[RS](?![a-z])", name)
     ]
     descriptors.extend(_extra_multiplied_locanted_stereo_descriptors(name, "RS"))
     return descriptors
@@ -239,7 +241,7 @@ def _ring_external_heavy_degree(mol, atom_idx: int, ring_atoms: frozenset[int]) 
 def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
     descriptors = [
         descriptor[-1]
-        for descriptor in re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name)
+        for descriptor in re.findall(rf"(?<![A-Za-z]){_STEREO_LOCANT_TEXT}[EZ](?![a-z])", name)
     ]
     descriptors.extend(_extra_multiplied_locanted_stereo_descriptors(name, "EZ"))
     return descriptors
@@ -248,7 +250,7 @@ def _locanted_bond_stereo_descriptors_in_name(name: str) -> list[str]:
 def _extra_multiplied_locanted_stereo_descriptors(name: str, kinds: str) -> list[str]:
     extras: list[str] = []
     pattern = re.compile(
-        r"\b(?P<mult>bis|tris|tetrakis|pentakis|hexakis)\({2,}(?P<locants>\d+'?[RSZE](?:,\d+'?[RSZE])*)\)-"
+        rf"\b(?P<mult>bis|tris|tetrakis|pentakis|hexakis)\({{2,}}(?P<locants>{_STEREO_LOCANT_TEXT}[RSZE](?:,{_STEREO_LOCANT_TEXT}[RSZE])*)\)-"
     )
     for match in pattern.finditer(name):
         count = _STEREO_MULTIPLIERS.get(match.group("mult"), 1)
@@ -256,7 +258,7 @@ def _extra_multiplied_locanted_stereo_descriptors(name: str, kinds: str) -> list
             continue
         pieces = [
             descriptor[-1]
-            for descriptor in re.findall(r"\d+'?[RSZE]", match.group("locants"))
+            for descriptor in re.findall(rf"{_STEREO_LOCANT_TEXT}[RSZE]", match.group("locants"))
             if descriptor[-1] in kinds
         ]
         for _ in range(count - 1):
@@ -265,11 +267,11 @@ def _extra_multiplied_locanted_stereo_descriptors(name: str, kinds: str) -> list
 
 
 def _locanted_atom_stereo_texts_in_name(name: str) -> set[str]:
-    return set(re.findall(r"(?<![A-Za-z])\d+'?[RS](?![a-z])", name))
+    return set(re.findall(rf"(?<![A-Za-z]){_STEREO_LOCANT_TEXT}[RS](?![a-z])", name))
 
 
 def _locanted_bond_stereo_texts_in_name(name: str) -> set[str]:
-    return set(re.findall(r"(?<![A-Za-z])\d+'?[EZ](?![a-z])", name))
+    return set(re.findall(rf"(?<![A-Za-z]){_STEREO_LOCANT_TEXT}[EZ](?![a-z])", name))
 
 
 def _name_has_complete_atom_stereo(
@@ -431,8 +433,12 @@ def _locanted_bond_stereo_pieces(
 
 
 def _stereo_locant_sort_key(locant: str) -> tuple[int, int, str]:
-    base = locant.rstrip("'")
-    return (int(base), locant.count("'"), locant)
+    match = re.match(r"^(\d+)([a-z]?)(\'?)$", locant)
+    if not match:
+        return (9999, 9999, locant.count("'"), locant)
+    number, letter, prime = match.groups()
+    letter_rank = ord(letter) - ord("a") + 1 if letter else 0
+    return (int(number), letter_rank, len(prime), locant)
 
 
 def _bond_stereochemistry(mol, Chem) -> list[str]:

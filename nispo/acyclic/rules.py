@@ -202,14 +202,12 @@ def _name_internal_linear_hydrocarbon_charge(mol) -> str:
     path = _shortest_path_in_allowed_graph(view, endpoints[0], endpoints[1], set(range(len(atoms))))
     if not path or len(path) != len(atoms):
         return ""
+    path = _orient_linear_hydrocarbon_charge_path(mol, path, charged)
     parent = parent_chain_name(mol, path, as_substituent=False)
     if not parent:
         return ""
     charge = next(iter(charges))
     locants = [path.index(idx) + 1 for idx in charged]
-    reverse_locants = [len(path) + 1 - loc for loc in locants]
-    if tuple(reverse_locants) < tuple(locants):
-        locants = reverse_locants
     locants = sorted(locants)
     suffix = "ide" if charge < 0 else "ylium"
     if len(locants) == 1:
@@ -219,6 +217,38 @@ def _name_internal_linear_hydrocarbon_charge(mol) -> str:
     if charge > 0 or not multiplier:
         return ""
     return f"{parent}-{','.join(str(locant) for locant in locants)}-{multiplier}{suffix}"
+
+
+def _orient_linear_hydrocarbon_charge_path(
+    mol,
+    path: Sequence[int],
+    charged: Sequence[int],
+) -> tuple[int, ...]:
+    forward = tuple(path)
+    reverse = tuple(reversed(path))
+    return min(
+        (forward, reverse),
+        key=lambda oriented: _linear_hydrocarbon_charge_orientation_key(mol, oriented, charged),
+    )
+
+
+def _linear_hydrocarbon_charge_orientation_key(
+    mol,
+    path: Sequence[int],
+    charged: Sequence[int],
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    ene_locs: list[int] = []
+    yne_locs: list[int] = []
+    for locant, (left, right) in enumerate(zip(path, path[1:]), start=1):
+        bond = mol.GetBondBetweenAtoms(left, right)
+        if bond is None:
+            continue
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            ene_locs.append(locant)
+        elif bond.GetBondType() == Chem.BondType.TRIPLE:
+            yne_locs.append(locant)
+    charge_locs = sorted(path.index(idx) + 1 for idx in charged)
+    return (tuple(ene_locs), tuple(yne_locs), tuple(charge_locs))
 
 
 def _name_terminal_acyclic_carbon_charge(mol) -> str:

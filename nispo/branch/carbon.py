@@ -386,6 +386,8 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
         and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
+        and not _is_nitrile_carbon(mol, atom_idx)
+        and not _is_isocyano_carbon(mol, atom_idx)
     }
     if idx not in carbon_atoms or len(carbon_atoms) < 4:
         return ""

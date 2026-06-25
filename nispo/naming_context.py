@@ -41,6 +41,9 @@ class ContextCache:
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    fused_template_matches: dict[
+        tuple[int, bool, bool, bool, bool], tuple[tuple[dict, tuple[int, ...]], ...]
+    ] = field(default_factory=dict)
     topology_flags: dict[str, bool] = field(default_factory=dict)
 
 
@@ -292,8 +295,6 @@ def _supplement_generated_fused_templates_by_ring_graph(
         if not graph_key:
             continue
         for template in _generated_templates_for_key(key, graph_key, "", False, Chem):
-            if _template_ring_hetero_atom_count(template) < 2:
-                continue
             marker = (
                 template_record_name(template),
                 Chem.MolToSmiles(template_record_mol(template), canonical=True),
@@ -307,14 +308,6 @@ def _supplement_generated_fused_templates_by_ring_graph(
             :_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
         ]
     return tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
-
-
-def _template_ring_hetero_atom_count(template: dict) -> int:
-    return sum(
-        1
-        for atom in template_record_mol(template).GetAtoms()
-        if atom.IsInRing() and atom.GetAtomicNum() not in {1, 6}
-    )
 
 
 def _template_collection_label(templates: tuple[dict, ...]) -> str:

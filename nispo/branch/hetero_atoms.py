@@ -727,6 +727,8 @@ def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequ
         retained = _retained_single_ligand_amino_prefix(mol, amino_idx, parent_idx, names[0])
         if retained:
             return retained
+        if mol.GetAtomWithIdx(parent_idx).GetSymbol() != "S" and _single_ligand_amino_needs_explicit_n(names[0]):
+            return f"N-({names[0]})amino"
         if "-" in names[0] or names[0].startswith("("):
             return f"({names[0]})amino"
         return names[0] + "amino"
@@ -776,6 +778,18 @@ def _repeated_amino_ligand_needs_complex_multiplier(name: str, count: int) -> bo
     if name in {"methyl", "ethyl", "propyl", "butyl", "phenyl", "benzyl"}:
         return False
     return (count == 3 and name == "decyl") or name.endswith(("methyl", "ethyl", "propyl", "butyl"))
+
+
+def _single_ligand_amino_needs_explicit_n(name: str) -> bool:
+    if "(" not in name or ")" not in name:
+        return False
+    if name.startswith("("):
+        return False
+    if name.endswith(
+        ("carbonyl", "sulfonyl", "sulfinyl", "sulfonimidoyl", "sulfinimidoyl", "sulfimidoyl")
+    ):
+        return False
+    return True
 
 
 def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, name: str) -> str:
@@ -868,6 +882,10 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
     substituent = mol.GetAtomWithIdx(substituent_idx)
     if substituent.IsInRing():
         name = _ring_substituent_prefix(mol, substituent_idx, idx)
+    elif substituent.GetSymbol() in HALO:
+        isotope = substituent.GetIsotope()
+        symbol = substituent.GetSymbol()
+        name = f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     elif substituent.GetSymbol() == "S":
         name = _sulfur_prefix(mol, substituent_idx, idx)
     elif substituent.GetSymbol() == "C":

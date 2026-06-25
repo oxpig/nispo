@@ -3340,6 +3340,25 @@ def test_aminodiazenide_retained_parents_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "[N-]=Nc1ccccc1",
+        "[N-]=C1CCCCC1",
+        "[N-]=C1CCCCN1",
+        "[N-]=C1CC=Cc2ccccc21",
+        "Br[N-]c1cccc2ccccc12",
+        "F[N-]C(F)(F)C(F)(F)F",
+    ],
+)
+def test_organic_diazenide_and_exocyclic_azanide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCO[P+]([O-])=CC(=O)OC",
         "O=C(O)C=[P+]([O-])O",
         "[O-][P+]([O-])=C=S",

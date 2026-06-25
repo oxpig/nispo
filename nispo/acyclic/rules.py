@@ -112,6 +112,10 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
     if hydroxy_diyl_diphosphonic_name:
         return AcyclicNameRecord(hydroxy_diyl_diphosphonic_name)
 
+    tris_phosphoryl_amine_name = _name_tris_hydroxy_alkoxy_phosphoryl_amine(mol)
+    if tris_phosphoryl_amine_name:
+        return AcyclicNameRecord(tris_phosphoryl_amine_name)
+
     terminal_nitrone_name = _name_terminal_nitrone(mol)
     if terminal_nitrone_name:
         return AcyclicNameRecord(terminal_nitrone_name)
@@ -806,6 +810,106 @@ def _name_hydroxy_alkane_diyl_diphosphonic_acid(mol) -> str:
     if not parent or not parent.endswith("e"):
         return ""
     return f"1-hydroxy{parent}-1,{len(path)}-diyldiphosphonic acid"
+
+
+def _name_tris_hydroxy_alkoxy_phosphoryl_amine(mol) -> str:
+    if mol.GetRingInfo().NumRings():
+        return ""
+    records = []
+    for nitrogen in mol.GetAtoms():
+        if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
+            continue
+        if nitrogen.GetTotalNumHs() != 0:
+            continue
+        heavy = [nbr.GetIdx() for nbr in nitrogen.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy) != 3:
+            continue
+        ligand_records = []
+        for pidx in heavy:
+            bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), pidx)
+            phosphorus = mol.GetAtomWithIdx(pidx)
+            if (
+                phosphorus.GetSymbol() != "P"
+                or phosphorus.GetFormalCharge() != 0
+                or phosphorus.IsInRing()
+                or bond is None
+                or bond.GetBondType() != Chem.BondType.SINGLE
+            ):
+                break
+            ligand = _hydroxy_alkoxy_phosphoryl_ligand(mol, pidx, nitrogen.GetIdx())
+            if ligand is None:
+                break
+            ligand_records.append(ligand)
+        else:
+            records.append((nitrogen.GetIdx(), tuple(ligand_records)))
+    if len(records) != 1:
+        return ""
+    nitrogen_idx, ligand_records = records[0]
+    covered = {nitrogen_idx}
+    ligand_names = []
+    for ligand_name, ligand_atoms in ligand_records:
+        ligand_names.append(ligand_name)
+        covered.update(ligand_atoms)
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    counts = Counter(ligand_names)
+    if len(counts) != 1:
+        return ""
+    ligand_name, count = next(iter(counts.items()))
+    if count != 3 or not ligand_name:
+        return ""
+    return f"tris(hydroxy({ligand_name})phosphoryl)amine"
+
+
+def _hydroxy_alkoxy_phosphoryl_ligand(mol, phosphorus_idx: int, nitrogen_idx: int) -> tuple[str, set[int]] | None:
+    double_oxygen = None
+    hydroxy_oxygen = None
+    alkoxy_record = None
+    atoms = {phosphorus_idx}
+    for nbr in mol.GetAtomWithIdx(phosphorus_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(phosphorus_idx, nidx)
+        if bond is None or nbr.GetSymbol() != "O" or nbr.GetFormalCharge() != 0 or nbr.IsInRing():
+            return None
+        heavy = [atom.GetIdx() for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]
+        if bond.GetBondType() == Chem.BondType.DOUBLE and heavy == [phosphorus_idx]:
+            if double_oxygen is not None:
+                return None
+            double_oxygen = nidx
+            atoms.add(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and heavy == [phosphorus_idx] and nbr.GetTotalNumHs() == 1:
+            if hydroxy_oxygen is not None:
+                return None
+            hydroxy_oxygen = nidx
+            atoms.add(nidx)
+        elif bond.GetBondType() == Chem.BondType.SINGLE and len(heavy) == 2 and nbr.GetTotalNumHs() == 0:
+            if alkoxy_record is not None:
+                return None
+            carbon_neighbors = [
+                idx
+                for idx in heavy
+                if idx != phosphorus_idx
+                and mol.GetAtomWithIdx(idx).GetSymbol() == "C"
+                and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
+            ]
+            if len(carbon_neighbors) != 1:
+                return None
+            carbon_idx = carbon_neighbors[0]
+            owner_name = branch_prefix(mol, carbon_idx, nidx)
+            alkoxy_name = _alkyl_to_alkoxy(owner_name) if owner_name else ""
+            if not alkoxy_name:
+                return None
+            alkoxy_atoms = {nidx}
+            alkoxy_atoms.update(collect_subtree(mol, carbon_idx, nidx))
+            alkoxy_record = (alkoxy_name, alkoxy_atoms)
+            atoms.update(alkoxy_atoms)
+        else:
+            return None
+    if double_oxygen is None or hydroxy_oxygen is None or alkoxy_record is None:
+        return None
+    return alkoxy_record[0], atoms
 
 
 def _name_terminal_nitrone(mol) -> str:

@@ -18777,6 +18777,7 @@ class SingleRingParentRule:
                         ring,
                     ),
                     parent_terminal_carbonyl_substituent_count=_ring_terminal_carbonyl_substituent_count(mol, ring),
+                    parent_external_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, ring),
                     parent_external_nitrogen_substituent_count=_ring_external_nitrogen_substituent_count(mol, ring),
                     parent_external_oxygen_substituent_count=_ring_external_oxygen_substituent_count(mol, ring),
                     parent_external_relative_stereo_branch_count=(
@@ -18847,6 +18848,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     parent_aromatic_atom_count=_ring_aromatic_atom_count(mol, ring),
                     parent_hetero_atom_count=_ring_hetero_atom_count(mol, ring),
                     parent_terminal_hetero_substituent_count=_ring_terminal_hetero_substituent_count(mol, ring),
+                    parent_external_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, ring),
                     parent_external_nitrogen_substituent_count=_ring_external_nitrogen_substituent_count(mol, ring),
                     parent_external_oxygen_substituent_count=_ring_external_oxygen_substituent_count(mol, ring),
                     locants=_locants_from_sequence(record.locant_seq),

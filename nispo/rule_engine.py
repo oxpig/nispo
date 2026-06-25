@@ -77,6 +77,7 @@ class NameCandidate:
     parent_external_unsaturated_bond_count: int = 0
     parent_internal_unsaturated_bond_count: int = 0
     parent_substituted_hetero_atom_count: int = 0
+    parent_external_substituted_hetero_atom_count: int = 0
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
@@ -752,6 +753,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _aromatic_single_ring_alternative_for_alkene_stereo_acyclic_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _functional_acyclic_alternative_for_external_stereo_carbocyclic_single_ring_choice(
             keyed_items,
             selected_item,
         )
@@ -1529,6 +1537,12 @@ def _single_ring_alternative_for_zero_parent_retained_functional_choice(
         candidate = item.candidate
         if candidate.family != "single-ring-parent":
             continue
+        if (
+            selected_candidate.family == "sulfonamide-retained-parent"
+            and candidate.parent_hetero_atom_count <= 0
+            and candidate.parent_external_nitrogen_substituent_count <= 0
+        ):
+            continue
         if candidate.priority not in {30, 61}:
             continue
         if candidate.render_rank is None or candidate.render_rank > 3:
@@ -1554,11 +1568,20 @@ def _single_ring_alternative_for_zero_parent_retained_functional_choice(
             continue
         if candidate_key[0] > selected_key[0] + 260:
             continue
+        sulfonamide_hetero_parent_rank = (
+            0
+            if (
+                selected_candidate.family == "sulfonamide-retained-parent"
+                and candidate.parent_hetero_atom_count > 0
+            )
+            else 1
+        )
         alternatives.append(
             (
                 (
                     candidate_key[0],
                     candidate.priority,
+                    sulfonamide_hetero_parent_rank,
                     _candidate_selection_render_rank_key(candidate),
                     len(item.name) - item.selection_bonus,
                     len(item.name),
@@ -4501,6 +4524,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_earlier_aromatic_single_ring_parent(current, proposed):
         return False
+    if not _ranker_preserves_equivalent_single_ring_parent_choice(current, proposed, current_key, proposed_key):
+        return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
         return False
     if not _ranker_preserves_generic_bicyclic_parent_over_generated_fused_shortcut(
@@ -5997,6 +6022,68 @@ def _ranker_preserves_earlier_aromatic_single_ring_parent(
     if proposed_parent_count < 5 and current_parent_count < 7:
         return True
     if current.stability_penalty > proposed.stability_penalty + 50:
+        return True
+    return False
+
+
+def _ranker_preserves_equivalent_single_ring_parent_choice(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+    current_key: tuple,
+    proposed_key: tuple,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "single-ring-parent":
+        return True
+    if proposed_candidate.family != current_candidate.family:
+        return True
+    if proposed_key <= current_key:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.prefixes or proposed_candidate.prefixes:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count != proposed_parent_count:
+        return True
+    if current_parent_count < 5 or current_parent_count > 7:
+        return True
+    if current_candidate.parent_aromatic_atom_count != proposed_candidate.parent_aromatic_atom_count:
+        return True
+    if current_candidate.parent_hetero_atom_count != proposed_candidate.parent_hetero_atom_count:
+        return True
+    if (
+        current_candidate.parent_terminal_hetero_substituent_count
+        != proposed_candidate.parent_terminal_hetero_substituent_count
+    ):
+        return True
+    if (
+        current_candidate.parent_external_nitrogen_substituent_count
+        != proposed_candidate.parent_external_nitrogen_substituent_count
+    ):
+        return True
+    if (
+        current_candidate.parent_external_oxygen_substituent_count
+        != proposed_candidate.parent_external_oxygen_substituent_count
+    ):
+        return True
+    current_render_rank = current_candidate.render_rank or 0
+    proposed_render_rank = proposed_candidate.render_rank or 0
+    if current_render_rank and proposed_render_rank and proposed_render_rank < current_render_rank:
+        return True
+    if len(current.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return True
+    if len(current.name) - len(proposed.name) > 120:
         return True
     return False
 
@@ -8456,6 +8543,77 @@ def _aromatic_single_ring_alternative_for_alkene_stereo_acyclic_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+def _functional_acyclic_alternative_for_external_stereo_carbocyclic_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    candidate = selected.candidate
+    if candidate.family != "single-ring-parent":
+        return None
+    if candidate.priority != 30 or (candidate.render_rank or 0) <= 1:
+        return None
+    if candidate.stereo is None or not candidate.stereo.bond_descriptors:
+        return None
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return None
+    parent_count = len(candidate.parent_atoms)
+    if parent_count != 6 or candidate.parent_aromatic_atom_count != parent_count:
+        return None
+    if candidate.parent_hetero_atom_count or candidate.parent_terminal_hetero_substituent_count:
+        return None
+    if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+        return None
+    if candidate.molecule_abs_formal_charge_sum or candidate_safety_reasons(candidate):
+        return None
+
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, other in keyed_items:
+        if other is selected or other.name == selected.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "functional-acyclic-skeleton-with-ring-substituents":
+            continue
+        if other_candidate.priority >= candidate.priority:
+            continue
+        if other_candidate.stereo is None or not other_candidate.stereo.bond_descriptors:
+            continue
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if len(other_candidate.parent_atoms) < parent_count + 4:
+            continue
+        if other_candidate.charge is not None or other_candidate.suffixes or other_candidate.prefixes:
+            continue
+        if other_candidate.molecule_abs_formal_charge_sum or candidate_safety_reasons(other_candidate):
+            continue
+        if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(other.name) - len(selected.name) > 45:
+            continue
+        if candidate_key[0] > selected_key[0] + 90:
+            continue
+        if other.stability_penalty > selected.stability_penalty + 90:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    other_candidate.priority,
+                    len(other.name) - other.selection_bonus,
+                    len(other.name),
+                    candidate_key,
+                ),
+                other,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _internal_bond_stereo_parent_alternative_for_fragile_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -8514,6 +8672,11 @@ def _external_bond_stereo_single_ring_switch_blocked(
     selected_candidate: NameCandidate,
     proposed_candidate: NameCandidate,
 ) -> bool:
+    if _stable_fused_parent_blocks_unsubstituted_diaza_single_ring_switch(
+        selected_candidate,
+        proposed_candidate,
+    ):
+        return True
     if selected_candidate.family == "fused-retained-parent":
         if selected_candidate.template_name in {"benzocyclobutene", "inden", "naphthalen"}:
             return True
@@ -8537,6 +8700,47 @@ def _external_bond_stereo_single_ring_switch_blocked(
     ):
         return True
     return False
+
+
+def _stable_fused_parent_blocks_unsubstituted_diaza_single_ring_switch(
+    selected_candidate: NameCandidate,
+    proposed_candidate: NameCandidate,
+) -> bool:
+    if selected_candidate.family != "fused-retained-parent":
+        return False
+    if selected_candidate.template_name not in {"indolin", "oxindol"}:
+        return False
+    if selected_candidate.source_family != "arylGroups:ring:ring":
+        return False
+    if selected_candidate.priority != 18 or selected_candidate.render_rank != 1:
+        return False
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return False
+    if len(selected_candidate.parent_atoms) not in {9, 10}:
+        return False
+    if selected_candidate.parent_hetero_atom_count:
+        return False
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return False
+    if candidate_safety_reasons(selected_candidate):
+        return False
+    if proposed_candidate.family != "single-ring-parent":
+        return False
+    if proposed_candidate.priority != 61 or proposed_candidate.render_rank != 1:
+        return False
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return False
+    if len(proposed_candidate.parent_atoms) != 6:
+        return False
+    if proposed_candidate.parent_hetero_atom_count < 2:
+        return False
+    if proposed_candidate.parent_external_substituted_hetero_atom_count >= proposed_candidate.parent_hetero_atom_count:
+        return False
+    if proposed_candidate.charge is not None or proposed_candidate.suffixes or proposed_candidate.prefixes:
+        return False
+    if candidate_safety_reasons(proposed_candidate):
+        return False
+    return True
 
 
 def _generated_fused_external_stereo_acyclic_switch_supported(candidate: NameCandidate) -> bool:

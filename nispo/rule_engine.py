@@ -4530,6 +4530,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_preferred_acyclic_parent_over_whole_neutral_amine(current, proposed):
         return False
+    if not _ranker_preserves_chain_dominant_acyclic_parent_over_functional_bicyclic(current, proposed):
+        return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
         return False
     if not _ranker_preserves_generic_bicyclic_parent_over_generated_fused_shortcut(
@@ -6154,6 +6156,63 @@ def _ranker_preserves_preferred_acyclic_parent_over_whole_neutral_amine(
     if current_candidate.suffixes or proposed_candidate.suffixes:
         return True
     if current_candidate.prefixes or proposed_candidate.prefixes:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    if len(current.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return True
+    return False
+
+
+def _ranker_preserves_chain_dominant_acyclic_parent_over_functional_bicyclic(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return True
+    if proposed_candidate.family not in {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+    }:
+        return True
+    if current_candidate.priority != 19:
+        return True
+    if proposed_candidate.family == "functional-generic-bicyclic-parent":
+        if proposed_candidate.priority != 14 or proposed_candidate.source_family != "bicyclic":
+            return True
+    elif proposed_candidate.priority != 19:
+        return True
+    proposed_render_rank = proposed_candidate.render_rank or 0
+    if proposed_render_rank != 1 and (
+        proposed_render_rank > 8
+        or proposed.selection_bonus < current.selection_bonus + 20
+    ):
+        return True
+    if current_candidate.render_rank is not None:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    current_parent_count = len(current_candidate.parent_atoms)
+    proposed_parent_count = len(proposed_candidate.parent_atoms)
+    if current_parent_count < 7:
+        return True
+    if proposed_parent_count > 9:
+        return True
+    if proposed_parent_count > current_parent_count + 1:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.prefixes or proposed_candidate.prefixes:
+        return True
+    if current_candidate.parent_aromatic_atom_count or proposed_candidate.parent_aromatic_atom_count:
+        return True
+    if current_candidate.parent_hetero_atom_count or proposed_candidate.parent_hetero_atom_count:
         return True
     if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
         return True

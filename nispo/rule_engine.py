@@ -4526,6 +4526,8 @@ def _candidate_fact_ranked_switch_is_safe(
         return False
     if not _ranker_preserves_equivalent_single_ring_parent_choice(current, proposed, current_key, proposed_key):
         return False
+    if not _ranker_preserves_oxindol_parent_over_indolin_tautomer(current, proposed):
+        return False
     if not _ranker_preserves_compact_bicyclic_parent(current, proposed):
         return False
     if not _ranker_preserves_generic_bicyclic_parent_over_generated_fused_shortcut(
@@ -6084,6 +6086,41 @@ def _ranker_preserves_equivalent_single_ring_parent_choice(
     if len(current.name) > _DEFAULT_MAX_NAME_LENGTH:
         return True
     if len(current.name) - len(proposed.name) > 120:
+        return True
+    return False
+
+
+def _ranker_preserves_oxindol_parent_over_indolin_tautomer(
+    current: _PreparedCandidate,
+    proposed: _PreparedCandidate,
+) -> bool:
+    current_candidate = current.candidate
+    proposed_candidate = proposed.candidate
+    if current_candidate.family != "fused-retained-parent" or proposed_candidate.family != current_candidate.family:
+        return True
+    if current_candidate.template_name != "oxindol" or proposed_candidate.template_name != "indolin":
+        return True
+    if current_candidate.source_family != "arylGroups:ring:ring" or proposed_candidate.source_family != "arylGroups:ring:ring":
+        return True
+    if current_candidate.priority != 18 or proposed_candidate.priority != 18:
+        return True
+    if current_candidate.render_rank != 1 or proposed_candidate.render_rank != 2:
+        return True
+    if not current_candidate.parent_atoms or not candidate_has_complete_graph(current_candidate):
+        return True
+    if not proposed_candidate.parent_atoms or not candidate_has_complete_graph(proposed_candidate):
+        return True
+    if len(current_candidate.parent_atoms) != 10 or len(proposed_candidate.parent_atoms) != 9:
+        return True
+    if current_candidate.charge is not None or proposed_candidate.charge is not None:
+        return True
+    if current_candidate.suffixes or proposed_candidate.suffixes:
+        return True
+    if current_candidate.prefixes or proposed_candidate.prefixes:
+        return True
+    if candidate_safety_reasons(current_candidate) or candidate_safety_reasons(proposed_candidate):
+        return True
+    if len(current.name) > _DEFAULT_MAX_NAME_LENGTH:
         return True
     return False
 

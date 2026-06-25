@@ -86,6 +86,7 @@ def apply_locanted_stereochemical_prefix(
     atom_order: str = "idx_desc",
     include_unlocanted: bool = True,
     invert_unlocanted_bond_stereo: bool = False,
+    invert_locanted_bond_stereo: bool = False,
     reverse_descriptor_sequence: bool = False,
     reverse_atom_descriptor_sequence: bool = False,
 ) -> str:
@@ -122,6 +123,8 @@ def apply_locanted_stereochemical_prefix(
         return name
     locanted_atoms = [piece for _sort_key, piece in sorted(atom_pieces)]
     locanted_bonds = [piece for _sort_key, piece in sorted(bond_pieces)]
+    if invert_locanted_bond_stereo:
+        locanted_bonds = _invert_locanted_bond_stereo_texts(locanted_bonds)
     if reverse_atom_descriptor_sequence:
         locanted_atoms = list(reversed(locanted_atoms))
     descriptors = locanted_atoms + locanted_bonds
@@ -301,6 +304,10 @@ def _remove_represented_atom_descriptors(descriptors: list[str], represented_des
 
 def _invert_bond_stereo_descriptors(descriptors: list[str]) -> list[str]:
     return [{"E": "Z", "Z": "E"}.get(descriptor, descriptor) for descriptor in descriptors]
+
+
+def _invert_locanted_bond_stereo_texts(descriptors: list[str]) -> list[str]:
+    return [descriptor[:-1] + {"E": "Z", "Z": "E"}.get(descriptor[-1:], descriptor[-1:]) for descriptor in descriptors]
 
 
 def _atom_stereochemistry(mol, Chem, *, atom_order: str) -> list[str]:

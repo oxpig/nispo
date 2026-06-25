@@ -15224,6 +15224,11 @@ def _finalize_candidate_name(
                 or _has_relative_stereo_descriptor(name)
             ),
             invert_unlocanted_bond_stereo=invert_unlocanted_bond_stereo,
+            invert_locanted_bond_stereo=_candidate_needs_endocyclic_bond_stereo_inversion(
+                mol,
+                Chem,
+                candidate,
+            ),
             reverse_descriptor_sequence=reverse_descriptor_sequence,
             reverse_atom_descriptor_sequence=reverse_atom_descriptor_sequence,
         )
@@ -15269,6 +15274,49 @@ def _candidate_needs_exocyclic_bond_stereo_inversion(mol, Chem, candidate: NameC
     return (
         _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candidate)
         or _candidate_needs_carbofused_arylidene_substituent_stereo_inversion(mol, Chem, candidate)
+    )
+
+
+def _candidate_needs_endocyclic_bond_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate.stereo_locants:
+        return False
+    stereo_bonds = _assigned_double_stereo_bonds(mol, Chem)
+    if len(stereo_bonds) != 1:
+        return False
+    bond = stereo_bonds[0]
+    if not bond.IsInRing():
+        return False
+    begin_idx = bond.GetBeginAtomIdx()
+    end_idx = bond.GetEndAtomIdx()
+    parent_atoms = set(candidate.parent_atoms)
+    if begin_idx not in parent_atoms or end_idx not in parent_atoms:
+        return False
+    begin_atom = mol.GetAtomWithIdx(begin_idx)
+    end_atom = mol.GetAtomWithIdx(end_idx)
+    if begin_atom.GetAtomicNum() != 6 or end_atom.GetAtomicNum() != 6:
+        return False
+    if begin_atom.GetIsAromatic() or end_atom.GetIsAromatic():
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    locant_by_atom = {atom_idx: locant for atom_idx, locant in candidate.stereo_locants}
+    if "1" not in {locant_by_atom.get(begin_idx), locant_by_atom.get(end_idx)}:
+        return False
+    ring_atoms = [
+        ring
+        for ring in mol.GetRingInfo().AtomRings()
+        if begin_idx in ring and end_idx in ring
+    ]
+    return any(
+        len(ring) == 8
+        and all(
+            mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6
+            and not mol.GetAtomWithIdx(atom_idx).GetIsAromatic()
+            for atom_idx in ring
+        )
+        for ring in ring_atoms
     )
 
 

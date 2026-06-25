@@ -4202,6 +4202,15 @@ class OrganicPeroxideRetainedParentRule:
         mol = ctx.mol
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
+        for name in _alcohol_oxide_retained_parent_names(mol, self._Chem):
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                parent_atoms=set(range(atom_count)),
+                sort_key=(len(name), name),
+            )
+            return
         diacylperoxy_name = _diacylperoxy_dimethylhexane_name(mol, self._Chem)
         if diacylperoxy_name:
             yield NameCandidate(
@@ -4997,6 +5006,8 @@ class ChargedRetainedParentRule:
 
 def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names = []
+    names.extend(_alcohol_oxide_retained_parent_names(mol, Chem))
+    names.extend(_carboxylic_acid_chalcogenide_retained_parent_names(mol, Chem))
     names.extend(_organic_diazenide_retained_parent_names(mol, Chem))
     names.extend(_exocyclic_imine_azanide_retained_parent_names(mol, Chem))
     names.extend(_bis_azanidyl_alkane_retained_parent_names(mol, Chem))
@@ -5012,6 +5023,255 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
     names.extend(_hydroxylamine_oxide_retained_parent_names(mol, Chem))
     names.extend(_amine_oxide_retained_parent_names(mol, Chem))
     return names
+
+
+def _alcohol_oxide_retained_parent_names(mol, Chem) -> list[str]:
+    names: list[str] = []
+    atom_set = _heavy_atom_indices(mol)
+    for oxygen in mol.GetAtoms():
+        if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 1 or oxygen.IsInRing():
+            continue
+        oidx = oxygen.GetIdx()
+        if oxygen.GetTotalNumHs() != 1:
+            continue
+        carbon_neighbors = []
+        oxido_neighbors = []
+        for nbr in oxygen.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(oidx, nidx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                break
+            if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and not nbr.IsInRing():
+                carbon_neighbors.append(nidx)
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == -1
+                and not nbr.IsInRing()
+                and len([atom for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]) == 1
+            ):
+                oxido_neighbors.append(nidx)
+            else:
+                break
+        else:
+            if len(carbon_neighbors) != 1 or len(oxido_neighbors) != 1:
+                continue
+            carbon_idx = carbon_neighbors[0]
+            oxido_idx = oxido_neighbors[0]
+            for path in _terminal_alcohol_oxide_parent_paths(mol, Chem, carbon_idx, oidx):
+                covered = _terminal_alcohol_oxide_path_covered_atoms(mol, path, oidx, oxido_idx)
+                if covered != atom_set:
+                    continue
+                name = _terminal_alcohol_oxide_path_name(mol, path, oidx, oxido_idx)
+                if name:
+                    names.append(name)
+    return sorted(set(names), key=lambda name: (len(name), name))
+
+
+def _terminal_alcohol_oxide_parent_paths(mol, Chem, carbon_idx: int, oxygen_idx: int) -> list[tuple[int, ...]]:
+    atoms = _collect_component_atoms(mol, carbon_idx, oxygen_idx)
+    allowed = {
+        idx
+        for idx in atoms
+        if mol.GetAtomWithIdx(idx).GetSymbol() == "C"
+        and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
+        and not mol.GetAtomWithIdx(idx).IsInRing()
+        and not _is_nitrile_carbon(mol, idx)
+    }
+    if carbon_idx not in allowed:
+        return []
+    leaves = [
+        idx
+        for idx in allowed
+        if idx == carbon_idx
+        or sum(1 for nbr in mol.GetAtomWithIdx(idx).GetNeighbors() if nbr.GetIdx() in allowed) <= 1
+    ]
+    paths: set[tuple[int, ...]] = set()
+    best_len = 0
+    for leaf in leaves:
+        path = (carbon_idx,) if leaf == carbon_idx else tuple(Chem.rdmolops.GetShortestPath(mol, carbon_idx, leaf))
+        if any(idx not in allowed for idx in path):
+            continue
+        if any(
+            mol.GetBondBetweenAtoms(a, b) is None
+            or mol.GetBondBetweenAtoms(a, b).GetBondType() != Chem.BondType.SINGLE
+            for a, b in zip(path, path[1:])
+        ):
+            continue
+        if len(path) > best_len:
+            paths.clear()
+            best_len = len(path)
+        if len(path) == best_len:
+            paths.add(path)
+    return sorted(paths)
+
+
+def _terminal_alcohol_oxide_path_covered_atoms(
+    mol,
+    path: Sequence[int],
+    oxygen_idx: int,
+    oxido_idx: int,
+) -> set[int]:
+    covered = {oxygen_idx, oxido_idx, *path}
+    path_set = set(path)
+    skip_atoms = {oxygen_idx, oxido_idx}
+    for atom_idx in path:
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in path_set or nidx in skip_atoms or nbr.GetAtomicNum() <= 1:
+                continue
+            branch_atoms = _collect_component_atoms_excluding(mol, nidx, {atom_idx, *path_set, *skip_atoms})
+            if any(mol.GetAtomWithIdx(branch_idx).IsInRing() for branch_idx in branch_atoms):
+                return set()
+            if any(mol.GetAtomWithIdx(branch_idx).GetFormalCharge() != 0 for branch_idx in branch_atoms):
+                return set()
+            covered.update(branch_atoms)
+    return covered
+
+
+def _terminal_alcohol_oxide_path_name(
+    mol,
+    path: Sequence[int],
+    oxygen_idx: int,
+    oxido_idx: int,
+) -> str:
+    parent = parent_chain_name(mol, path, as_substituent=False)
+    if parent.endswith("ane"):
+        stem = parent[:-1]
+    elif parent.endswith("an"):
+        stem = parent
+    else:
+        return ""
+    prefixes = _path_substituent_prefixes(mol, path, skip_atoms={oxygen_idx, oxido_idx}, skip_plain_hydrogen=True)
+    if prefixes is None:
+        return ""
+    core = stem + "-1-ol oxide"
+    prefix_text = _format_prefixes(prefixes)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+
+
+def _carboxylic_acid_chalcogenide_retained_parent_names(mol, Chem) -> list[str]:
+    names: list[str] = []
+    atom_set = _heavy_atom_indices(mol)
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
+            continue
+        cidx = carbon.GetIdx()
+        acyl_carbons: list[int] = []
+        single_oxygen = None
+        parent_suffix = ""
+        oxonium_oxygen = None
+        ok = True
+        for nbr in carbon.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(cidx, nidx)
+            if bond is None:
+                ok = False
+                break
+            if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.SINGLE:
+                acyl_carbons.append(nidx)
+            elif (
+                nbr.GetSymbol() == "O"
+                and bond.GetBondType() == Chem.BondType.SINGLE
+                and len([atom for atom in nbr.GetNeighbors() if atom.GetAtomicNum() > 1]) == 1
+            ):
+                if single_oxygen is not None:
+                    ok = False
+                    break
+                if nbr.GetFormalCharge() == 0 and nbr.GetTotalNumHs() == 1:
+                    parent_suffix = "acid"
+                elif nbr.GetFormalCharge() == -1 and nbr.GetTotalNumHs() == 0:
+                    parent_suffix = "oate"
+                else:
+                    ok = False
+                    break
+                single_oxygen = nidx
+            elif (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 1
+                and bond.GetBondType() == Chem.BondType.DOUBLE
+            ):
+                if oxonium_oxygen is not None:
+                    ok = False
+                    break
+                oxonium_oxygen = nidx
+            else:
+                ok = False
+                break
+        if not ok or single_oxygen is None or oxonium_oxygen is None or len(acyl_carbons) > 1:
+            continue
+        terminal = _acid_chalcogenide_terminal_atom(mol, Chem, oxonium_oxygen)
+        if terminal is None:
+            continue
+        terminal_idx, suffix = terminal
+        if not acyl_carbons:
+            if {cidx, single_oxygen, oxonium_oxygen, terminal_idx} == atom_set:
+                parent = "methanoic acid" if parent_suffix == "acid" else "formate"
+                names.append(f"{parent} {suffix}")
+            continue
+        for path in _ester_acyl_parent_paths(mol, Chem, cidx, acyl_carbons[0]):
+            if not path or path[0] != acyl_carbons[0]:
+                continue
+            covered = _acid_chalcogenide_path_covered_atoms(
+                mol,
+                cidx,
+                path,
+                single_oxygen,
+                oxonium_oxygen,
+                terminal_idx,
+            )
+            if covered != atom_set:
+                continue
+            parent = _generic_acyl_functional_parent_path_name(mol, Chem, cidx, path, parent_suffix)
+            if parent:
+                names.append(f"{parent} {suffix}")
+    return sorted(set(names), key=lambda name: (len(name), name))
+
+
+def _acid_chalcogenide_terminal_atom(mol, Chem, oxonium_idx: int) -> tuple[int, str] | None:
+    terminals = []
+    for nbr in mol.GetAtomWithIdx(oxonium_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        bond = mol.GetBondBetweenAtoms(oxonium_idx, nidx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        if nbr.GetSymbol() == "O" and nbr.GetFormalCharge() == -1 and not nbr.IsInRing():
+            terminals.append((nidx, "oxide"))
+        elif nbr.GetSymbol() == "S" and nbr.GetFormalCharge() == -1 and not nbr.IsInRing():
+            terminals.append((nidx, "sulfide"))
+    if len(terminals) != 1:
+        return None
+    terminal_idx, suffix = terminals[0]
+    if len([atom for atom in mol.GetAtomWithIdx(terminal_idx).GetNeighbors() if atom.GetAtomicNum() > 1]) != 1:
+        return None
+    return terminal_idx, suffix
+
+
+def _acid_chalcogenide_path_covered_atoms(
+    mol,
+    carbonyl_idx: int,
+    path: Sequence[int],
+    hydroxy_oxygen: int,
+    oxonium_oxygen: int,
+    terminal_idx: int,
+) -> set[int]:
+    covered = {carbonyl_idx, hydroxy_oxygen, oxonium_oxygen, terminal_idx, *path}
+    path_set = set(path)
+    skip_atoms = {hydroxy_oxygen, oxonium_oxygen, terminal_idx}
+    for pos, atom_idx in enumerate(path, start=2):
+        allowed_neighbors = {carbonyl_idx if pos == 2 else path[pos - 3]}
+        if pos - 1 < len(path):
+            allowed_neighbors.add(path[pos - 1])
+        for nbr in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in allowed_neighbors or nidx in path_set or nidx in skip_atoms or nbr.GetAtomicNum() <= 1:
+                continue
+            branch_atoms = _collect_component_atoms_excluding(mol, nidx, {atom_idx, *path_set, *skip_atoms})
+            if any(mol.GetAtomWithIdx(branch_idx).IsInRing() for branch_idx in branch_atoms):
+                return set()
+            if any(mol.GetAtomWithIdx(branch_idx).GetFormalCharge() != 0 for branch_idx in branch_atoms):
+                return set()
+            covered.update(branch_atoms)
+    return covered
 
 
 def _organic_diazenide_retained_parent_names(mol, Chem) -> list[str]:
@@ -13574,9 +13834,13 @@ def _generic_acyl_functional_parent_text(mol, Chem, root: str, path: Sequence[in
         retained = _retained_simple_acyl_parent_text(root, suffix)
         if retained:
             return retained
+        if suffix == "acid":
+            return root + "anoic acid"
     parent = _unsaturated_parent(root, ene_locs, yne_locs)
     if suffix == "amide":
         return parent[:-1] + "amide" if parent.endswith("e") else parent + "amide"
+    if suffix == "acid":
+        return parent[:-1] + "oic acid" if parent.endswith("e") else parent + "oic acid"
     if suffix == "hydrazide":
         return parent + "hydrazide"
     return parent[:-1] + "oate" if parent.endswith("e") else parent + "oate"
@@ -13959,6 +14223,11 @@ def _path_hydroxy_locants(mol, Chem, path: Sequence[int]) -> list[int]:
 
 
 def _retained_simple_acyl_parent_text(root: str, suffix: str) -> str:
+    if suffix == "acid":
+        return {
+            "meth": "formic acid",
+            "eth": "acetic acid",
+        }.get(root, "")
     if suffix == "amide":
         return {
             "meth": "formamide",

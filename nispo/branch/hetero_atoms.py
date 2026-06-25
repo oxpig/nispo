@@ -990,14 +990,37 @@ def _substituted_azaniumylidene_prefix(mol, idx: int, parent_idx: int) -> str:
     parts = []
     for name in sorted(counts):
         count = counts[name]
-        if count > 1:
-            multiplier = MULT.get(count)
-            if not multiplier:
-                return ""
-            parts.append(multiplier + name)
-        else:
-            parts.append(name)
+        part = _azaniumylidene_ligand_unit(name, count)
+        if not part:
+            return ""
+        parts.append(part)
     return "".join(parts) + "azaniumylidene"
+
+
+_COMPLEX_AZANIUMYLIDENE_MULTIPLIERS = {
+    2: "bis",
+    3: "tris",
+    4: "tetrakis",
+    5: "pentakis",
+    6: "hexakis",
+}
+
+
+def _azaniumylidene_ligand_unit(name: str, count: int) -> str:
+    if count < 1:
+        return ""
+    needs_parentheses = _azaniumylidene_ligand_needs_parentheses(name)
+    if count == 1:
+        return f"({name})" if needs_parentheses else name
+    if needs_parentheses:
+        multiplier = _COMPLEX_AZANIUMYLIDENE_MULTIPLIERS.get(count, "")
+        return f"{multiplier}({name})" if multiplier else ""
+    multiplier = MULT.get(count, "")
+    return multiplier + name if multiplier else ""
+
+
+def _azaniumylidene_ligand_needs_parentheses(name: str) -> bool:
+    return name[:1].isdigit() or "-" in name or "," in name or name.startswith("(")
 
 
 def _nitroimino_parent_site_supported(mol, parent_idx: int) -> bool:

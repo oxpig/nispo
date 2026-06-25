@@ -4332,6 +4332,49 @@ def test_single_ring_stereo_prefix_alternatives_roundtrip_with_opsin(input_smile
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "Cl[C@H]1C[C@H](Cl)C1",
+        "CCCCCCCCCC/C1=C\\CCCCCC1",
+    ],
+)
+def test_ring_relative_and_endocyclic_alkene_stereo_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC[OH+][O-]",
+        "CCCC[OH+][O-]",
+        "CCCCCC(O)[OH+][O-]",
+        "[O-]C=[O+][S-]",
+        "CC(O)=[O+][O-]",
+        "CCC(O)=[O+][S-]",
+    ],
+)
+def test_charged_alcohol_and_acid_oxide_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_complex_azaniumylidene_branch_multiplier_roundtrips_with_opsin():
+    input_smiles = "CCNc1cc2oc3cc(=[N+](CCOCCOC)CCOCCOC)ccc-3nc2cc1C"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCS(=O)[O-]",
         "CC(C)(C)c1ccc(S(=O)[O-])cc1",
         "O=C([O-])C(O)S(=O)[O-]",

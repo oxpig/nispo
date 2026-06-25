@@ -5222,6 +5222,30 @@ def test_external_bond_stereo_fragile_fused_parent_uses_single_ring_alternative(
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        r"O=C(O)CC[C@H](NC(=O)c1ccc(N2CNc3nc4c(c(=O)[nH]3)NC(CN4)C2)cc1)C(=O)O",
+        r"CC1OC(OC2CCC3(CO)C4C(O)CC5(C)C(C6=CC(=O)OC6)CCC5(O)C4CCC3(O)C2)C(O)C(O)C1O",
+    ],
+)
+def test_chain_dominant_choices_use_large_kekulized_polycycles(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_compact_nitrile_carbamate_control_roundtrips_with_opsin():
+    input_smiles = r"CC(C)(C)OC(=O)NC1CCN(C2=Nc3ccccc3N/C2=C(/C#N)C(=O)OCc2ccccc2)CC1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         r"CCn1cc2c(n1)C1(CC1)CNC2=O",
         r"Cn1cc2c(n1)CC1(CCN(Cc3ccccc3)CC1)C2=O",
         r"Cc1nc2c(n1C)C1(COC1)Nc1c-2cccc1[N+](=O)[O-]",

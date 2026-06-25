@@ -7,7 +7,11 @@ from .graph_model import graph_view
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 
-_TemplateIndex = tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict, dict], ...]]]
+_TemplateIndex = tuple[
+    dict[tuple, tuple[dict, ...]],
+    dict[int, tuple[tuple[dict, dict], ...]],
+    dict[tuple[int, tuple[tuple[str, int], ...]], tuple[tuple[dict, dict], ...]],
+]
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
@@ -30,7 +34,11 @@ def candidate_templates(
     features = features or molecule_features(mol, Chem)
     molecule_charge_counts = features.get("charged_atom_value_counts") or {}
     molecule_ring_system_graph_keys: set[tuple] = set()
-    pure_ring_templates, other_templates_by_atom_count = _template_index(templates, Chem)
+    (
+        pure_ring_templates,
+        other_templates_by_atom_count,
+        exact_other_templates_by_atom_elements,
+    ) = _template_index(templates, Chem)
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
@@ -46,7 +54,16 @@ def candidate_templates(
             seen.add(marker)
             candidates.append(template)
     if exact_atom_count:
-        atom_count_items = ((features["atom_count"], other_templates_by_atom_count.get(features["atom_count"], ())),)
+        atom_count = features["atom_count"]
+        atom_count_items = (
+            (
+                atom_count,
+                exact_other_templates_by_atom_elements.get(
+                    (atom_count, _element_count_key(features["elements"])),
+                    (),
+                ),
+            ),
+        )
     else:
         atom_count_items = (
             (atom_count, items)
@@ -87,7 +104,7 @@ def candidate_templates(
 
 def _template_index(
     templates: tuple[dict, ...], Chem
-) -> tuple[dict[tuple, tuple[dict, ...]], dict[int, tuple[tuple[dict, dict], ...]]]:
+) -> _TemplateIndex:
     cache_key = id(templates)
     cached = _TEMPLATE_INDEX_CACHE.get(cache_key)
     if cached is not None and cached[0] is templates:
@@ -101,15 +118,34 @@ def _template_index(
             pure_ring_templates.setdefault(key, []).append(template)
         else:
             other_templates_by_atom_count[template_features["atom_count"]].append((template, template_features))
+    preferred_other_templates_by_atom_count = {
+        key: _preferred_template_entries_by_scaffold(value, Chem)
+        for key, value in other_templates_by_atom_count.items()
+    }
     indexed = (
         {key: _preferred_templates_by_scaffold(value, Chem) for key, value in pure_ring_templates.items()},
-        {
-            key: _preferred_template_entries_by_scaffold(value, Chem)
-            for key, value in other_templates_by_atom_count.items()
-        },
+        preferred_other_templates_by_atom_count,
+        _exact_other_template_entries_by_atom_elements(preferred_other_templates_by_atom_count),
     )
     _TEMPLATE_INDEX_CACHE[cache_key] = (templates, indexed)
     return indexed
+
+
+def _exact_other_template_entries_by_atom_elements(
+    entries_by_atom_count: dict[int, tuple[tuple[dict, dict], ...]],
+) -> dict[tuple[int, tuple[tuple[str, int], ...]], tuple[tuple[dict, dict], ...]]:
+    indexed: dict[tuple[int, tuple[tuple[str, int], ...]], tuple[tuple[dict, dict], ...]] = {}
+    for atom_count, entries in entries_by_atom_count.items():
+        grouped: dict[tuple[tuple[str, int], ...], list[tuple[dict, dict]]] = defaultdict(list)
+        for template, template_features in entries:
+            grouped[_element_count_key(template_features["elements"])].append((template, template_features))
+        for element_key, group in grouped.items():
+            indexed[(atom_count, element_key)] = tuple(group)
+    return indexed
+
+
+def _element_count_key(elements: dict[str, int]) -> tuple[tuple[str, int], ...]:
+    return tuple(sorted((symbol, count) for symbol, count in elements.items() if count))
 
 
 def _preferred_templates_by_scaffold(templates: list[dict], Chem) -> tuple[dict, ...]:

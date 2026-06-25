@@ -10,7 +10,13 @@ class StructuralProfile:
     """Cheap molecule-wide predicates used to gate expensive rule families."""
 
     ring_count: int
+    formal_charge_atom_count: int
     has_charged_ring_atom: bool
+    boron_atom_count: int
+    iodine_atom_count: int
+    nitrogen_atom_count: int
+    oxygen_atom_count: int
+    sulfur_atom_count: int
     nonring_multiple_bond_count: int
     nonring_imino_like_count: int
     exocyclic_carbonyl_count: int
@@ -29,11 +35,40 @@ class StructuralProfile:
     nonring_neutral_group14_count: int
     sulfur_oxo_retained_parent_signal: bool
     terminal_n_oxide_count: int
+    oxygen_oxygen_single_bond_count: int
     aromatic_atom_count: int
+
+    @property
+    def has_formal_charge(self) -> bool:
+        return self.formal_charge_atom_count > 0
 
     @property
     def has_nonring_multiple_bond(self) -> bool:
         return self.nonring_multiple_bond_count > 0
+
+    @property
+    def has_boron(self) -> bool:
+        return self.boron_atom_count > 0
+
+    @property
+    def has_iodine(self) -> bool:
+        return self.iodine_atom_count > 0
+
+    @property
+    def has_nitrogen(self) -> bool:
+        return self.nitrogen_atom_count > 0
+
+    @property
+    def has_oxygen(self) -> bool:
+        return self.oxygen_atom_count > 0
+
+    @property
+    def has_sulfur(self) -> bool:
+        return self.sulfur_atom_count > 0
+
+    @property
+    def has_oxygen_oxygen_single_bond(self) -> bool:
+        return self.oxygen_oxygen_single_bond_count > 0
 
     @property
     def has_imino_skeleton_signal(self) -> bool:
@@ -47,6 +82,32 @@ class StructuralProfile:
             or self.exocyclic_carbonyl_count > 0
             or self.halogenated_alkene_count > 0
             or self.nonring_multiple_bond_count >= 1
+        )
+
+    @property
+    def has_nitrile_oxide_signal(self) -> bool:
+        return self.has_formal_charge and self.nitrile_like_count > 0
+
+    @property
+    def has_oxime_sulfonate_nitrile_signal(self) -> bool:
+        return self.nitrile_like_count > 0 and self.sulfone_like_count > 0 and self.nonring_imino_like_count > 0
+
+    @property
+    def has_terminal_carboxylate_signal(self) -> bool:
+        return self.has_formal_charge and self.carbonyl_count > 0
+
+    @property
+    def has_dithiocarbamate_signal(self) -> bool:
+        return self.sulfur_atom_count >= 2 and self.nonring_neutral_nitrogen_count > 0 and self.nonring_multiple_bond_count > 0
+
+    @property
+    def has_small_inorganic_retained_signal(self) -> bool:
+        return (
+            self.has_formal_charge
+            or self.boron_atom_count > 0
+            or self.iodine_atom_count > 0
+            or 0 < self.nitrogen_atom_count + self.oxygen_atom_count + self.sulfur_atom_count <= 4
+            or (self.sulfur_atom_count > 0 and self.nonring_multiple_bond_count > 0)
         )
 
     @property
@@ -138,9 +199,28 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     nonring_neutral_group14 = 0
     aromatic_atoms = 0
     terminal_n_oxide = 0
+    formal_charge_atoms = 0
+    boron_atoms = 0
+    iodine_atoms = 0
+    nitrogen_atoms = 0
+    oxygen_atoms = 0
+    sulfur_atoms = 0
+    oxygen_oxygen_single = 0
     nonring_carbon_double_neighbors: dict[int, set[int]] = {}
     nonring_carbon_single_bonds: list[tuple[int, int]] = []
     for idx, symbol in enumerate(view.symbols):
+        if symbol == "B":
+            boron_atoms += 1
+        elif symbol == "I":
+            iodine_atoms += 1
+        elif symbol == "N":
+            nitrogen_atoms += 1
+        elif symbol == "O":
+            oxygen_atoms += 1
+        elif symbol == "S":
+            sulfur_atoms += 1
+        if view.formal_charges[idx] != 0:
+            formal_charge_atoms += 1
         if view.aromatic_atoms[idx]:
             aromatic_atoms += 1
         if view.ring_atoms[idx]:
@@ -173,6 +253,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         if begin.IsInRing() and end.IsInRing():
             continue
         if order <= 1.0:
+            if order == 1.0 and begin_symbol == "O" and end_symbol == "O":
+                oxygen_oxygen_single += 1
             if (
                 order == 1.0
                 and begin_symbol == "C"
@@ -227,10 +309,16 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
 
     return StructuralProfile(
         ring_count=view.ring_count,
+        formal_charge_atom_count=formal_charge_atoms,
         has_charged_ring_atom=any(
             in_ring and charge != 0
             for in_ring, charge in zip(view.ring_atoms, view.formal_charges, strict=True)
         ),
+        boron_atom_count=boron_atoms,
+        iodine_atom_count=iodine_atoms,
+        nitrogen_atom_count=nitrogen_atoms,
+        oxygen_atom_count=oxygen_atoms,
+        sulfur_atom_count=sulfur_atoms,
         nonring_multiple_bond_count=nonring_multiple,
         nonring_imino_like_count=imino_like,
         exocyclic_carbonyl_count=exocyclic_carbonyl,
@@ -249,6 +337,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         nonring_neutral_group14_count=nonring_neutral_group14,
         sulfur_oxo_retained_parent_signal=_has_sulfur_oxo_retained_parent_signal(mol),
         terminal_n_oxide_count=terminal_n_oxide,
+        oxygen_oxygen_single_bond_count=oxygen_oxygen_single,
         aromatic_atom_count=aromatic_atoms,
     )
 

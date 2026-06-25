@@ -83,6 +83,56 @@ def no_charged_ring_atom(ctx) -> bool:
     return not ctx.profile.has_charged_ring_atom
 
 
+def formal_charge_signal(ctx) -> bool:
+    return ctx.profile.has_formal_charge
+
+
+def boron_signal(ctx) -> bool:
+    return ctx.profile.has_boron
+
+
+def iodine_signal(ctx) -> bool:
+    return ctx.profile.has_iodine
+
+
+def sulfur_signal(ctx) -> bool:
+    return ctx.profile.has_sulfur
+
+
+def oxygen_oxygen_single_bond_signal(ctx) -> bool:
+    return ctx.profile.has_oxygen_oxygen_single_bond
+
+
+def nitrile_oxide_signal(ctx) -> bool:
+    return ctx.profile.has_nitrile_oxide_signal
+
+
+def oxime_sulfonate_nitrile_signal(ctx) -> bool:
+    return ctx.profile.has_oxime_sulfonate_nitrile_signal
+
+
+def terminal_carboxylate_signal(ctx) -> bool:
+    return ctx.profile.has_terminal_carboxylate_signal
+
+
+def dithiocarbamate_retained_signal(ctx) -> bool:
+    return ctx.profile.has_dithiocarbamate_signal
+
+
+def small_inorganic_retained_signal(ctx) -> bool:
+    return (
+        ctx.profile.has_formal_charge
+        or ctx.mol.GetNumAtoms() <= 4
+        or ctx.profile.has_boron
+        or ctx.profile.has_iodine
+        or (ctx.profile.has_sulfur and ctx.profile.has_nonring_multiple_bond)
+    )
+
+
+def sulfur_imino_signal(ctx) -> bool:
+    return ctx.profile.has_sulfur and ctx.profile.has_imino_skeleton_signal
+
+
 def imino_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_imino_skeleton_signal
 

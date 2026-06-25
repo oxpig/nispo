@@ -726,7 +726,7 @@ def _with_ring_branch_atom_stereo_prefix(mol, root_idx: int, blocked_idx: int, p
 
 
 def _has_locanted_atom_stereo_prefix(prefix: str) -> bool:
-    return bool(re.search(r"\(\d+'?[RS](?:,\d+'?[RS])*\)-", prefix))
+    return bool(re.search(r"\((?:\d+'?)?[RS](?:,(?:\d+'?)?[RS])*\)-", prefix))
 
 
 def _with_internal_n_ligand_stereo_prefix(prefix: str, stereo_prefix: str) -> str:

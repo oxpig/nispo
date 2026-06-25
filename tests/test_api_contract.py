@@ -1418,6 +1418,15 @@ def test_rank6_component_dispiro_parent_roundtrips_with_opsin(input_smiles):
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_rank9_component_dispiro_parent_roundtrips_with_opsin():
+    input_smiles = "c1ccc2c(c1)-c1ccccc1C21c2ccccc2C2(c3ccccc3-c3ccccc32)c2ccccc21"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [
@@ -2578,6 +2587,8 @@ def test_neutral_triester_phosphite_parents_roundtrip_with_opsin(input_smiles):
         "CCOP[O-]",
         "[O-]P(c1ccccc1)c1ccccc1",
         "Cc1cc(C)c(C(=O)c2ccccc2P([O-])c2ccccc2)c(C)c1",
+        "CCCCCCCCCCCCCCCC[PH]([O-])([O-])OCCCCCCCC",
+        "CC(C)N(C(C)C)P([O-])N(C(C)C)C(C)C",
     ],
 )
 def test_mixed_p3_anionic_phosphorus_parents_roundtrip_with_opsin(input_smiles):
@@ -3174,6 +3185,8 @@ def test_dithiophosphate_retained_parents_roundtrip_with_opsin(input_smiles):
         "COP(=S)(Cl)Cl",
         "Cc1ccc(OP(=S)([S-])Oc2cccc(C)c2)cc1",
         "O=c1ccn([C@H]2C[C@H](OP(O)(=S)S)[C@@H](CO)O2)c(=O)[nH]1",
+        "CCOP([O-])(OCC)=[SH]c1ccccc1",
+        "CCOP([O-])(Oc1ccc([N+](=O)[O-])cc1)=[SH]c1ccccc1",
     ],
 )
 def test_o_substituted_phosphorothioate_retained_parents_roundtrip_with_opsin(input_smiles):

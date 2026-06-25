@@ -1529,6 +1529,7 @@ def _branch_rule_sets() -> dict[str, tuple[BranchRuleSet, ...]]:
     return {
         "I": (
             (
+                BranchRuleSpec(_lambda3_iodanyl_ylidene_prefix),
                 BranchRuleSpec(_iodanyl_acyloxy_prefix),
                 BranchRuleSpec(_halogen_prefix),
             ),
@@ -2198,6 +2199,93 @@ def _iodanyl_acyloxy_prefix(mol, idx: int, parent_idx: int) -> str:
         else:
             parts.append(f"{MULT.get(count, '')}({name})")
     return "".join(parts) + "iodo"
+
+
+def _lambda3_iodanyl_ylidene_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetSymbol() != "I" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+        return ""
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None:
+        return ""
+    single_ligands = []
+    double_carbons = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if bond is None:
+            return ""
+        if bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1:
+            single_ligands.append(nidx)
+            continue
+        if bond.GetBondType() == Chem.BondType.DOUBLE and nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0:
+            double_carbons.append(nidx)
+            continue
+        return ""
+    if parent_bond.GetBondType() == Chem.BondType.SINGLE:
+        if single_ligands or len(double_carbons) != 1:
+            return ""
+        ylidene = _iodine_ylidene_ligand_prefix(mol, double_carbons[0], idx)
+        return f"{_lambda_iodine_ligand_unit(ylidene)}-lambda3-iodanyl" if ylidene else ""
+    if parent_bond.GetBondType() == Chem.BondType.DOUBLE:
+        parent = mol.GetAtomWithIdx(parent_idx)
+        if parent.GetSymbol() != "C" or parent.GetFormalCharge() != 0:
+            return ""
+        if not _iodine_ylidene_ligand_prefix(mol, parent_idx, idx):
+            return ""
+        if double_carbons or len(single_ligands) != 1:
+            return ""
+        ligand = branch_prefix(mol, single_ligands[0], idx) or substituent_from_root(mol, single_ligands[0], idx)
+        return f"{_lambda_iodine_ligand_unit(ligand)}-lambda3-iodanylidene" if ligand else ""
+    return ""
+
+
+def _iodine_ylidene_ligand_prefix(mol, carbon_idx: int, iodine_idx: int) -> str:
+    if mol.GetAtomWithIdx(carbon_idx).IsInRing():
+        name = _ring_substituent_prefix(mol, carbon_idx, iodine_idx)
+        if (
+            name
+            and _ring_system_terminal_carbonyl_count(mol, carbon_idx) >= 2
+            and "dioxo" not in name
+            and "dione" not in name
+        ):
+            return ""
+        return name
+    return _alkylidene_prefix(mol, carbon_idx, iodine_idx)
+
+
+def _ring_system_terminal_carbonyl_count(mol, atom_idx: int) -> int:
+    ring_atoms = set()
+    for ring in mol.GetRingInfo().AtomRings():
+        if atom_idx in ring:
+            ring_atoms.update(ring)
+    count = 0
+    for ring_idx in ring_atoms:
+        atom = mol.GetAtomWithIdx(ring_idx)
+        if atom.GetSymbol() != "C":
+            continue
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_atoms:
+                continue
+            bond = mol.GetBondBetweenAtoms(ring_idx, nidx)
+            if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+                count += 1
+                break
+    return count
+
+
+def _lambda_iodine_ligand_unit(name: str) -> str:
+    if not name:
+        return ""
+    name = name.strip()
+    if name.startswith("(") and name.endswith(")"):
+        return name
+    if "-" in name or name[:1].isdigit() or "," in name:
+        return f"({name})"
+    return name
 
 
 def _acyloxy_ligand_name(mol, oxygen_idx: int, iodine_idx: int) -> str:

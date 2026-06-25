@@ -8924,6 +8924,23 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
             continue
 
         if (
+            anionic_oxygen_count == 2
+            and anionic_sulfur_count == 0
+            and len(carbon_ligands) == 1
+            and len(oxygen_ligands) == 1
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            oxygen_owner = _single_external_substituent_name(mol, oxygen_ligands[0], pidx)
+            carbon = _phosphorus_attached_prefix(mol, carbon_ligands[0], pidx)
+            if oxygen_owner and carbon and not _unstable_retained_functional_parent_substituent(oxygen_owner):
+                names.append(f"{_parenthesized_if_complex(oxygen_owner)} {carbon}phosphite")
+            continue
+
+        if (
             anionic_oxygen_count == 0
             and anionic_sulfur_count == 2
             and not carbon_ligands
@@ -8986,6 +9003,27 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
                 substituted_amino_ligands[0],
                 pidx,
                 halogen_ligands[0],
+            )
+            if name:
+                names.append(name)
+            continue
+
+        if (
+            anionic_oxygen_count == 1
+            and anionic_sulfur_count == 0
+            and not carbon_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and len(substituted_amino_ligands) == 2
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            name = _symmetric_phosphorodiamidite_name(
+                [
+                    _phosphoramidite_substituted_amino_prefix(mol, ligand_idx, pidx)
+                    for ligand_idx in substituted_amino_ligands
+                ]
             )
             if name:
                 names.append(name)
@@ -9165,6 +9203,24 @@ def _hetero_ligand_role_text(role: str, owner: str) -> str:
     return f"{role}-{bare}"
 
 
+def _phosphorothioate_oxygen_ligand_text(owner_names: Sequence[str]) -> str:
+    if len(owner_names) != 2 or any(not name for name in owner_names):
+        return ""
+    first, second = sorted(owner_names)
+    if first == second and _simple_unparenthesized_n_substituent(first):
+        return f"O,O-di{_strip_outer_parentheses(first)}"
+    return " ".join(_hetero_ligand_role_text("O", owner) for owner in (first, second))
+
+
+def _phosphorothioate_sulfur_parent_text(owner: str, parent: str) -> str:
+    if not owner or _unstable_retained_functional_parent_substituent(owner):
+        return ""
+    bare = _strip_outer_parentheses(owner)
+    if _needs_substituent_parentheses(bare):
+        return f"({bare}){parent}"
+    return f"{bare}{parent}"
+
+
 def _phosphoramidite_substituted_amino_prefix(
     mol,
     nitrogen_idx: int,
@@ -9189,6 +9245,21 @@ def _phosphoramidite_substituted_amino_prefix(
         if not (allow_explicit_n_parent and prefix):
             return ""
     return prefix
+
+
+def _symmetric_phosphorodiamidite_name(amino_prefixes: Sequence[str]) -> str:
+    if len(amino_prefixes) != 2 or amino_prefixes[0] != amino_prefixes[1]:
+        return ""
+    prefix = amino_prefixes[0]
+    if not _stable_phosphoramidite_amino_prefix(prefix):
+        return ""
+    bare = _strip_outer_parentheses(prefix)
+    if not bare.startswith("di"):
+        return ""
+    ligand = bare[2:]
+    if not re.fullmatch(r"[A-Za-z0-9']+", ligand):
+        return ""
+    return f"tetra{ligand}phosphorodiamidite"
 
 
 def _phosphoramidite_explicit_n_substituent_prefix(substituents: Sequence[str]) -> str | None:
@@ -9310,11 +9381,14 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             continue
         pidx = phosphorus.GetIdx()
         terminal_anionic_oxygens = []
+        terminal_anionic_sulfurs = []
         terminal_double_oxygens = []
         terminal_double_sulfurs = []
+        substituted_double_sulfurs = []
         carbon_single_ligands = []
         carbon_double_ligands = []
         oxygen_ligands = []
+        sulfur_ligands = []
         halogen_ligands = []
         terminal_amino_ligands = []
         substituted_amino_ligands = []
@@ -9344,11 +9418,32 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
                 terminal_double_oxygens.append(nidx)
                 covered.add(nidx)
             elif nbr.GetSymbol() == "S" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.DOUBLE:
-                if heavy:
+                if not heavy:
+                    terminal_double_sulfurs.append(nidx)
+                    covered.add(nidx)
+                elif len(heavy) == 1:
+                    substituted_double_sulfurs.append(nidx)
+                    covered.add(nidx)
+                    covered.update(_collect_component_atoms(mol, nidx, pidx))
+                else:
                     ok = False
                     break
-                terminal_double_sulfurs.append(nidx)
+            elif (
+                nbr.GetSymbol() == "S"
+                and nbr.GetFormalCharge() < 0
+                and bond_type == Chem.BondType.SINGLE
+                and not heavy
+            ):
+                terminal_anionic_sulfurs.append(nidx)
                 covered.add(nidx)
+            elif (
+                nbr.GetSymbol() == "S"
+                and nbr.GetFormalCharge() == 0
+                and bond_type == Chem.BondType.SINGLE
+                and len(heavy) == 1
+            ):
+                sulfur_ligands.append(nidx)
+                covered.update(_collect_component_atoms(mol, nidx, pidx))
             elif nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond_type == Chem.BondType.SINGLE:
                 carbon_single_ligands.append(nidx)
                 covered.update(_collect_component_atoms(mol, nidx, pidx))
@@ -9396,6 +9491,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
         double_oxygen_count = len(terminal_double_oxygens)
         double_sulfur_count = len(terminal_double_sulfurs)
         anionic_oxygen_count = len(terminal_anionic_oxygens)
+        anionic_sulfur_count = len(terminal_anionic_sulfurs)
         if (
             double_sulfur_count == 1
             and double_oxygen_count == 0
@@ -9403,7 +9499,9 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             and len(carbon_single_ligands) == 1
             and not carbon_double_ligands
             and not oxygen_ligands
+            and not sulfur_ligands
             and not halogen_ligands
+            and anionic_sulfur_count == 0
             and not terminal_amino_ligands
             and not substituted_amino_ligands
             and phosphorus.GetTotalNumHs() == 0
@@ -9411,6 +9509,137 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
             prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
             if prefix:
                 names.append(prefix + "phosphonothioate")
+            continue
+
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 1
+            and len(carbon_single_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and anionic_sulfur_count == 0
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 1
+        ):
+            prefix = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            if prefix:
+                names.append(f"{_parenthesized_if_complex(prefix)}phosphinothioate")
+            continue
+
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 1
+            and len(carbon_single_ligands) == 2
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and anionic_sulfur_count == 0
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            ligand_text = _phosphinate_carbon_ligand_text(mol, carbon_single_ligands, pidx)
+            if ligand_text:
+                names.append(ligand_text + "phosphinothioate")
+            continue
+
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 1
+            and len(carbon_single_ligands) == 1
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and len(halogen_ligands) == 1
+            and anionic_sulfur_count == 0
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            carbon = _phosphorus_attached_prefix(mol, carbon_single_ligands[0], pidx)
+            halo = HALO.get(halogen_ligands[0], "")
+            if carbon and halo:
+                names.append(f"{carbon}{halo}phosphinothioate")
+            continue
+
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 0
+            and len(carbon_single_ligands) == 2
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and anionic_sulfur_count == 1
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            ligand_text = _phosphinate_carbon_ligand_text(mol, carbon_single_ligands, pidx)
+            if ligand_text:
+                names.append(ligand_text + "phosphinodithioate")
+            continue
+
+        if (
+            double_sulfur_count == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 0
+            and len(carbon_single_ligands) == 2
+            and not carbon_double_ligands
+            and not oxygen_ligands
+            and len(sulfur_ligands) == 1
+            and not halogen_ligands
+            and anionic_sulfur_count == 0
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            ligand_text = _phosphinate_carbon_ligand_text(mol, carbon_single_ligands, pidx)
+            sulfur_owner = _single_external_substituent_name(mol, sulfur_ligands[0], pidx)
+            if (
+                ligand_text
+                and sulfur_owner
+                and not _unstable_retained_functional_parent_substituent(sulfur_owner)
+            ):
+                names.append(f"{_hetero_ligand_role_text('S', sulfur_owner)} {ligand_text}phosphinodithioate")
+            continue
+
+        if (
+            double_sulfur_count == 0
+            and len(substituted_double_sulfurs) == 1
+            and double_oxygen_count == 0
+            and anionic_oxygen_count == 1
+            and anionic_sulfur_count == 0
+            and len(oxygen_ligands) == 2
+            and not carbon_single_ligands
+            and not carbon_double_ligands
+            and not sulfur_ligands
+            and not halogen_ligands
+            and not terminal_amino_ligands
+            and not substituted_amino_ligands
+            and phosphorus.GetTotalNumHs() == 0
+        ):
+            oxygen_owners = _hetero_ligand_owner_names(mol, oxygen_ligands, pidx)
+            sulfur_owner = _single_external_substituent_name(mol, substituted_double_sulfurs[0], pidx)
+            oxygen_text = _phosphorothioate_oxygen_ligand_text(oxygen_owners)
+            sulfur_parent = _phosphorothioate_sulfur_parent_text(sulfur_owner, "phosphorothioate")
+            if (
+                oxygen_text
+                and sulfur_parent
+                and not any(_unstable_retained_functional_parent_substituent(name) for name in oxygen_owners)
+            ):
+                names.append(f"{oxygen_text} {sulfur_parent}")
+            continue
+
+        if substituted_double_sulfurs:
             continue
 
         if double_sulfur_count:

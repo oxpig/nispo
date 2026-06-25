@@ -160,9 +160,6 @@ def _component_dispiro_candidates(
     """
 
     blocks = _fused_ring_blocks(ctx.mol, ring_system_atoms)
-    rank = _cycle_rank_for_atoms(graph, ring_system_atoms)
-    if rank > 4 and not (rank <= 7 and len(blocks) == 3):
-        return []
     if len(blocks) < 3:
         return []
     edges: list[tuple[int, int, int]] = []
@@ -172,6 +169,12 @@ def _component_dispiro_candidates(
             if len(shared) == 1:
                 edges.append((left_idx, right_idx, next(iter(shared))))
     if len(edges) < 2:
+        return []
+    rank = _cycle_rank_for_atoms(graph, ring_system_atoms)
+    if rank > 4 and not (
+        rank <= 7 and len(blocks) == 3
+        or _is_high_rank_three_block_dispiro_chain(rank, blocks, edges)
+    ):
         return []
     adjacency: dict[int, list[tuple[int, int]]] = {idx: [] for idx in range(len(blocks))}
     for left_idx, right_idx, spiro_idx in edges:
@@ -204,6 +207,23 @@ def _component_dispiro_candidates(
                         )
                     )
     return candidates
+
+
+def _is_high_rank_three_block_dispiro_chain(
+    rank: int,
+    blocks: Sequence[set[int]],
+    edges: Sequence[tuple[int, int, int]],
+) -> bool:
+    if rank > 9 or len(blocks) != 3 or len(edges) != 2:
+        return False
+    spiro_atoms = {spiro_idx for _left_idx, _right_idx, spiro_idx in edges}
+    if len(spiro_atoms) != 2:
+        return False
+    degrees = [0, 0, 0]
+    for left_idx, right_idx, _spiro_idx in edges:
+        degrees[left_idx] += 1
+        degrees[right_idx] += 1
+    return sorted(degrees) == [1, 1, 2]
 
 
 def _has_ring_peroxide(mol, Chem, atoms: set[int]) -> bool:

@@ -108,6 +108,18 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         if n.GetSymbol() == "O"
         and mol.GetBondBetweenAtoms(idx, n.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
     }
+    double_sulfurs = {
+        n.GetIdx()
+        for n in atom.GetNeighbors()
+        if n.GetSymbol() == "S"
+        and mol.GetBondBetweenAtoms(idx, n.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
+        and not [
+            nbr.GetIdx()
+            for nbr in n.GetNeighbors()
+            if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
+        ]
+    }
+    substituent_thioxo_sulfurs = double_sulfurs if len(double_sulfurs) == 1 else set()
     double_o = len(double_oxygens)
     if _is_sulfonate_sulfur(mol, idx):
         return "sulfonato"
@@ -120,8 +132,21 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     heavy = [
         n.GetIdx()
         for n in atom.GetNeighbors()
-        if n.GetIdx() != parent_idx and n.GetIdx() not in double_oxygens and not _is_terminal_carbonyl_oxygen(n)
+        if n.GetIdx() != parent_idx
+        and n.GetIdx() not in double_oxygens
+        and n.GetIdx() not in substituent_thioxo_sulfurs
+        and not _is_terminal_carbonyl_oxygen(n)
     ]
+    thioxo_prefix = _sulfur_thioxo_substituent_prefix(
+        mol,
+        idx,
+        parent_idx,
+        double_o,
+        len(substituent_thioxo_sulfurs),
+        heavy,
+    )
+    if thioxo_prefix:
+        return thioxo_prefix
     if double_o == 2 and not heavy:
         return suffix_prefix_term("sulfone", "sulfonyl")
     if double_o == 2 and len(heavy) == 1:
@@ -174,6 +199,13 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
 
 def _apply_sulfinyl_stereo(mol, sulfur_idx: int, double_o: int, prefix: str) -> str:
     if double_o != 1 or not prefix:
+        return prefix
+    descriptor = _sulfinyl_stereo_descriptor(mol, sulfur_idx)
+    return f"({descriptor})-{prefix}" if descriptor else prefix
+
+
+def _apply_sulfur_imidoyl_stereo(mol, sulfur_idx: int, prefix: str) -> str:
+    if not prefix:
         return prefix
     descriptor = _sulfinyl_stereo_descriptor(mol, sulfur_idx)
     return f"({descriptor})-{prefix}" if descriptor else prefix
@@ -260,8 +292,9 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if n_group is None:
         return ""
     if not n_group:
-        return f"{s_group}sulfinimidoyl"
-    return f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfinimidoyl"
+        return _apply_sulfur_imidoyl_stereo(mol, idx, f"{s_group}sulfinimidoyl")
+    prefix = f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfinimidoyl"
+    return _apply_sulfur_imidoyl_stereo(mol, idx, prefix)
 
 
 def _metal_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -292,6 +325,7 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
     double_oxygen_count = 0
+    double_sulfur_count = 0
     hydroxy_count = 0
     oxido_count = 0
     other_heavy = []
@@ -302,6 +336,16 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
         bond = mol.GetBondBetweenAtoms(idx, nidx)
         if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
             double_oxygen_count += 1
+        elif (
+            nbr.GetSymbol() == "S"
+            and bond.GetBondType() == Chem.BondType.DOUBLE
+            and not [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != idx and atom.GetAtomicNum() > 1
+            ]
+        ):
+            double_sulfur_count += 1
         elif (
             nbr.GetSymbol() == "O"
             and bond.GetBondType() == Chem.BondType.SINGLE
@@ -314,9 +358,23 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
             else:
                 return ""
         elif nbr.GetAtomicNum() > 1:
-            if nbr.GetSymbol() not in {"C", "O", "F", "Cl", "Br", "I"}:
+            if nbr.GetSymbol() not in {"C", "N", "O", "F", "Cl", "Br", "I"}:
                 return ""
             other_heavy.append(nidx)
+    thioyl = _phosphorus_thioyl_prefix(
+        mol,
+        idx,
+        parent_idx,
+        double_oxygen_count,
+        double_sulfur_count,
+        hydroxy_count,
+        oxido_count,
+        other_heavy,
+    )
+    if thioyl:
+        return thioyl
+    if any(mol.GetAtomWithIdx(nidx).GetSymbol() == "N" for nidx in other_heavy):
+        return ""
     if double_oxygen_count == 0 and hydroxy_count == 0 and oxido_count == 0:
         name = _substituted_hydride_prefix(mol, other_heavy, idx, "phosphanyl")
         return "phosphino" if name == "phosphanyl" else name
@@ -362,6 +420,52 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
         return ""
     ligand_text = _phosphoryl_ligand_text(ligand_names)
     return ligand_text + "phosphoryl" if ligand_text else ""
+
+
+def _phosphorus_thioyl_prefix(
+    mol,
+    phosphorus_idx: int,
+    parent_idx: int,
+    double_oxygen_count: int,
+    double_sulfur_count: int,
+    hydroxy_count: int,
+    oxido_count: int,
+    other_heavy: Sequence[int],
+) -> str:
+    if double_sulfur_count != 1 or double_oxygen_count != 0:
+        return ""
+    if mol.GetAtomWithIdx(phosphorus_idx).GetTotalNumHs() != 0:
+        return ""
+    ligand_names = []
+    ligand_names.extend(["hydroxy"] * hydroxy_count)
+    ligand_names.extend(["oxido"] * oxido_count)
+    for nidx in other_heavy:
+        ligand = _phosphorus_thioyl_ligand_name(mol, nidx, phosphorus_idx)
+        if not ligand:
+            return ""
+        ligand_names.append(ligand)
+    if not ligand_names:
+        return ""
+    ligand_text = _phosphoryl_ligand_text(ligand_names)
+    if not ligand_text:
+        return ""
+    return ligand_text + "phosphorothioyl"
+
+
+def _phosphorus_thioyl_ligand_name(mol, ligand_idx: int, phosphorus_idx: int) -> str:
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    if ligand.GetSymbol() in HALO:
+        bond = mol.GetBondBetweenAtoms(ligand_idx, phosphorus_idx)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+        if any(nbr.GetIdx() != phosphorus_idx and nbr.GetAtomicNum() > 1 for nbr in ligand.GetNeighbors()):
+            return ""
+        return HALO[ligand.GetSymbol()]
+    if ligand.GetSymbol() == "N":
+        return _nitrogen_prefix(mol, ligand_idx, phosphorus_idx)
+    if ligand.GetSymbol() == "O":
+        return _oxygen_prefix(mol, ligand_idx, phosphorus_idx)
+    return branch_prefix(mol, ligand_idx, phosphorus_idx)
 
 
 def _group14_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -781,6 +885,42 @@ def _sulfur_oxo_substituent_suffix(double_o: int) -> str:
     return _SULFUR_OXO_SUBSTITUENT_SUFFIX.get(double_o, "sulfanyl")
 
 
+def _sulfur_thioxo_substituent_prefix(
+    mol,
+    sulfur_idx: int,
+    parent_idx: int,
+    double_o: int,
+    double_s: int,
+    heavy: Sequence[int],
+) -> str:
+    if double_s != 1 or len(heavy) != 1:
+        return ""
+    bond = mol.GetBondBetweenAtoms(sulfur_idx, parent_idx)
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    ligand = _sulfur_thioxo_ligand_prefix(mol, heavy[0], sulfur_idx)
+    if not ligand:
+        return ""
+    if double_o == 1:
+        return ligand + "sulfonothioyl"
+    if double_o == 0:
+        return ligand + "sulfanethionyl"
+    return ""
+
+
+def _sulfur_thioxo_ligand_prefix(mol, ligand_idx: int, sulfur_idx: int) -> str:
+    ligand = mol.GetAtomWithIdx(ligand_idx)
+    if ligand.GetSymbol() in HALO:
+        return HALO[ligand.GetSymbol()]
+    if ligand.IsInRing():
+        return _ring_substituent_prefix(mol, ligand_idx, sulfur_idx)
+    if ligand.GetSymbol() == "N":
+        return _nitrogen_prefix(mol, ligand_idx, sulfur_idx)
+    if ligand.GetSymbol() == "O":
+        return _oxygen_prefix(mol, ligand_idx, sulfur_idx)
+    return branch_prefix(mol, ligand_idx, sulfur_idx) or substituent_from_root(mol, ligand_idx, sulfur_idx)
+
+
 def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if double_o != 1:
         return ""
@@ -811,8 +951,9 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if n_group is None:
         return ""
     if not n_group:
-        return f"{s_group}sulfonimidoyl"
-    return f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfonimidoyl"
+        return _apply_sulfur_imidoyl_stereo(mol, idx, f"{s_group}sulfonimidoyl")
+    prefix = f"N-({n_group})-S-{_sulfur_imidoyl_s_group(s_group)}sulfonimidoyl"
+    return _apply_sulfur_imidoyl_stereo(mol, idx, prefix)
 
 
 def _imino_n_substituent_name(mol, nidx: int, sulfur_idx: int) -> str | None:
@@ -945,7 +1086,7 @@ def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
 
 
 def _with_substituent_atom_stereo_prefix(mol, path: Sequence[int], name: str) -> str:
-    if not name or _has_locanted_atom_stereo_prefix(name):
+    if not name or _has_atom_stereo_prefix(name):
         return name
     assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     if not assigned:
@@ -962,8 +1103,8 @@ def _with_substituent_atom_stereo_prefix(mol, path: Sequence[int], name: str) ->
     return f"({','.join(pieces)})-{name}"
 
 
-def _has_locanted_atom_stereo_prefix(name: str) -> bool:
-    return bool(re.search(r"\(\d+'?[RS](?:,\d+'?[RS])*\)-", name))
+def _has_atom_stereo_prefix(name: str) -> bool:
+    return bool(re.search(r"\((?:\d+'?)?[RS](?:,(?:\d+'?)?[RS])*\)-", name))
 
 
 def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: int) -> str:
@@ -1909,11 +2050,25 @@ def _is_azido_attachment(mol, idx: int, parent_idx: int) -> bool:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "N":
         return False
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
     for mid in atom.GetNeighbors():
         if mid.GetIdx() == parent_idx or mid.GetSymbol() != "N" or mid.GetFormalCharge() <= 0:
             continue
+        mid_bond = mol.GetBondBetweenAtoms(idx, mid.GetIdx())
+        if mid_bond is None or mid_bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
         for terminal in mid.GetNeighbors():
-            if terminal.GetIdx() != idx and terminal.GetSymbol() == "N" and terminal.GetFormalCharge() < 0:
+            terminal_bond = mol.GetBondBetweenAtoms(mid.GetIdx(), terminal.GetIdx())
+            if (
+                terminal.GetIdx() != idx
+                and terminal.GetSymbol() == "N"
+                and terminal.GetFormalCharge() < 0
+                and terminal_bond is not None
+                and terminal_bond.GetBondType() == Chem.BondType.DOUBLE
+                and len([nbr for nbr in terminal.GetNeighbors() if nbr.GetAtomicNum() > 1]) == 1
+            ):
                 return True
     return False
 

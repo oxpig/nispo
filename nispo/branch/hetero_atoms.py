@@ -122,7 +122,7 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
                     return sulfur_oxy
             sulfur = _sulfur_prefix(mol, heavy[0], idx)
             if (
-                sulfur.endswith("sulfonyl")
+                sulfur.endswith(("sulfonyl", "sulfonothioyl"))
                 and _sulfur_has_ring_carbon_ligand(mol, heavy[0], idx)
                 and not _sulfur_has_nitroaryl_ligand(mol, heavy[0], idx)
             ):
@@ -727,6 +727,8 @@ def _amino_prefix_from_ligands(mol, amino_idx: int, parent_idx: int, names: Sequ
         retained = _retained_single_ligand_amino_prefix(mol, amino_idx, parent_idx, names[0])
         if retained:
             return retained
+        if names[0].endswith("phosphorothioyl"):
+            return f"({names[0]})amino"
         if mol.GetAtomWithIdx(parent_idx).GetSymbol() != "S" and _single_ligand_amino_needs_explicit_n(names[0]):
             return f"N-({names[0]})amino"
         if "-" in names[0] or names[0].startswith("("):
@@ -928,6 +930,8 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
         if not heavy and not atom.IsInRing() and not atom.GetIsotope():
             return "azaniumylidene"
         return ""
+    if atom.GetFormalCharge() == 1:
+        return _substituted_azaniumylidene_prefix(mol, idx, parent_idx)
     if atom.GetFormalCharge() != 0:
         return ""
     heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
@@ -951,6 +955,49 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     if "-" in name or name.startswith("("):
         return f"({name})imino"
     return name + "imino"
+
+
+def _substituted_azaniumylidene_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.IsInRing() or atom.GetIsotope():
+        return ""
+    for ring in mol.GetRingInfo().AtomRings():
+        if parent_idx in ring and len(ring) <= 3:
+            return ""
+    names = []
+    for nbr in atom.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if (
+            nbr.GetSymbol() != "C"
+            or nbr.GetFormalCharge() != 0
+            or bond is None
+            or bond.GetBondType() != Chem.BondType.SINGLE
+        ):
+            return ""
+        if nbr.IsInRing():
+            name = _ring_substituent_prefix(mol, nidx, idx)
+        else:
+            name = branch_prefix(mol, nidx, idx) or substituent_from_root(mol, nidx, idx)
+        if not name or " " in name or "[" in name or "]" in name:
+            return ""
+        names.append(name)
+    if not names:
+        return ""
+    counts = Counter(names)
+    parts = []
+    for name in sorted(counts):
+        count = counts[name]
+        if count > 1:
+            multiplier = MULT.get(count)
+            if not multiplier:
+                return ""
+            parts.append(multiplier + name)
+        else:
+            parts.append(name)
+    return "".join(parts) + "azaniumylidene"
 
 
 def _nitroimino_parent_site_supported(mol, parent_idx: int) -> bool:

@@ -172,7 +172,8 @@ def _internal_atom_stereo_descriptors_in_name(name: str) -> list[str]:
     return [
         match.group("descriptor")
         for match in re.finditer(
-            r"(?<![A-Za-z])\((?P<descriptor>[RS])\)-[A-Za-z0-9'\[\]\(\),.-]*sulfinyl",
+            r"(?<![A-Za-z])\((?P<descriptor>[RS])\)-[A-Za-z0-9'\[\]\(\),.-]*"
+            r"(?:sulfinyl|sulfinimidoyl|sulfonimidoyl|sulfimidoyl)",
             name,
         )
     ]

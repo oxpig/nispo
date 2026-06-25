@@ -7246,18 +7246,23 @@ _EXTERNAL_BOND_STEREO_PARENT_ALTERNATIVE_FAMILIES = {
         "single-ring-parent",
     },
     "functional-generic-bicyclic-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
-    "fused-retained-parent": {"retained-amide-parent"},
-    "generated-fused-parent": {"preferred-acyclic-skeleton-with-ring-substituents"},
+    "fused-retained-parent": {"retained-amide-parent", "single-ring-parent"},
+    "generated-fused-parent": {
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    },
     "guanidine-retained-parent": {"acyclic-parent"},
     "phosphorus-acid-parent": {"acyclic-parent"},
     "retained-topology-replacement-fused-parent": {
         "glutarimide-retained-parent",
         "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
     },
     "skeletal-replacement-fused-parent": {
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
         "fused-retained-parent",
         "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
     },
     "sulfonamide-retained-parent": {"imino-functional-acyclic-skeleton-with-ring-substituents"},
     "sulfonohydrazide-retained-parent": {"acyclic-skeleton-with-ring-substituents"},
@@ -8211,6 +8216,13 @@ def _internal_bond_stereo_parent_alternative_for_fragile_choice(
             continue
         if other_candidate.external_bond_stereo_parent_fragile:
             continue
+        if (
+            other_candidate.family == "single-ring-parent"
+            and _external_bond_stereo_single_ring_switch_blocked(candidate, other_candidate)
+        ):
+            continue
+        if other_candidate.family == "single-ring-parent" and other_candidate.suffixes:
+            continue
         if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
             continue
         if len(other.name) > _DEFAULT_MAX_NAME_LENGTH:
@@ -8225,6 +8237,35 @@ def _internal_bond_stereo_parent_alternative_for_fragile_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _external_bond_stereo_single_ring_switch_blocked(
+    selected_candidate: NameCandidate,
+    proposed_candidate: NameCandidate,
+) -> bool:
+    if selected_candidate.family == "fused-retained-parent":
+        if selected_candidate.template_name in {"benzocyclobutene", "inden", "naphthalen"}:
+            return True
+        if selected_candidate.template_name == "indan" and (selected_candidate.render_rank or 0) > 3:
+            return True
+    if (
+        selected_candidate.family == "generated-fused-parent"
+        and selected_candidate.template_name == "benzo[1,2-d]pyrazole"
+        and (proposed_candidate.render_rank or 0) > 1
+    ):
+        return True
+    if (
+        selected_candidate.family == "retained-topology-replacement-fused-parent"
+        and selected_candidate.template_name == "indan"
+        and selected_candidate.molecule_abs_formal_charge_sum
+    ):
+        return True
+    if (
+        selected_candidate.family == "retained-topology-replacement-fused-parent"
+        and selected_candidate.template_name == "1-azabicyclo[3.2.0]heptane"
+    ):
+        return True
+    return False
 
 
 def _generated_fused_external_stereo_acyclic_switch_supported(candidate: NameCandidate) -> bool:

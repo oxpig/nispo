@@ -5210,6 +5210,15 @@ def test_external_alkene_stereo_generated_fused_controls_roundtrip_with_opsin(in
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_external_bond_stereo_fragile_fused_parent_uses_single_ring_alternative():
+    input_smiles = r"O=C1Nc2cc(/C=C/c3ccccc3)ccc2C1=C1Nc2ccccc2C1=NO"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

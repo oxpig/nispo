@@ -31,7 +31,31 @@ from .molecule_cache import mol_cache_set
 
 _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
 _GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT = 16
-_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 20
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 12
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT = 20
+_HALOGEN_ATOMIC_NUMBERS = frozenset({9, 17, 35, 53, 85})
+
+
+def _kekulized_polycyclic_parent_record_limit(mol) -> int:
+    if not any(atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS for atom in mol.GetAtoms()):
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    ring_count = mol.GetRingInfo().NumRings()
+    chiral_count = _assigned_chiral_atom_count(mol)
+    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    if ring_count <= 4 and chiral_count >= 2:
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    if ring_count >= 10 and chiral_count >= 5:
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    if ring_count >= 8 and chiral_count >= 6:
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    if ring_count >= 7 and chiral_count >= 3 and 33 <= mol.GetNumAtoms() <= 36:
+        return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
+    return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT
+
+
+def _assigned_chiral_atom_count(mol) -> int:
+    return sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in mol.GetAtoms())
 
 
 @dataclass(slots=True)
@@ -240,7 +264,7 @@ class MoleculeContext:
                 kekulized_polycyclic_parent_candidate_records(
                     self.mol,
                     self.Chem,
-                    limit=_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT,
+                    limit=_kekulized_polycyclic_parent_record_limit(self.mol),
                 )
             )
         else:

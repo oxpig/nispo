@@ -20,6 +20,7 @@ from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
     HydrogenEvidence,
+    OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
@@ -20343,6 +20344,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 continue
             if _should_defer_spiro_context_parent_to_senior_azolone(ctx, fact.match):
                 continue
+            safety = _skeletal_replacement_charge_safety(mol, fact)
             yielded_names.add(name)
             yielded += 1
             yield NameCandidate(
@@ -20362,6 +20364,8 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 template_name=template_record_name(fact.template),
                 source_family=str(fact.template.get("source_family", "")),
                 source_file=str(fact.template.get("source_file", "")),
+                charge=_polycyclic_parent_charge_evidence(mol, fact.match),
+                safety=safety,
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
@@ -20377,6 +20381,37 @@ class _SkeletalReplacementCandidateFacts:
     bond_order_mismatches: int
     alignment_key: tuple[int, ...]
     structural_key: tuple
+
+
+def _skeletal_replacement_charge_safety(
+    mol,
+    fact: "_SkeletalReplacementCandidateFacts",
+) -> CandidateSafety | None:
+    if not _skeletal_replacement_fact_has_positive_replacement_charge(mol, fact):
+        return None
+    if fact.bond_order_mismatches <= 0 and (len(fact.alignment_key) < 2 or fact.alignment_key[1] <= 0):
+        return None
+    return CandidateSafety(
+        opsin_fragility_reasons=(OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,)
+    )
+
+
+def _skeletal_replacement_fact_has_positive_replacement_charge(
+    mol,
+    fact: "_SkeletalReplacementCandidateFacts",
+) -> bool:
+    template_mol = template_record_mol(fact.template)
+    for template_idx, mol_idx in enumerate(fact.match):
+        template_atom = template_mol.GetAtomWithIdx(template_idx)
+        atom = mol.GetAtomWithIdx(mol_idx)
+        if (
+            template_atom.GetSymbol() == "C"
+            and template_atom.GetFormalCharge() == 0
+            and atom.GetSymbol() in {"N", "O", "S"}
+            and atom.GetFormalCharge() > 0
+        ):
+            return True
+    return False
 
 
 def _skeletal_replacement_render_set(

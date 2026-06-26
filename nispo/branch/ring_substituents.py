@@ -668,8 +668,8 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
         if attachment_idx not in seq:
             continue
         loc = seq.index(attachment_idx) + 1
-        charge_loc = _charged_ring_nitrogen_locant(mol, seq)
-        suffix = _ring_substituent_suffix(parent_name, loc, charge_loc)
+        charge_loc, charge_suffix = _charged_ring_substituent_charge(mol, seq, parent_name)
+        suffix = _ring_substituent_suffix(parent_name, loc, charge_loc, charge_suffix)
         if not suffix:
             continue
         suffix = _ring_substituent_unsaturated_suffix(mol, attachment_idx, parent_idx, suffix)
@@ -973,13 +973,21 @@ def _ring_substituent_unsaturated_suffix(
     return ""
 
 
-def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
+def _charged_ring_substituent_charge(mol, seq: Sequence[int], parent_name: str = "") -> tuple[int | None, str]:
+    if "ium" in parent_name:
+        return None, "ium"
     charged = [
-        loc
+        (loc, "ylium" if atom.GetSymbol() == "C" else "ium")
         for loc, idx in enumerate(seq, start=1)
-        if mol.GetAtomWithIdx(idx).GetSymbol() in {"N", "S"} and mol.GetAtomWithIdx(idx).GetFormalCharge() > 0
+        for atom in (mol.GetAtomWithIdx(idx),)
+        if atom.GetSymbol() in {"C", "N", "O", "S"} and atom.GetFormalCharge() > 0
     ]
-    return charged[0] if len(charged) == 1 else None
+    return charged[0] if len(charged) == 1 else (None, "ium")
+
+
+def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
+    locant, suffix = _charged_ring_substituent_charge(mol, seq)
+    return locant if suffix == "ium" else None
 
 
 def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:

@@ -442,14 +442,21 @@ def _skeletal_replacement_spiro_locant_instability_penalty(template: dict) -> in
 
 def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int]) -> str:
     grouped: dict[str, list[str]] = {}
+    charged_locs: list[str] = []
     for template_idx, mol_idx in enumerate(match):
-        symbol = mol.GetAtomWithIdx(mol_idx).GetSymbol()
+        atom = mol.GetAtomWithIdx(mol_idx)
+        symbol = atom.GetSymbol()
         if symbol == "C":
             continue
         replacement = _SKELETAL_REPLACEMENT_PREFIXES.get(symbol)
         locant = template_record_locants(template).get(template_idx, "")
         if not replacement or not locant:
             return ""
+        if atom.GetFormalCharge() != 0:
+            if atom.GetFormalCharge() > 0 and symbol in {"N", "O", "S"} and locant.isdigit():
+                charged_locs.append(locant)
+            else:
+                return ""
         grouped.setdefault(replacement, []).append(locant)
     if not grouped:
         return ""
@@ -461,7 +468,17 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
     parent_name = template_record_name(template)
     if parent_name == "gon":
         parent_name = "cyclopenta[a]phenanthren"
-    return "-".join(parts) + parent_name
+    return _charge_suffixed_replacement_parent_name("-".join(parts) + parent_name, charged_locs)
+
+
+def _charge_suffixed_replacement_parent_name(parent_name: str, charged_locs: Sequence[str]) -> str:
+    locs = sorted(set(charged_locs), key=_locant_sort_key)
+    if not locs:
+        return parent_name
+    if len(locs) != 1:
+        return ""
+    stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    return f"{stem}-{locs[0]}-ium"
 
 
 _RETAINED_TOPOLOGY_REPLACEMENT_NH_PARENT_NAMES = frozenset(
@@ -497,6 +514,7 @@ def _retained_topology_replacement_parent_name(
     allow_nh_template: bool = False,
 ) -> str:
     grouped: dict[str, list[str]] = {}
+    charged_locs: list[str] = []
     template_mol = template_record_mol(template)
     if (
         not allow_nh_template
@@ -513,12 +531,15 @@ def _retained_topology_replacement_parent_name(
             continue
         if template_atom.GetSymbol() != "C" or template_atom.GetFormalCharge() != 0:
             return ""
-        if mol_atom.GetFormalCharge() != 0:
-            return ""
         replacement = _SKELETAL_REPLACEMENT_PREFIXES.get(mol_atom.GetSymbol())
         locant = locants.get(template_idx, "")
         if not replacement or not locant:
             return ""
+        if mol_atom.GetFormalCharge() != 0:
+            if mol_atom.GetFormalCharge() > 0 and mol_atom.GetSymbol() in {"N", "O", "S"} and locant.isdigit():
+                charged_locs.append(locant)
+            else:
+                return ""
         grouped.setdefault(replacement, []).append(locant)
     if not grouped:
         return ""
@@ -530,7 +551,9 @@ def _retained_topology_replacement_parent_name(
     parent_name = _terminal_retained_parent_name(template_record_name(template))
     if parent_name == "gon":
         parent_name = "cyclopenta[a]phenanthren"
-    return _opsin_parseable_retained_parent_name("-".join(parts) + parent_name)
+    return _opsin_parseable_retained_parent_name(
+        _charge_suffixed_replacement_parent_name("-".join(parts) + parent_name, charged_locs)
+    )
 
 
 def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) -> tuple:
@@ -717,7 +740,7 @@ def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
         charge_is_parent_ium = (
             template_atom.GetFormalCharge() == 0
             and atom.GetFormalCharge() > 0
-            and atom.GetSymbol() in {"N", "S"}
+            and atom.GetSymbol() in {"N", "O", "S"}
         )
         if not charge_matches and not charge_is_parent_ium:
             return ""
@@ -1844,6 +1867,11 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
         ):
             anion_locs.append(int(locant))
         if locant and locant.isdigit() and atom.GetFormalCharge() > 0:
+            if (
+                atom.GetSymbol() == template_atom.GetSymbol()
+                and atom.GetFormalCharge() == template_atom.GetFormalCharge()
+            ):
+                continue
             symbol = atom.GetSymbol()
             if symbol == "C":
                 suffix = "ylium"

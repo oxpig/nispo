@@ -9,6 +9,7 @@ from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
     HydrogenEvidence,
+    OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT,
@@ -784,9 +785,23 @@ def _candidate_fact_ranked_item(
         selected_item,
     ) or selected_item
     selected_item = (
+        _sulfur_oxo_acyclic_alternative_for_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _stable_base_key_parent_alternative_for_post_ranker_choice(
             keyed_items,
             current,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _spiro25_retained_topology_alternative_for_decomposed_choice(
+            keyed_items,
             selected_item,
         )
         or selected_item
@@ -7517,6 +7532,8 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
     penalty += _kekulized_polycyclic_bridge_unsaturation_penalty(candidate)
     if OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT in candidate_safety_reasons(candidate):
         penalty += 80
+    if OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION in candidate_safety_reasons(candidate):
+        penalty += 40
     penalty += _unsupported_charge_rendering_penalty(candidate)
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)
@@ -15152,6 +15169,7 @@ _STABLE_BASE_RESTORE_ACYCLIC_PARENT_FAMILIES = frozenset(
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
         "functional-acyclic-skeleton-with-ring-substituents",
         "preferred-acyclic-skeleton-with-ring-substituents",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
     }
 )
 
@@ -15202,6 +15220,152 @@ def _stable_base_key_parent_alternative_for_post_ranker_choice(
     if base.stability_penalty > selected.stability_penalty + 220:
         return None
     return base
+
+
+def _sulfur_oxo_acyclic_alternative_for_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not (
+        (
+            selected_candidate.family == "generated-fused-parent"
+            and selected_candidate.source_family == "generated-fused"
+            and selected_candidate.source_file == "generated_fused_template_index.json"
+            and selected_candidate.render_rank is not None
+            and selected_candidate.render_rank <= 3
+        )
+        or (
+            selected_candidate.family == "fused-retained-parent"
+            and selected_candidate.source_family == "static-retained"
+            and selected_candidate.source_file == "high_impact_fused_parent_templates.json"
+            and selected_candidate.render_rank == 1
+        )
+    ):
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count != 9:
+        return None
+    if (
+        selected_candidate.family == "generated-fused-parent"
+        and selected_candidate.parent_aromatic_atom_count != selected_parent_count
+    ):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_sulfur_oxo_acyclic_base_restore_candidate(candidate):
+            continue
+        if not _is_provenanced_sulfur_oxo_acyclic_base_restore_candidate(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 145:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        if candidate_key[0] > selected_key[0] + 80:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _spiro25_retained_topology_alternative_for_decomposed_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in {
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "spiro-functional-chain-substituent",
+    }:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_candidate.family == "spiro-functional-chain-substituent":
+        if selected_parent_count < 10 or selected_parent_count > 16:
+            return None
+    else:
+        if selected_parent_count < 20 or len(selected.name) < 150:
+            return None
+        if selected_candidate.molecule_abs_formal_charge_sum:
+            return None
+        if selected_candidate.parent_external_unsaturated_bond_count:
+            return None
+        if selected_candidate.parent_internal_unsaturated_bond_count < 6:
+            return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_spiro25_retained_topology_candidate(candidate):
+            continue
+        if selected_candidate.family == "spiro-functional-chain-substituent":
+            if candidate.render_rank is None or candidate.render_rank > 12:
+                continue
+            if len(item.name) > len(selected.name):
+                continue
+            if candidate_key[0] > selected_key[0] + 360:
+                continue
+        else:
+            if candidate.render_rank is None or candidate.render_rank > 4:
+                continue
+            if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+                continue
+            if len(item.name) - len(selected.name) > 20:
+                continue
+            if candidate_key[0] > selected_key[0] + 340:
+                continue
+        if item.stability_penalty > selected.stability_penalty + 360:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_spiro25_retained_topology_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if candidate.template_name != "spiro[2.5]octane":
+        return False
+    if candidate.source_family != "static-retained" or candidate.source_file:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) != 8:
+        return False
+    if candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
 
 
 def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
@@ -15282,6 +15446,25 @@ def _post_ranker_base_restore_has_unsafe_context(
             return True
         base_parent_count = len(base.parent_atoms)
         selected_parent_count = len(selected.parent_atoms)
+        if _is_provenanced_sulfur_oxo_acyclic_base_restore_candidate(base):
+            return not (
+                selected_parent_count == 9
+                and (
+                    (
+                        selected.family == "generated-fused-parent"
+                        and selected.source_family == "generated-fused"
+                        and selected.source_file == "generated_fused_template_index.json"
+                        and selected.render_rank is not None
+                        and selected.render_rank <= 3
+                    )
+                    or (
+                        selected.family == "fused-retained-parent"
+                        and selected.source_family == "static-retained"
+                        and selected.source_file == "high_impact_fused_parent_templates.json"
+                        and selected.render_rank == 1
+                    )
+                )
+            )
         if selected.family not in {"fused-retained-parent", "generated-fused-parent"}:
             return True
         return not (selected_parent_count == 9 and 15 <= base_parent_count <= 16)
@@ -15329,20 +15512,36 @@ def _is_post_ranker_base_restore_competitor(
 def _is_sulfur_oxo_acyclic_base_restore_candidate(candidate: NameCandidate) -> bool:
     if candidate.family not in _STABLE_BASE_RESTORE_ACYCLIC_PARENT_FAMILIES:
         return False
-    if candidate.template_name or candidate.source_family or candidate.source_file:
+    if candidate.template_name or candidate.source_file:
+        return False
+    if candidate.source_family and candidate.source_family != "sulfur-oxo-acyclic-skeleton":
         return False
     if candidate.parent_hetero_atom_count or candidate.parent_aromatic_atom_count:
         return False
     if candidate.prefixes or candidate.suffixes or candidate.charge is not None:
         return False
     parent_count = len(candidate.parent_atoms)
-    if parent_count < 15 or parent_count > 16:
+    if _is_provenanced_sulfur_oxo_acyclic_base_restore_candidate(candidate):
+        pass
+    elif parent_count < 15 or parent_count > 16:
         return False
     element_counts = dict(candidate.parent_element_counts)
+    min_oxygen_count = (
+        3 if _is_provenanced_sulfur_oxo_acyclic_base_restore_candidate(candidate) else 4
+    )
     return (
         element_counts.get("S", 0) >= 1
-        and element_counts.get("O", 0) >= 4
+        and element_counts.get("O", 0) >= min_oxygen_count
         and element_counts.get("N", 0) >= 2
+    )
+
+
+def _is_provenanced_sulfur_oxo_acyclic_base_restore_candidate(candidate: NameCandidate) -> bool:
+    return (
+        candidate.family == "sulfur-oxo-acyclic-skeleton-with-ring-substituents"
+        and candidate.source_family == "sulfur-oxo-acyclic-skeleton"
+        and bool(candidate.parent_atoms)
+        and len(candidate.parent_atoms) == 13
     )
 
 

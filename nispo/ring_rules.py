@@ -1523,8 +1523,12 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
     multi_positive_name = _multi_positive_n_ring_parent_name(mol, parent_name, seq)
     if multi_positive_name:
         return multi_positive_name
-    if sum(1 for idx in seq if mol.GetAtomWithIdx(idx).GetFormalCharge() > 0) > 1:
+    positive_count = sum(1 for idx in seq if mol.GetAtomWithIdx(idx).GetFormalCharge() > 0)
+    if positive_count > 1:
         return ""
+    multi_anion_name = _multi_anionic_ring_parent_name(mol, parent_name, seq)
+    if multi_anion_name:
+        return multi_anion_name
     for loc, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
         if atom.GetFormalCharge() < 0:
@@ -1625,6 +1629,26 @@ def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw
             return f"{stem}-{loc}-ium"
         return ""
     return parent_name
+
+
+def _multi_anionic_ring_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
+    if any(mol.GetAtomWithIdx(idx).GetFormalCharge() > 0 for idx in seq):
+        return ""
+    anion_locs = []
+    for loc, idx in enumerate(seq, start=1):
+        charge = mol.GetAtomWithIdx(idx).GetFormalCharge()
+        if charge == 0:
+            continue
+        if charge != -1:
+            return ""
+        anion_locs.append(loc)
+    if len(anion_locs) < 2:
+        return ""
+    multiplier = MULT.get(len(anion_locs))
+    if not multiplier:
+        return ""
+    stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    return f"{stem}-{_join_locants(anion_locs)}-{multiplier}ide"
 
 
 def _nonaromatic_positive_azole_cation_parent_name(
@@ -2003,7 +2027,12 @@ def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:
 
 
 
-def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None = None) -> str:
+def ring_substituent_suffix(
+    parent_name: str,
+    loc: int,
+    charge_loc: int | None = None,
+    charge_suffix: str = "ium",
+) -> str:
     if parent_name == "maleimide":
         if loc in {3, 4}:
             return f"1H-pyrrole-2,5-dione-{loc}-yl"
@@ -2029,7 +2058,7 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
     charge_base = _drop_indicated_hydrogen_prefix(parent_name) if charge_loc is not None else parent_name
     stem = _CHARGEABLE_SUBSTITUENT_STEMS.get(charge_base)
     if stem:
-        return _substituent_suffix_from_stem(stem, loc, charge_loc)
+        return _substituent_suffix_from_stem(stem, loc, charge_loc, charge_suffix)
     stem = _NEUTRAL_SUBSTITUENT_STEMS.get(parent_name)
     if stem:
         return _substituent_suffix_from_stem(stem, loc)
@@ -2037,11 +2066,11 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return f"{parent_name[:-1]}-{loc}-yl"
     if parent_name.endswith("H-imidazole"):
         if charge_loc is not None:
-            return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-ium-{loc}-yl"
+            return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-{charge_suffix}-{loc}-yl"
         return f"{parent_name[:-1]}-{loc}-yl"
     if parent_name.endswith("H-pyrazole"):
         if charge_loc is not None:
-            return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-ium-{loc}-yl"
+            return f"{_drop_indicated_hydrogen_prefix(parent_name)[:-1]}-{charge_loc}-{charge_suffix}-{loc}-yl"
         return f"{parent_name[:-1]}-{loc}-yl"
     stem = _INDICATED_H_SUBSTITUENT_STEMS.get(parent_name)
     if stem:
@@ -2054,7 +2083,7 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         if charge_loc is not None:
             base = _drop_indicated_hydrogen_prefix(parent_name)
             stem = base[:-1] if base.endswith("e") else base
-            return f"{stem}-{charge_loc}-ium-{loc}-yl"
+            return f"{stem}-{charge_loc}-{charge_suffix}-{loc}-yl"
         return f"{parent_name[:-1]}-{loc}-yl"
     if parent_name.startswith("cyclo") and parent_name.endswith("ane"):
         return parent_name[:-3] + "yl" if loc == 1 else ""
@@ -2062,13 +2091,13 @@ def ring_substituent_suffix(parent_name: str, loc: int, charge_loc: int | None =
         return parent_name[:-2] + "yl" if loc == 1 else ""
     stem = _SATURATED_SUBSTITUENT_STEMS.get(parent_name)
     if stem:
-        return _substituent_suffix_from_stem(stem, loc, charge_loc)
+        return _substituent_suffix_from_stem(stem, loc, charge_loc, charge_suffix)
     if parent_name.isascii() and " " not in parent_name and loc >= 1:
         restored_unsaturation = restore_terminal_unsaturation_e(parent_name)
         if restored_unsaturation != parent_name and _is_replacement_heterocycle_parent_name(parent_name):
-            return _substituent_suffix_from_stem(restored_unsaturation, loc, charge_loc)
+            return _substituent_suffix_from_stem(restored_unsaturation, loc, charge_loc, charge_suffix)
         stem = parent_name[:-1] if parent_name.endswith("e") else parent_name
-        return _substituent_suffix_from_stem(stem, loc, charge_loc)
+        return _substituent_suffix_from_stem(stem, loc, charge_loc, charge_suffix)
     return ""
 
 
@@ -2088,9 +2117,14 @@ def _retained_saturated_n_substituent_suffix(parent_name: str, loc: int, charge_
     }.get((parent_name, loc), "")
 
 
-def _substituent_suffix_from_stem(stem: str, loc: int, charge_loc: int | None = None) -> str:
+def _substituent_suffix_from_stem(
+    stem: str,
+    loc: int,
+    charge_loc: int | None = None,
+    charge_suffix: str = "ium",
+) -> str:
     if charge_loc is not None:
-        return f"{stem}-{charge_loc}-ium-{loc}-yl"
+        return f"{stem}-{charge_loc}-{charge_suffix}-{loc}-yl"
     return f"{stem}-{loc}-yl"
 
 

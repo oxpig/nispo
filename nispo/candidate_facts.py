@@ -12,6 +12,7 @@ OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND = "opsin_fragile_group14_hetero_carbo
 OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT = "opsin_fragile_oxyimino_carbonyl_parent"
 OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY = "opsin_fragile_polycyclic_bridge_topology"
 OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION = "opsin_fragile_polycyclic_bridge_unsaturation"
+OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION = "opsin_fragile_charged_replacement_unsaturation"
 UNSUPPORTED_CHARGE_STATE = "unsupported_charge_state"
 UNSUPPORTED_H_STATE = "unsupported_h_state"
 UNSUPPORTED_STEREO = "unsupported_stereo"

@@ -2104,6 +2104,21 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_name = sulfur_oxide_name
                 best_seq = seq
                 best_suffix_kind = "ring_sulfur_oxide_suffix"
+        thione_s_oxide_name = _single_ring_thione_s_oxide_suffix_name(
+            mol,
+            raw_subs,
+            pos,
+            prefixes,
+            adjusted_parent,
+            indicated_h_locs,
+        )
+        if thione_s_oxide_name:
+            thione_s_oxide_key = (locants, 0, thione_s_oxide_name)
+            if best_key is None or thione_s_oxide_key < best_key:
+                best_key = thione_s_oxide_key
+                best_name = thione_s_oxide_name
+                best_seq = seq
+                best_suffix_kind = "ring_thione_suffix"
         if suffix_name:
             suffix_key = (locants, 0, suffix_name)
             if best_key is None or suffix_key < best_key:
@@ -2825,6 +2840,85 @@ def _single_ring_sulfur_oxide_suffix_name(
             parent = f"{loc}lambda6-" + parent
     name = parent + " " + " ".join(oxide_parts)
     return _join_prefix_parent(prefix_text, name) if prefix_text else name
+
+
+def _single_ring_thione_s_oxide_suffix_name(
+    mol,
+    raw_subs: Sequence[tuple[int, str]],
+    pos: dict[int, int],
+    prefixes: Sequence[tuple[str, str]],
+    parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
+    thione_oxide_locs = []
+    for ring_idx, prefix in raw_subs:
+        if prefix != "sulfanyl" or ring_idx not in pos:
+            continue
+        if not _ring_external_thione_s_oxide_site(mol, ring_idx):
+            continue
+        thione_oxide_locs.append(str(pos[ring_idx]))
+    if len(thione_oxide_locs) != 1:
+        return ""
+    loc = thione_oxide_locs[0]
+    remaining = []
+    removed = False
+    for item in prefixes:
+        if not removed and item == (loc, "sulfanyl"):
+            removed = True
+            continue
+        remaining.append(item)
+    if not removed:
+        return ""
+    prefix_text = _format_prefixes(remaining)
+    indicated_h_name = _single_ring_indicated_h_chalcogen_suffix_name(
+        parent_name,
+        [loc],
+        indicated_h_locs,
+        "thione",
+    )
+    if indicated_h_name:
+        name = indicated_h_name + " S-oxide"
+        return _join_prefix_parent(prefix_text, name) if prefix_text else name
+    parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    name = f"{parent}-{loc}-thione S-oxide"
+    return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
+
+
+def _ring_external_thione_s_oxide_site(mol, ring_idx: int) -> bool:
+    ring_atom = mol.GetAtomWithIdx(ring_idx)
+    if ring_atom.GetSymbol() != "C":
+        return False
+    for sulfur in ring_atom.GetNeighbors():
+        sulfur_idx = sulfur.GetIdx()
+        bond = mol.GetBondBetweenAtoms(ring_idx, sulfur_idx)
+        if (
+            sulfur.GetSymbol() != "S"
+            or sulfur.GetFormalCharge() != 0
+            or bond is None
+            or bond.GetBondTypeAsDouble() != 2.0
+        ):
+            continue
+        double_oxygen_count = 0
+        unsupported = False
+        for nbr in sulfur.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == ring_idx:
+                continue
+            nbr_bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+            if (
+                nbr.GetSymbol() == "O"
+                and nbr.GetFormalCharge() == 0
+                and nbr_bond is not None
+                and nbr_bond.GetBondTypeAsDouble() == 2.0
+                and len([other for other in nbr.GetNeighbors() if other.GetAtomicNum() > 1]) == 1
+            ):
+                double_oxygen_count += 1
+            elif nbr.GetAtomicNum() > 1:
+                unsupported = True
+                break
+        if not unsupported and double_oxygen_count == 1:
+            return True
+    return False
 
 
 def _single_ring_thione_suffix_name(

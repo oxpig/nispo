@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from .constants import ROOTS
@@ -1844,6 +1845,12 @@ def _azanide_name(mol, Chem) -> str:
     implicit_hydrogens = nitrogen.GetTotalNumHs()
     if len(neighbors) + implicit_hydrogens != 2 or len(neighbors) > 2:
         return ""
+    carbamate_name = _carbamate_azanide_fragment_name(mol, Chem, nidx, neighbors)
+    if carbamate_name:
+        return carbamate_name
+    acyl_name = _acyl_azanide_fragment_name(mol, Chem, nidx, neighbors)
+    if acyl_name:
+        return acyl_name
     names = []
     for nbr_idx in neighbors:
         bond = mol.GetBondBetweenAtoms(nidx, nbr_idx)
@@ -1858,6 +1865,249 @@ def _azanide_name(mol, Chem) -> str:
     from .parent.rule_helpers import _substituted_onium_name
 
     return _substituted_onium_name(names, "azanide")
+
+
+def _carbamate_azanide_fragment_name(mol, Chem, nitrogen_idx: int, neighbors: list[int]) -> str:
+    carbonyl_records: list[tuple[str, set[int]]] = []
+    substituent_records: list[tuple[str, set[int]]] = []
+    covered = {nitrogen_idx}
+    for nbr_idx in neighbors:
+        carbonyl_record = _carbamate_azanide_carbonyl_record(mol, Chem, nitrogen_idx, nbr_idx)
+        if carbonyl_record:
+            carbonyl_records.append(carbonyl_record)
+            covered.update(carbonyl_record[1])
+            continue
+        substituent, substituent_atoms = _simple_fragment_owner_name(mol, Chem, nbr_idx, nitrogen_idx)
+        if not substituent:
+            return ""
+        substituent_records.append((substituent, substituent_atoms))
+        covered.update(substituent_atoms)
+    if len(carbonyl_records) != 1 or len(substituent_records) > 1:
+        return ""
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    owner = carbonyl_records[0][0]
+    if not substituent_records:
+        return f"{owner} azanidecarboxylate"
+    substituent = substituent_records[0][0]
+    return f"{owner} {substituent}azanidecarboxylate"
+
+
+def _carbamate_azanide_carbonyl_record(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> tuple[str, set[int]] | None:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return None
+    bond_to_nitrogen = mol.GetBondBetweenAtoms(carbonyl_idx, nitrogen_idx)
+    if bond_to_nitrogen is None or bond_to_nitrogen.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    double_oxygens = []
+    single_oxygens = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return None
+    if len(double_oxygens) != 1 or len(single_oxygens) != 1:
+        return None
+    owner, owner_atoms = _carbamate_azanide_ester_owner_record(mol, Chem, single_oxygens[0], carbonyl_idx)
+    if not owner:
+        return None
+    atoms = {carbonyl_idx, double_oxygens[0], single_oxygens[0], *owner_atoms}
+    return owner, atoms
+
+
+def _carbamate_azanide_ester_owner_record(mol, Chem, oxygen_idx: int, carbonyl_idx: int) -> tuple[str, set[int]]:
+    oxygen = mol.GetAtomWithIdx(oxygen_idx)
+    if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0 or oxygen.IsInRing():
+        return "", set()
+    bond_to_carbonyl = mol.GetBondBetweenAtoms(oxygen_idx, carbonyl_idx)
+    if bond_to_carbonyl is None or bond_to_carbonyl.GetBondType() != Chem.BondType.SINGLE:
+        return "", set()
+    heavy = [
+        nbr.GetIdx()
+        for nbr in oxygen.GetNeighbors()
+        if nbr.GetIdx() != carbonyl_idx and nbr.GetAtomicNum() > 1
+    ]
+    if len(heavy) != 1:
+        return "", set()
+    from .branch_rules import branch_prefix
+
+    owner = _strip_fragment_parentheses(branch_prefix(mol, heavy[0], oxygen_idx))
+    owner = {
+        "2-propyl": "isopropyl",
+        "propan-2-yl": "isopropyl",
+        "t-butyl": "tert-butyl",
+    }.get(owner, owner)
+    if owner not in {
+        "methyl",
+        "ethyl",
+        "propyl",
+        "isopropyl",
+        "butyl",
+        "isobutyl",
+        "tert-butyl",
+        "benzyl",
+    }:
+        return "", set()
+    return owner, _fragment_component_atoms(mol, heavy[0], oxygen_idx)
+
+
+def _acyl_azanide_fragment_name(mol, Chem, nitrogen_idx: int, neighbors: list[int]) -> str:
+    acyl_records: list[tuple[str, set[int]]] = []
+    substituent_records: list[tuple[str, set[int]]] = []
+    covered = {nitrogen_idx}
+    for nbr_idx in neighbors:
+        acyl_record = _acyl_azanide_carbonyl_record(mol, Chem, nitrogen_idx, nbr_idx)
+        if acyl_record:
+            acyl_records.append(acyl_record)
+            covered.update(acyl_record[1])
+            continue
+        substituent_record = _acyl_azanide_substituent_record(mol, Chem, nbr_idx, nitrogen_idx)
+        if substituent_record is None:
+            return ""
+        substituent_records.append(substituent_record)
+        covered.update(substituent_record[1])
+    if len(acyl_records) != 1 or len(substituent_records) != 1:
+        return ""
+    if covered != set(range(mol.GetNumAtoms())):
+        return ""
+    acyl = acyl_records[0][0]
+    substituent = substituent_records[0][0]
+    if not _safe_acyl_azanide_term(acyl) or not _safe_acyl_azanide_term(substituent):
+        return ""
+    return f"{substituent}({acyl})azanide"
+
+
+def _acyl_azanide_carbonyl_record(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> tuple[str, set[int]] | None:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return None
+    bond_to_nitrogen = mol.GetBondBetweenAtoms(carbonyl_idx, nitrogen_idx)
+    if bond_to_nitrogen is None or bond_to_nitrogen.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    double_oxygens = []
+    terminal_oxygens = []
+    acyl_carbons = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            heavy = [
+                atom.GetIdx()
+                for atom in nbr.GetNeighbors()
+                if atom.GetIdx() != carbonyl_idx and atom.GetAtomicNum() > 1
+            ]
+            if heavy or nbr.GetFormalCharge() != 0:
+                return None
+            terminal_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+            acyl_carbons.append(nidx)
+        else:
+            return None
+    if len(double_oxygens) != 1:
+        return None
+    if len(terminal_oxygens) == 1 and not acyl_carbons:
+        return "carboxy", {carbonyl_idx, double_oxygens[0], terminal_oxygens[0]}
+    if len(acyl_carbons) != 1 or terminal_oxygens:
+        return None
+    acyl_idx = acyl_carbons[0]
+    from .parent_rules import _ester_acyl_parent_paths, _generic_acyl_ligand_path_name
+
+    names = [
+        _generic_acyl_ligand_path_name(mol, Chem, carbonyl_idx, path)
+        for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx)
+    ]
+    names = [name for name in names if name]
+    if not names:
+        return None
+    atoms = {carbonyl_idx, double_oxygens[0]}
+    atoms.update(_fragment_component_atoms(mol, acyl_idx, carbonyl_idx))
+    return min(names, key=lambda value: (len(value), value)), atoms
+
+
+def _acyl_azanide_substituent_record(mol, Chem, atom_idx: int, nitrogen_idx: int) -> tuple[str, set[int]] | None:
+    atom = mol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() == "C":
+        return _linear_alkyl_fragment_owner_record(mol, Chem, atom_idx, nitrogen_idx)
+    if atom.GetSymbol() == "O":
+        heavy = [
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
+        ]
+        if not heavy and atom.GetFormalCharge() == 0:
+            return "hydroxy", {atom_idx}
+        return None
+    if atom.GetSymbol() == "S":
+        heavy = [
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() != nitrogen_idx and nbr.GetAtomicNum() > 1
+        ]
+        if len(heavy) != 1 or atom.GetFormalCharge() != 0:
+            return None
+        owner_record = _linear_alkyl_fragment_owner_record(mol, Chem, heavy[0], atom_idx)
+        if owner_record is None:
+            return None
+        owner, owner_atoms = owner_record
+        return owner + "sulfanyl", {atom_idx, *owner_atoms}
+    return None
+
+
+def _linear_alkyl_fragment_owner_record(mol, Chem, atom_idx: int, parent_idx: int) -> tuple[str, set[int]] | None:
+    simple_name, simple_atoms = _simple_fragment_owner_name(mol, Chem, atom_idx, parent_idx)
+    if simple_name:
+        return {"t-butyl": "tert-butyl"}.get(simple_name, simple_name), simple_atoms
+    component = _fragment_component_atoms(mol, atom_idx, parent_idx)
+    if not component:
+        return None
+    path = [atom_idx]
+    previous = parent_idx
+    current = atom_idx
+    seen = {atom_idx}
+    while True:
+        atom = mol.GetAtomWithIdx(current)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            return None
+        next_carbons = []
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx == previous or nbr.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(current, nidx)
+            if nbr.GetSymbol() == "C" and bond.GetBondType() == Chem.BondType.SINGLE:
+                next_carbons.append(nidx)
+            else:
+                return None
+        if not next_carbons:
+            break
+        if len(next_carbons) != 1 or next_carbons[0] in seen:
+            return None
+        previous, current = current, next_carbons[0]
+        path.append(current)
+        seen.add(current)
+    if set(path) != component:
+        return None
+    root = ROOTS.get(len(path), "")
+    return (root + "yl", set(path)) if root else None
+
+
+def _safe_acyl_azanide_term(name: str) -> bool:
+    if not name or len(name) > 80:
+        return False
+    if " " in name or "[" in name or "]" in name or name.startswith("("):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9,'\\-]+", name))
 
 
 def _azanide_substituent_prefix(mol, Chem, atom_idx: int, nitrogen_idx: int) -> str:

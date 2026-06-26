@@ -1803,6 +1803,57 @@ def test_high_impact_charged_retained_parents_roundtrip_with_opsin(input_smiles)
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C[N-]C(=O)OC(C)(C)C",
+        "[NH-]C(=O)OC(C)(C)C",
+        "C[N-]C(=O)OCc1ccccc1",
+        "CC[NH2+]C(=O)OC(C)(C)C",
+        "CC[NH2+]C(=O)OCc1ccccc1",
+    ],
+)
+def test_charged_carbamate_retained_parents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "CC[N-]C(=O)O",
+        "CS[N-]C(C)=O",
+        "CCCCCC=CC(=O)[N-]O",
+        "CCCCCCCC(=O)[N-]O",
+        "CCCCCCCCCCCCCCCCCC[N-]C(=O)CCCCCCCCCCCCCCCCC",
+    ],
+)
+def test_acyl_azanide_fragments_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=S=c1[nH]nc(-c2csc(-c3ccccc3)n2)o1",
+        "O=S=C1C=CC=CC1C(=O)O",
+    ],
+)
+def test_single_ring_thione_s_oxide_suffixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C([O-])CCC(O)CC(=O)C(=O)[O-]",
         "O=C([O-])C(=O)CC(O)C(=O)[O-]",
         "O=C([O-])C(=O)C[C@H](O)C(=O)[O-]",

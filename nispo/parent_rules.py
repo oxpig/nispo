@@ -2178,18 +2178,19 @@ class AzaniumParentRule:
         names = []
         covered = {nidx}
         for nbr_idx in neighbors:
-            prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
+            prefix = _azanium_ligand_name(mol, self._Chem, nidx, nbr_idx)
             if not prefix:
                 return
             names.append(prefix)
             covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
         if covered != set(range(mol.GetNumAtoms())):
             return
-        name = _azanium_name(names)
+        name = _azanium_name_for_ligands(names)
         if name:
             parent_atoms = (
                 set(range(mol.GetNumAtoms()))
                 if _complete_cycloalkyl_azanium_scope(mol, self._Chem, nidx, neighbors)
+                or _complete_alkoxycarbonyl_azanium_scope(mol, self._Chem, nidx, neighbors)
                 else set()
             )
             yield NameCandidate(
@@ -2207,6 +2208,29 @@ def _complete_cycloalkyl_azanium_scope(mol, Chem, nitrogen_idx: int, neighbors: 
     return ligand_kinds.count("cycloalkyl") == 1 and all(
         kind in {"small-alkyl", "cycloalkyl"} for kind in ligand_kinds
     )
+
+
+def _azanium_name_for_ligands(names: Sequence[str]) -> str:
+    alkoxycarbonyl = [name for name in names if name in {"carbobenzoxy", "tert-butoxycarbonyl"}]
+    if len(alkoxycarbonyl) == 1:
+        other_names = [name for name in names if name not in {"carbobenzoxy", "tert-butoxycarbonyl"}]
+        if all(_simple_unparenthesized_n_substituent(name) for name in other_names):
+            other_text = _substituted_onium_name(other_names, "")
+            if other_names and not other_text:
+                return ""
+            return other_text + alkoxycarbonyl[0] + "azanium"
+    return _azanium_name(names)
+
+
+def _complete_alkoxycarbonyl_azanium_scope(mol, Chem, nitrogen_idx: int, neighbors: Sequence[int]) -> bool:
+    ligand_kinds = []
+    alkoxycarbonyl_count = 0
+    for nbr_idx in neighbors:
+        if _azanium_alkoxycarbonyl_ligand_name(mol, Chem, nitrogen_idx, nbr_idx):
+            alkoxycarbonyl_count += 1
+            continue
+        ligand_kinds.append(_azanium_hydrocarbon_ligand_kind(mol, Chem, nbr_idx, nitrogen_idx))
+    return alkoxycarbonyl_count == 1 and all(kind == "small-alkyl" for kind in ligand_kinds)
 
 
 def _azanium_hydrocarbon_ligand_kind(mol, Chem, attach_idx: int, nitrogen_idx: int) -> str:
@@ -8078,11 +8102,26 @@ class CarbamateRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        for _carbonyl_idx, oxygen_idx, nitrogen_idx in _carbamate_motifs(mol, self._Chem):
-            oxygen_substituent = _single_external_substituent_name(mol, oxygen_idx, _carbonyl_idx)
+        for carbonyl_idx, oxygen_idx, nitrogen_idx in _carbamate_motifs(mol, self._Chem):
+            charged_name = _carbamate_azanide_parent_name(mol, self._Chem, carbonyl_idx, oxygen_idx, nitrogen_idx)
+            if charged_name:
+                yield NameCandidate(
+                    charged_name,
+                    self.family,
+                    self.priority,
+                    sort_key=(len(charged_name), charged_name),
+                    parent_atoms=frozenset(range(mol.GetNumAtoms())),
+                    source_family="carbamate-retained-parent:azanide",
+                    estimated_length=len(charged_name),
+                )
+                continue
+            nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+            if nitrogen.GetFormalCharge() != 0:
+                continue
+            oxygen_substituent = _single_external_substituent_name(mol, oxygen_idx, carbonyl_idx)
             if not oxygen_substituent:
                 continue
-            nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, _carbonyl_idx)
+            nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
             if nitrogen_substituents is None or len(nitrogen_substituents) > 2:
                 continue
             nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
@@ -8562,6 +8601,77 @@ def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
         if ok and len(double_o) == 1 and len(single_o) == 1 and len(single_n) == 1:
             motifs.append((cidx, single_o[0], single_n[0]))
     return motifs
+
+
+def _azanium_ligand_name(mol, Chem, nitrogen_idx: int, ligand_idx: int) -> str:
+    return _azanium_alkoxycarbonyl_ligand_name(mol, Chem, nitrogen_idx, ligand_idx) or _simple_or_branch_prefix(
+        mol,
+        ligand_idx,
+        nitrogen_idx,
+    )
+
+
+def _azanium_alkoxycarbonyl_ligand_name(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> str:
+    carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+    if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+        return ""
+    bond_to_nitrogen = mol.GetBondBetweenAtoms(carbonyl_idx, nitrogen_idx)
+    if bond_to_nitrogen is None or bond_to_nitrogen.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    double_oxygens = []
+    single_oxygens = []
+    for nbr in carbonyl.GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == nitrogen_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+        if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            double_oxygens.append(nidx)
+        elif nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+            single_oxygens.append(nidx)
+        elif nbr.GetAtomicNum() > 1:
+            return ""
+    if len(double_oxygens) != 1 or len(single_oxygens) != 1:
+        return ""
+    owner = _single_external_substituent_name(mol, single_oxygens[0], carbonyl_idx)
+    return {
+        "t-butyl": "tert-butoxycarbonyl",
+        "tert-butyl": "tert-butoxycarbonyl",
+        "benzyl": "carbobenzoxy",
+    }.get(owner, "")
+
+
+def _carbamate_azanide_parent_name(mol, Chem, carbonyl_idx: int, oxygen_idx: int, nitrogen_idx: int) -> str:
+    nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
+    if nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
+        return ""
+    oxygen_substituent = _single_external_substituent_name(mol, oxygen_idx, carbonyl_idx)
+    owner = _carbamate_azanide_ester_owner_name(oxygen_substituent)
+    if not owner:
+        return ""
+    nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
+    if nitrogen_substituents is None or len(nitrogen_substituents) > 1:
+        return ""
+    if not nitrogen_substituents:
+        return f"{owner} azanidecarboxylate"
+    substituent = _retained_parent_substituent_alias(nitrogen_substituents[0])
+    if not _simple_n_retained_parent_substituent(substituent):
+        return ""
+    return f"{owner} {substituent}azanidecarboxylate"
+
+
+def _carbamate_azanide_ester_owner_name(name: str) -> str:
+    return {
+        "methyl": "methyl",
+        "ethyl": "ethyl",
+        "propyl": "propyl",
+        "isopropyl": "isopropyl",
+        "butyl": "butyl",
+        "isobutyl": "isobutyl",
+        "t-butyl": "tert-butyl",
+        "tert-butyl": "tert-butyl",
+        "benzyl": "benzyl",
+    }.get(name, "")
 
 
 def _cyclic_n_carbamate_carboxylate_parent_name(mol, Chem, nitrogen_idx: int, carbonyl_idx: int) -> str:
@@ -21646,6 +21756,7 @@ from .parent.rule_helpers import (
     _sulfanium_name,
     _phosphanium_name,
     _azanium_name,
+    _substituted_onium_name,
     _pnictogen_hydride_name,
     _group14_hydride_name,
     _group14_halohydride_name,

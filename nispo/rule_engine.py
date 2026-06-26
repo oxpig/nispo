@@ -776,6 +776,14 @@ def _candidate_fact_ranked_item(
         keyed_items,
         selected_item,
     ) or selected_item
+    selected_item = (
+        _stable_base_key_parent_alternative_for_post_ranker_choice(
+            keyed_items,
+            current,
+            selected_item,
+        )
+        or selected_item
+    )
     return (
         _hydrogenated_sulfur_oxide_single_ring_alternative_for_non_hydrogen_choice(
             keyed_items,
@@ -15043,6 +15051,147 @@ def _is_hydrogenated_sulfur_oxide_single_ring_suffix_parent(candidate: NameCandi
         return False
     render_rank = candidate.render_rank or 0
     return 1 <= render_rank <= 4
+
+
+_POST_RANKER_BASE_RESTORE_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generated-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generic-bicyclic-parent",
+        "high-signal-generated-topology-fused-parent",
+        "neutral-amine-parent",
+        "poly-component-spiro-parent",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
+
+def _stable_base_key_parent_alternative_for_post_ranker_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    base: _PreparedCandidate,
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if base is selected or base.name == selected.name:
+        return None
+    base_candidate = base.candidate
+    selected_candidate = selected.candidate
+    if not _is_stable_base_key_parent_candidate(base_candidate):
+        return None
+    if not _is_post_ranker_base_restore_competitor(selected_candidate, base_candidate):
+        return None
+    if _post_ranker_base_restore_has_unsafe_context(
+        keyed_items,
+        base_candidate,
+        selected_candidate,
+    ):
+        return None
+    base_key = next((key for key, item in keyed_items if item is base), None)
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if base_key is None or selected_key is None:
+        return None
+    if selected_key < base_key:
+        return None
+    if len(base.name) > _DEFAULT_MAX_NAME_LENGTH:
+        return None
+    if len(base.name) - len(selected.name) > 145:
+        return None
+    if base.stability_penalty > selected.stability_penalty + 220:
+        return None
+    return base
+
+
+def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if candidate.charge is not None and candidate.charge.formal_charge not in {0, 1}:
+        return False
+    if candidate.suffixes and candidate.family not in {"single-ring-parent", "phosphorane-parent"}:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    render_rank = candidate.render_rank
+    if candidate.family == "fused-retained-parent":
+        if render_rank is None or render_rank > 1:
+            return False
+        if candidate.source_family in {
+            "opsin-retained-ring-cml",
+            "simpleCyclicGroups:ring:simpleGroup",
+        }:
+            return parent_count == 12
+        return (
+            candidate.source_family == "static-retained"
+            and candidate.source_file == "high_impact_fused_parent_templates.json"
+            and parent_count == 11
+        )
+    if candidate.family == "generated-fused-parent":
+        return (
+            candidate.source_family == "generated-fused"
+            and candidate.source_file == "generated_fused_template_index.json"
+            and render_rank == 1
+            and parent_count in {9, 14}
+        )
+    if candidate.family == "generated-partial-hydro-fused-parent":
+        return (
+            candidate.source_family == "generated-fused"
+            and candidate.source_file == "generated_fused_template_index.json"
+            and render_rank == 1
+            and parent_count >= 12
+        )
+    if candidate.family == "kekulized-generic-polycyclic-parent":
+        return candidate.source_family == "kekulized" and render_rank == 1 and parent_count >= 17
+    if candidate.family == "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return parent_count >= 17 and candidate.priority <= 19
+    if candidate.family == "charged-ring-acyclic-skeleton-with-ring-substituents":
+        return parent_count >= 26 and candidate.charge is not None and candidate.charge.charged_atoms
+    if candidate.family == "phosphorane-parent":
+        return candidate.source_family.startswith("phosphorane") and parent_count >= 20
+    if candidate.family == "component-dispiro-parent":
+        return parent_count >= 18
+    return False
+
+
+def _post_ranker_base_restore_has_unsafe_context(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    base: NameCandidate,
+    selected: NameCandidate,
+) -> bool:
+    if base.family == "generated-fused-parent":
+        if (
+            selected.family == "acyclic-skeleton-with-ring-substituents"
+            and len(selected.parent_atoms) > len(base.parent_atoms)
+        ):
+            return True
+        if selected.family == "single-ring-parent":
+            return any(
+                item.candidate.family == "retained-amide-parent" for _, item in keyed_items
+            )
+    return False
+
+
+def _is_post_ranker_base_restore_competitor(
+    selected: NameCandidate,
+    base: NameCandidate,
+) -> bool:
+    if selected.family in _POST_RANKER_BASE_RESTORE_COMPETITOR_FAMILIES:
+        return True
+    if selected.family != "fused-retained-parent":
+        return False
+    if base.family != "fused-retained-parent":
+        return False
+    if selected.source_family in {
+        "opsin-retained-ring-cml",
+        "simpleCyclicGroups:ring:simpleGroup",
+        "static-retained",
+    }:
+        return False
+    selected_rank = selected.render_rank or 0
+    base_rank = base.render_rank or 0
+    return bool(selected_rank and base_rank and selected_rank > base_rank)
 
 
 def _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(

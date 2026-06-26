@@ -2855,6 +2855,23 @@ def test_lambda_sulfanone_parent_controls_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "CCN(C)S(=O)(=O)Nc1ccc(F)c(Oc2ccc3nc[nH]c(=O)c3c2)c1F",
+        "CS(C)(=O)=NC(=O)c1cccc2nn(-c3cccnc3)cc12",
+        "COc1ncc(-c2cnc3[nH]cc(C(=O)c4c(F)ccc(NS(=O)(=O)N(C)C5CCOCC5)c4F)c3c2)cn1",
+        "CN(CC(=O)NC1C2CC3CC1CC(C(N)=O)(C3)C2)S(=O)(=O)N(C)c1c(F)cc(F)cc1F",
+    ],
+)
+def test_sulfur_oxo_acyclic_skeleton_recoveries_and_controls_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCCCCc1cc(OP(=O)(Cc2ccccc2)OCC)c(-c2cccc(C)c2)c(OP(=O)(Cc2ccccc2)OCC)c1",
         "CCCCCc1cc(OP(C)(=O)OCC)c(-c2cccc(C)c2)c(OP(C)(=O)OCC)c1",
     ],

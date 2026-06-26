@@ -15917,6 +15917,43 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             )
 
 
+class SulfurOxoAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSubstituentsRule):
+    family = "sulfur-oxo-acyclic-skeleton-with-ring-substituents"
+    priority = parent_priority("functional-acyclic-skeleton")
+
+    def candidates(self, ctx):
+        mol = ctx.mol
+        profile = ctx.profile
+        if profile.ring_count < 2:
+            return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if not 4 <= len(parent_atoms) <= 18:
+            return
+        if not _has_nonring_sulfur_oxo_acyclic_parent_center(mol, parent_atoms):
+            return
+        if not _acyclic_parent_has_ring_attachment(mol, parent_atoms):
+            return
+
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
+        if not name:
+            return
+        if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
+        if _is_direct_ring_carboxylate_acyclic_parent(ctx.mol, ctx.Chem, parent_atoms):
+            return
+        yield NameCandidate(
+            name,
+            self.family,
+            self.priority,
+            sort_key=(len(name), name),
+            parent_atoms=parent_atoms,
+            source_family="sulfur-oxo-acyclic-skeleton",
+            stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+            estimated_length=len(name),
+        )
+
+
 class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRule):
     family = "spiro-functional-chain-substituent"
     priority = parent_priority("senior-spiro-functional-chain-substituent")
@@ -16405,6 +16442,234 @@ def _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(
     if parent_set & ring_atoms:
         return False
     return _has_ring_attached_sulfur_imidoyl_branch(mol, parent_set, ring_atoms)
+
+
+def _has_nonring_sulfur_oxo_acyclic_parent_center(mol, parent_atoms: Sequence[int] | frozenset[int]) -> bool:
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    if not parent_set:
+        return False
+    for sulfur in mol.GetAtoms():
+        sulfur_idx = sulfur.GetIdx()
+        if sulfur_idx not in parent_set:
+            continue
+        if sulfur.GetAtomicNum() != 16 or sulfur.IsInRing() or sulfur.GetFormalCharge() != 0:
+            continue
+        if sulfur.GetIsotope():
+            continue
+        double_oxygen_count = 0
+        double_nitrogen_count = 0
+        single_nitrogen_count = 0
+        single_carbon_count = 0
+        unsupported = False
+        for neighbor in sulfur.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if neighbor.GetAtomicNum() <= 1:
+                continue
+            bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+            if bond is None:
+                unsupported = True
+                break
+            order = bond.GetBondTypeAsDouble()
+            atomic_num = neighbor.GetAtomicNum()
+            if atomic_num == 8 and order == 2.0 and _is_terminal_hetero_atom(neighbor, sulfur_idx):
+                double_oxygen_count += 1
+                continue
+            if atomic_num == 7 and neighbor.GetFormalCharge() == 0 and order == 2.0 and nidx in parent_set:
+                double_nitrogen_count += 1
+                continue
+            if atomic_num == 7 and neighbor.GetFormalCharge() == 0 and order == 1.0 and nidx in parent_set:
+                single_nitrogen_count += 1
+                continue
+            if atomic_num == 6 and order == 1.0:
+                single_carbon_count += 1
+                continue
+            unsupported = True
+            break
+        if unsupported:
+            continue
+        if not _sulfur_oxo_center_has_aromatic_attachment(mol, sulfur_idx, parent_set):
+            continue
+        if _sulfur_oxo_center_attaches_to_fused_dicarbonyl_aza_ring(mol, sulfur_idx, parent_set):
+            continue
+        if _sulfur_oxo_center_has_protected_nonaromatic_ring_ligand(mol, sulfur_idx, parent_set):
+            continue
+        if double_oxygen_count == 2 and single_nitrogen_count >= 1 and double_nitrogen_count == 0:
+            return True
+        if (
+            double_oxygen_count == 1
+            and double_nitrogen_count >= 1
+            and (single_nitrogen_count + single_carbon_count) >= 1
+            and not _sulfoximine_center_defer_to_ring_or_retained_parent(mol, sulfur_idx, parent_set)
+        ):
+            return True
+    return False
+
+
+def _sulfur_oxo_center_has_aromatic_attachment(
+    mol,
+    sulfur_idx: int,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    return bool(_sulfur_oxo_center_aromatic_attachment_atoms(mol, sulfur_idx, parent_atoms))
+
+
+def _sulfur_oxo_center_aromatic_attachment_atoms(
+    mol,
+    sulfur_idx: int,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> frozenset[int]:
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    attached: set[int] = set()
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    for neighbor in sulfur.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if neighbor.GetAtomicNum() <= 1:
+            continue
+        if neighbor.IsInRing() and neighbor.GetIsAromatic():
+            attached.add(nidx)
+            continue
+        if nidx not in parent_set or neighbor.GetAtomicNum() != 7:
+            continue
+        for distal in neighbor.GetNeighbors():
+            didx = distal.GetIdx()
+            if didx == sulfur_idx or distal.GetAtomicNum() <= 1:
+                continue
+            if distal.IsInRing() and distal.GetIsAromatic():
+                attached.add(didx)
+                continue
+            if didx not in parent_set or distal.GetAtomicNum() != 6:
+                continue
+            for ring_neighbor in distal.GetNeighbors():
+                ridx = ring_neighbor.GetIdx()
+                if ridx == nidx or ring_neighbor.GetAtomicNum() <= 1:
+                    continue
+                if ring_neighbor.IsInRing() and ring_neighbor.GetIsAromatic():
+                    attached.add(ridx)
+    return frozenset(attached)
+
+
+def _sulfur_oxo_center_attaches_to_fused_dicarbonyl_aza_ring(
+    mol,
+    sulfur_idx: int,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    for atom_idx in _sulfur_oxo_center_aromatic_attachment_atoms(mol, sulfur_idx, parent_atoms):
+        ring_system = _fused_ring_system_for_atom(mol, atom_idx)
+        if len(ring_system) < 8:
+            continue
+        ring_nitrogen_count = sum(1 for idx in ring_system if mol.GetAtomWithIdx(idx).GetAtomicNum() == 7)
+        if ring_nitrogen_count < 2:
+            continue
+        carbonyl_count = sum(
+            1
+            for idx in ring_system
+            if _ring_atom_has_exocyclic_chalcogen_double_bond(mol, idx, ring_system)
+        )
+        if carbonyl_count >= 2:
+            return True
+    return False
+
+
+def _fused_ring_system_for_atom(mol, atom_idx: int) -> frozenset[int]:
+    atom_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if atom_idx in ring]
+    if not atom_rings:
+        return frozenset()
+    component = set(atom_rings)
+    changed = True
+    while changed:
+        changed = False
+        for ring in (frozenset(item) for item in mol.GetRingInfo().AtomRings()):
+            if ring in component:
+                continue
+            if any(len(ring & existing) >= 2 for existing in component):
+                component.add(ring)
+                changed = True
+    return frozenset().union(*component)
+
+
+def _sulfoximine_center_defer_to_ring_or_retained_parent(
+    mol,
+    sulfur_idx: int,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    for neighbor in sulfur.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if neighbor.GetAtomicNum() <= 1:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, nidx)
+        if bond is None:
+            return True
+        order = bond.GetBondTypeAsDouble()
+        if neighbor.GetAtomicNum() == 7 and order == 2.0 and nidx in parent_set:
+            if any(
+                distal.GetIdx() != sulfur_idx and distal.GetAtomicNum() > 1 and distal.IsInRing()
+                for distal in neighbor.GetNeighbors()
+            ):
+                return True
+        if neighbor.GetAtomicNum() == 6 and order == 1.0 and neighbor.IsInRing() and neighbor.GetIsAromatic():
+            return True
+    return False
+
+
+def _sulfur_oxo_center_has_protected_nonaromatic_ring_ligand(
+    mol,
+    sulfur_idx: int,
+    parent_atoms: Sequence[int] | frozenset[int],
+) -> bool:
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    seen = {sulfur_idx}
+    stack = [
+        (neighbor.GetIdx(), 0)
+        for neighbor in mol.GetAtomWithIdx(sulfur_idx).GetNeighbors()
+        if neighbor.GetAtomicNum() > 1 and neighbor.GetIdx() in parent_set
+    ]
+    while stack:
+        atom_idx, depth = stack.pop()
+        if atom_idx in seen:
+            continue
+        seen.add(atom_idx)
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for neighbor in atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx == sulfur_idx or neighbor.GetAtomicNum() <= 1:
+                continue
+            if nidx not in parent_set:
+                if neighbor.IsInRing() and not neighbor.GetIsAromatic():
+                    ring_system = _fused_ring_system_for_atom(mol, nidx)
+                    if _protected_nonaromatic_ring_system(mol, ring_system):
+                        return True
+                continue
+            if depth < 5 and nidx not in seen:
+                stack.append((nidx, depth + 1))
+    return False
+
+
+def _protected_nonaromatic_ring_system(mol, ring_system: frozenset[int]) -> bool:
+    if not ring_system:
+        return False
+    if any(
+        mol.GetAtomWithIdx(idx).GetAtomicNum() in {7, 8, 16}
+        for idx in ring_system
+    ):
+        return True
+    ring_count = _ring_system_ring_count(mol, ring_system)
+    return ring_count >= 2 or len(ring_system) > 6
+
+
+def _ring_system_ring_count(mol, ring_system: frozenset[int]) -> int:
+    return sum(1 for ring in mol.GetRingInfo().AtomRings() if frozenset(ring) <= ring_system)
+
+
+def _acyclic_parent_has_ring_attachment(mol, parent_atoms: Sequence[int] | frozenset[int]) -> bool:
+    parent_set = frozenset(int(idx) for idx in parent_atoms)
+    for atom_idx in parent_set:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetAtomicNum() > 1 and neighbor.GetIdx() not in parent_set and neighbor.IsInRing():
+                return True
+    return False
 
 
 def _has_ring_attached_sulfur_imidoyl_branch(
@@ -20931,6 +21196,7 @@ def parent_rules(Chem) -> tuple:
     kekulized_polycyclic = KekulizedGenericPolycyclicParentRule(Chem)
     preferred_acyclic = PreferredAcyclicSkeletonWithRingSubstituentsRule()
     chain_dominant_acyclic = ChainDominantAcyclicSkeletonWithRingSubstituentsRule()
+    sulfur_oxo_acyclic = SulfurOxoAcyclicSkeletonWithRingSubstituentsRule()
     spiro_functional_chain = SpiroFunctionalChainSubstituentRule()
     lambda_sulfanone_spiro = LambdaSulfanoneSpiroSubstituentRule(Chem)
     charged_ring_acyclic = ChargedRingAcyclicSkeletonWithRingSubstituentsRule()
@@ -21148,6 +21414,12 @@ def parent_rules(Chem) -> tuple:
                 no_charged_ring_atom,
             ),
             conjugated_carbonyl_acyclic.candidates,
+        ),
+        RuleSpec(
+            "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+            parent_priority("functional-acyclic-skeleton"),
+            (min_ring_count(2), sulfur_signal),
+            sulfur_oxo_acyclic.candidates,
         ),
         RuleSpec(
             "functional-generic-bicyclic-parent",

@@ -619,6 +619,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _complete_senior_functional_parent_alternative_for_shortcut_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _acyclic_skeleton_alternative_for_ring_carboxamide_choice(
             keyed_items,
             selected_item,
@@ -1667,6 +1674,76 @@ def _single_ring_alternative_for_small_ring_phosphorus_acid_choice(
                 (
                     candidate_key[0],
                     _candidate_selection_render_rank_key(candidate),
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_SENIOR_FUNCTIONAL_PARENT_PROMOTION_FAMILIES = frozenset(
+    {
+        "phosphite-ester-parent",
+    }
+)
+
+
+def _complete_senior_functional_parent_alternative_for_shortcut_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _RANKER_SENIOR_FUNCTIONAL_SHORTCUT_FAMILIES:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.suffixes or selected_candidate.charge is not None:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _SENIOR_FUNCTIONAL_PARENT_PROMOTION_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.priority >= selected_candidate.priority:
+            continue
+        if candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate.charge is not None and candidate.charge.formal_charge != 0:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count < 12 or candidate_parent_count < selected_parent_count + 8:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 90:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 140:
+            continue
+        if candidate_key[0] > selected_key[0] + 160:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate.priority,
+                    candidate_key[0],
                     len(item.name) - item.selection_bonus,
                     len(item.name),
                     candidate_key,
@@ -15069,6 +15146,29 @@ _POST_RANKER_BASE_RESTORE_COMPETITOR_FAMILIES = frozenset(
     }
 )
 
+_STABLE_BASE_RESTORE_ACYCLIC_PARENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+    }
+)
+
+_POST_RANKER_BASE_RESTORE_ACYCLIC_SHORTCUT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "functional-generic-bicyclic-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
 
 def _stable_base_key_parent_alternative_for_post_ranker_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
@@ -15115,6 +15215,10 @@ def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
         return False
     parent_count = len(candidate.parent_atoms)
     render_rank = candidate.render_rank
+    if candidate.family == "chain-dominant-acyclic-skeleton-with-ring-substituents":
+        return parent_count >= 17 and candidate.priority <= 19
+    if candidate.family in _STABLE_BASE_RESTORE_ACYCLIC_PARENT_FAMILIES:
+        return _is_sulfur_oxo_acyclic_base_restore_candidate(candidate)
     if candidate.family == "fused-retained-parent":
         if render_rank is None or render_rank > 1:
             return False
@@ -15153,8 +15257,6 @@ def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
         )
     if candidate.family == "kekulized-generic-polycyclic-parent":
         return candidate.source_family == "kekulized" and render_rank == 1 and parent_count >= 17
-    if candidate.family == "chain-dominant-acyclic-skeleton-with-ring-substituents":
-        return parent_count >= 17 and candidate.priority <= 19
     if candidate.family == "charged-ring-acyclic-skeleton-with-ring-substituents":
         return parent_count >= 26 and candidate.charge is not None and candidate.charge.charged_atoms
     if candidate.family == "phosphorane-parent":
@@ -15169,6 +15271,20 @@ def _post_ranker_base_restore_has_unsafe_context(
     base: NameCandidate,
     selected: NameCandidate,
 ) -> bool:
+    if _is_sulfur_oxo_acyclic_base_restore_candidate(base):
+        if selected.family not in _POST_RANKER_BASE_RESTORE_ACYCLIC_SHORTCUT_FAMILIES:
+            return True
+        if not selected.parent_atoms or not candidate_has_complete_graph(selected):
+            return True
+        if selected.suffixes or selected.charge is not None:
+            return True
+        if candidate_safety_reasons(selected):
+            return True
+        base_parent_count = len(base.parent_atoms)
+        selected_parent_count = len(selected.parent_atoms)
+        if selected.family not in {"fused-retained-parent", "generated-fused-parent"}:
+            return True
+        return not (selected_parent_count == 9 and 15 <= base_parent_count <= 16)
     if (
         base.family == "high-signal-generated-topology-fused-parent"
         and selected.family != "generated-fused-parent"
@@ -15191,6 +15307,8 @@ def _is_post_ranker_base_restore_competitor(
     selected: NameCandidate,
     base: NameCandidate,
 ) -> bool:
+    if _is_sulfur_oxo_acyclic_base_restore_candidate(base):
+        return selected.family in _POST_RANKER_BASE_RESTORE_ACYCLIC_SHORTCUT_FAMILIES
     if selected.family in _POST_RANKER_BASE_RESTORE_COMPETITOR_FAMILIES:
         return True
     if selected.family != "fused-retained-parent":
@@ -15206,6 +15324,26 @@ def _is_post_ranker_base_restore_competitor(
     selected_rank = selected.render_rank or 0
     base_rank = base.render_rank or 0
     return bool(selected_rank and base_rank and selected_rank > base_rank)
+
+
+def _is_sulfur_oxo_acyclic_base_restore_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family not in _STABLE_BASE_RESTORE_ACYCLIC_PARENT_FAMILIES:
+        return False
+    if candidate.template_name or candidate.source_family or candidate.source_file:
+        return False
+    if candidate.parent_hetero_atom_count or candidate.parent_aromatic_atom_count:
+        return False
+    if candidate.prefixes or candidate.suffixes or candidate.charge is not None:
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 15 or parent_count > 16:
+        return False
+    element_counts = dict(candidate.parent_element_counts)
+    return (
+        element_counts.get("S", 0) >= 1
+        and element_counts.get("O", 0) >= 4
+        and element_counts.get("N", 0) >= 2
+    )
 
 
 def _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(

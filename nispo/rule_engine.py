@@ -15123,6 +15123,8 @@ def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
             "simpleCyclicGroups:ring:simpleGroup",
         }:
             return parent_count == 12
+        if not candidate.source_family and not candidate.source_file:
+            return parent_count == 9
         return (
             candidate.source_family == "static-retained"
             and candidate.source_file == "high_impact_fused_parent_templates.json"
@@ -15133,7 +15135,14 @@ def _is_stable_base_key_parent_candidate(candidate: NameCandidate) -> bool:
             candidate.source_family == "generated-fused"
             and candidate.source_file == "generated_fused_template_index.json"
             and render_rank == 1
-            and parent_count in {9, 14}
+            and parent_count in {9, 13, 14}
+        )
+    if candidate.family == "high-signal-generated-topology-fused-parent":
+        return (
+            candidate.source_family == "generated-fused"
+            and candidate.source_file == "generated_fused_template_index.json"
+            and render_rank == 1
+            and parent_count == 9
         )
     if candidate.family == "generated-partial-hydro-fused-parent":
         return (
@@ -15160,6 +15169,11 @@ def _post_ranker_base_restore_has_unsafe_context(
     base: NameCandidate,
     selected: NameCandidate,
 ) -> bool:
+    if (
+        base.family == "high-signal-generated-topology-fused-parent"
+        and selected.family != "generated-fused-parent"
+    ):
+        return True
     if base.family == "generated-fused-parent":
         if (
             selected.family == "acyclic-skeleton-with-ring-substituents"

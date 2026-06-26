@@ -772,10 +772,17 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
-    return _steroid_retained_parent_alternative(
+    selected_item = _steroid_retained_parent_alternative(
         keyed_items,
         selected_item,
     ) or selected_item
+    return (
+        _hydrogenated_sulfur_oxide_single_ring_alternative_for_non_hydrogen_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
 
 
 _ADAMANTANE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES = frozenset(
@@ -14992,6 +14999,52 @@ def _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+def _hydrogenated_sulfur_oxide_single_ring_alternative_for_non_hydrogen_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.hydrogen is not None and selected_candidate.hydrogen.saturated_locs:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_hydrogenated_sulfur_oxide_single_ring_suffix_parent(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if candidate_key[0] > selected_key[0] + 120:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_hydrogenated_sulfur_oxide_single_ring_suffix_parent(candidate: NameCandidate) -> bool:
+    if candidate.family not in {"single-ring-parent", "positive-single-ring-parent"}:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.charge is not None and candidate.charge.charged_atoms:
+        return False
+    if candidate.hydrogen is None or not candidate.hydrogen.saturated_locs:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if not any(suffix.kind == "ring_sulfur_oxide_suffix" for suffix in candidate.suffixes):
+        return False
+    render_rank = candidate.render_rank or 0
+    return 1 <= render_rank <= 4
+
+
 def _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -15511,6 +15564,12 @@ def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:
             return 64
         return 24
     kinds = {suffix.kind for suffix in candidate.suffixes}
+    if (
+        "ring_sulfur_oxide_suffix" in kinds
+        and candidate.hydrogen is not None
+        and candidate.hydrogen.saturated_locs
+    ):
+        return 48
     if "ring_functional_suffix" in kinds:
         return 18
     if kinds.intersection({"ring_imino_suffix", "ring_carbonyl_suffix"}):

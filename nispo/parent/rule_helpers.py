@@ -1983,6 +1983,7 @@ class RingNameRecord:
     suffix_kind: str = ""
     suffix_graph_class: str = ""
     retained_carbohydrate_substituent_count: int = 0
+    suffix_hydrogen_locants: tuple[str, ...] = ()
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
@@ -2166,6 +2167,10 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
     ):
         best_name = _opsin_parseable_retained_parent_name(best_name)
     best_name = _drop_redundant_intrinsic_single_ring_charge_locant(mol, best_seq, best_name)
+    suffix_hydrogen_locants = ()
+    if best_suffix_kind == "ring_sulfur_oxide_suffix":
+        pos = {idx: i + 1 for i, idx in enumerate(best_seq)}
+        suffix_hydrogen_locants = _single_ring_sulfur_oxide_hydrogen_locants(mol, raw_subs, pos)
     return [
         RingNameRecord(
             best_name,
@@ -2174,6 +2179,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             best_suffix_kind,
             _single_ring_suffix_graph_class(mol, best_seq, best_suffix_kind),
             retained_carbohydrate_substituent_count,
+            suffix_hydrogen_locants,
         )
     ]
 
@@ -2840,6 +2846,21 @@ def _single_ring_sulfur_oxide_suffix_name(
             parent = f"{loc}lambda6-" + parent
     name = parent + " " + " ".join(oxide_parts)
     return _join_prefix_parent(prefix_text, name) if prefix_text else name
+
+
+def _single_ring_sulfur_oxide_hydrogen_locants(
+    mol,
+    raw_subs: Sequence[tuple[int, str]],
+    pos: dict[int, int],
+) -> tuple[str, ...]:
+    locants = []
+    for ring_idx, prefix in raw_subs:
+        if prefix != "oxo" or ring_idx not in pos:
+            continue
+        atom = mol.GetAtomWithIdx(ring_idx)
+        if atom.GetSymbol() == "S" and atom.GetTotalNumHs() > 0:
+            locants.append(str(pos[ring_idx]))
+    return tuple(sorted(set(locants), key=int))
 
 
 def _single_ring_thione_s_oxide_suffix_name(

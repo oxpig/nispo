@@ -1854,6 +1854,21 @@ def test_single_ring_thione_s_oxide_suffixes_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=[SH2]1CCC(N2CCNCC2)CC1",
+        "N1CCCN(c2ccc(F)cc2F)S1(=O)=O",
+    ],
+)
+def test_single_ring_sulfur_oxide_hydrogen_suffixes_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C([O-])CCC(O)CC(=O)C(=O)[O-]",
         "O=C([O-])C(=O)CC(O)C(=O)[O-]",
         "O=C([O-])C(=O)C[C@H](O)C(=O)[O-]",

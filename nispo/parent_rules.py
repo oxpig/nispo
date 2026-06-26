@@ -19,6 +19,7 @@ from .branch.hetero_atoms import _imine_carbon_ylidene
 from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
+    HydrogenEvidence,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
@@ -19162,6 +19163,7 @@ class SingleRingParentRule:
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
                     charge=_single_ring_charge_evidence(mol, ring, record.name),
+                    hydrogen=_single_ring_hydrogen_evidence(record),
                     estimated_length=len(record.name),
                     render_rank=render_rank,
                 )
@@ -19230,6 +19232,7 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
                     charge=_single_ring_charge_evidence(mol, ring, record.name),
+                    hydrogen=_single_ring_hydrogen_evidence(record),
                     estimated_length=len(record.name),
                     render_rank=1,
                 )
@@ -19251,6 +19254,12 @@ def _single_ring_suffix_candidates(mol, record) -> tuple[SuffixCandidate, ...]:
             opsin_fragility_reasons=(OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,),
         )
     return (SuffixCandidate(text="", kind=record.suffix_kind, source=source, safety=safety),)
+
+
+def _single_ring_hydrogen_evidence(record) -> HydrogenEvidence | None:
+    if record.suffix_kind == "ring_sulfur_oxide_suffix" and record.suffix_hydrogen_locants:
+        return HydrogenEvidence(saturated_locs=record.suffix_hydrogen_locants)
+    return None
 
 
 def _single_ring_suffix_has_exocyclic_charged_multiple_bond(

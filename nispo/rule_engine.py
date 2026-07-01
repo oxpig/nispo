@@ -334,7 +334,7 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
 
 
 def _fast_fail_complex_ring_system(mol) -> bool:
-    return mol.GetRingInfo().NumRings() >= 3
+    return mol.GetRingInfo().NumRings() >= 3 and mol.GetNumAtoms() > 20
 
 
 def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MAX_NAME_LENGTH) -> str:

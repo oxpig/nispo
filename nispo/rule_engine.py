@@ -56,7 +56,6 @@ _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"}
 _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
     {
         "kekulized-generic-polycyclic-parent",
-        "functional-generic-bicyclic-parent",
         "generic-bicyclic-parent",
         "preferred-generic-bicyclic-parent",
     }
@@ -276,8 +275,6 @@ def _fast_polycyclic_route_name(
 ) -> str:
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 2:
-        return ""
-    if 4 <= ring_count <= 6 and _has_assigned_stereo(mol, Chem):
         return ""
     if ctx.has_component_spiro_topology:
         name = _select_best_prepared_candidate(

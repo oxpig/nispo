@@ -15,6 +15,7 @@ from ..branch import BranchRuleSet, BranchRuleSpec
 from ..constants import HALO, MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
 from ..molecule_cache import mol_cache_dict
+from ..stereochemistry import assigned_atom_stereochemistry
 from ..substituent_resource_rules import resource_substituent_prefix as _resource_substituent_prefix
 from .functional_groups import (
     _acyl_halide_prefix,
@@ -647,15 +648,8 @@ def _locanted_substituent_path_stereo_prefix(
             continue
         if atom_idx not in locants:
             return None
-    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
-    for atom_idx, descriptor in Chem.FindMolChiralCenters(
-        mol,
-        includeUnassigned=False,
-        useLegacyImplementation=False,
-    ):
+    for atom_idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx"):
         if atom_idx not in atoms:
-            continue
-        if descriptor not in {"R", "S"}:
             continue
         locant = locants.get(atom_idx)
         if locant is None:

@@ -28,7 +28,7 @@ from .fragment_rules import (
     standalone_polyatomic_fragment_name,
 )
 from .naming_context import MoleculeContext
-from .molecule_cache import mol_cache_get, mol_cache_set
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .rule_dispatch import RuleSpec
 from .stereochemistry import (
     apply_locanted_stereochemical_prefix,
@@ -7130,6 +7130,16 @@ def _with_molecule_stereo_evidence(mol, Chem, candidate: NameCandidate) -> NameC
         return candidate
     if not _has_assigned_stereo(mol, Chem):
         return candidate
+    stereo = _molecule_stereo_evidence(mol, Chem)
+    if stereo is None:
+        return candidate
+    return replace(candidate, stereo=stereo)
+
+
+def _molecule_stereo_evidence(mol, Chem) -> StereoEvidence | None:
+    cached = mol_cache_get(mol, "molecule_stereo_evidence")
+    if cached is not None:
+        return cached or None
     atom_descriptors = tuple(
         (atom.GetIdx(), str(atom.GetChiralTag()))
         for atom in mol.GetAtoms()
@@ -7140,15 +7150,66 @@ def _with_molecule_stereo_evidence(mol, Chem, candidate: NameCandidate) -> NameC
         for bond in mol.GetBonds()
         if bond.GetStereo() != Chem.BondStereo.STEREONONE
     )
-    if not atom_descriptors and not bond_descriptors:
-        return candidate
-    return replace(
-        candidate,
-        stereo=StereoEvidence(
+    stereo = (
+        StereoEvidence(
             atom_descriptors=atom_descriptors,
             bond_descriptors=bond_descriptors,
-        ),
+        )
+        if atom_descriptors or bond_descriptors
+        else None
     )
+    mol_cache_set(mol, "molecule_stereo_evidence", stereo or False)
+    return stereo
+
+
+def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
+    tuple[tuple[str, int], ...],
+    int,
+    int,
+    int,
+    int,
+]:
+    cache = mol_cache_dict(mol, "parent_atom_evidence")
+    cached = cache.get(parent_atoms)
+    if cached is not None:
+        return cached
+    counts: dict[str, int] = {}
+    formal_charge_atom_count = 0
+    abs_formal_charge_sum = 0
+    external_unsaturated_bond_count = 0
+    internal_unsaturated_bond_count = 0
+    for atom_idx in parent_atoms:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        symbol = atom.GetSymbol()
+        counts[symbol] = counts.get(symbol, 0) + 1
+        formal_charge = atom.GetFormalCharge()
+        if formal_charge:
+            formal_charge_atom_count += 1
+            abs_formal_charge_sum += abs(formal_charge)
+        for neighbor in atom.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            if neighbor_idx in parent_atoms:
+                if atom_idx < neighbor_idx:
+                    bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+                    if (
+                        bond is not None
+                        and not bond.GetIsAromatic()
+                        and bond.GetBondTypeAsDouble() > 1.1
+                    ):
+                        internal_unsaturated_bond_count += 1
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
+            if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
+                external_unsaturated_bond_count += 1
+    evidence = (
+        tuple(sorted(counts.items())),
+        formal_charge_atom_count,
+        abs_formal_charge_sum,
+        external_unsaturated_bond_count,
+        internal_unsaturated_bond_count,
+    )
+    cache[parent_atoms] = evidence
+    return evidence
 
 
 def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate) -> NameCandidate:
@@ -7201,35 +7262,14 @@ def _candidate_has_external_bond_stereo_parent(mol, Chem, candidate: NameCandida
 def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
     if not candidate.parent_atoms:
         return candidate
-    counts: dict[str, int] = {}
-    formal_charge_atom_count = 0
-    abs_formal_charge_sum = 0
-    external_unsaturated_bond_count = 0
-    internal_unsaturated_bond_count = 0
-    for atom_idx in candidate.parent_atoms:
-        atom = mol.GetAtomWithIdx(atom_idx)
-        symbol = atom.GetSymbol()
-        counts[symbol] = counts.get(symbol, 0) + 1
-        formal_charge = atom.GetFormalCharge()
-        if formal_charge:
-            formal_charge_atom_count += 1
-            abs_formal_charge_sum += abs(formal_charge)
-        for neighbor in atom.GetNeighbors():
-            neighbor_idx = neighbor.GetIdx()
-            if neighbor_idx in candidate.parent_atoms:
-                if atom_idx < neighbor_idx:
-                    bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
-                    if (
-                        bond is not None
-                        and not bond.GetIsAromatic()
-                        and bond.GetBondTypeAsDouble() > 1.1
-                    ):
-                        internal_unsaturated_bond_count += 1
-                continue
-            bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
-            if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
-                external_unsaturated_bond_count += 1
-    parent_element_counts = tuple(sorted(counts.items()))
+    parent_atoms = frozenset(candidate.parent_atoms)
+    (
+        parent_element_counts,
+        formal_charge_atom_count,
+        abs_formal_charge_sum,
+        external_unsaturated_bond_count,
+        internal_unsaturated_bond_count,
+    ) = _parent_atom_evidence(mol, parent_atoms)
     molecule_formal_charge_atom_count, molecule_abs_formal_charge_sum = _molecule_charge_counts(mol)
     if (
         candidate.parent_element_counts == parent_element_counts

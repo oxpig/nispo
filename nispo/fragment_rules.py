@@ -4,6 +4,7 @@ import re
 from functools import lru_cache
 
 from .constants import ROOTS
+from .molecule_cache import mol_cache_get, mol_cache_set
 from .name_parts import NameParts, Suffix
 from .suffix_store import inverse_suffix_store
 
@@ -2715,15 +2716,21 @@ def _specific_bond(mol, Chem, left_idx: int, right_idx: int, bond_type) -> bool:
 
 
 def _element_counts(mol) -> dict[str, int]:
+    cached = mol_cache_get(mol, "fragment_element_counts")
+    if cached is not None:
+        return cached
     counts: dict[str, int] = {}
     for atom in mol.GetAtoms():
         symbol = atom.GetSymbol()
         counts[symbol] = counts.get(symbol, 0) + 1
-    return counts
+    return mol_cache_set(mol, "fragment_element_counts", counts)
 
 
 def _total_charge(mol) -> int:
-    return sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+    cached = mol_cache_get(mol, "fragment_total_charge")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "fragment_total_charge", sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
 
 
 def _salt_name(parent: str, fragments: list[str]) -> str:

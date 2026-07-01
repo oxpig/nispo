@@ -326,12 +326,21 @@ def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") ->
     cached = mol_cache_get(mol, cache_key)
     if cached is not None:
         return cached
+    raw_cached = mol_cache_get(mol, "assigned_atom_stereochemistry_raw")
+    if raw_cached is None:
+        raw_cached = _assigned_atom_stereochemistry_raw(mol, Chem)
+        mol_cache_set(mol, "assigned_atom_stereochemistry_raw", raw_cached)
+    reverse = atom_order != "idx"
+    return mol_cache_set(mol, cache_key, sorted(raw_cached, reverse=reverse))
+
+
+def _assigned_atom_stereochemistry_raw(mol, Chem) -> list[tuple[int, str]]:
     has_chiral_tag = any(
         atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
         for atom in mol.GetAtoms()
     )
     if not has_chiral_tag:
-        return mol_cache_set(mol, cache_key, [])
+        return []
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
     centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False, useLegacyImplementation=False)
     assigned = [
@@ -341,8 +350,7 @@ def assigned_atom_stereochemistry(mol, Chem, *, atom_order: str = "idx_desc") ->
     ]
     if not assigned:
         assigned = _atom_cip_stereochemistry_from_props(mol)
-    reverse = atom_order != "idx"
-    return mol_cache_set(mol, cache_key, sorted(assigned, reverse=reverse))
+    return assigned
 
 
 def _atom_cip_stereochemistry_from_props(mol) -> list[tuple[int, str]]:

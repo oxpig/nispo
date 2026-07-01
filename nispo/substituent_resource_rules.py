@@ -12,6 +12,7 @@ from .opsin_resource_utils import (
 )
 from .resource_manifest import SUBSTITUENT_FAMILY
 from .resource_operations import apply_token_operations
+from .molecule_cache import mol_cache_dict
 from .template_access import template_record_mol, template_record_name
 from .template_match_utils import match_has_extra_core_bonds
 
@@ -68,8 +69,13 @@ def _preferred_resource_substituent_name(name: str) -> str:
 
 
 def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | None:
+    cache = mol_cache_dict(mol, "resource_substituent_match_cache")
+    cache_key = (idx, parent_idx)
+    if cache_key in cache:
+        return cache[cache_key]
     bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        cache[cache_key] = None
         return None
     atoms = _collect_subtree(mol, idx, parent_idx)
     key = _subtree_key(mol, idx, atoms)
@@ -85,7 +91,9 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
             if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
                 continue
             if match[0] == idx:
+                cache[cache_key] = template
                 return template
+    cache[cache_key] = None
     return None
 
 def _acyclic_carbalkoxy_token_on_ring(template: dict, mol, match: tuple[int, ...]) -> bool:

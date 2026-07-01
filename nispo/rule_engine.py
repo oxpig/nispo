@@ -167,7 +167,12 @@ class NamingEngine:
         mol.SetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, "1")
         mol.SetProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP, "1")
         try:
-            fallback_ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+            fallback_ctx = MoleculeContext(
+                mol,
+                self._Chem,
+                telemetry=telemetry,
+                cache=ctx.cache.shared_for_fallback(),
+            )
             fallback_name = _select_best_prepared_candidate(
                 _prepare_candidates(
                     mol,

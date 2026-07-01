@@ -347,6 +347,7 @@ def _secondary_bridge_tricyclic_candidate_records(
     multiple_bond_count = _ring_multiple_bond_count(mol, atoms)
     allow_relaxed_base_paths = multiple_bond_count <= 8
     use_saturated_bridge_selection = multiple_bond_count == 0
+    atom_mask = _atom_bitmask(atoms)
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph,
@@ -354,6 +355,7 @@ def _secondary_bridge_tricyclic_candidate_records(
             left,
             right,
             allow_relaxed=allow_relaxed_base_paths,
+            atom_mask=atom_mask,
         ):
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
                 completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, 3)
@@ -617,9 +619,15 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
         rank,
         multiple_bond_count,
     )
+    atom_mask = _atom_bitmask(atoms)
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
-            graph, atoms, left, right, allow_relaxed=allow_relaxed_base_paths
+            graph,
+            atoms,
+            left,
+            right,
+            allow_relaxed=allow_relaxed_base_paths,
+            atom_mask=atom_mask,
         ):
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
                 completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
@@ -1035,7 +1043,13 @@ def _secondary_bridge_completion(
 
 
 def _secondary_bridge_base_path_sets(
-    graph: dict[int, set[int]], atoms: set[int], a: int, b: int, *, allow_relaxed: bool
+    graph: dict[int, set[int]],
+    atoms: set[int],
+    a: int,
+    b: int,
+    *,
+    allow_relaxed: bool,
+    atom_mask: int | None = None,
 ) -> list[tuple[tuple[int, ...], ...]]:
     path_infos = (
         _simple_path_infos(graph, a, b, max_paths=36)
@@ -1050,7 +1064,7 @@ def _secondary_bridge_base_path_sets(
 
     candidates = []
     endpoints_mask = (1 << a) | (1 << b)
-    atom_mask = _atom_bitmask(atoms)
+    atom_mask = _atom_bitmask(atoms) if atom_mask is None else atom_mask
     for selected in combinations(path_infos, 3):
         first, second, third = selected
         if first[1] & second[1] or first[1] & third[1] or second[1] & third[1]:
@@ -1102,18 +1116,24 @@ def _secondary_bridge_paths(
     else:
         return []
     paths = []
+    sorted_neighbors: dict[int, tuple[int, ...]] = {}
     for start, first in starts:
-        stack = [(first, (start, first))]
+        stack = [(first, (start, first), (1 << start) | (1 << first))]
         while stack:
-            current, path = stack.pop()
+            current, path, visited_mask = stack.pop()
             if current in base_atoms and current != start:
                 paths.append(path)
                 continue
-            for nbr in sorted(graph[current]):
+            neighbors = sorted_neighbors.get(current)
+            if neighbors is None:
+                neighbors = tuple(sorted(graph[current]))
+                sorted_neighbors[current] = neighbors
+            for nbr in neighbors:
                 edge = tuple(sorted((current, nbr)))
-                if edge not in available or nbr in path:
+                nbr_mask = 1 << nbr
+                if edge not in available or visited_mask & nbr_mask:
                     continue
-                stack.append((nbr, path + (nbr,)))
+                stack.append((nbr, path + (nbr,), visited_mask | nbr_mask))
     return paths
 
 
@@ -1261,17 +1281,23 @@ def _bridge_paths_with_count_from_infos(
 
 def _simple_paths(graph: dict[int, set[int]], start: int, end: int, max_paths: int) -> list[tuple[int, ...]]:
     paths = []
-    stack = [(start, (start,))]
+    stack = [(start, (start,), 1 << start)]
+    sorted_neighbors: dict[int, tuple[int, ...]] = {}
     while stack and len(paths) < max_paths:
-        current, path = stack.pop()
-        for nbr in sorted(graph[current]):
-            if nbr in path:
+        current, path, visited_mask = stack.pop()
+        neighbors = sorted_neighbors.get(current)
+        if neighbors is None:
+            neighbors = tuple(sorted(graph[current]))
+            sorted_neighbors[current] = neighbors
+        for nbr in neighbors:
+            nbr_mask = 1 << nbr
+            if visited_mask & nbr_mask:
                 continue
             next_path = path + (nbr,)
             if nbr == end:
                 paths.append(next_path)
             else:
-                stack.append((nbr, next_path))
+                stack.append((nbr, next_path, visited_mask | nbr_mask))
     return paths
 
 

@@ -34,6 +34,9 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
         return ()
     order = bond.GetBondTypeAsDouble()
     symbol = atom.GetSymbol()
+    if atom.IsInRing():
+        cache[key] = ()
+        return ()
     if symbol in HALO:
         candidate = _terminal_halogen_prefix(atom, idx, parent_idx, order)
     elif symbol == "C":

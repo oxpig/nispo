@@ -70,6 +70,15 @@ class ContextCache:
     ] = field(default_factory=dict)
     topology_flags: dict[str, bool] = field(default_factory=dict)
 
+    def shared_for_fallback(self) -> "ContextCache":
+        return ContextCache(
+            template_candidates=self.template_candidates,
+            compiled_template_candidates=self.compiled_template_candidates,
+            substruct_matches=self.substruct_matches,
+            fused_template_matches=self.fused_template_matches,
+            topology_flags=self.topology_flags,
+        )
+
 
 @dataclass(slots=True)
 class MoleculeContext:

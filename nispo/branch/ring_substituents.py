@@ -1078,13 +1078,9 @@ def _fused_ring_substituent_prefix_from_templates(
             stereo_prefix = _fused_substituent_stereo_prefix(mol, template, match)
             if stereo_prefix:
                 name = f"({stereo_prefix})-{name}"
-            prefix_locants = _fused_substituent_prefix_locants(
-                mol,
+            prefix_locants = _fused_substituent_prefix_locants_from_records(
                 template,
-                match,
-                reverse,
-                parent_idx,
-                core_set,
+                prefix_records,
                 attachment_locant=locant,
             )
             key = _fused_substituent_candidate_key(
@@ -1490,6 +1486,20 @@ def _fused_substituent_prefix_locants(
     for core_loc, _symbol in records:
         locants.append(locant_map.get(core_loc, core_loc))
     return tuple(sorted(locants, key=_locant_sort_key))
+
+
+def _fused_substituent_prefix_locants_from_records(
+    template: dict,
+    records: Sequence[tuple[str, str, str]],
+    *,
+    attachment_locant: str = "",
+) -> tuple[str, ...]:
+    locant_map = _benzimidazole_n1_substituent_benzenoid_prefix_locant_map(
+        template,
+        attachment_locant,
+        records,
+    )
+    return tuple(sorted((locant_map.get(locant, locant) for locant, _prefix, _symbol in records), key=_locant_sort_key))
 
 
 def _benzimidazole_n1_substituent_benzenoid_prefix_locant_map(

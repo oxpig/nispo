@@ -181,8 +181,6 @@ class NamingEngine:
         )
         if routed_polycyclic_name:
             return routed_polycyclic_name
-        if _fast_fail_complex_ring_system(mol):
-            return ""
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,
@@ -277,6 +275,8 @@ def _fast_polycyclic_route_name(
     if ring_count < 2:
         return ""
     if not _fast_fail_complex_ring_system(mol):
+        return ""
+    if _has_assigned_stereo(mol, Chem):
         return ""
     if ctx.has_component_spiro_topology:
         name = _select_best_prepared_candidate(

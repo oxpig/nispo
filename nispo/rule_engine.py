@@ -51,6 +51,15 @@ _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fa
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
 _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE = "single-ring:retained-carbohydrate-substituent"
 _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset({"single-ring-parent"})
+_FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"})
+_FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
+    {
+        "kekulized-generic-polycyclic-parent",
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "preferred-generic-bicyclic-parent",
+    }
+)
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
 
 
@@ -127,6 +136,12 @@ class NamingEngine:
         self._fast_monocycle_system_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES
         )
+        self._fast_component_spiro_route_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES
+        )
+        self._fast_poly_bridge_route_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
+        )
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
@@ -158,6 +173,16 @@ class NamingEngine:
         )
         if fast_monocycle_name:
             return fast_monocycle_name
+        routed_polycyclic_name = _fast_polycyclic_route_name(
+            mol,
+            self._Chem,
+            ctx,
+            component_spiro_rules=self._fast_component_spiro_route_rules,
+            bridge_rules=self._fast_poly_bridge_route_rules,
+            telemetry=telemetry,
+        )
+        if routed_polycyclic_name:
+            return routed_polycyclic_name
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,
@@ -235,6 +260,35 @@ def _fast_monocycle_system_name(
         return ""
     return _select_best_prepared_candidate(
         _prepare_candidates(mol, Chem, ctx, rules),
+        telemetry=telemetry,
+    )
+
+
+def _fast_polycyclic_route_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    *,
+    component_spiro_rules: Iterable[RuleSpec],
+    bridge_rules: Iterable[RuleSpec],
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    ring_count = mol.GetRingInfo().NumRings()
+    if ring_count < 2:
+        return ""
+    if ctx.has_component_spiro_topology:
+        name = _select_best_prepared_candidate(
+            _prepare_candidates(mol, Chem, ctx, component_spiro_rules),
+            telemetry=telemetry,
+        )
+        if name:
+            return name
+    if ring_count < 3:
+        return ""
+    if not any(atom.GetIsAromatic() for atom in mol.GetAtoms()):
+        return ""
+    return _select_best_prepared_candidate(
+        _prepare_candidates(mol, Chem, ctx, bridge_rules),
         telemetry=telemetry,
     )
 

@@ -103,6 +103,7 @@ from .rule_dispatch import (
     terminal_n_oxide_signal,
 )
 from .rule_priority import parent_priority
+from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .rule_engine import NameCandidate
 from .simple_prefixes import simple_external_prefix
 from .stereochemistry import assigned_atom_stereochemistry
@@ -20787,7 +20788,7 @@ class _PolycyclicRecordParentRule:
         if self._defer_all_records(ctx):
             return
         rendered = 0
-        max_records = _max_polycyclic_records_for_family(self.family)
+        max_records = _max_polycyclic_records_for_family(self.family, ctx)
         for record_order, record in enumerate(ctx.polycyclic_parent_records(self.record_family)):
             name, seq = record[0], record[1]
             bridge_unsaturation_mismatches = int(record[2]) if len(record) > 2 else 0
@@ -20836,13 +20837,23 @@ class GenericBicyclicParentRule(_PolycyclicRecordParentRule):
 
 
 _MAX_POLYCYCLIC_RECORDS_BY_FAMILY = {
+    "functional-generic-bicyclic-parent": 20,
+    "generic-bicyclic-parent": 20,
+    "kekulized-generic-polycyclic-parent": 12,
+}
+_FAST_ROUTE_POLYCYCLIC_RECORDS_BY_FAMILY = {
     "functional-generic-bicyclic-parent": 4,
     "generic-bicyclic-parent": 4,
     "kekulized-generic-polycyclic-parent": 4,
 }
 
 
-def _max_polycyclic_records_for_family(family: str) -> int | None:
+def _max_polycyclic_records_for_family(family: str, ctx=None) -> int | None:
+    if (
+        ctx is not None
+        and bool(getattr(ctx.mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP))
+    ):
+        return _FAST_ROUTE_POLYCYCLIC_RECORDS_BY_FAMILY.get(family)
     return _MAX_POLYCYCLIC_RECORDS_BY_FAMILY.get(family)
 
 

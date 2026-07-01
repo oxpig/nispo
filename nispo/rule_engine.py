@@ -21,6 +21,7 @@ from .candidate_facts import (
 )
 from .candidate_fact_ranker_model import score as _candidate_fact_ranker_score
 from .candidate_fact_switch_gate_model import score as _candidate_fact_switch_gate_score
+from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fragment_rules import (
     FragmentAssemblyRule,
     common_polyatomic_fragment_name,
@@ -287,10 +288,19 @@ def _fast_polycyclic_route_name(
         return ""
     if not any(atom.GetIsAromatic() for atom in mol.GetAtoms()):
         return ""
-    return _select_best_prepared_candidate(
-        _prepare_candidates(mol, Chem, ctx, bridge_rules),
-        telemetry=telemetry,
-    )
+    had_route_prop = mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+    previous_route_prop = mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if had_route_prop else ""
+    mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, "1")
+    try:
+        return _select_best_prepared_candidate(
+            _prepare_candidates(mol, Chem, ctx, bridge_rules),
+            telemetry=telemetry,
+        )
+    finally:
+        if had_route_prop:
+            mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
+        else:
+            mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

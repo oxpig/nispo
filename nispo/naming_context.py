@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import json
 
 from .acyclic_rules import AcyclicNameRecord, name_acyclic_record
+from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
     candidate_generated_fused_templates,
     generated_template_key,
@@ -31,12 +32,15 @@ from .molecule_cache import mol_cache_set
 
 _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
 _GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT = 16
-_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 4
-_KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT = 4
+_FAST_ROUTE_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 4
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 12
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT = 12
 _HALOGEN_ATOMIC_NUMBERS = frozenset({9, 17, 35, 53, 85})
 
 
 def _kekulized_polycyclic_parent_record_limit(mol) -> int:
+    if bool(getattr(mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP)):
+        return _FAST_ROUTE_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT
     if not any(atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS for atom in mol.GetAtoms()):
         return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
     ring_count = mol.GetRingInfo().NumRings()

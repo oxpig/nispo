@@ -9,6 +9,7 @@ import pytest
 from rdkit import Chem
 
 from nispo import smiles_to_iupac, smiles_to_iupac_batch
+import nispo.api as api
 from nispo.api import _engine, _smiles_to_iupac_batch_with_telemetry
 from nispo.naming_context import MoleculeContext
 from nispo.rule_engine import _prepare_candidates
@@ -48,6 +49,24 @@ def test_batch_matches_scalar_for_mixed_inputs():
 
     assert len(batch_outputs) == len(inputs)
     assert batch_outputs == scalar_outputs
+
+
+def test_batch_names_duplicate_smiles_independently(monkeypatch):
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+
+        def name(self, _mol):
+            self.calls += 1
+            return f"name-{self.calls}"
+
+    fake_engine = FakeEngine()
+    api._BATCH_NAME_CACHE.clear()
+    monkeypatch.setattr(api, "_engine", lambda: fake_engine)
+
+    assert api.smiles_to_iupac_batch(["CC", "CC"]) == ["name-1", "name-2"]
+    assert fake_engine.calls == 2
+    assert api._BATCH_NAME_CACHE == {}
 
 
 def test_private_telemetry_batch_matches_public_batch():

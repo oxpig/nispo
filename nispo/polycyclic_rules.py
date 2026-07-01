@@ -7,6 +7,7 @@ from itertools import combinations, permutations, product
 
 from .branch_rules import branch_prefix
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
+from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import join_locants as _join_locants
 from .formatting import join_prefix_parent as _join_prefix_parent
@@ -606,8 +607,11 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
             multiple_bond_count,
         )
     )
+    route_fast = bool(getattr(mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP))
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
-    candidate_pool_limit = max(candidate_limit * 4, candidate_limit + 24)
+    if route_fast:
+        candidate_limit = min(candidate_limit, 2)
+    candidate_pool_limit = max(candidate_limit * 4, candidate_limit + 8)
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
     ) and _use_large_hetero_kekulized_bridge_order(

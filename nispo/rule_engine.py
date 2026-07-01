@@ -56,8 +56,6 @@ _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"}
 _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
     {
         "kekulized-generic-polycyclic-parent",
-        "generic-bicyclic-parent",
-        "preferred-generic-bicyclic-parent",
     }
 )
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
@@ -173,6 +171,8 @@ class NamingEngine:
         )
         if fast_monocycle_name:
             return fast_monocycle_name
+        if _fast_fail_complex_ring_system(mol):
+            return ""
         routed_polycyclic_name = _fast_polycyclic_route_name(
             mol,
             self._Chem,
@@ -331,6 +331,10 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
         if order != 2.0 or {begin.GetSymbol(), end.GetSymbol()} != {"C", "O"}:
             return False
     return True
+
+
+def _fast_fail_complex_ring_system(mol) -> bool:
+    return mol.GetRingInfo().NumRings() >= 3
 
 
 def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MAX_NAME_LENGTH) -> str:

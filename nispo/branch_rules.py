@@ -206,41 +206,10 @@ def _legacy_branch_prefix_global_cache_set(cache_key: tuple, prefix: str) -> Non
 
 
 def _legacy_branch_prefix_global_cache_key(mol, idx: int, parent_idx: int) -> tuple | None:
-    atom = mol.GetAtomWithIdx(idx)
-    if atom.GetAtomicNum() <= 1 or atom.IsInRing():
-        return None
-    component_atoms = _branch_component_atoms(mol, idx, parent_idx)
-    if not component_atoms or len(component_atoms) > 80:
-        return None
-    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
-    if parent_bond is None:
-        return None
-    if _component_has_assigned_stereo(mol, component_atoms, parent_bond):
-        return None
-    try:
-        fragment_smiles = Chem.MolFragmentToSmiles(
-            mol,
-            atomsToUse=list(component_atoms),
-            rootedAtAtom=idx,
-            canonical=True,
-            isomericSmiles=True,
-        )
-    except Exception:
-        return None
-    parent = mol.GetAtomWithIdx(parent_idx)
-    return (
-        fragment_smiles,
-        _legacy_parent_atom_cache_facts(parent),
-        _legacy_parent_bond_cache_facts(parent_bond),
-        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
-        mol.GetProp("_nispo_allow_fragment_substituent_fallback")
-        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
-        else "",
-        mol.HasProp("_nispo_fragment_substituent_depth"),
-        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
-        mol.HasProp("_nispo_fragment_substituent_view"),
-        mol.HasProp("_nispo_kekulized_aromatic_view"),
-    )
+    # Do not reuse rendered branch names across molecules. Benchmarks should
+    # measure each molecule as an independent naming task; per-molecule caches
+    # still cover repeated branch requests inside one molecule.
+    return None
 
 
 def _branch_component_atoms(mol, idx: int, parent_idx: int) -> tuple[int, ...]:

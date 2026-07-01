@@ -20939,6 +20939,8 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
 
     def _defer_all_records(self, ctx) -> bool:
+        if bool(getattr(ctx.mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP)):
+            return False
         return _has_retained_fused_parent_candidate(ctx, self._Chem)
 
 

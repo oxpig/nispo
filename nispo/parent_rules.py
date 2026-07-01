@@ -17091,29 +17091,59 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         return True
     if ring_count == 1:
         return _has_substituent_like_monocyclic_parent_name(name)
-    has_polycyclic_parent_record = (
-        ctx.polycyclic_parent_records("bicyclic")
-        or ctx.polycyclic_parent_records("spiro")
-        or ctx.polycyclic_parent_records("kekulized")
+    monocyclic_defer = _has_substituent_like_monocyclic_parent_name(name)
+    kekulized_short_functional_defer = (
+        _has_short_functional_acyclic_parent_suffix(name)
+        and _has_functional_ring_substituent_chain_shape(name)
+    )
+    kekulized_pterin_defer = (
+        _has_pterin_retained_fused_parent_substituent_name(name)
+        and _has_stemmed_short_acyclic_parent_suffix(name)
+        and _has_functional_ring_substituent_chain_shape(name)
+    )
+    polycyclic_defer_possible = (
+        monocyclic_defer
+        or _has_ring_substituent_artifact_name(name)
+        or ("diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")))
+        or ("diamyl" in name and "dioxolan" in name)
+        or "azamethylcarbonyl" in name
+        or (
+            name.endswith("-methane")
+            and any(term in name for term in ("carbonyl", "carboxy", "isocyano", "oxomethyl", "sulfonyl"))
+        )
+        or _has_unsubstituted_sulfonimidoyl_methane_parent(name)
+        or (name.endswith("-propane") and "carbonyloxy" in name)
+        or (
+            _has_retained_fused_parent_substituent_name(name)
+            and any(
+                term in name
+                for term in ("amino", "carbonyl", "carboxy", "cyano", "imino", "oxo", "aza", "oxa", "thia")
+            )
+            and _has_short_functional_acyclic_parent_suffix(name)
+        )
+        or kekulized_short_functional_defer
+        or kekulized_pterin_defer
+    )
+    if not polycyclic_defer_possible:
+        return False
+    kekulized_records = None
+    has_polycyclic_parent_record = ctx.polycyclic_parent_records("bicyclic") or ctx.polycyclic_parent_records(
+        "spiro"
     )
     if not has_polycyclic_parent_record:
-        return _has_substituent_like_monocyclic_parent_name(name)
+        kekulized_records = ctx.polycyclic_parent_records("kekulized")
+        has_polycyclic_parent_record = bool(kekulized_records)
+    if not has_polycyclic_parent_record:
+        return monocyclic_defer
     if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[")):
         return False
     if _has_ring_substituent_artifact_name(name):
         return True
-    if (
-        ctx.polycyclic_parent_records("kekulized")
-        and _has_short_functional_acyclic_parent_suffix(name)
-        and _has_functional_ring_substituent_chain_shape(name)
-    ):
+    if kekulized_records is None:
+        kekulized_records = ctx.polycyclic_parent_records("kekulized")
+    if kekulized_records and kekulized_short_functional_defer:
         return True
-    if (
-        ctx.polycyclic_parent_records("kekulized")
-        and _has_pterin_retained_fused_parent_substituent_name(name)
-        and _has_stemmed_short_acyclic_parent_suffix(name)
-        and _has_functional_ring_substituent_chain_shape(name)
-    ):
+    if kekulized_records and kekulized_pterin_defer:
         return True
     if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
         return True
@@ -20855,9 +20885,9 @@ class FunctionalGenericBicyclicParentRule(GenericBicyclicParentRule):
         return any(term in name for term in _FUNCTIONAL_GENERIC_BICYCLIC_TERMS)
 
     def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
-        if not ctx.polycyclic_parent_records("kekulized"):
+        if not _has_retained_fused_parent_substituent_name(name):
             return False
-        return _has_retained_fused_parent_substituent_name(name)
+        return bool(ctx.polycyclic_parent_records("kekulized"))
 
 
 class PreferredGenericBicyclicParentRule(GenericBicyclicParentRule):
@@ -20896,9 +20926,6 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         if not aromatic and ring_count < 3:
             return None
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
-
-    def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
-        return _has_retained_fused_parent_candidate(ctx, self._Chem)
 
     def _defer_all_records(self, ctx) -> bool:
         return _has_retained_fused_parent_candidate(ctx, self._Chem)

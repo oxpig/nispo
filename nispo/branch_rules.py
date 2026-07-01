@@ -244,6 +244,11 @@ def _legacy_branch_prefix_global_cache_key(mol, idx: int, parent_idx: int) -> tu
 
 
 def _branch_component_atoms(mol, idx: int, parent_idx: int) -> tuple[int, ...]:
+    cache = mol_cache_dict(mol, "branch_component_atoms")
+    key = (idx, parent_idx)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
     atoms: set[int] = set()
     stack = [idx]
     while stack:
@@ -257,7 +262,9 @@ def _branch_component_atoms(mol, idx: int, parent_idx: int) -> tuple[int, ...]:
             if nidx == parent_idx or nidx in atoms:
                 continue
             stack.append(nidx)
-    return tuple(sorted(atoms))
+    result = tuple(sorted(atoms))
+    cache[key] = result
+    return result
 
 
 def _component_has_assigned_stereo(mol, atoms: tuple[int, ...], parent_bond) -> bool:

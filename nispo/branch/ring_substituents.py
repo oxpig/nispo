@@ -1032,7 +1032,7 @@ def _fused_ring_substituent_prefix_from_templates(
 ) -> str:
     best = ""
     best_key = None
-    for template in template_store(Chem).candidate_templates(mol, templates):
+    for template in _candidate_templates(mol, templates):
         if _template_requires_systematic_substituent_name(template):
             continue
         core = template_record_mol(template)
@@ -1260,7 +1260,7 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
 ) -> str:
     best = ""
     best_key = None
-    for template in template_store(Chem).candidate_templates(mol, templates):
+    for template in _candidate_templates(mol, templates):
         if not _template_is_fully_aromatic(template_record_mol(template)):
             continue
         query = _topology_query(template_record_mol(template))
@@ -1316,6 +1316,17 @@ def _hydro_fused_ring_substituent_prefix_from_templates(
                 best_key = key
                 best = name
     return best
+
+
+def _candidate_templates(mol, templates: tuple[dict, ...]) -> tuple[dict, ...]:
+    cache = mol_cache_dict(mol, "branch_ring_candidate_templates")
+    key = id(templates)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    candidates = tuple(template_store(Chem).candidate_templates(mol, templates))
+    cache[key] = candidates
+    return candidates
 
 
 def _substruct_matches(mol, query) -> tuple[tuple[int, ...], ...]:

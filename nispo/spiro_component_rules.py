@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from collections.abc import Sequence
 from functools import lru_cache
 
@@ -15,6 +16,7 @@ from .fused_template_families import (
     curated_fused_templates,
 )
 from .formatting import format_prefixes as _format_prefixes
+from .molecule_cache import mol_cache_dict, mol_cache_get
 from .naming_context import MoleculeContext
 from .parent.rule_helpers import (
     _adjust_fused_parent_for_charge,
@@ -53,6 +55,8 @@ _REPLACEMENT_TERMS = (
 
 _POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 48
 _COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT = 72
+_COMPONENT_NAME_CACHE_LIMIT = 8192
+_COMPONENT_NAME_CACHE: OrderedDict[tuple, tuple["_Component", ...]] = OrderedDict()
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -842,6 +846,53 @@ class _Component:
         self.render_cost = render_cost
 
 
+def _component_name_cache_key(mol, Chem, family: str, spiro_idx: int) -> tuple:
+    atoms = tuple(
+        (
+            atom.GetAtomicNum(),
+            atom.GetFormalCharge(),
+            atom.GetIsotope(),
+            atom.GetIsAromatic(),
+            str(atom.GetChiralTag()),
+            atom.GetNumExplicitHs(),
+            atom.GetNoImplicit(),
+            atom.GetNumRadicalElectrons(),
+        )
+        for atom in mol.GetAtoms()
+    )
+    bonds = tuple(
+        sorted(
+            (
+                min(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()),
+                max(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()),
+                str(bond.GetBondType()),
+                bond.GetIsAromatic(),
+                str(bond.GetBondDir()),
+                str(bond.GetStereo()),
+                tuple(bond.GetStereoAtoms()),
+            )
+            for bond in mol.GetBonds()
+        )
+    )
+    return (family, id(Chem), int(spiro_idx), atoms, bonds)
+
+
+def _cached_component_names(cache_key: tuple) -> list[_Component] | None:
+    cached = _COMPONENT_NAME_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    _COMPONENT_NAME_CACHE.move_to_end(cache_key)
+    return list(cached)
+
+
+def _store_component_names(cache_key: tuple, components: list[_Component]) -> list[_Component]:
+    _COMPONENT_NAME_CACHE[cache_key] = tuple(components)
+    _COMPONENT_NAME_CACHE.move_to_end(cache_key)
+    while len(_COMPONENT_NAME_CACHE) > _COMPONENT_NAME_CACHE_LIMIT:
+        _COMPONENT_NAME_CACHE.popitem(last=False)
+    return components
+
+
 def _combined_component_safety(*components: _Component) -> CandidateSafety | None:
     reasons: list[str] = []
     for component in components:
@@ -860,12 +911,16 @@ def _combined_component_render_cost(*components: _Component) -> int:
 
 
 def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
+    cache_key = _component_name_cache_key(mol, Chem, "simple", spiro_idx)
+    cached = _cached_component_names(cache_key)
+    if cached is not None:
+        return cached
     if mol.GetRingInfo().NumRings() != 1:
-        return []
+        return _store_component_names(cache_key, [])
     ring = tuple(mol.GetRingInfo().AtomRings()[0])
     ordered = ordered_ring(mol, ring)
     if not ordered:
-        return []
+        return _store_component_names(cache_key, [])
     records = list(ring_parent_candidates(mol, ordered))
     if not records:
         records = resource_ring_parent_candidates(mol, ordered, Chem)
@@ -898,10 +953,14 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             item.spiro_locant,
         )
     )
-    return components
+    return _store_component_names(cache_key, components)
 
 
 def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
+    cache_key = _component_name_cache_key(mol, Chem, "poly", spiro_idx)
+    cached = _cached_component_names(cache_key)
+    if cached is not None:
+        return cached
     components: list[_Component] = []
     seen = set()
     record_groups = (
@@ -973,7 +1032,17 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             item.parent_name,
         )
     )
-    return components[:16]
+    return _store_component_names(cache_key, components[:16])
+
+
+@lru_cache(maxsize=8)
+def _sorted_curated_fused_templates(Chem) -> tuple[dict, ...]:
+    return tuple(
+        sorted(
+            curated_fused_templates(Chem),
+            key=lambda item: (template_record_mol(item).GetNumAtoms(), template_record_name(item)),
+        )
+    )
 
 
 def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -> list[_Component]:
@@ -982,12 +1051,7 @@ def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -
     seen = seen if seen is not None else set()
     ctx = MoleculeContext(mol, Chem)
     templates = (
-        tuple(
-            sorted(
-                curated_fused_templates(Chem),
-                key=lambda item: (template_record_mol(item).GetNumAtoms(), template_record_name(item)),
-            )
-        )
+        _sorted_curated_fused_templates(Chem)
         + candidate_generated_fused_templates(mol, Chem, ctx.features)
     )
     components: list[_Component] = []
@@ -1188,6 +1252,21 @@ def _external_substituent_prefixes(
     *,
     covered_external_atoms: set[int] | frozenset[int] = frozenset(),
 ) -> list[tuple[str, str]] | None:
+    if mol_cache_get(mol, "candidate_telemetry") is None:
+        cache = mol_cache_dict(mol, "spiro_external_substituent_prefixes")
+        cache_key = (
+            tuple(sorted(core_atoms)),
+            tuple(sorted((int(idx), str(locant)) for idx, locant in locants.items())),
+            tuple(sorted(int(idx) for idx in covered_external_atoms)),
+            mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+            mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+    else:
+        cache = None
+        cache_key = None
     prefixes = []
     for atom_idx in sorted(core_atoms):
         locant = locants.get(atom_idx, "")
@@ -1203,6 +1282,8 @@ def _external_substituent_prefixes(
             if not prefix:
                 return None
             prefixes.append((locant, prefix))
+    if cache is not None and cache_key is not None:
+        cache[cache_key] = tuple(prefixes)
     return prefixes
 
 

@@ -16,11 +16,43 @@ from .simple_prefixes import simple_external_prefix
 from .stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 
 
+def _polycyclic_record_cache_key(mol, family: str, limit: int | None = None) -> tuple:
+    return (
+        family,
+        limit,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_allow_fragment_substituent_fallback")
+        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
+        else "",
+        mol.HasProp("_nispo_fragment_substituent_depth"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        mol.HasProp("_nispo_fragment_substituent_view"),
+        mol.HasProp("_nispo_kekulized_aromatic_view"),
+    )
+
+
+def _cached_polycyclic_records(mol, cache_key: tuple):
+    cache = mol_cache_dict(mol, "polycyclic_parent_candidate_records")
+    cached = cache.get(cache_key)
+    if cached is None:
+        return None
+    return list(cached)
+
+
+def _store_polycyclic_records(mol, cache_key: tuple, records: list[tuple]) -> list[tuple]:
+    mol_cache_dict(mol, "polycyclic_parent_candidate_records")[cache_key] = tuple(records)
+    return records
+
+
 def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
+    cache_key = _polycyclic_record_cache_key(mol, "bicyclic")
+    cached = _cached_polycyclic_records(mol, cache_key)
+    if cached is not None:
+        return cached
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_bicyclic_ring_system_candidate_records(mol, Chem, ring_system))
-    return candidates
+    return _store_polycyclic_records(mol, cache_key, candidates)
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -28,11 +60,15 @@ def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
 
 def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
+    cache_key = _polycyclic_record_cache_key(mol, "spiro")
+    cached = _cached_polycyclic_records(mol, cache_key)
+    if cached is not None:
+        return cached
     candidates = []
     for ring_system in _ring_systems(mol, Chem):
         candidates.extend(_dispiro_ring_system_candidate_records(mol, Chem, ring_system))
         candidates.extend(_spiro_ring_system_candidate_records(mol, Chem, ring_system))
-    return candidates
+    return _store_polycyclic_records(mol, cache_key, candidates)
 
 
 def kekulized_polycyclic_parent_candidate_records(
@@ -46,6 +82,11 @@ def kekulized_polycyclic_parent_candidate_records(
     names to higher-priority rules.
     """
 
+    cache_key = _polycyclic_record_cache_key(mol, "kekulized", limit)
+    cached = _cached_polycyclic_records(mol, cache_key)
+    if cached is not None:
+        return cached
+
     kekulized = Chem.Mol(mol)
     try:
         Chem.Kekulize(kekulized, clearAromaticFlags=True)
@@ -53,7 +94,7 @@ def kekulized_polycyclic_parent_candidate_records(
     except Exception:
         kekulized = mol
     if limit is not None and limit <= 0:
-        return []
+        return _store_polycyclic_records(mol, cache_key, [])
     seen = set()
     unique = []
 
@@ -92,8 +133,8 @@ def kekulized_polycyclic_parent_candidate_records(
             continue
         for records in record_sets:
             if add_unique(records):
-                return unique
-    return unique
+                return _store_polycyclic_records(mol, cache_key, unique)
+    return _store_polycyclic_records(mol, cache_key, unique)
 
 
 def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int) -> str:
@@ -1080,8 +1121,8 @@ def _ring_systems(mol, Chem) -> list[set[int]]:
     return [set(topology.atoms) for topology in _cached_ring_system_topologies(mol, Chem)]
 
 
-def _ring_system_graph(mol, Chem, atoms: set[int]) -> dict[int, set[int]]:
-    return {idx: set(nbrs) for idx, nbrs in _cached_ring_system_graph(mol, Chem, atoms).items()}
+def _ring_system_graph(mol, Chem, atoms: set[int]) -> dict[int, frozenset[int]]:
+    return _cached_ring_system_graph(mol, Chem, atoms)
 
 
 def _graph_edges(graph: dict[int, set[int]]) -> list[tuple[int, int]]:

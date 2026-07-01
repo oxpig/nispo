@@ -20838,7 +20838,7 @@ class GenericBicyclicParentRule(_PolycyclicRecordParentRule):
 _MAX_POLYCYCLIC_RECORDS_BY_FAMILY = {
     "functional-generic-bicyclic-parent": 20,
     "generic-bicyclic-parent": 20,
-    "kekulized-generic-polycyclic-parent": 20,
+    "kekulized-generic-polycyclic-parent": 12,
 }
 
 

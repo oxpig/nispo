@@ -45,6 +45,7 @@ _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _STEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
 _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
+_SENIOR_CANDIDATE_EARLY_STOP_PRIORITY = 60
 _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
@@ -228,6 +229,8 @@ def _prepare_candidates(
 ) -> list[_PreparedCandidate]:
     prepared: list[_PreparedCandidate] = []
     for rule in rules:
+        if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
+            break
         if not rule.applies(ctx):
             continue
         if ctx.telemetry is None:
@@ -16658,7 +16661,10 @@ def _candidate_needs_carbofused_arylidene_substituent_stereo_inversion(mol, Chem
 
 
 def _assigned_double_stereo_bonds(mol, Chem):
-    return [
+    cached = mol_cache_get(mol, "assigned_double_stereo_bonds")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "assigned_double_stereo_bonds", tuple(
         bond
         for bond in mol.GetBonds()
         if bond.GetBondType() == Chem.BondType.DOUBLE
@@ -16669,7 +16675,7 @@ def _assigned_double_stereo_bonds(mol, Chem):
             Chem.BondStereo.STEREOZ,
             Chem.BondStereo.STEREOCIS,
         }
-    ]
+    ))
 
 
 def _atom_has_aromatic_neighbor_except(mol, atom_idx: int, blocked_idx: int) -> bool:

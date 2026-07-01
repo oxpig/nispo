@@ -840,10 +840,10 @@ def _has_stereochemical_evidence(mol, Chem) -> bool:
 
 def _secondary_bridge_candidate_limit(rank: int) -> int:
     if rank <= 6:
-        return 48
+        return 16
     if rank == 7:
-        return 36
-    return 24
+        return 12
+    return 8
 
 
 def _use_large_hetero_kekulized_bridge_order(mol, atoms: set[int]) -> bool:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 
 try:
@@ -25,6 +25,10 @@ from .formatting import (
 )
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .simple_prefixes import simple_external_prefix
+
+_LEGACY_BRANCH_PREFIX_CACHE_LIMIT = 32768
+_LEGACY_BRANCH_PREFIX_CACHE: OrderedDict[tuple, str] = OrderedDict()
+_LEGACY_BRANCH_PREFIX_CACHE_MISS = object()
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -146,6 +150,14 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             if telemetry is not None:
                 telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
             return prefix
+        legacy_cache_key = _legacy_branch_prefix_global_cache_key(mol, idx, parent_idx)
+        if legacy_cache_key is not None:
+            cached_prefix = _legacy_branch_prefix_global_cache_get(legacy_cache_key)
+            if cached_prefix is not _LEGACY_BRANCH_PREFIX_CACHE_MISS:
+                cache[key] = cached_prefix
+                if telemetry is not None:
+                    telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(cached_prefix)] += 1
+                return cached_prefix
         record_branch_legacy_prefix_call(render_ctx)
         atom = mol.GetAtomWithIdx(idx)
         if atom.GetSymbol() == "H":
@@ -172,9 +184,114 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
             telemetry.branch_prefix_produced[telemetry_key] += 1
             telemetry.branch_legacy_prefix_produced[telemetry_key] += 1
             telemetry.branch_legacy_prefix_detail[_branch_prefix_detail_telemetry_key(prefix)] += 1
+        if legacy_cache_key is not None:
+            _legacy_branch_prefix_global_cache_set(legacy_cache_key, prefix)
         return prefix
     finally:
         in_progress.discard(key)
+
+
+def _legacy_branch_prefix_global_cache_get(cache_key: tuple):
+    cached = _LEGACY_BRANCH_PREFIX_CACHE.get(cache_key, _LEGACY_BRANCH_PREFIX_CACHE_MISS)
+    if cached is not _LEGACY_BRANCH_PREFIX_CACHE_MISS:
+        _LEGACY_BRANCH_PREFIX_CACHE.move_to_end(cache_key)
+    return cached
+
+
+def _legacy_branch_prefix_global_cache_set(cache_key: tuple, prefix: str) -> None:
+    _LEGACY_BRANCH_PREFIX_CACHE[cache_key] = prefix
+    _LEGACY_BRANCH_PREFIX_CACHE.move_to_end(cache_key)
+    while len(_LEGACY_BRANCH_PREFIX_CACHE) > _LEGACY_BRANCH_PREFIX_CACHE_LIMIT:
+        _LEGACY_BRANCH_PREFIX_CACHE.popitem(last=False)
+
+
+def _legacy_branch_prefix_global_cache_key(mol, idx: int, parent_idx: int) -> tuple | None:
+    atom = mol.GetAtomWithIdx(idx)
+    if atom.GetAtomicNum() <= 1 or atom.IsInRing():
+        return None
+    component_atoms = _branch_component_atoms(mol, idx, parent_idx)
+    if not component_atoms or len(component_atoms) > 80:
+        return None
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None:
+        return None
+    if _component_has_assigned_stereo(mol, component_atoms, parent_bond):
+        return None
+    try:
+        fragment_smiles = Chem.MolFragmentToSmiles(
+            mol,
+            atomsToUse=list(component_atoms),
+            rootedAtAtom=idx,
+            canonical=True,
+            isomericSmiles=True,
+        )
+    except Exception:
+        return None
+    parent = mol.GetAtomWithIdx(parent_idx)
+    return (
+        fragment_smiles,
+        _legacy_parent_atom_cache_facts(parent),
+        _legacy_parent_bond_cache_facts(parent_bond),
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_allow_fragment_substituent_fallback")
+        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
+        else "",
+        mol.HasProp("_nispo_fragment_substituent_depth"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        mol.HasProp("_nispo_fragment_substituent_view"),
+        mol.HasProp("_nispo_kekulized_aromatic_view"),
+    )
+
+
+def _branch_component_atoms(mol, idx: int, parent_idx: int) -> tuple[int, ...]:
+    atoms: set[int] = set()
+    stack = [idx]
+    while stack:
+        current = stack.pop()
+        if current == parent_idx or current in atoms:
+            continue
+        atoms.add(current)
+        atom = mol.GetAtomWithIdx(current)
+        for neighbor in atom.GetNeighbors():
+            nidx = neighbor.GetIdx()
+            if nidx == parent_idx or nidx in atoms:
+                continue
+            stack.append(nidx)
+    return tuple(sorted(atoms))
+
+
+def _component_has_assigned_stereo(mol, atoms: tuple[int, ...], parent_bond) -> bool:
+    atom_set = set(atoms)
+    if str(parent_bond.GetStereo()) != "STEREONONE":
+        return True
+    for idx in atoms:
+        atom = mol.GetAtomWithIdx(idx)
+        if str(atom.GetChiralTag()) != "CHI_UNSPECIFIED":
+            return True
+    for bond in mol.GetBonds():
+        if bond.GetBeginAtomIdx() not in atom_set or bond.GetEndAtomIdx() not in atom_set:
+            continue
+        if str(bond.GetStereo()) != "STEREONONE":
+            return True
+    return False
+
+
+def _legacy_parent_atom_cache_facts(atom) -> tuple:
+    return (
+        atom.GetAtomicNum(),
+        atom.GetFormalCharge(),
+        atom.GetIsotope(),
+        atom.GetIsAromatic(),
+        atom.IsInRing(),
+    )
+
+
+def _legacy_parent_bond_cache_facts(bond) -> tuple:
+    return (
+        str(bond.GetBondType()),
+        bond.GetIsAromatic(),
+        str(bond.GetBondDir()),
+    )
 
 
 def _branch_prefix_telemetry_key(prefix: str) -> str:

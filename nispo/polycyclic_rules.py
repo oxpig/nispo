@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from functools import lru_cache
 from itertools import combinations, permutations, product
 
 from .branch_rules import branch_prefix
@@ -1233,11 +1234,26 @@ def _bridge_paths_with_count(
 
 def _simple_path_infos(
     graph: dict[int, set[int]], start: int, end: int, *, max_paths: int
-) -> list[tuple[tuple[int, ...], int, int]]:
-    return [
+) -> tuple[tuple[tuple[int, ...], int, int], ...]:
+    return _simple_path_infos_for_key(_graph_cache_key(graph), start, end, max_paths)
+
+
+@lru_cache(maxsize=16384)
+def _simple_path_infos_for_key(
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...],
+    start: int,
+    end: int,
+    max_paths: int,
+) -> tuple[tuple[tuple[int, ...], int, int], ...]:
+    graph = {idx: set(neighbors) for idx, neighbors in graph_key}
+    return tuple(
         (path, _atom_bitmask(path[1:-1]), len(path) - 2)
         for path in _simple_paths(graph, start, end, max_paths=max_paths)
-    ]
+    )
+
+
+def _graph_cache_key(graph: dict[int, set[int]]) -> tuple[tuple[int, tuple[int, ...]], ...]:
+    return tuple((idx, tuple(sorted(neighbors))) for idx, neighbors in sorted(graph.items()))
 
 
 def _atom_bitmask(atoms) -> int:

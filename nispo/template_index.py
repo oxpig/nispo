@@ -13,6 +13,7 @@ _TemplateIndex = tuple[
     dict[tuple[int, tuple[tuple[str, int], ...]], tuple[tuple[dict, dict], ...]],
 ]
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
+_TEMPLATE_INDEX_MARKER_CACHE: dict[tuple[int, tuple[int, ...]], _TemplateIndex] = {}
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
 _MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
@@ -109,6 +110,11 @@ def _template_index(
     cached = _TEMPLATE_INDEX_CACHE.get(cache_key)
     if cached is not None and cached[0] is templates:
         return cached[1]
+    marker_key = (id(Chem), tuple(id(template) for template in templates))
+    marker_cached = _TEMPLATE_INDEX_MARKER_CACHE.get(marker_key)
+    if marker_cached is not None:
+        _TEMPLATE_INDEX_CACHE[cache_key] = (templates, marker_cached)
+        return marker_cached
     pure_ring_templates: dict[tuple, list[dict]] = {}
     other_templates_by_atom_count: dict[int, list[tuple[dict, dict]]] = defaultdict(list)
     for template in templates:
@@ -127,6 +133,7 @@ def _template_index(
         preferred_other_templates_by_atom_count,
         _exact_other_template_entries_by_atom_elements(preferred_other_templates_by_atom_count),
     )
+    _TEMPLATE_INDEX_MARKER_CACHE[marker_key] = indexed
     _TEMPLATE_INDEX_CACHE[cache_key] = (templates, indexed)
     return indexed
 
@@ -339,15 +346,7 @@ def graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
     cached = cache.get(atom_indices)
     if cached is not None:
         return cached
-    atom_set = set(atom_indices)
-    graph_mol = Chem.RWMol()
-    graph_index_map = {old_idx: graph_mol.AddAtom(Chem.Atom("C")) for old_idx in atom_indices}
-    for bond in mol.GetBonds():
-        begin = bond.GetBeginAtomIdx()
-        end = bond.GetEndAtomIdx()
-        if begin in atom_set and end in atom_set:
-            graph_mol.AddBond(graph_index_map[begin], graph_index_map[end], Chem.BondType.SINGLE)
-    signature = Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False)
+    signature = graph_signatures_for_atom_set(mol, atom_indices, Chem)[0]
     cache[atom_indices] = signature
     return signature
 
@@ -377,27 +376,37 @@ def graph_signatures_for_atom_set(mol, atom_indices, Chem) -> tuple[str, str]:
     if cached is not None:
         return cached
     atom_set = set(atom_indices)
-    graph_mol = Chem.RWMol()
-    element_mol = Chem.RWMol()
-    graph_index_map = {old_idx: graph_mol.AddAtom(Chem.Atom("C")) for old_idx in atom_indices}
-    element_index_map = {}
-    for old_idx in atom_indices:
-        old_atom = mol.GetAtomWithIdx(old_idx)
-        atom = Chem.Atom(old_atom.GetAtomicNum())
-        element_index_map[old_idx] = element_mol.AddAtom(atom)
+    local_index = {old_idx: local_idx for local_idx, old_idx in enumerate(atom_indices)}
+    atomic_nums = tuple(mol.GetAtomWithIdx(old_idx).GetAtomicNum() for old_idx in atom_indices)
+    edges = []
     for bond in mol.GetBonds():
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         if begin in atom_set and end in atom_set:
-            graph_mol.AddBond(graph_index_map[begin], graph_index_map[end], Chem.BondType.SINGLE)
-            element_mol.AddBond(element_index_map[begin], element_index_map[end], Chem.BondType.SINGLE)
-    signatures = (
-        Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False),
-        Chem.MolToSmiles(element_mol.GetMol(), canonical=True, isomericSmiles=False),
-    )
+            left, right = local_index[begin], local_index[end]
+            edges.append((left, right) if left < right else (right, left))
+    signatures = _graph_signatures_from_structure(atomic_nums, tuple(sorted(edges)), Chem)
     cache[atom_indices] = signatures
     mol_cache_dict(mol, "graph_signature_for_atom_set")[atom_indices] = signatures[0]
     return signatures
+
+
+@lru_cache(maxsize=8192)
+def _graph_signatures_from_structure(
+    atomic_nums: tuple[int, ...], edges: tuple[tuple[int, int], ...], Chem
+) -> tuple[str, str]:
+    graph_mol = Chem.RWMol()
+    element_mol = Chem.RWMol()
+    for atomic_num in atomic_nums:
+        graph_mol.AddAtom(Chem.Atom("C"))
+        element_mol.AddAtom(Chem.Atom(atomic_num))
+    for left, right in edges:
+        graph_mol.AddBond(left, right, Chem.BondType.SINGLE)
+        element_mol.AddBond(left, right, Chem.BondType.SINGLE)
+    return (
+        Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False),
+        Chem.MolToSmiles(element_mol.GetMol(), canonical=True, isomericSmiles=False),
+    )
 
 
 @lru_cache(maxsize=None)

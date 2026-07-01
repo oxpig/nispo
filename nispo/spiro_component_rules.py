@@ -53,7 +53,8 @@ _REPLACEMENT_TERMS = (
     "aza",
 )
 
-_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 48
+_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 24
+_SIMPLE_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 24
 _COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT = 72
 _COMPONENT_NAME_CACHE_LIMIT = 8192
 _COMPONENT_NAME_CACHE: OrderedDict[tuple, tuple["_Component", ...]] = OrderedDict()
@@ -492,19 +493,81 @@ def _component_spiro_candidates_for_split(
         return []
 
     candidates: list[NameCandidate] = []
-    for simple_component in simple_components[:4]:
-        for poly_component in poly_components[:12]:
+    component_pairs = sorted(
+        (
+            (_component_pre_render_key(simple_component, poly_component), simple_component, poly_component)
+            for simple_component in simple_components[:4]
+            for poly_component in poly_components[:12]
+        ),
+        key=lambda item: item[0],
+    )
+    for _pair_key, simple_component, poly_component in component_pairs[:_SIMPLE_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT]:
+        component_prefixes = []
+        parent_prefixes = []
+        _extend_component_prefix_groups(component_prefixes, parent_prefixes, simple_component.replacement_prefixes)
+        _extend_component_prefix_groups(
+            component_prefixes,
+            parent_prefixes,
+            poly_component.replacement_prefixes,
+            locant_transform=_prime_locant,
+        )
+        locants = _combined_locants(simple_component, simple_to_parent, poly_component, poly_to_parent)
+        covered_external_atoms = (simple_expanded | poly_expanded) - ring_system_atoms
+        substituent_prefixes = _external_substituent_prefixes(
+            ctx.mol,
+            ring_system_atoms,
+            locants,
+            covered_external_atoms=covered_external_atoms,
+        )
+        if substituent_prefixes is None:
+            continue
+        substituent_prefixes.extend(component_prefixes)
+        prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
+        spiro_name = (
+            "spiro["
+            f"{_component_parent_text(simple_component.parent_name)}-{simple_component.spiro_locant},"
+            f"{_prime_locant(poly_component.spiro_locant)}-{_component_parent_text(poly_component.parent_name)}"
+            "]"
+        )
+        if _has_unpromoted_component_replacement(spiro_name):
+            continue
+        name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+        render_rank = _component_spiro_render_rank(simple_component, poly_component)
+        graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
+        candidates.append(
+            NameCandidate(
+                name=name,
+                family="component-spiro-parent",
+                priority=priority,
+                sort_key=(
+                    simple_component.component_rank + poly_component.component_rank,
+                    len(parent_prefixes),
+                    (simple_component.component_order, poly_component.component_order),
+                    (simple_component.numbering_key, poly_component.numbering_key),
+                    _locant_key_for_text(name),
+                    len(name),
+                    name,
+                ),
+                stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
+                stereo_locants=_component_spiro_stereo_locants(locants),
+                parent_atoms=graph_atoms,
+                ring_system_atoms=graph_atoms,
+                safety=_combined_component_safety(simple_component, poly_component),
+                render_cost=_combined_component_render_cost(simple_component, poly_component),
+                render_rank=render_rank,
+            )
+        )
+        if _prefer_poly_first_component_spiro(poly_component):
             component_prefixes = []
             parent_prefixes = []
-            _extend_component_prefix_groups(component_prefixes, parent_prefixes, simple_component.replacement_prefixes)
+            _extend_component_prefix_groups(component_prefixes, parent_prefixes, poly_component.replacement_prefixes)
             _extend_component_prefix_groups(
                 component_prefixes,
                 parent_prefixes,
-                poly_component.replacement_prefixes,
+                simple_component.replacement_prefixes,
                 locant_transform=_prime_locant,
             )
-            locants = _combined_locants(simple_component, simple_to_parent, poly_component, poly_to_parent)
-            covered_external_atoms = (simple_expanded | poly_expanded) - ring_system_atoms
+            locants = _combined_locants_poly_first(poly_component, poly_to_parent, simple_component, simple_to_parent)
             substituent_prefixes = _external_substituent_prefixes(
                 ctx.mol,
                 ring_system_atoms,
@@ -517,25 +580,25 @@ def _component_spiro_candidates_for_split(
             prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
             spiro_name = (
                 "spiro["
-                f"{_component_parent_text(simple_component.parent_name)}-{simple_component.spiro_locant},"
-                f"{_prime_locant(poly_component.spiro_locant)}-{_component_parent_text(poly_component.parent_name)}"
+                f"{_component_parent_text(poly_component.parent_name)}-{poly_component.spiro_locant},"
+                f"{_prime_locant(simple_component.spiro_locant)}-{_component_parent_text(simple_component.parent_name)}"
                 "]"
             )
             if _has_unpromoted_component_replacement(spiro_name):
                 continue
             name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
-            render_rank = _component_spiro_render_rank(simple_component, poly_component)
-            graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
+            render_rank = 0
+            graph_atoms = frozenset(ring_system_atoms)
             candidates.append(
                 NameCandidate(
                     name=name,
                     family="component-spiro-parent",
                     priority=priority,
                     sort_key=(
-                        simple_component.component_rank + poly_component.component_rank,
+                        simple_component.component_rank + poly_component.component_rank - 1,
                         len(parent_prefixes),
-                        (simple_component.component_order, poly_component.component_order),
-                        (simple_component.numbering_key, poly_component.numbering_key),
+                        (poly_component.component_order, simple_component.component_order),
+                        (poly_component.numbering_key, simple_component.numbering_key),
                         _locant_key_for_text(name),
                         len(name),
                         name,
@@ -544,66 +607,11 @@ def _component_spiro_candidates_for_split(
                     stereo_locants=_component_spiro_stereo_locants(locants),
                     parent_atoms=graph_atoms,
                     ring_system_atoms=graph_atoms,
-                    safety=_combined_component_safety(simple_component, poly_component),
-                    render_cost=_combined_component_render_cost(simple_component, poly_component),
+                    safety=_combined_component_safety(poly_component, simple_component),
+                    render_cost=_combined_component_render_cost(poly_component, simple_component),
                     render_rank=render_rank,
                 )
             )
-            if _prefer_poly_first_component_spiro(poly_component):
-                component_prefixes = []
-                parent_prefixes = []
-                _extend_component_prefix_groups(component_prefixes, parent_prefixes, poly_component.replacement_prefixes)
-                _extend_component_prefix_groups(
-                    component_prefixes,
-                    parent_prefixes,
-                    simple_component.replacement_prefixes,
-                    locant_transform=_prime_locant,
-                )
-                locants = _combined_locants_poly_first(poly_component, poly_to_parent, simple_component, simple_to_parent)
-                substituent_prefixes = _external_substituent_prefixes(
-                    ctx.mol,
-                    ring_system_atoms,
-                    locants,
-                    covered_external_atoms=covered_external_atoms,
-                )
-                if substituent_prefixes is None:
-                    continue
-                substituent_prefixes.extend(component_prefixes)
-                prefix_text = _component_spiro_prefix_text(substituent_prefixes, parent_prefixes)
-                spiro_name = (
-                    "spiro["
-                    f"{_component_parent_text(poly_component.parent_name)}-{poly_component.spiro_locant},"
-                    f"{_prime_locant(simple_component.spiro_locant)}-{_component_parent_text(simple_component.parent_name)}"
-                    "]"
-                )
-                if _has_unpromoted_component_replacement(spiro_name):
-                    continue
-                name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
-                render_rank = 0
-                graph_atoms = frozenset(ring_system_atoms)
-                candidates.append(
-                    NameCandidate(
-                        name=name,
-                        family="component-spiro-parent",
-                        priority=priority,
-                        sort_key=(
-                            simple_component.component_rank + poly_component.component_rank - 1,
-                            len(parent_prefixes),
-                            (poly_component.component_order, simple_component.component_order),
-                            (poly_component.numbering_key, simple_component.numbering_key),
-                            _locant_key_for_text(name),
-                            len(name),
-                            name,
-                        ),
-                        stereo_prefix=_component_spiro_stereo_prefix(ctx.mol, Chem, locants),
-                        stereo_locants=_component_spiro_stereo_locants(locants),
-                        parent_atoms=graph_atoms,
-                        ring_system_atoms=graph_atoms,
-                        safety=_combined_component_safety(poly_component, simple_component),
-                        render_cost=_combined_component_render_cost(poly_component, simple_component),
-                        render_rank=render_rank,
-                    )
-                )
     return candidates
 
 

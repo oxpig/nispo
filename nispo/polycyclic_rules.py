@@ -739,6 +739,11 @@ def _reused_lower_secondary_bridge_endpoint_count(bracket: Sequence[int | str]) 
 
 
 def _locant_graph_edges(mol, seq: Sequence[int]) -> frozenset[tuple[int, int]]:
+    cache = mol_cache_dict(mol, "polycyclic_locant_graph_edges")
+    cache_key = tuple(seq)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
     edges = set()
     for idx in seq:
@@ -749,10 +754,17 @@ def _locant_graph_edges(mol, seq: Sequence[int]) -> frozenset[tuple[int, int]]:
             if right is None or right <= left:
                 continue
             edges.add((left, right))
-    return frozenset(edges)
+    result = frozenset(edges)
+    cache[cache_key] = result
+    return result
 
 
 def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int], ...]:
+    cache = mol_cache_dict(mol, "polycyclic_multiple_bond_locant_edges")
+    cache_key = tuple(seq)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
     edges = []
     seen = set()
@@ -769,7 +781,9 @@ def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int
             if bond.GetBondTypeAsDouble() <= 1.0:
                 continue
             edges.append(tuple(sorted((pos[idx], pos[nidx]))))
-    return tuple(edges)
+    result = tuple(edges)
+    cache[cache_key] = result
+    return result
 
 
 def _opsin_oriented_polybridge_edges(bracket: Sequence[int | str]) -> frozenset[tuple[int, int]]:
@@ -1942,22 +1956,42 @@ def _polycyclic_substituent_suffix(parent: str, locant: int) -> str:
 
 
 def _hetero_locants(mol, seq: Sequence[int]) -> list[int]:
-    return [loc for loc, idx in enumerate(seq, start=1) if mol.GetAtomWithIdx(idx).GetSymbol() != "C"]
+    cache = mol_cache_dict(mol, "polycyclic_hetero_locants")
+    cache_key = tuple(seq)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
+    result = tuple(loc for loc, idx in enumerate(seq, start=1) if mol.GetAtomWithIdx(idx).GetSymbol() != "C")
+    cache[cache_key] = result
+    return list(result)
 
 
 def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: set[int]) -> tuple:
+    cache = mol_cache_dict(mol, "polycyclic_numbering_preference_key")
+    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     hetero_locants = _hetero_locants(mol, seq)
-    return (
+    result = (
         hetero_locants,
         _bridge_unsaturation_preference_key(mol, seq, core_atoms),
         _unsaturation_contiguity_key(mol, seq),
         _multi_external_substituent_locants_desc(mol, seq, core_atoms),
         _substituent_locants(mol, seq, core_atoms),
     )
+    cache[cache_key] = result
+    return result
 
 
 def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:
+    cache = mol_cache_dict(mol, "polycyclic_multi_external_substituent_locants_desc")
+    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
     if _ring_multiple_bond_count(mol, core_atoms):
+        cache[cache_key] = ()
         return []
     locants = []
     for loc, idx in enumerate(seq, start=1):
@@ -1968,6 +2002,7 @@ def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms
         )
         if external_count >= 2:
             locants.append(-loc)
+    cache[cache_key] = tuple(locants)
     return locants
 
 
@@ -1984,8 +2019,14 @@ def _has_multi_external_substituted_ring_atom(mol, atoms: set[int]) -> bool:
 
 
 def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:
+    cache = mol_cache_dict(mol, "polycyclic_substituent_locants")
+    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
     locants = []
     for loc, idx in enumerate(seq, start=1):
         if any(nbr.GetIdx() not in core_atoms for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()):
             locants.append(loc)
+    cache[cache_key] = tuple(locants)
     return locants

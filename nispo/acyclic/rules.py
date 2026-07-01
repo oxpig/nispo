@@ -1538,12 +1538,19 @@ def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
 
 
 def _path_charge_preserving_prefix_count(mol, path: Sequence[int]) -> int:
-    if not any(atom.GetFormalCharge() for atom in mol.GetAtoms()):
+    if not _has_formal_charge(mol):
         return 0
     prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
     if prefixes is None:
         return 0
     return sum(1 for _locant, prefix in prefixes if _prefix_preserves_formal_charge(prefix))
+
+
+def _has_formal_charge(mol) -> bool:
+    cached = mol_cache_get(mol, "has_formal_charge")
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, "has_formal_charge", any(atom.GetFormalCharge() for atom in mol.GetAtoms()))
 
 
 def _prefix_preserves_formal_charge(prefix: str) -> bool:
@@ -1582,6 +1589,24 @@ def _path_substituent_prefixes(
     allowed_atoms: set[int] | None = None,
     skip_plain_hydrogen: bool = False,
 ) -> list[tuple[str, str]] | None:
+    cache = mol_cache_dict(mol, "acyclic_path_substituent_prefixes")
+    cache_key = (
+        tuple(path),
+        tuple(sorted(skip_bonds or ())),
+        tuple(sorted(skip_atoms or ())),
+        tuple(sorted(allowed_atoms)) if allowed_atoms is not None else None,
+        skip_plain_hydrogen,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_allow_fragment_substituent_fallback")
+        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
+        else "",
+        mol.HasProp("_nispo_fragment_substituent_depth"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        mol.HasProp("_nispo_fragment_substituent_view"),
+    )
+    if cache_key in cache:
+        cached = cache[cache_key]
+        return None if cached is None else list(cached)
     path_set = set(path)
     skip_bonds = skip_bonds or set()
     skip_atoms = skip_atoms or set()
@@ -1599,8 +1624,10 @@ def _path_substituent_prefixes(
                 continue
             prefix = simple_external_prefix(mol, nidx, idx) or branch_prefix(mol, nidx, idx)
             if not prefix:
+                cache[cache_key] = None
                 return None
             prefixes.append((str(pos), prefix))
+    cache[cache_key] = tuple(prefixes)
     return prefixes
 
 

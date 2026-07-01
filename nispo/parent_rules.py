@@ -222,8 +222,16 @@ def _linear_carbon_chain_path(mol, Chem) -> tuple[int, ...]:
 
 
 def _carbon_path_stereo_key(mol, Chem, path: Sequence[int]) -> tuple[str, ...]:
+    centers = _cached_all_atom_stereochemistry(mol, Chem)
+    return tuple(centers.get(atom_idx, "") for atom_idx in path[1:-1])
+
+
+def _cached_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
+    cached = mol_cache_get(mol, "all_atom_stereochemistry")
+    if cached is not None:
+        return cached
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
-    centers = {
+    result = {
         int(atom_idx): str(descriptor)
         for atom_idx, descriptor in Chem.FindMolChiralCenters(
             mol,
@@ -232,7 +240,7 @@ def _carbon_path_stereo_key(mol, Chem, path: Sequence[int]) -> tuple[str, ...]:
         )
         if descriptor in {"R", "S", "r", "s"}
     }
-    return tuple(centers.get(atom_idx, "") for atom_idx in path[1:-1])
+    return mol_cache_set(mol, "all_atom_stereochemistry", result)
 
 
 def _is_pentitol_graph(mol, Chem, path: Sequence[int]) -> bool:

@@ -1684,18 +1684,30 @@ def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
     cached = mol_cache_get(mol, "fresh_atom_stereochemistry")
     if cached is not None:
         return cached
+    result = {
+        idx: descriptor
+        for idx, descriptor in _fresh_all_atom_stereochemistry(mol, Chem).items()
+        if descriptor in {"R", "S"}
+    }
+    return mol_cache_set(mol, "fresh_atom_stereochemistry", result)
+
+
+def _fresh_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
+    cached = mol_cache_get(mol, "fresh_all_atom_stereochemistry")
+    if cached is not None:
+        return cached
     work = Chem.Mol(mol)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
     result = {
-        idx: descriptor
+        int(idx): str(descriptor)
         for idx, descriptor in Chem.FindMolChiralCenters(
             work,
             includeUnassigned=False,
             useLegacyImplementation=False,
         )
-        if descriptor in {"R", "S"}
+        if descriptor in {"R", "S", "r", "s"}
     }
-    return mol_cache_set(mol, "fresh_atom_stereochemistry", result)
+    return mol_cache_set(mol, "fresh_all_atom_stereochemistry", result)
 
 
 def _fused_oxo_suffix_name(
@@ -2797,15 +2809,9 @@ def _relative_bicyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str) -
     if "bicyclo[" not in name or "spiro[" in name:
         return ""
     seq_set = set(seq)
-    work = Chem.Mol(mol)
-    Chem.AssignStereochemistry(work, cleanIt=True, force=True)
     centers = [
         (idx, descriptor)
-        for idx, descriptor in Chem.FindMolChiralCenters(
-            work,
-            includeUnassigned=False,
-            useLegacyImplementation=False,
-        )
+        for idx, descriptor in _fresh_all_atom_stereochemistry(mol, Chem).items()
         if descriptor in {"r", "s"} and idx in seq_set
     ]
     if len(centers) != 2:

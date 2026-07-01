@@ -11,6 +11,7 @@ from .candidate_facts import (
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
 )
 from .cycle_utils import ordered_ring
+from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
     candidate_generated_fused_templates,
     curated_fused_templates,
@@ -882,7 +883,11 @@ def _component_name_cache_key(mol, Chem, family: str, spiro_idx: int) -> tuple:
             for bond in mol.GetBonds()
         )
     )
-    return (family, id(Chem), int(spiro_idx), atoms, bonds)
+    route_flag = (
+        mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP),
+        mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP) else "",
+    )
+    return (family, id(Chem), int(spiro_idx), route_flag, atoms, bonds)
 
 
 def _cached_component_names(cache_key: tuple) -> list[_Component] | None:
@@ -1364,6 +1369,8 @@ def _submol_for_atoms(mol, Chem, atoms: set[int]):
         Chem.SanitizeMol(submol)
     except Exception:
         return None
+    if mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP):
+        submol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP))
     sub_to_parent = {sub_idx: parent_idx for parent_idx, sub_idx in parent_to_sub.items()}
     return submol, sub_to_parent, parent_to_sub
 

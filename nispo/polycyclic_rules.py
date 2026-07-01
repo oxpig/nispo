@@ -615,6 +615,8 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
         candidate_limit * (24 if route_fast else 4),
         candidate_limit + (48 if route_fast else 8),
     )
+    if route_fast:
+        candidate_pool_limit = max(candidate_limit * 6, candidate_limit + 8)
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
     ) and _use_large_hetero_kekulized_bridge_order(
@@ -628,6 +630,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
         multiple_bond_count,
     )
     atom_mask = _atom_bitmask(atoms)
+    base_path_max_paths = 8 if route_fast and allow_relaxed_base_paths else None
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph,
@@ -636,6 +639,7 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
             right,
             allow_relaxed=allow_relaxed_base_paths,
             atom_mask=atom_mask,
+            max_paths=base_path_max_paths,
         ):
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
                 completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
@@ -1098,9 +1102,11 @@ def _secondary_bridge_base_path_sets(
     *,
     allow_relaxed: bool,
     atom_mask: int | None = None,
+    max_paths: int | None = None,
 ) -> list[tuple[tuple[int, ...], ...]]:
+    path_limit = max_paths if max_paths is not None else 36
     path_infos = (
-        _simple_path_infos(graph, a, b, max_paths=36)
+        _simple_path_infos(graph, a, b, max_paths=path_limit)
         if allow_relaxed
         else _simple_path_infos(graph, a, b, max_paths=12)
     )

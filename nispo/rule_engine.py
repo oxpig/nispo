@@ -50,6 +50,8 @@ _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallbac
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
 _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE = "single-ring:retained-carbohydrate-substituent"
+_FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset({"single-ring-parent"})
+_FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +124,9 @@ class NamingEngine:
     def __init__(self, Chem, rules: Iterable[RuleSpec]):
         self._Chem = Chem
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
+        self._fast_monocycle_system_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES
+        )
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
@@ -144,6 +149,15 @@ class NamingEngine:
             return _finalize_direct_name(mol, self._Chem, polyatomic_name)
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+        fast_monocycle_name = _fast_monocycle_system_name(
+            mol,
+            self._Chem,
+            ctx,
+            self._fast_monocycle_system_rules,
+            telemetry=telemetry,
+        )
+        if fast_monocycle_name:
+            return fast_monocycle_name
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,
@@ -207,6 +221,53 @@ class NamingEngine:
             else:
                 mol.ClearProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
         return fallback_name
+
+
+def _fast_monocycle_system_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if not _can_fast_stage_monocycle_system(mol):
+        return ""
+    return _select_best_prepared_candidate(
+        _prepare_candidates(mol, Chem, ctx, rules),
+        telemetry=telemetry,
+    )
+
+
+def _can_fast_stage_monocycle_system(mol) -> bool:
+    rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
+    if not rings:
+        return False
+    for index, ring in enumerate(rings):
+        if any(ring & other for other in rings[index + 1 :]):
+            return False
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() not in _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS:
+            return False
+        if atom.GetFormalCharge() != 0:
+            return False
+        if str(atom.GetChiralTag()) != "CHI_UNSPECIFIED":
+            return False
+        if not atom.IsInRing() and atom.GetSymbol() in {"I", "S"}:
+            return False
+    for bond in mol.GetBonds():
+        if str(bond.GetStereo()) != "STEREONONE":
+            return False
+        order = bond.GetBondTypeAsDouble()
+        if order <= 1.0:
+            continue
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        if begin.IsInRing() and end.IsInRing():
+            continue
+        if order != 2.0 or {begin.GetSymbol(), end.GetSymbol()} != {"C", "O"}:
+            return False
+    return True
 
 
 def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MAX_NAME_LENGTH) -> str:

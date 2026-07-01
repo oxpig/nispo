@@ -2022,16 +2022,26 @@ def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str
 
 
 def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNameRecord]:
+    cache = mol_cache_dict(mol, "named_ring_instance_records")
+    cache_key = (
+        frozenset(int(idx) for idx in ring),
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        mol.HasProp("_nispo_fragment_substituent_view"),
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
     ordered = ordered_ring(mol, ring)
     if not ordered:
-        return []
+        return _store_named_ring_instance_records(cache, cache_key, [])
     candidates = _ring_parent_candidates(mol, ordered)
     candidates = _merge_ring_parent_candidates(
         candidates,
         _resource_ring_parent_candidates(mol, ordered, Chem),
     )
     if not candidates:
-        return []
+        return _store_named_ring_instance_records(cache, cache_key, [])
     ring_set = set(ordered)
     external_subs: list[tuple[int, int, str]] = []
     raw_subs = []
@@ -2044,7 +2054,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 continue
             prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
             if not prefix:
-                return []
+                return _store_named_ring_instance_records(cache, cache_key, [])
             external_subs.append((ring_idx, nidx, prefix))
             raw_subs.append((ring_idx, prefix))
             if _is_retained_carbohydrate_substituent(mol, nidx, ring_idx, Chem):
@@ -2188,7 +2198,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_seq = seq
                 best_suffix_kind = "ring_functional_suffix"
     if not best_name:
-        return []
+        return _store_named_ring_instance_records(cache, cache_key, [])
     if not (
         best_suffix_kind in {"ring_oxo_suffix", "ring_thione_suffix"}
         and _is_single_ring_indicated_h_chalcogen_suffix_full_form(best_name)
@@ -2199,7 +2209,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
     if best_suffix_kind == "ring_sulfur_oxide_suffix":
         pos = {idx: i + 1 for i, idx in enumerate(best_seq)}
         suffix_hydrogen_locants = _single_ring_sulfur_oxide_hydrogen_locants(mol, raw_subs, pos)
-    return [
+    records = [
         RingNameRecord(
             best_name,
             _single_ring_stereo_prefix(mol, best_seq, Chem, name=best_name),
@@ -2210,6 +2220,12 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             suffix_hydrogen_locants,
         )
     ]
+    return _store_named_ring_instance_records(cache, cache_key, records)
+
+
+def _store_named_ring_instance_records(cache: dict, cache_key: tuple, records: list[RingNameRecord]) -> list[RingNameRecord]:
+    cache[cache_key] = tuple(records)
+    return records
 
 
 def _is_retained_carbohydrate_substituent(mol, substituent_idx: int, parent_idx: int, Chem) -> bool:

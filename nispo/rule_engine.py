@@ -171,8 +171,6 @@ class NamingEngine:
         )
         if fast_monocycle_name:
             return fast_monocycle_name
-        if _fast_fail_complex_ring_system(mol):
-            return ""
         routed_polycyclic_name = _fast_polycyclic_route_name(
             mol,
             self._Chem,
@@ -183,6 +181,8 @@ class NamingEngine:
         )
         if routed_polycyclic_name:
             return routed_polycyclic_name
+        if _fast_fail_complex_ring_system(mol):
+            return ""
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,
@@ -276,6 +276,8 @@ def _fast_polycyclic_route_name(
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 2:
         return ""
+    if not _fast_fail_complex_ring_system(mol):
+        return ""
     if ctx.has_component_spiro_topology:
         name = _select_best_prepared_candidate(
             _prepare_candidates(mol, Chem, ctx, component_spiro_rules),
@@ -284,8 +286,6 @@ def _fast_polycyclic_route_name(
         if name:
             return name
     if ring_count < 3:
-        return ""
-    if not any(atom.GetIsAromatic() for atom in mol.GetAtoms()):
         return ""
     had_route_prop = mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP)
     previous_route_prop = mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if had_route_prop else ""
@@ -334,7 +334,33 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
 
 
 def _fast_fail_complex_ring_system(mol) -> bool:
-    return mol.GetRingInfo().NumRings() >= 3 and mol.GetNumAtoms() > 20
+    if mol.GetRingInfo().NumRings() < 3 or mol.GetNumAtoms() <= 20:
+        return False
+    return _largest_ring_system_ring_count(mol) >= 3
+
+
+def _largest_ring_system_ring_count(mol) -> int:
+    rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
+    if not rings:
+        return 0
+    remaining = set(range(len(rings)))
+    largest = 0
+    while remaining:
+        start = remaining.pop()
+        stack = [start]
+        atoms = set(rings[start])
+        count = 1
+        while stack:
+            _ = stack.pop()
+            linked = [idx for idx in remaining if rings[idx] & atoms]
+            for idx in linked:
+                remaining.remove(idx)
+                stack.append(idx)
+                atoms.update(rings[idx])
+                count += 1
+        if count > largest:
+            largest = count
+    return largest
 
 
 def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MAX_NAME_LENGTH) -> str:

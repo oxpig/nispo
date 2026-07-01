@@ -611,7 +611,10 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
     if route_fast:
         candidate_limit = min(candidate_limit, 2)
-    candidate_pool_limit = max(candidate_limit * 4, candidate_limit + 8)
+    candidate_pool_limit = max(
+        candidate_limit * (24 if route_fast else 4),
+        candidate_limit + (48 if route_fast else 8),
+    )
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
     ) and _use_large_hetero_kekulized_bridge_order(
@@ -673,6 +676,13 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                         ),
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
                     )
+                if route_fast:
+                    key = (*key_prefix, tuple(seq))
+                    candidates.append((key, tuple(seq), tuple(bracket), topology_fragility))
+                    if len(candidates) > candidate_pool_limit:
+                        candidates.sort(key=lambda item: item[0])
+                        del candidates[candidate_pool_limit:]
+                    continue
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
                     worst_key_prefix = candidates[candidate_limit - 1][0][:-1]
@@ -692,6 +702,25 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
                     candidates.sort(key=lambda item: item[0])
                     del candidates[candidate_limit:]
     candidates.sort(key=lambda item: item[0])
+    if route_fast:
+        decorated = []
+        seen = set()
+        for _key, seq, bracket, topology_fragility in candidates:
+            parent = _generic_polycyclic_parent(mol, seq, bracket)
+            if not parent:
+                continue
+            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+            if not name:
+                continue
+            marker = (name, seq)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
+            decorated.append((name, seq, unsaturation_mismatches, topology_fragility))
+            if len(decorated) >= candidate_limit:
+                return decorated
+        return decorated
     return [
         (name, seq, unsaturation_mismatches, topology_fragility)
         for _key, name, seq, unsaturation_mismatches, topology_fragility in candidates[:candidate_limit]

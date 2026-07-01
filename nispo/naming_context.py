@@ -65,6 +65,7 @@ class ContextCache:
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
+    template_matches: dict[int, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     fused_template_matches: dict[
         tuple[int, bool, bool, bool, bool], tuple[tuple[dict, tuple[int, ...]], ...]
     ] = field(default_factory=dict)
@@ -75,6 +76,7 @@ class ContextCache:
             template_candidates=self.template_candidates,
             compiled_template_candidates=self.compiled_template_candidates,
             substruct_matches=self.substruct_matches,
+            template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,
             topology_flags=self.topology_flags,
         )
@@ -255,10 +257,16 @@ class MoleculeContext:
         return result
 
     def template_matches(self, template: dict) -> tuple[tuple[int, ...], ...]:
-        return self.substruct_matches(
+        key = id(template)
+        cached = self.cache.template_matches.get(key)
+        if cached is not None:
+            return cached
+        cached = self.substruct_matches(
             template_record_mol(template),
             use_chirality=bool(template.get("stereochemical")),
         )
+        self.cache.template_matches[key] = cached
+        return cached
 
     def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
         cached = self.cache.polycyclic_records.get(family)

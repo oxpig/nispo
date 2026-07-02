@@ -21,7 +21,12 @@ from .candidate_facts import (
 )
 from .candidate_fact_ranker_model import score as _candidate_fact_ranker_score
 from .candidate_fact_switch_gate_model import score as _candidate_fact_switch_gate_score
-from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
+from .engine_flags import (
+    FAST_POLY_BRIDGE_ROUTE_PROP,
+    FAST_POLY_RETAINED_DEFER_BYPASS_PROP,
+    FAST_POLY_RETAINED_DEFER_CACHE_KEY,
+    FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS,
+)
 from .fragment_rules import (
     FragmentAssemblyRule,
     common_polyatomic_fragment_name,
@@ -186,6 +191,17 @@ _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
         "sulfonimidamide-parent",
         "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
         "sydnone-urea-amidate-retained-parent",
+    }
+)
+_FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES = frozenset(
+    {
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "generic-spiro-parent",
+        "hydro-fused-retained-parent",
+        "retained-ring-scaffold-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
     }
 )
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
@@ -368,7 +384,16 @@ class NamingEngine:
         if routed_polycyclic_name:
             return routed_polycyclic_name
         if mol.GetRingInfo().NumRings() >= 3:
-            if mol.GetRingInfo().NumRings() <= 3 and _largest_ring_system_cycle_rank(ctx) <= 1:
+            if mol_cache_get(mol, FAST_POLY_RETAINED_DEFER_CACHE_KEY):
+                route_miss_name = _retained_deferred_poly_route_miss_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    route_miss_rules=self._fast_poly_route_miss_fallback_rules,
+                    bridge_rules=self._fast_poly_bridge_route_rules,
+                    telemetry=telemetry,
+                )
+            elif mol.GetRingInfo().NumRings() <= 3 and _largest_ring_system_cycle_rank(ctx) <= 1:
                 route_miss_name = _select_best_prepared_candidate(
                     _prepare_candidates(mol, self._Chem, ctx, self._fast_poly_route_miss_fallback_rules),
                     telemetry=telemetry,
@@ -564,6 +589,88 @@ def _fast_polycyclic_route_name(
             mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
         else:
             mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+
+
+def _retained_deferred_poly_route_miss_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    *,
+    route_miss_rules: Iterable[RuleSpec],
+    bridge_rules: Iterable[RuleSpec],
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    prepared = _prepare_candidates(mol, Chem, ctx, route_miss_rules)
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is None:
+        bridge_name = _fast_poly_bridge_name_with_retained_defer_bypass(
+            mol,
+            Chem,
+            ctx,
+            bridge_rules,
+            telemetry=telemetry,
+        )
+        if bridge_name:
+            return bridge_name
+        return ""
+    if (
+        selected.candidate.family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
+        or selected.producer_family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
+        or _retained_deferred_selected_template_is_fragile(selected)
+    ):
+        bridge_name = _fast_poly_bridge_name_with_retained_defer_bypass(
+            mol,
+            Chem,
+            ctx,
+            bridge_rules,
+            telemetry=telemetry,
+        )
+        if bridge_name:
+            return bridge_name
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _retained_deferred_selected_template_is_fragile(selected: _PreparedCandidate) -> bool:
+    candidate = selected.candidate
+    if not candidate.template_name:
+        return False
+    return (
+        candidate.source_family,
+        candidate.template_name,
+    ) in FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS
+
+
+def _fast_poly_bridge_name_with_retained_defer_bypass(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    bridge_rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    had_route_prop = mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+    previous_route_prop = mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if had_route_prop else ""
+    had_bypass_prop = mol.HasProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)
+    previous_bypass_prop = mol.GetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP) if had_bypass_prop else ""
+    mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, "1")
+    mol.SetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP, "1")
+    try:
+        return _first_valid_candidate_name(
+            mol,
+            Chem,
+            ctx,
+            bridge_rules,
+            telemetry=telemetry,
+        )
+    finally:
+        if had_route_prop:
+            mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
+        else:
+            mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+        if had_bypass_prop:
+            mol.SetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP, previous_bypass_prop)
+        else:
+            mol.ClearProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)
 
 
 def _first_valid_candidate_name(
@@ -931,6 +1038,11 @@ def _select_best_prepared_candidate(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
+    best_item = _select_best_prepared_candidate_item(prepared)
+    return _record_and_return_prepared_candidate(best_item, telemetry=telemetry)
+
+
+def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> _PreparedCandidate | None:
     best_item: _PreparedCandidate | None = None
     best_key: tuple | None = None
     keyed_items: list[tuple[tuple, _PreparedCandidate]] = []
@@ -959,27 +1071,31 @@ def _select_best_prepared_candidate(
         if best_key is None or candidate_key < best_key:
             best_item = item
             best_key = candidate_key
-    best_item = _candidate_fact_ranked_item(keyed_items, best_item)
+    return _candidate_fact_ranked_item(keyed_items, best_item)
+
+
+def _record_and_return_prepared_candidate(
+    best_item: _PreparedCandidate | None,
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
     best_name = _prepared_output_name(best_item) if best_item is not None else ""
     if best_name and telemetry is not None:
-        for item in prepared:
-            if _prepared_output_name(item) == best_name:
-                telemetry.selected_family[item.candidate.family] += 1
-                telemetry.selected_rule_family[item.producer_family] += 1
-                if _candidate_has_structured_facts(item.candidate):
-                    telemetry.structured_selected_count[item.candidate.family] += 1
-                if item.candidate.template_id is not None:
-                    telemetry.selected_with_template_id += 1
-                if item.candidate.parent_atoms:
-                    telemetry.selected_with_parent_atoms += 1
-                if item.candidate.render_rank is not None:
-                    telemetry.selected_render_rank_count[item.producer_family] += 1
-                    telemetry.selected_render_rank_total[item.producer_family] += item.candidate.render_rank
-                    telemetry.selected_render_rank_bucket[
-                        f"{item.producer_family}:{_render_rank_bucket(item.candidate.render_rank)}"
-                    ] += 1
-                telemetry.selected_safety_reasons.update(candidate_safety_reasons(item.candidate))
-                break
+        telemetry.selected_family[best_item.candidate.family] += 1
+        telemetry.selected_rule_family[best_item.producer_family] += 1
+        if _candidate_has_structured_facts(best_item.candidate):
+            telemetry.structured_selected_count[best_item.candidate.family] += 1
+        if best_item.candidate.template_id is not None:
+            telemetry.selected_with_template_id += 1
+        if best_item.candidate.parent_atoms:
+            telemetry.selected_with_parent_atoms += 1
+        if best_item.candidate.render_rank is not None:
+            telemetry.selected_render_rank_count[best_item.producer_family] += 1
+            telemetry.selected_render_rank_total[best_item.producer_family] += best_item.candidate.render_rank
+            telemetry.selected_render_rank_bucket[
+                f"{best_item.producer_family}:{_render_rank_bucket(best_item.candidate.render_rank)}"
+            ] += 1
+        telemetry.selected_safety_reasons.update(candidate_safety_reasons(best_item.candidate))
     return best_name
 
 

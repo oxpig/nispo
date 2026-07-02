@@ -103,7 +103,12 @@ from .rule_dispatch import (
     terminal_n_oxide_signal,
 )
 from .rule_priority import parent_priority
-from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
+from .engine_flags import (
+    FAST_POLY_BRIDGE_ROUTE_PROP,
+    FAST_POLY_RETAINED_DEFER_BYPASS_PROP,
+    FAST_POLY_RETAINED_DEFER_CACHE_KEY,
+    FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS,
+)
 from .rule_engine import NameCandidate
 from .simple_prefixes import simple_external_prefix
 from .stereochemistry import assigned_atom_stereochemistry
@@ -20947,9 +20952,45 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
 
     def _defer_all_records(self, ctx) -> bool:
+        if bool(getattr(ctx.mol, "HasProp", lambda _name: False)(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)):
+            return False
         if bool(getattr(ctx.mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP)):
+            if _has_fast_poly_retained_defer_candidate(ctx, self._Chem):
+                mol_cache_set(ctx.mol, FAST_POLY_RETAINED_DEFER_CACHE_KEY, True)
+                return True
             return False
         return _has_retained_fused_parent_candidate(ctx, self._Chem)
+
+
+def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
+    mol = ctx.mol
+    cached = mol_cache_get(mol, "fast_poly_retained_defer_candidate")
+    if cached is not None:
+        return cached
+    template_sets = (
+        ctx.candidate_templates(_curated_fused_templates(Chem)),
+        ctx.generated_fused_templates,
+    )
+    for templates in template_sets:
+        for template, match in _cached_iter_fused_template_matches(
+            ctx,
+            templates,
+            Chem,
+            reject_extra_core_bonds=True,
+        ):
+            if _fast_poly_retained_defer_template_is_fragile(template):
+                continue
+            name = _name_fused_core_match(mol, template, match)
+            if name and not _unsafe_benz_a_anthracene_candidate(name):
+                return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
+    return mol_cache_set(mol, "fast_poly_retained_defer_candidate", False)
+
+
+def _fast_poly_retained_defer_template_is_fragile(template: dict) -> bool:
+    return (
+        str(template.get("source_family", "")),
+        template_record_name(template),
+    ) in FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS
 
 
 def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:

@@ -546,6 +546,12 @@ def _decorated_polycyclic_records(
             while index < len(facts) and facts[index][0] == key:
                 tied.append(facts[index])
                 index += 1
+            if max_records == 1:
+                for _key, seq, parent in tied:
+                    name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                    if name:
+                        return [(name, seq)]
+                continue
             rendered = []
             for _key, seq, parent in tied:
                 name = _decorate_polycyclic_parent(mol, seq, atoms, parent)

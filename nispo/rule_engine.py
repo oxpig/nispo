@@ -315,6 +315,8 @@ class NamingEngine:
         polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
         if polyatomic_name:
             return _finalize_direct_name(mol, self._Chem, polyatomic_name)
+        if _defer_expensive_low_confidence_ring_system(mol):
+            return ""
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
@@ -411,17 +413,27 @@ class NamingEngine:
                 telemetry=telemetry,
                 cache=ctx.cache.shared_for_fallback(),
             )
-            fallback_name = _select_best_prepared_candidate(
-                _prepare_candidates(
-                    mol,
-                    self._Chem,
-                    fallback_ctx,
-                    self._rules,
-                    max_length=fallback_evaluation_length,
-                    output_max_length=fallback_max_length,
-                ),
+            fallback_name = _first_valid_candidate_name(
+                mol,
+                self._Chem,
+                fallback_ctx,
+                self._rules,
                 telemetry=telemetry,
+                max_length=fallback_evaluation_length,
+                output_max_length=fallback_max_length,
             )
+            if not fallback_name:
+                fallback_name = _select_best_prepared_candidate(
+                    _prepare_candidates(
+                        mol,
+                        self._Chem,
+                        fallback_ctx,
+                        self._rules,
+                        max_length=fallback_evaluation_length,
+                        output_max_length=fallback_max_length,
+                    ),
+                    telemetry=telemetry,
+                )
             if not fallback_name:
                 fallback_name = _select_best_prepared_candidate(
                     _prepare_candidates(
@@ -562,6 +574,7 @@ def _first_valid_candidate_name(
     *,
     telemetry: CandidateTelemetry | None = None,
     max_length: int = _DEFAULT_MAX_NAME_LENGTH,
+    output_max_length: int | None = None,
 ) -> str:
     for rule in rules:
         if not rule.applies(ctx):
@@ -571,7 +584,7 @@ def _first_valid_candidate_name(
                 if not candidate.name:
                     continue
                 output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-                if output_name:
+                if output_name and (output_max_length is None or len(output_name) <= output_max_length):
                     return output_name
             continue
 
@@ -588,6 +601,9 @@ def _first_valid_candidate_name(
                     continue
                 output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
                 if not output_name:
+                    telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                if output_max_length is not None and len(output_name) > output_max_length:
                     telemetry.rejected_candidate_count[rule.family] += 1
                     continue
                 telemetry.rendered_candidate_count[rule.family] += 1
@@ -611,6 +627,47 @@ def _first_valid_candidate_name(
             telemetry.active_rule_family = previous_rule_family
             telemetry.rule_seconds[rule.family] += time.perf_counter() - started
     return ""
+
+
+def _first_valid_prepared_candidate(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    max_length: int = _DEFAULT_MAX_NAME_LENGTH,
+    output_max_length: int | None = None,
+) -> _PreparedCandidate | None:
+    for rule in rules:
+        if not rule.applies(ctx):
+            continue
+        for candidate in rule.candidates(ctx):
+            if not candidate.name:
+                continue
+            output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+            if not output_name:
+                continue
+            if output_max_length is not None and len(output_name) > output_max_length:
+                continue
+            candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
+            candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
+            candidate = _with_parent_element_counts(mol, candidate)
+            selection_name = _candidate_selection_surface_name(
+                mol,
+                Chem,
+                candidate,
+                output_name,
+                max_length=max_length,
+            )
+            return _PreparedCandidate(
+                name=selection_name,
+                candidate=candidate,
+                producer_family=rule.family,
+                stability_penalty=_candidate_selection_stability_penalty(selection_name, candidate),
+                selection_bonus=_candidate_selection_bonus(selection_name, candidate),
+                output_name=output_name,
+            )
+    return None
 
 
 def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
@@ -726,6 +783,18 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
         if order != 2.0 or {begin.GetSymbol(), end.GetSymbol()} != {"C", "O"}:
             return False
     return True
+
+
+def _defer_expensive_low_confidence_ring_system(mol) -> bool:
+    ring_info = mol.GetRingInfo()
+    rings = tuple(frozenset(ring) for ring in ring_info.AtomRings())
+    chiral_count = sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in mol.GetAtoms())
+    has_spiro_pair = any(
+        len(left & right) == 1
+        for index, left in enumerate(rings)
+        for right in rings[index + 1 :]
+    )
+    return len(rings) >= 9 and not has_spiro_pair and chiral_count >= 3
 
 
 def _fast_fail_complex_ring_system(mol) -> bool:

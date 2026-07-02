@@ -1858,12 +1858,16 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
     try:
         from ..api import _engine
         from ..naming_context import MoleculeContext
-        from ..rule_engine import _prepare_candidates, _select_best_prepared_candidate
+        from ..rule_engine import (
+            _first_valid_prepared_candidate,
+            _prepare_candidates,
+            _select_best_prepared_candidate,
+        )
 
         frag_mol.SetProp("_nispo_fragment_substituent_view", "1")
         frag_mol.SetProp("_nispo_fragment_substituent_depth", str(depth + 1))
         ctx = MoleculeContext(frag_mol, Chem)
-        prepared = _prepare_candidates(
+        selected = _first_valid_prepared_candidate(
             frag_mol,
             Chem,
             ctx,
@@ -1871,12 +1875,23 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
             max_length=360,
             output_max_length=360,
         )
+        prepared = ()
+        if selected is None:
+            prepared = _prepare_candidates(
+                frag_mol,
+                Chem,
+                ctx,
+                _engine()._rules,
+                max_length=360,
+                output_max_length=360,
+            )
     except Exception:
         return ""
-    if not prepared:
+    if selected is None and not prepared:
         return ""
-    best_name = _select_best_prepared_candidate(prepared)
-    selected = next((item for item in prepared if item.name == best_name), prepared[0])
+    if selected is None:
+        best_name = _select_best_prepared_candidate(prepared)
+        selected = next((item for item in prepared if item.name == best_name), prepared[0])
     locant = _candidate_atom_locant(selected.candidate, attachment)
     if not locant:
         return ""

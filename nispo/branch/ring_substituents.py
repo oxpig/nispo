@@ -36,6 +36,7 @@ from ..substituent_resource_rules import (
 )
 from ..simple_prefixes import simple_external_prefix
 from ..template_access import template_record_locants, template_record_mol, template_record_name
+from ..template_index import intern_template_tuple
 from ..template_match_utils import match_has_extra_core_bonds
 from ..template_store import template_store
 from .functional_groups import (
@@ -1172,7 +1173,7 @@ def _carbocyclic_fused_templates(templates: tuple[dict, ...]) -> tuple[dict, ...
     cached = _CARBOCYCLIC_FUSED_TEMPLATE_CACHE.get(id(templates))
     if cached is not None:
         return cached
-    filtered = tuple(template for template in templates if _template_core_is_carbocyclic(template))
+    filtered = intern_template_tuple(template for template in templates if _template_core_is_carbocyclic(template))
     _CARBOCYCLIC_FUSED_TEMPLATE_CACHE[id(templates)] = filtered
     return filtered
 

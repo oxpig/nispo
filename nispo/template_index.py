@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from functools import lru_cache
 
 from .graph_model import graph_view
@@ -17,6 +17,29 @@ _TEMPLATE_INDEX_MARKER_CACHE: dict[tuple[int, tuple[int, ...]], _TemplateIndex] 
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
 _MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
+_TEMPLATE_TUPLE_INTERN_CACHE_LIMIT = 8192
+_TEMPLATE_TUPLE_INTERN_CACHE: OrderedDict[tuple[int, ...], tuple[dict, ...]] = OrderedDict()
+
+
+def intern_template_tuple(templates) -> tuple[dict, ...]:
+    """Return a stable tuple object for a static sequence of template records."""
+
+    if not isinstance(templates, tuple):
+        templates = tuple(templates)
+    if not templates:
+        return ()
+    key = tuple(id(template) for template in templates)
+    cached = _TEMPLATE_TUPLE_INTERN_CACHE.get(key)
+    if cached is not None and len(cached) == len(templates) and all(
+        left is right for left, right in zip(cached, templates)
+    ):
+        _TEMPLATE_TUPLE_INTERN_CACHE.move_to_end(key)
+        return cached
+    _TEMPLATE_TUPLE_INTERN_CACHE[key] = templates
+    _TEMPLATE_TUPLE_INTERN_CACHE.move_to_end(key)
+    while len(_TEMPLATE_TUPLE_INTERN_CACHE) > _TEMPLATE_TUPLE_INTERN_CACHE_LIMIT:
+        _TEMPLATE_TUPLE_INTERN_CACHE.popitem(last=False)
+    return templates
 
 
 def candidate_templates(

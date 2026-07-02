@@ -10,7 +10,12 @@ from .molecule_cache import mol_cache_get, mol_cache_set
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
 from .template_access import template_record_mol, template_record_name
-from .template_index import molecule_features, ring_system_feature_key, ring_system_with_graph_signatures
+from .template_index import (
+    intern_template_tuple,
+    molecule_features,
+    ring_system_feature_key,
+    ring_system_with_graph_signatures,
+)
 
 
 _FUSION_NAME_RE = re.compile(r"^(.+)\[([^]]+)-([a-z])\](.+)$")
@@ -277,7 +282,7 @@ def candidate_generated_fused_templates(
             seen.add(marker)
             candidates.append(template)
     candidates.sort(key=generated_template_key)
-    result = tuple(candidates)
+    result = intern_template_tuple(candidates)
     return mol_cache_set(mol, cache_key, result)
 
 

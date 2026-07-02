@@ -753,7 +753,15 @@ def _secondary_bridge_polycyclic_candidate_records(
     atom_mask = _atom_bitmask(atoms)
     graph_key = _graph_cache_key(graph)
     base_path_max_paths = 8 if route_fast and allow_relaxed_base_paths else None
+    fast_pair_scan_limit = (
+        2
+        if route_fast and max_records == 1 and len(atoms) >= 35 and rank >= 4
+        else None
+    )
+    scanned_pairs = 0
+    stop_pair_scan = False
     for left, right in combinations(branch_atoms, 2):
+        scanned_pairs += 1
         for base_paths in _secondary_bridge_base_path_sets(
             graph,
             atoms,
@@ -809,6 +817,13 @@ def _secondary_bridge_polycyclic_candidate_records(
                     if len(candidates) > candidate_pool_limit:
                         candidates.sort(key=lambda item: item[0])
                         del candidates[candidate_pool_limit:]
+                    if (
+                        fast_pair_scan_limit is not None
+                        and scanned_pairs >= fast_pair_scan_limit
+                        and len(candidates) >= candidate_limit
+                    ):
+                        stop_pair_scan = True
+                        break
                     continue
                 if len(candidates) >= candidate_limit:
                     candidates.sort(key=lambda item: item[0])
@@ -828,6 +843,10 @@ def _secondary_bridge_polycyclic_candidate_records(
                 if len(candidates) > candidate_pool_limit:
                     candidates.sort(key=lambda item: item[0])
                     del candidates[candidate_limit:]
+            if stop_pair_scan:
+                break
+        if stop_pair_scan:
+            break
     candidates.sort(key=lambda item: item[0])
     if route_fast:
         decorated = []

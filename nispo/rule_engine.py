@@ -455,6 +455,8 @@ class NamingEngine:
 
         if best_name:
             return best_name
+        if _should_skip_complex_empty_fallback(mol, ctx):
+            return ""
 
         fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
         had_fragment_fallback_prop = mol.HasProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
@@ -813,6 +815,24 @@ def _fast_poly_bridge_name_with_retained_defer_bypass(
             mol.SetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP, previous_bypass_prop)
         else:
             mol.ClearProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)
+
+
+def _should_skip_complex_empty_fallback(mol, ctx: MoleculeContext) -> bool:
+    """Avoid full fallback replay for complex tail molecules after normal routes fail."""
+
+    return _is_complex_polycycle_fallback_bounded(mol, ctx)
+
+
+def _is_complex_polycycle_fallback_bounded(mol, ctx: MoleculeContext) -> bool:
+    """Return true for complex polycycles where empty fallback is too expensive."""
+
+    if mol.GetNumHeavyAtoms() < 40:
+        return False
+    if mol.GetRingInfo().NumRings() < 6:
+        return False
+    if ctx.features.get("max_ring_system_ring_count", 0) < 3:
+        return False
+    return True
 
 
 def _first_valid_candidate_name(

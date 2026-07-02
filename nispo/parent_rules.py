@@ -20987,7 +20987,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
         Chem,
         generated_templates=ctx.narrow_generated_fused_templates,
     ):
-        for template, match in _cached_iter_fused_template_matches(
+        for template, match in _iter_fused_template_matches(
             ctx,
             templates,
             Chem,
@@ -21096,7 +21096,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     for templates in _iter_retained_fused_parent_template_sets(ctx, Chem):
-        for template, match in _cached_iter_fused_template_matches(
+        for template, match in _iter_fused_template_matches(
             ctx,
             templates,
             Chem,

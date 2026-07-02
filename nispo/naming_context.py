@@ -20,6 +20,7 @@ from .structural_profile import StructuralProfile, structural_profile
 from .template_access import template_record_mol, template_record_name
 from .template_index import molecule_features
 from .template_index import (
+    intern_template_tuple,
     ring_system_feature_key,
     ring_system_with_graph_signatures,
     ring_systems_for_mol,
@@ -361,7 +362,7 @@ def _supplement_generated_fused_templates_by_ring_graph(
         supplements = sorted(supplements, key=generated_template_key)[
             :_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
         ]
-    return tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
+    return intern_template_tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
 
 
 def _fragment_fallback_state_key(mol) -> tuple[bool, str, bool, str, bool]:

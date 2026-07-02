@@ -56,6 +56,7 @@ _REPLACEMENT_TERMS = (
 _POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 1
 _SIMPLE_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 1
 _COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT = 72
+_POLY_COMPONENT_NAME_RECORD_LIMIT = 12
 _COMPONENT_NAME_CACHE_LIMIT = 8192
 _COMPONENT_NAME_CACHE: OrderedDict[tuple, tuple["_Component", ...]] = OrderedDict()
 _UNSTABLE_COMPONENT_SPIRO_RETAINED_PARENT_NAMES = frozenset(
@@ -999,7 +1000,14 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     record_groups = (
         (bicyclic_parent_candidate_records(mol, Chem), "generic-bicyclic"),
         (spiro_parent_candidate_records(mol, Chem), "generic-spiro"),
-        (kekulized_polycyclic_parent_candidate_records(mol, Chem), "kekulized-polycyclic"),
+        (
+            kekulized_polycyclic_parent_candidate_records(
+                mol,
+                Chem,
+                limit=_POLY_COMPONENT_NAME_RECORD_LIMIT,
+            ),
+            "kekulized-polycyclic",
+        ),
     )
     component_order = 0
     for records, component_kind in record_groups:

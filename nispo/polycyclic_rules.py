@@ -105,7 +105,7 @@ def kekulized_polycyclic_parent_candidate_records(
     seen = set()
     unique = []
     route_fast = bool(getattr(kekulized, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP))
-    render_late_limit = limit if route_fast else None
+    render_late_limit = limit
 
     def add_unique(records) -> bool:
         for record in records:

@@ -20995,9 +20995,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
         ):
             if _fast_poly_retained_defer_template_is_fragile(template):
                 continue
-            name = _name_fused_core_match(mol, template, match)
-            if name and not _unsafe_benz_a_anthracene_candidate(name):
-                return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
+            return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     if _has_fast_poly_retained_scaffold_defer_candidate(ctx, Chem):
         return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     return mol_cache_set(mol, "fast_poly_retained_defer_candidate", False)

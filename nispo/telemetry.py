@@ -61,6 +61,9 @@ class CandidateTelemetry:
     route_uses_polycyclic_search: Counter[str] = field(default_factory=Counter)
     rule_evaluations: Counter[str] = field(default_factory=Counter)
     rule_gate_skips: Counter[str] = field(default_factory=Counter)
+    compiled_rule_input_count: Counter[str] = field(default_factory=Counter)
+    compiled_rule_output_count: Counter[str] = field(default_factory=Counter)
+    compiled_rule_skip_count: Counter[str] = field(default_factory=Counter)
     legacy_fallback_attempt_count: Counter[str] = field(default_factory=Counter)
     legacy_fallback_success_count: Counter[str] = field(default_factory=Counter)
     legacy_fallback_empty_count: Counter[str] = field(default_factory=Counter)
@@ -105,6 +108,9 @@ _COUNTER_FIELDS = (
     "route_uses_polycyclic_search",
     "rule_evaluations",
     "rule_gate_skips",
+    "compiled_rule_input_count",
+    "compiled_rule_output_count",
+    "compiled_rule_skip_count",
     "legacy_fallback_attempt_count",
     "legacy_fallback_success_count",
     "legacy_fallback_empty_count",
@@ -187,6 +193,7 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_route_plan": _top_items(telemetry.get("route_plan_count", {})),
         "top_rule_evaluations": _top_items(telemetry.get("rule_evaluations", {})),
         "top_rule_gate_skips": _top_items(telemetry.get("rule_gate_skips", {})),
+        "top_compiled_rule_skips": _top_items(telemetry.get("compiled_rule_skip_count", {})),
         "top_legacy_fallback_attempts": _top_items(
             telemetry.get("legacy_fallback_attempt_count", {})
         ),
@@ -247,6 +254,9 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "total_substructure_match_calls": int(telemetry.get("substructure_match_calls", 0) or 0),
         "total_rule_evaluations": _sum_values(telemetry.get("rule_evaluations", {})),
         "total_rule_gate_skips": _sum_values(telemetry.get("rule_gate_skips", {})),
+        "total_compiled_rule_inputs": _sum_values(telemetry.get("compiled_rule_input_count", {})),
+        "total_compiled_rule_outputs": _sum_values(telemetry.get("compiled_rule_output_count", {})),
+        "total_compiled_rule_skips": _sum_values(telemetry.get("compiled_rule_skip_count", {})),
         "total_legacy_fallback_attempts": _sum_values(
             telemetry.get("legacy_fallback_attempt_count", {})
         ),

@@ -27,20 +27,84 @@ class RuleSpec:
         return self.producer(ctx)
 
 
+def compile_rules_for_context(
+    ctx,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry=None,
+) -> tuple[RuleSpec, ...]:
+    """Return rules whose declared gates are possible for this molecule.
+
+    This is a conservative graph-fact prefilter. It only skips a rule when an
+    existing gate's metadata proves the gate cannot pass; normal gate evaluation
+    still remains authoritative.
+    """
+
+    rules = tuple(rules)
+    compiled = []
+    skipped = 0
+    facts = ctx.facts
+    for rule in rules:
+        if _rule_impossible_for_facts(rule, facts):
+            skipped += 1
+            continue
+        compiled.append(rule)
+    if telemetry is not None:
+        route = ctx.route_plan.primary_route
+        telemetry.compiled_rule_input_count[route] += len(rules)
+        telemetry.compiled_rule_output_count[route] += len(compiled)
+        telemetry.compiled_rule_skip_count[route] += skipped
+    return tuple(compiled)
+
+
+def _rule_impossible_for_facts(rule: RuleSpec, facts) -> bool:
+    for gate in rule.gates:
+        min_ring_count_value = getattr(gate, "_nispo_min_ring_count", None)
+        if min_ring_count_value is not None and facts.ring_count < min_ring_count_value:
+            return True
+        min_ring_system_ring_count_value = getattr(gate, "_nispo_min_ring_system_ring_count", None)
+        if (
+            min_ring_system_ring_count_value is not None
+            and facts.max_ring_system_ring_count < min_ring_system_ring_count_value
+        ):
+            return True
+        if facts.ring_count == 0 and getattr(gate, "_nispo_requires_ring", False):
+            return True
+        if facts.ring_count != 0 and getattr(gate, "_nispo_requires_acyclic", False):
+            return True
+    return False
+
+
 def acyclic(ctx) -> bool:
     return ctx.mol.GetRingInfo().NumRings() == 0
 
 
+acyclic._nispo_requires_acyclic = True
+
+
 def min_ring_count(count: int) -> Gate:
-    return lambda ctx: ctx.mol.GetRingInfo().NumRings() >= count
+    def gate(ctx) -> bool:
+        return ctx.mol.GetRingInfo().NumRings() >= count
+
+    gate._nispo_min_ring_count = count
+    gate._nispo_requires_ring = count > 0
+    return gate
 
 
 def min_ring_system_ring_count(count: int) -> Gate:
-    return lambda ctx: ctx.features["max_ring_system_ring_count"] >= count
+    def gate(ctx) -> bool:
+        return ctx.features["max_ring_system_ring_count"] >= count
+
+    gate._nispo_min_ring_system_ring_count = count
+    gate._nispo_requires_ring = count > 0
+    return gate
 
 
 def exact_ring_system(ctx) -> bool:
     return bool(ctx.features["all_atoms_in_one_ring_system"])
+
+
+exact_ring_system._nispo_requires_ring = True
 
 
 def nonring_positive_sulfur(ctx) -> bool:
@@ -77,6 +141,9 @@ def nonring_neutral_group14(ctx) -> bool:
 
 def charged_ring_atom(ctx) -> bool:
     return ctx.profile.has_charged_ring_atom
+
+
+charged_ring_atom._nispo_requires_ring = True
 
 
 def no_charged_ring_atom(ctx) -> bool:
@@ -232,16 +299,28 @@ def generic_bicyclic_topology(ctx) -> bool:
     return ctx.has_generic_bicyclic_topology
 
 
+generic_bicyclic_topology._nispo_requires_ring = True
+
+
 def generic_polycyclic_topology(ctx) -> bool:
     return ctx.has_generic_polycyclic_topology
+
+
+generic_polycyclic_topology._nispo_requires_ring = True
 
 
 def spiro_topology(ctx) -> bool:
     return ctx.has_spiro_topology
 
 
+spiro_topology._nispo_requires_ring = True
+
+
 def component_spiro_topology(ctx) -> bool:
     return ctx.has_component_spiro_topology
+
+
+component_spiro_topology._nispo_requires_ring = True
 
 
 def no_exocyclic_charged_fused_parent(ctx) -> bool:

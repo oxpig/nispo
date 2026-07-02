@@ -37,7 +37,7 @@ from .fragment_rules import (
 from .naming_context import MoleculeContext
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .route_plan import RoutePlan
-from .rule_dispatch import RuleSpec
+from .rule_dispatch import RuleSpec, compile_rules_for_context
 from .stereochemistry import (
     apply_locanted_stereochemical_prefix,
     apply_stereochemical_prefix,
@@ -880,6 +880,7 @@ def _first_valid_candidate_name(
     max_length: int = _DEFAULT_MAX_NAME_LENGTH,
     output_max_length: int | None = None,
 ) -> str:
+    rules = compile_rules_for_context(ctx, rules, telemetry=telemetry)
     for rule in rules:
         if telemetry is not None:
             telemetry.rule_evaluations[rule.family] += 1
@@ -946,6 +947,7 @@ def _first_valid_prepared_candidate(
     max_length: int = _DEFAULT_MAX_NAME_LENGTH,
     output_max_length: int | None = None,
 ) -> _PreparedCandidate | None:
+    rules = compile_rules_for_context(ctx, rules)
     for rule in rules:
         if not rule.applies(ctx):
             continue
@@ -1273,6 +1275,7 @@ def _prepare_candidates(
     output_max_length: int | None = None,
 ) -> list[_PreparedCandidate]:
     prepared: list[_PreparedCandidate] = []
+    rules = compile_rules_for_context(ctx, rules, telemetry=ctx.telemetry)
     for rule in rules:
         if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
             break

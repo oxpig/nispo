@@ -7,6 +7,8 @@ from rdkit import Chem
 
 from nispo.api import _smiles_to_iupac_batch_with_telemetry
 from nispo.naming_context import MoleculeContext
+from nispo.parent_rules import parent_rules
+from nispo.rule_dispatch import compile_rules_for_context
 
 
 def test_context_exposes_lazy_molecule_facts_and_route_plan():
@@ -33,7 +35,20 @@ def test_benchmark_telemetry_reports_routes_rules_and_fallbacks():
     assert "route_plan_count" in telemetry
     assert "rule_evaluations" in telemetry
     assert "rule_gate_skips" in telemetry
+    assert "compiled_rule_skip_count" in telemetry
     assert "legacy_fallback_attempt_count" in telemetry
+
+
+def test_compiled_rules_keep_every_rule_that_can_apply():
+    mol = Chem.MolFromSmiles("CC(=O)O")
+    ctx = MoleculeContext(mol, Chem)
+    rules = parent_rules(Chem)
+
+    compiled = set(compile_rules_for_context(ctx, rules))
+    applicable = {rule for rule in rules if rule.applies(ctx)}
+
+    assert applicable <= compiled
+    assert len(compiled) < len(rules)
 
 
 def test_generated_fused_indexes_use_compact_record_ids():

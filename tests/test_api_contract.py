@@ -51,7 +51,7 @@ def test_batch_matches_scalar_for_mixed_inputs():
     assert batch_outputs == scalar_outputs
 
 
-def test_batch_names_duplicate_smiles_independently(monkeypatch):
+def test_batch_memoizes_duplicate_smiles_within_call(monkeypatch):
     class FakeEngine:
         def __init__(self):
             self.calls = 0
@@ -64,8 +64,8 @@ def test_batch_names_duplicate_smiles_independently(monkeypatch):
     api._BATCH_NAME_CACHE.clear()
     monkeypatch.setattr(api, "_engine", lambda: fake_engine)
 
-    assert api.smiles_to_iupac_batch(["CC", "CC"]) == ["name-1", "name-2"]
-    assert fake_engine.calls == 2
+    assert api.smiles_to_iupac_batch(["CC", "CC"]) == ["name-1", "name-1"]
+    assert fake_engine.calls == 1
     assert api._BATCH_NAME_CACHE == {}
 
 

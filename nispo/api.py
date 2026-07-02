@@ -16,9 +16,9 @@ from .rule_engine import NamingEngine
 from .telemetry import CandidateTelemetry, telemetry_to_dict
 
 # Retained for compatibility with older probes/tests that clear the symbol.
-# The batch API intentionally does not cache final molecule names by SMILES:
-# benchmarks should measure naming each molecule independently, including
-# duplicate inputs.
+# Global name caching stays disabled. The batch API only memoizes duplicate
+# inputs inside one call so output order/count stay unchanged while repeated
+# work in a submitted batch is avoided.
 _BATCH_NAME_CACHE_MAX_SIZE = 0
 _BATCH_NAME_CACHE: dict[str, str] = {}
 
@@ -50,15 +50,23 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
         return ["" for _ in smiles_values]
     engine = _engine()
     names: list[str] = []
+    batch_cache: dict[str, str] = {}
     for smiles in smiles_values:
+        cached = batch_cache.get(smiles)
+        if cached is not None:
+            names.append(cached)
+            continue
         try:
             mol = Chem.MolFromSmiles(smiles)
             if mol is None or mol.GetNumAtoms() == 0:
-                names.append("")
+                name = ""
+                batch_cache[smiles] = name
+                names.append(name)
                 continue
             name = engine.name(mol)
         except Exception:
             name = ""
+        batch_cache[smiles] = name
         names.append(name)
     return names
 

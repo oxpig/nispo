@@ -17110,16 +17110,23 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
     requirement comes from graph-derived polycyclic descriptors.
     """
 
+    cached = ctx.cache.substituent_like_acyclic_defer.get(name)
+    if cached is not None:
+        return cached
     mol = ctx.mol
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 1:
-        return False
+        return _cache_substituent_like_acyclic_defer(ctx, name, False)
     if _has_unrendered_ring_isotope(mol, name):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if _has_ringless_short_functional_parent_for_cyclic_molecule(name):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if ring_count == 1:
-        return _has_substituent_like_monocyclic_parent_name(name)
+        return _cache_substituent_like_acyclic_defer(
+            ctx,
+            name,
+            _has_substituent_like_monocyclic_parent_name(name),
+        )
     monocyclic_defer = _has_substituent_like_monocyclic_parent_name(name)
     kekulized_short_functional_defer = (
         _has_short_functional_acyclic_parent_suffix(name)
@@ -17154,7 +17161,7 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         or kekulized_pterin_defer
     )
     if not polycyclic_defer_possible:
-        return False
+        return _cache_substituent_like_acyclic_defer(ctx, name, False)
     kekulized_records = None
     has_polycyclic_parent_record = ctx.polycyclic_parent_records("bicyclic") or ctx.polycyclic_parent_records(
         "spiro"
@@ -17163,23 +17170,23 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
         kekulized_records = ctx.polycyclic_parent_records("kekulized")
         has_polycyclic_parent_record = bool(kekulized_records)
     if not has_polycyclic_parent_record:
-        return monocyclic_defer
+        return _cache_substituent_like_acyclic_defer(ctx, name, monocyclic_defer)
     if any(term in name for term in ("bicyclo[", "tricyclo[", "spiro[")):
-        return False
+        return _cache_substituent_like_acyclic_defer(ctx, name, False)
     if _has_ring_substituent_artifact_name(name):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if kekulized_records is None:
         kekulized_records = ctx.polycyclic_parent_records("kekulized")
     if kekulized_records and kekulized_short_functional_defer:
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if kekulized_records and kekulized_pterin_defer:
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if "diamyl" in name and any(term in name for term in ("cyclopropyl", "piperidin", "pyrrolidin")):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if "diamyl" in name and "dioxolan" in name:
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if "azamethylcarbonyl" in name:
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if name.endswith("-methane") and any(
         term in name
         for term in (
@@ -17190,18 +17197,23 @@ def _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name: str) -
             "sulfonyl",
         )
     ):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if _has_unsubstituted_sulfonimidoyl_methane_parent(name):
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if name.endswith("-propane") and "carbonyloxy" in name:
-        return True
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
     if (
         _has_retained_fused_parent_substituent_name(name)
         and any(term in name for term in ("amino", "carbonyl", "carboxy", "cyano", "imino", "oxo", "aza", "oxa", "thia"))
         and _has_short_functional_acyclic_parent_suffix(name)
     ):
-        return True
-    return False
+        return _cache_substituent_like_acyclic_defer(ctx, name, True)
+    return _cache_substituent_like_acyclic_defer(ctx, name, False)
+
+
+def _cache_substituent_like_acyclic_defer(ctx, name: str, value: bool) -> bool:
+    ctx.cache.substituent_like_acyclic_defer[name] = value
+    return value
 
 
 def _has_substituent_like_monocyclic_parent_name(name: str) -> bool:

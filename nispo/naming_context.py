@@ -70,6 +70,7 @@ class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     compiled_template_candidates: dict[tuple[int, bool], tuple[object, ...]] = field(default_factory=dict)
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
+    compiled_rules: dict[tuple[int, ...], tuple[object, ...]] = field(default_factory=dict)
     polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     template_matches: dict[int, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
@@ -83,6 +84,7 @@ class ContextCache:
             template_candidates=self.template_candidates,
             compiled_template_candidates=self.compiled_template_candidates,
             acyclic_names=self.acyclic_names,
+            compiled_rules=self.compiled_rules,
             substruct_matches=self.substruct_matches,
             template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,

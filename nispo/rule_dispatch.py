@@ -40,7 +40,23 @@ def compile_rules_for_context(
     still remains authoritative.
     """
 
-    rules = tuple(rules)
+    rules = rules if isinstance(rules, tuple) else tuple(rules)
+    cache = getattr(ctx, "cache", None)
+    cache_key = tuple(id(rule) for rule in rules)
+    cached = None
+    if cache is not None:
+        cached = cache.compiled_rules.get(cache_key)
+    if cached is not None:
+        compiled = cached
+        skipped = len(rules) - len(compiled)
+        if telemetry is not None:
+            route = ctx.route_plan.primary_route
+            telemetry.compiled_rule_input_count[route] += len(rules)
+            telemetry.compiled_rule_output_count[route] += len(compiled)
+            telemetry.compiled_rule_skip_count[route] += skipped
+            telemetry.compiled_rule_cache_hit_count[route] += 1
+        return compiled
+
     compiled = []
     skipped = 0
     facts = ctx.facts
@@ -54,7 +70,10 @@ def compile_rules_for_context(
         telemetry.compiled_rule_input_count[route] += len(rules)
         telemetry.compiled_rule_output_count[route] += len(compiled)
         telemetry.compiled_rule_skip_count[route] += skipped
-    return tuple(compiled)
+    result = tuple(compiled)
+    if cache is not None:
+        cache.compiled_rules[cache_key] = result
+    return result
 
 
 def _rule_impossible_for_facts(rule: RuleSpec, facts) -> bool:
@@ -71,6 +90,15 @@ def _rule_impossible_for_facts(rule: RuleSpec, facts) -> bool:
         if facts.ring_count == 0 and getattr(gate, "_nispo_requires_ring", False):
             return True
         if facts.ring_count != 0 and getattr(gate, "_nispo_requires_acyclic", False):
+            return True
+        required_fact = getattr(gate, "_nispo_requires_fact", "")
+        if required_fact and not bool(getattr(facts, required_fact, False)):
+            return True
+        required_all_facts = getattr(gate, "_nispo_requires_all_facts", ())
+        if required_all_facts and not all(bool(getattr(facts, fact, False)) for fact in required_all_facts):
+            return True
+        required_any_facts = getattr(gate, "_nispo_requires_any_facts", ())
+        if required_any_facts and not any(bool(getattr(facts, fact, False)) for fact in required_any_facts):
             return True
     return False
 
@@ -154,16 +182,28 @@ def formal_charge_signal(ctx) -> bool:
     return ctx.profile.has_formal_charge
 
 
+formal_charge_signal._nispo_requires_fact = "has_formal_charge"
+
+
 def boron_signal(ctx) -> bool:
     return ctx.profile.has_boron
+
+
+boron_signal._nispo_requires_fact = "has_boron"
 
 
 def iodine_signal(ctx) -> bool:
     return ctx.profile.has_iodine
 
 
+iodine_signal._nispo_requires_fact = "has_iodine"
+
+
 def sulfur_signal(ctx) -> bool:
     return ctx.profile.has_sulfur
+
+
+sulfur_signal._nispo_requires_fact = "has_sulfur"
 
 
 def oxygen_oxygen_single_bond_signal(ctx) -> bool:
@@ -196,28 +236,52 @@ def small_inorganic_retained_signal(ctx) -> bool:
     )
 
 
+small_inorganic_retained_signal._nispo_requires_fact = "has_small_inorganic_retained_signal"
+
+
 def sulfur_imino_signal(ctx) -> bool:
     return ctx.profile.has_sulfur and ctx.profile.has_imino_skeleton_signal
+
+
+sulfur_imino_signal._nispo_requires_all_facts = ("has_sulfur", "has_imino_skeleton_signal")
 
 
 def imino_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_imino_skeleton_signal
 
 
+imino_skeleton_signal._nispo_requires_fact = "has_imino_skeleton_signal"
+
+
 def functional_skeleton_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal
+
+
+functional_skeleton_signal._nispo_requires_fact = "has_functional_skeleton_signal"
 
 
 def sulfur_oxo_retained_parent_signal(ctx) -> bool:
     return ctx.profile.has_sulfur_oxo_retained_parent_signal
 
 
+sulfur_oxo_retained_parent_signal._nispo_requires_fact = "has_sulfur_oxo_retained_parent_signal"
+
+
 def terminal_n_oxide_signal(ctx) -> bool:
     return ctx.profile.has_terminal_n_oxide
 
 
+terminal_n_oxide_signal._nispo_requires_fact = "has_terminal_n_oxide"
+
+
 def sulfinate_retained_parent_signal(ctx) -> bool:
     return ctx.profile.has_functional_skeleton_signal or ctx.profile.has_sulfur_oxo_retained_parent_signal
+
+
+sulfinate_retained_parent_signal._nispo_requires_any_facts = (
+    "has_functional_skeleton_signal",
+    "has_sulfur_oxo_retained_parent_signal",
+)
 
 
 def dithiocarbonate_signal(ctx) -> bool:
@@ -287,12 +351,18 @@ def acyclic_preference_signal(ctx) -> bool:
     return ctx.profile.may_prefer_acyclic_skeleton
 
 
+acyclic_preference_signal._nispo_requires_fact = "has_acyclic_preference_signal"
+
+
 def conjugated_carbonyl_diene_signal(ctx) -> bool:
     return ctx.profile.has_conjugated_carbonyl_diene_signal
 
 
 def kekulized_polycycle_signal(ctx) -> bool:
     return ctx.profile.has_kekulized_polycycle_signal
+
+
+kekulized_polycycle_signal._nispo_requires_fact = "has_kekulized_polycycle_signal"
 
 
 def generic_bicyclic_topology(ctx) -> bool:

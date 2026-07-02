@@ -45,6 +45,11 @@ class MoleculeFacts:
     has_component_spiro_topology: bool
     has_functional_skeleton_signal: bool
     has_imino_skeleton_signal: bool
+    has_acyclic_preference_signal: bool
+    has_kekulized_polycycle_signal: bool
+    has_small_inorganic_retained_signal: bool
+    has_sulfur_oxo_retained_parent_signal: bool
+    has_terminal_n_oxide: bool
     has_nonring_multiple_bond: bool
     has_sulfur: bool
     has_phosphorus: bool
@@ -111,6 +116,11 @@ def build_molecule_facts(
         has_component_spiro_topology=_has_spiro_ring_pair(mol, ring_topologies),
         has_functional_skeleton_signal=bool(profile.has_functional_skeleton_signal),
         has_imino_skeleton_signal=bool(profile.has_imino_skeleton_signal),
+        has_acyclic_preference_signal=bool(profile.may_prefer_acyclic_skeleton),
+        has_kekulized_polycycle_signal=bool(profile.has_kekulized_polycycle_signal),
+        has_small_inorganic_retained_signal=bool(profile.has_small_inorganic_retained_signal),
+        has_sulfur_oxo_retained_parent_signal=bool(profile.has_sulfur_oxo_retained_parent_signal),
+        has_terminal_n_oxide=bool(profile.has_terminal_n_oxide),
         has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),
         has_sulfur=bool(profile.has_sulfur),
         has_phosphorus=bool(profile.has_nonring_neutral_phosphorus or profile.has_nonring_positive_phosphorus),

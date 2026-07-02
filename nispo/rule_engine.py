@@ -439,7 +439,7 @@ class NamingEngine:
                 telemetry=telemetry,
                 cache=ctx.cache.shared_for_fallback(),
             )
-            fallback_name = _first_valid_candidate_name(
+            fallback_name = _fallback_first_valid_or_selected_candidate_name(
                 mol,
                 self._Chem,
                 fallback_ctx,
@@ -863,6 +863,80 @@ def _first_valid_prepared_candidate(
     return None
 
 
+def _fallback_first_valid_or_selected_candidate_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+    max_length: int = _DEFAULT_MAX_NAME_LENGTH,
+    output_max_length: int | None = None,
+) -> str:
+    first_item = _first_valid_prepared_candidate(
+        mol,
+        Chem,
+        ctx,
+        rules,
+        max_length=max_length,
+        output_max_length=output_max_length,
+    )
+    if first_item is None:
+        return ""
+    if not _fallback_first_valid_candidate_needs_selection(first_item):
+        return _record_and_return_prepared_candidate(first_item, telemetry=telemetry)
+    selected_item = _fallback_retained_topology_alternative_for_first_valid(
+        first_item,
+        _prepare_candidates(
+            mol,
+            Chem,
+            ctx,
+            rules,
+            max_length=max_length,
+            output_max_length=output_max_length,
+        ),
+    )
+    return _record_and_return_prepared_candidate(selected_item or first_item, telemetry=telemetry)
+
+
+def _fallback_retained_topology_alternative_for_first_valid(
+    first_item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> _PreparedCandidate | None:
+    if not prepared:
+        return None
+    selected = next(
+        (
+            item
+            for item in prepared
+            if item.name == first_item.name
+            and item.candidate.family == first_item.candidate.family
+            and item.candidate.source_family == first_item.candidate.source_family
+            and item.candidate.parent_atoms == first_item.candidate.parent_atoms
+        ),
+        prepared[0],
+    )
+    keyed_items = [(_prepared_candidate_selection_key(item, prepared), item) for item in prepared]
+    return _retained_topology_alternative_for_kekulized_generic_choice(keyed_items, selected)
+
+
+def _fallback_first_valid_candidate_needs_selection(item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
+    if candidate.family != "kekulized-generic-polycyclic-parent":
+        return False
+    if candidate.source_family != "kekulized":
+        return False
+    if candidate.template_name or candidate.source_file:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
 def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
     return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
 
@@ -1133,31 +1207,38 @@ def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> 
     best_key: tuple | None = None
     keyed_items: list[tuple[tuple, _PreparedCandidate]] = []
     for item in prepared:
-        candidate = item.candidate
-        stability_penalty = (
-            item.stability_penalty
-            + _candidate_selection_contextual_penalty(item, prepared)
-            + _candidate_selection_broad_graph_parent_penalty(item, prepared)
-        )
-        selection_bonus = (
-            item.selection_bonus
-            + _candidate_selection_graph_parent_bonus(candidate)
-            + _candidate_selection_contextual_bonus(item, prepared)
-        )
-        candidate_key = (
-            stability_penalty,
-            candidate.priority,
-            _candidate_selection_render_rank_key(candidate),
-            len(item.name) - selection_bonus,
-            len(item.name),
-            _comparable_sort_key(candidate.sort_key),
-            item.name,
-        )
+        candidate_key = _prepared_candidate_selection_key(item, prepared)
         keyed_items.append((candidate_key, item))
         if best_key is None or candidate_key < best_key:
             best_item = item
             best_key = candidate_key
     return _candidate_fact_ranked_item(keyed_items, best_item)
+
+
+def _prepared_candidate_selection_key(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> tuple:
+    candidate = item.candidate
+    stability_penalty = (
+        item.stability_penalty
+        + _candidate_selection_contextual_penalty(item, prepared)
+        + _candidate_selection_broad_graph_parent_penalty(item, prepared)
+    )
+    selection_bonus = (
+        item.selection_bonus
+        + _candidate_selection_graph_parent_bonus(candidate)
+        + _candidate_selection_contextual_bonus(item, prepared)
+    )
+    return (
+        stability_penalty,
+        candidate.priority,
+        _candidate_selection_render_rank_key(candidate),
+        len(item.name) - selection_bonus,
+        len(item.name),
+        _comparable_sort_key(candidate.sort_key),
+        item.name,
+    )
 
 
 def _record_and_return_prepared_candidate(
@@ -4142,6 +4223,15 @@ def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+_RETAINED_TOPOLOGY_REPLACEMENT_SOURCE_FAMILIES = frozenset(
+    {
+        "opsin-retained-ring-cml",
+        "static-retained",
+        "static-exact-retained",
+    }
+)
+
+
 def _retained_topology_alternative_for_kekulized_generic_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -4162,7 +4252,7 @@ def _retained_topology_alternative_for_kekulized_generic_choice(
     if candidate_safety_reasons(selected_candidate):
         return None
     selected_parent_count = len(selected_candidate.parent_atoms)
-    if selected_parent_count < 8 or selected_parent_count > 14:
+    if selected_parent_count < 8:
         return None
     selected_key = next((key for key, item in keyed_items if item is selected), None)
     if selected_key is None:
@@ -4175,11 +4265,11 @@ def _retained_topology_alternative_for_kekulized_generic_choice(
         candidate = item.candidate
         if candidate.family != "retained-topology-replacement-fused-parent":
             continue
-        if candidate.source_family != "opsin-retained-ring-cml":
+        if candidate.source_family not in _RETAINED_TOPOLOGY_REPLACEMENT_SOURCE_FAMILIES:
             continue
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
             continue
-        if len(candidate.parent_atoms) != selected_parent_count:
+        if candidate.parent_atoms != selected_candidate.parent_atoms:
             continue
         if candidate.parent_element_counts != selected_candidate.parent_element_counts:
             continue
@@ -16501,6 +16591,8 @@ def _post_ranker_base_restore_has_unsafe_context(
     base: NameCandidate,
     selected: NameCandidate,
 ) -> bool:
+    if _blocks_kekulized_base_restore_for_retained_topology(base, selected):
+        return True
     if _is_sulfur_oxo_acyclic_base_restore_candidate(base):
         if selected.family not in _POST_RANKER_BASE_RESTORE_ACYCLIC_SHORTCUT_FAMILIES:
             return True
@@ -16550,6 +16642,37 @@ def _post_ranker_base_restore_has_unsafe_context(
                 item.candidate.family == "retained-amide-parent" for _, item in keyed_items
             )
     return False
+
+
+def _blocks_kekulized_base_restore_for_retained_topology(
+    base: NameCandidate,
+    selected: NameCandidate,
+) -> bool:
+    if base.family != "kekulized-generic-polycyclic-parent":
+        return False
+    if base.source_family != "kekulized" or base.template_name or base.source_file:
+        return False
+    if selected.family != "retained-topology-replacement-fused-parent":
+        return False
+    if selected.source_family not in _RETAINED_TOPOLOGY_REPLACEMENT_SOURCE_FAMILIES:
+        return False
+    if selected.template_name == "":
+        return False
+    if not base.parent_atoms or not selected.parent_atoms:
+        return False
+    if base.parent_atoms != selected.parent_atoms:
+        return False
+    if not candidate_has_complete_graph(base) or not candidate_has_complete_graph(selected):
+        return False
+    if base.parent_element_counts != selected.parent_element_counts:
+        return False
+    if base.parent_hetero_atom_count != selected.parent_hetero_atom_count:
+        return False
+    if selected.charge is not None or selected.suffixes or selected.prefixes:
+        return False
+    if candidate_safety_reasons(selected):
+        return False
+    return True
 
 
 def _is_post_ranker_base_restore_competitor(

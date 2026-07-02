@@ -13,7 +13,6 @@ from .candidate_facts import (
 from .cycle_utils import ordered_ring
 from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
-    candidate_generated_fused_templates,
     curated_fused_templates,
 )
 from .formatting import format_prefixes as _format_prefixes
@@ -59,6 +58,26 @@ _SIMPLE_POLY_COMPONENT_SPIRO_PAIR_RENDER_LIMIT = 1
 _COMPONENT_DISPIRO_TRIPLE_RENDER_LIMIT = 72
 _COMPONENT_NAME_CACHE_LIMIT = 8192
 _COMPONENT_NAME_CACHE: OrderedDict[tuple, tuple["_Component", ...]] = OrderedDict()
+_UNSTABLE_COMPONENT_SPIRO_RETAINED_PARENT_NAMES = frozenset(
+    {
+        "1H-pyrido[2,3-b][1,4]oxazin-2(3H)-one",
+        "[1,3]benzodioxane",
+        "[1,4]benzoxazine",
+        "isoindolin-1-one",
+    }
+)
+_UNSTABLE_COMPONENT_SPIRO_RETAINED_PARENT_FRAGMENTS = (
+    "benzodiox",
+    "benzoxazin",
+    "dihydro-cyclopenta[a]phenanthren",
+    "dihydro-safro",
+    "pyrazolo[4,3-c]pyridin",
+    "safro",
+    "[1,3]benzodioxane",
+    "[1,4]benzoxazine",
+    "pyrido[2,3-b][1,4]oxazin",
+    "isoindolin-1-one",
+)
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -1034,8 +1053,6 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             item.parent_name,
         )
     )
-    if components:
-        return _store_component_names(cache_key, components[:16])
     components.extend(_fused_component_names(mol, Chem, spiro_idx, seen))
     components.sort(
         key=lambda item: (
@@ -1066,10 +1083,7 @@ def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -
         return []
     seen = seen if seen is not None else set()
     ctx = MoleculeContext(mol, Chem)
-    templates = (
-        _sorted_curated_fused_templates(Chem)
-        + candidate_generated_fused_templates(mol, Chem, ctx.features)
-    )
+    templates = _sorted_curated_fused_templates(Chem)
     components: list[_Component] = []
     for template, match in _iter_fused_template_matches(
         ctx,
@@ -1180,7 +1194,7 @@ def _component_from_fused_template(
     parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
     if not parent_name:
         return None
-    if "hydro" in parent_name:
+    if _unstable_component_spiro_retained_parent_name(parent_name):
         return None
     return _Component(
         parent_name=parent_name,
@@ -1189,6 +1203,12 @@ def _component_from_fused_template(
         component_rank=0,
         component_kind="fused-template",
     )
+
+
+def _unstable_component_spiro_retained_parent_name(parent_name: str) -> bool:
+    if parent_name in _UNSTABLE_COMPONENT_SPIRO_RETAINED_PARENT_NAMES:
+        return True
+    return any(fragment in parent_name for fragment in _UNSTABLE_COMPONENT_SPIRO_RETAINED_PARENT_FRAGMENTS)
 
 
 _EXPLICIT_HETERO_GENERIC_COMPONENT_KINDS = frozenset(

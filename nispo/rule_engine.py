@@ -58,6 +58,31 @@ _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
         "kekulized-generic-polycyclic-parent",
     }
 )
+_FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "exact-retained-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generic-spiro-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "lambda-sulfanone-parent",
+        "natural-product-topology-parent",
+        "phosphate-ester-retained-parent",
+        "phosphanylium-imino-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-ring-scaffold-parent",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+        "skeletal-replacement-fused-parent",
+        "sulfonimidamide-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+        "sydnone-urea-amidate-retained-parent",
+    }
+)
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
 
 
@@ -140,6 +165,9 @@ class NamingEngine:
         self._fast_poly_bridge_route_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
         )
+        self._fast_poly_route_miss_fallback_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
+        )
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
@@ -181,6 +209,13 @@ class NamingEngine:
         )
         if routed_polycyclic_name:
             return routed_polycyclic_name
+        if mol.GetRingInfo().NumRings() >= 3:
+            route_miss_name = _select_best_prepared_candidate(
+                _prepare_candidates(mol, self._Chem, ctx, self._fast_poly_route_miss_fallback_rules),
+                telemetry=telemetry,
+            )
+            if route_miss_name:
+                return route_miss_name
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,

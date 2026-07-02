@@ -1540,10 +1540,18 @@ def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
 def _path_charge_preserving_prefix_count(mol, path: Sequence[int]) -> int:
     if not _has_formal_charge(mol):
         return 0
+    cache = mol_cache_dict(mol, "acyclic_path_charge_preserving_prefix_count")
+    cache_key = tuple(sorted(path))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
     if prefixes is None:
+        cache[cache_key] = 0
         return 0
-    return sum(1 for _locant, prefix in prefixes if _prefix_preserves_formal_charge(prefix))
+    count = sum(1 for _locant, prefix in prefixes if _prefix_preserves_formal_charge(prefix))
+    cache[cache_key] = count
+    return count
 
 
 def _has_formal_charge(mol) -> bool:

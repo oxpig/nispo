@@ -2102,6 +2102,9 @@ def _polycyclic_external_prefixes_by_parent(
     )
     if cache_key in cache:
         return cache[cache_key]
+    if len(core_atoms) == mol.GetNumHeavyAtoms():
+        cache[cache_key] = {}
+        return {}
     prefixes_by_parent: dict[int, list[str]] = {}
     for idx in core_atoms:
         atom_prefixes = []

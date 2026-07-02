@@ -20987,7 +20987,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
         Chem,
         generated_templates=ctx.narrow_generated_fused_templates,
     ):
-        for template, match in _iter_fused_template_matches(
+        for template, match in _cached_iter_fused_template_matches(
             ctx,
             templates,
             Chem,

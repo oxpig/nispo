@@ -1157,6 +1157,8 @@ def _fused_ring_substituent_prefix_for_view(
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, generated_templates)
     if generated:
         return generated
+    if not _should_try_broad_generated_fused_substituent_templates(mol):
+        return ""
     broad_generated_templates = _candidate_generated_fused_templates(mol, Chem, graph_filter=False)
     if carbocyclic_only:
         broad_generated_templates = _carbocyclic_fused_templates(broad_generated_templates)
@@ -1164,6 +1166,10 @@ def _fused_ring_substituent_prefix_for_view(
         mol, attachment_idx, parent_idx, broad_generated_templates, generated=True
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, broad_generated_templates)
     return generated
+
+
+def _should_try_broad_generated_fused_substituent_templates(mol) -> bool:
+    return bool(getattr(mol, "HasProp", lambda _name: False)("_nispo_allow_fragment_substituent_fallback"))
 
 
 _CARBOCYCLIC_FUSED_TEMPLATE_CACHE: dict[int, tuple[dict, ...]] = {}

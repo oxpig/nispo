@@ -34,6 +34,7 @@ class MoleculeFacts:
     max_ring_system_size: int
     max_ring_system_ring_count: int
     max_ring_system_cycle_rank: int
+    all_atoms_in_one_ring_system: bool
     aromatic_atom_count: int
     hetero_atom_count: int
     chiral_atom_count: int
@@ -47,9 +48,18 @@ class MoleculeFacts:
     has_imino_skeleton_signal: bool
     has_acyclic_preference_signal: bool
     has_kekulized_polycycle_signal: bool
+    has_charged_ring_atom: bool
+    has_generic_bicyclic_topology: bool
+    has_generic_polycyclic_topology: bool
     has_small_inorganic_retained_signal: bool
     has_sulfur_oxo_retained_parent_signal: bool
     has_terminal_n_oxide: bool
+    has_oxygen_oxygen_single_bond: bool
+    has_nitrile_oxide_signal: bool
+    has_oxime_sulfonate_nitrile_signal: bool
+    has_terminal_carboxylate_signal: bool
+    has_dithiocarbamate_signal: bool
+    has_conjugated_carbonyl_diene_signal: bool
     has_nonring_multiple_bond: bool
     has_nitrogen: bool
     has_oxygen: bool
@@ -109,6 +119,7 @@ def build_molecule_facts(
         max_ring_system_size=int(features.get("max_ring_system_size", 0) or 0),
         max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0) or 0),
         max_ring_system_cycle_rank=max_cycle_rank,
+        all_atoms_in_one_ring_system=bool(features.get("all_atoms_in_one_ring_system", False)),
         aromatic_atom_count=sum(1 for atom in atoms if atom.GetIsAromatic()),
         hetero_atom_count=sum(1 for atom in atoms if atom.GetAtomicNum() not in {1, 6}),
         chiral_atom_count=sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in atoms),
@@ -122,9 +133,18 @@ def build_molecule_facts(
         has_imino_skeleton_signal=bool(profile.has_imino_skeleton_signal),
         has_acyclic_preference_signal=bool(profile.may_prefer_acyclic_skeleton),
         has_kekulized_polycycle_signal=bool(profile.has_kekulized_polycycle_signal),
+        has_charged_ring_atom=bool(profile.has_charged_ring_atom),
+        has_generic_bicyclic_topology=any(topology.cycle_rank == 2 for topology in ring_topologies),
+        has_generic_polycyclic_topology=any(2 <= topology.cycle_rank <= 9 for topology in ring_topologies),
         has_small_inorganic_retained_signal=bool(profile.has_small_inorganic_retained_signal),
         has_sulfur_oxo_retained_parent_signal=bool(profile.has_sulfur_oxo_retained_parent_signal),
         has_terminal_n_oxide=bool(profile.has_terminal_n_oxide),
+        has_oxygen_oxygen_single_bond=bool(profile.has_oxygen_oxygen_single_bond),
+        has_nitrile_oxide_signal=bool(profile.has_nitrile_oxide_signal),
+        has_oxime_sulfonate_nitrile_signal=bool(profile.has_oxime_sulfonate_nitrile_signal),
+        has_terminal_carboxylate_signal=bool(profile.has_terminal_carboxylate_signal),
+        has_dithiocarbamate_signal=bool(profile.has_dithiocarbamate_signal),
+        has_conjugated_carbonyl_diene_signal=bool(profile.has_conjugated_carbonyl_diene_signal),
         has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),
         has_nitrogen=bool(profile.has_nitrogen),
         has_oxygen=bool(profile.has_oxygen),

@@ -133,10 +133,14 @@ def exact_ring_system(ctx) -> bool:
 
 
 exact_ring_system._nispo_requires_ring = True
+exact_ring_system._nispo_requires_fact = "all_atoms_in_one_ring_system"
 
 
 def nonring_positive_sulfur(ctx) -> bool:
     return ctx.profile.has_nonring_positive_sulfur
+
+
+nonring_positive_sulfur._nispo_requires_all_facts = ("has_sulfur", "has_formal_charge")
 
 
 def nonring_positive_nitrogen(ctx) -> bool:
@@ -193,7 +197,7 @@ def charged_ring_atom(ctx) -> bool:
 
 
 charged_ring_atom._nispo_requires_ring = True
-charged_ring_atom._nispo_requires_fact = "has_formal_charge"
+charged_ring_atom._nispo_requires_fact = "has_charged_ring_atom"
 
 
 def no_charged_ring_atom(ctx) -> bool:
@@ -232,20 +236,35 @@ def oxygen_oxygen_single_bond_signal(ctx) -> bool:
     return ctx.profile.has_oxygen_oxygen_single_bond
 
 
+oxygen_oxygen_single_bond_signal._nispo_requires_fact = "has_oxygen_oxygen_single_bond"
+
+
 def nitrile_oxide_signal(ctx) -> bool:
     return ctx.profile.has_nitrile_oxide_signal
+
+
+nitrile_oxide_signal._nispo_requires_fact = "has_nitrile_oxide_signal"
 
 
 def oxime_sulfonate_nitrile_signal(ctx) -> bool:
     return ctx.profile.has_oxime_sulfonate_nitrile_signal
 
 
+oxime_sulfonate_nitrile_signal._nispo_requires_fact = "has_oxime_sulfonate_nitrile_signal"
+
+
 def terminal_carboxylate_signal(ctx) -> bool:
     return ctx.profile.has_terminal_carboxylate_signal
 
 
+terminal_carboxylate_signal._nispo_requires_fact = "has_terminal_carboxylate_signal"
+
+
 def dithiocarbamate_retained_signal(ctx) -> bool:
     return ctx.profile.has_dithiocarbamate_signal
+
+
+dithiocarbamate_retained_signal._nispo_requires_fact = "has_dithiocarbamate_signal"
 
 
 def small_inorganic_retained_signal(ctx) -> bool:
@@ -380,6 +399,9 @@ def conjugated_carbonyl_diene_signal(ctx) -> bool:
     return ctx.profile.has_conjugated_carbonyl_diene_signal
 
 
+conjugated_carbonyl_diene_signal._nispo_requires_fact = "has_conjugated_carbonyl_diene_signal"
+
+
 def kekulized_polycycle_signal(ctx) -> bool:
     return ctx.profile.has_kekulized_polycycle_signal
 
@@ -392,6 +414,7 @@ def generic_bicyclic_topology(ctx) -> bool:
 
 
 generic_bicyclic_topology._nispo_requires_ring = True
+generic_bicyclic_topology._nispo_requires_fact = "has_generic_bicyclic_topology"
 
 
 def generic_polycyclic_topology(ctx) -> bool:
@@ -399,6 +422,7 @@ def generic_polycyclic_topology(ctx) -> bool:
 
 
 generic_polycyclic_topology._nispo_requires_ring = True
+generic_polycyclic_topology._nispo_requires_fact = "has_generic_polycyclic_topology"
 
 
 def spiro_topology(ctx) -> bool:
@@ -406,6 +430,7 @@ def spiro_topology(ctx) -> bool:
 
 
 spiro_topology._nispo_requires_ring = True
+spiro_topology._nispo_requires_fact = "has_spiro_topology"
 
 
 def component_spiro_topology(ctx) -> bool:
@@ -413,6 +438,7 @@ def component_spiro_topology(ctx) -> bool:
 
 
 component_spiro_topology._nispo_requires_ring = True
+component_spiro_topology._nispo_requires_fact = "has_component_spiro_topology"
 
 
 def no_exocyclic_charged_fused_parent(ctx) -> bool:

@@ -99,6 +99,8 @@ def kekulized_polycyclic_parent_candidate_records(
         return _store_polycyclic_records(mol, cache_key, [])
     seen = set()
     unique = []
+    route_fast = bool(getattr(kekulized, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP))
+    render_late_limit = limit if route_fast else None
 
     def add_unique(records) -> bool:
         for record in records:
@@ -119,22 +121,45 @@ def kekulized_polycyclic_parent_candidate_records(
         rank = _graph_cycle_rank(graph)
         if rank == 2:
             record_sets = (
-                _bicyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
-                _spiro_ring_system_candidate_records(kekulized, Chem, ring_system),
+                lambda: _bicyclic_ring_system_candidate_records(
+                    kekulized,
+                    Chem,
+                    ring_system,
+                    max_records=render_late_limit,
+                    render_late=route_fast,
+                ),
+                lambda: _spiro_ring_system_candidate_records(
+                    kekulized,
+                    Chem,
+                    ring_system,
+                    max_records=render_late_limit,
+                    render_late=route_fast,
+                ),
             )
         elif rank == 3:
             record_sets = (
-                _tricyclic_ring_system_candidate_records(kekulized, Chem, ring_system),
-                _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
+                lambda: _tricyclic_ring_system_candidate_records(
+                    kekulized,
+                    Chem,
+                    ring_system,
+                    max_records=render_late_limit,
+                    render_late=route_fast,
+                ),
+                lambda: _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
             )
         elif 4 <= rank <= 9:
             record_sets = (
-                _secondary_bridge_polycyclic_candidate_records(kekulized, Chem, ring_system),
+                lambda: _secondary_bridge_polycyclic_candidate_records(
+                    kekulized,
+                    Chem,
+                    ring_system,
+                    max_records=limit,
+                ),
             )
         else:
             continue
-        for records in record_sets:
-            if add_unique(records):
+        for make_records in record_sets:
+            if add_unique(make_records()):
                 return _store_polycyclic_records(mol, cache_key, unique)
     return _store_polycyclic_records(mol, cache_key, unique)
 
@@ -185,7 +210,14 @@ def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_id
     return candidates
 
 
-def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
+def _bicyclic_ring_system_candidate_records(
+    mol,
+    Chem,
+    atoms: set[int],
+    *,
+    max_records: int | None = None,
+    render_late: bool = False,
+) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
         return []
@@ -199,6 +231,8 @@ def _bicyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[
         mol,
         atoms,
         _bicyclic_parent_sequence_candidates(mol, atoms, graph),
+        max_records=max_records,
+        render_late=render_late,
     )
 
 
@@ -310,7 +344,14 @@ def _spiro_parent_sequence_candidates(
     return candidates
 
 
-def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
+def _tricyclic_ring_system_candidate_records(
+    mol,
+    Chem,
+    atoms: set[int],
+    *,
+    max_records: int | None = None,
+    render_late: bool = False,
+) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
         return []
@@ -333,7 +374,13 @@ def _tricyclic_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list
             parent = _tricyclic_parent(mol, seq, bracket)
             if parent:
                 parent_sequences.append((parent, seq))
-    candidates = _decorated_polycyclic_records(mol, atoms, parent_sequences)
+    candidates = _decorated_polycyclic_records(
+        mol,
+        atoms,
+        parent_sequences,
+        max_records=max_records,
+        render_late=render_late,
+    )
     if not candidates:
         candidates = _secondary_bridge_tricyclic_candidate_records(mol, atoms, graph)
     if not candidates:
@@ -437,7 +484,14 @@ def _secondary_zero_bridge_tricyclic_sequence_candidates(
     return candidates
 
 
-def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple[str, tuple[int, ...]]]:
+def _spiro_ring_system_candidate_records(
+    mol,
+    Chem,
+    atoms: set[int],
+    *,
+    max_records: int | None = None,
+    render_late: bool = False,
+) -> list[tuple[str, tuple[int, ...]]]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
         return []
@@ -451,12 +505,56 @@ def _spiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[tup
         mol,
         atoms,
         _spiro_parent_sequence_candidates(mol, atoms, graph),
+        max_records=max_records,
+        render_late=render_late,
     )
 
 
 def _decorated_polycyclic_records(
-    mol, atoms: set[int], parent_sequences: Sequence[tuple]
+    mol,
+    atoms: set[int],
+    parent_sequences: Sequence[tuple],
+    *,
+    max_records: int | None = None,
+    render_late: bool = False,
 ) -> list[tuple[str, tuple[int, ...]]]:
+    if render_late and max_records is not None:
+        facts = []
+        for record in parent_sequences:
+            parent, seq = record[0], record[1]
+            bracket = record[2] if len(record) > 2 else ()
+            topology_mismatches = (
+                _opsin_bridge_topology_mismatch_count(mol, seq, bracket)
+                if bracket
+                else 0
+            )
+            key = (
+                topology_mismatches,
+                *_polycyclic_numbering_preference_key(mol, seq, atoms),
+            )
+            facts.append((key, tuple(seq), parent))
+        facts.sort(key=lambda item: item[0])
+        candidates = []
+        index = 0
+        while index < len(facts):
+            key = facts[index][0]
+            tied = []
+            while index < len(facts) and facts[index][0] == key:
+                tied.append(facts[index])
+                index += 1
+            rendered = []
+            for _key, seq, parent in tied:
+                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                if name:
+                    rendered.append((name, seq))
+            if not rendered:
+                continue
+            rendered.sort(key=lambda item: item[0])
+            for name, seq in rendered:
+                candidates.append((name, seq))
+                if len(candidates) >= max_records:
+                    return candidates
+        return candidates
     candidates = []
     for record in parent_sequences:
         parent, seq = record[0], record[1]
@@ -572,7 +670,13 @@ def _dispiro_ring_system_candidate_records(mol, Chem, atoms: set[int]) -> list[t
     return [(name, seq) for _key, name, seq in candidates]
 
 
-def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -> list[tuple]:
+def _secondary_bridge_polycyclic_candidate_records(
+    mol,
+    Chem,
+    atoms: set[int],
+    *,
+    max_records: int | None = None,
+) -> list[tuple]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
         return []
@@ -611,6 +715,8 @@ def _secondary_bridge_polycyclic_candidate_records(mol, Chem, atoms: set[int]) -
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
     if route_fast:
         candidate_limit = min(candidate_limit, 2)
+        if max_records is not None:
+            candidate_limit = min(candidate_limit, max_records)
     candidate_pool_limit = max(
         candidate_limit * (24 if route_fast else 4),
         candidate_limit + (48 if route_fast else 8),
@@ -1104,6 +1210,31 @@ def _secondary_bridge_base_path_sets(
     atom_mask: int | None = None,
     max_paths: int | None = None,
 ) -> list[tuple[tuple[int, ...], ...]]:
+    return list(
+        _secondary_bridge_base_path_sets_for_key(
+            _graph_cache_key(graph),
+            tuple(sorted(atoms)),
+            a,
+            b,
+            allow_relaxed,
+            atom_mask,
+            max_paths,
+        )
+    )
+
+
+@lru_cache(maxsize=32768)
+def _secondary_bridge_base_path_sets_for_key(
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...],
+    atoms_key: tuple[int, ...],
+    a: int,
+    b: int,
+    allow_relaxed: bool,
+    atom_mask: int | None,
+    max_paths: int | None,
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    graph = {idx: set(neighbors) for idx, neighbors in graph_key}
+    atoms = set(atoms_key)
     path_limit = max_paths if max_paths is not None else 36
     path_infos = (
         _simple_path_infos(graph, a, b, max_paths=path_limit)
@@ -1112,9 +1243,9 @@ def _secondary_bridge_base_path_sets(
     )
     exact = _bridge_paths_with_count_from_infos(path_infos[:12], atoms, a, b, 3)
     if exact:
-        return [tuple(exact)]
+        return (tuple(exact),)
     if not allow_relaxed:
-        return []
+        return ()
 
     candidates = []
     endpoints_mask = (1 << a) | (1 << b)
@@ -1134,7 +1265,7 @@ def _secondary_bridge_base_path_sets(
         )
         candidates.append((key, selected_paths))
     candidates.sort(key=lambda item: item[0])
-    return [selected for _key, selected in candidates[:12]]
+    return tuple(selected for _key, selected in candidates[:12])
 
 
 def _ring_multiple_bond_count(mol, atoms: set[int]) -> int:

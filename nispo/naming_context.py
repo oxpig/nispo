@@ -79,6 +79,7 @@ class ContextCache:
         return ContextCache(
             template_candidates=self.template_candidates,
             compiled_template_candidates=self.compiled_template_candidates,
+            acyclic_names=self.acyclic_names,
             substruct_matches=self.substruct_matches,
             template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,
@@ -163,10 +164,11 @@ class MoleculeContext:
         replaying the full parent-path search and branch rendering pipeline.
         """
 
-        cached = self.cache.acyclic_names.get(allow_ring_atoms)
+        key = (allow_ring_atoms, _fragment_fallback_state_key(self.mol))
+        cached = self.cache.acyclic_names.get(key)
         if cached is None:
             cached = name_acyclic_record(self.mol, allow_ring_atoms=allow_ring_atoms)
-            self.cache.acyclic_names[allow_ring_atoms] = cached
+            self.cache.acyclic_names[key] = cached
         return cached
 
     def acyclic_name(self, *, allow_ring_atoms: bool = True) -> str:
@@ -353,6 +355,18 @@ def _supplement_generated_fused_templates_by_ring_graph(
             :_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
         ]
     return tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
+
+
+def _fragment_fallback_state_key(mol) -> tuple[bool, str, bool, str, bool]:
+    return (
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_allow_fragment_substituent_fallback")
+        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
+        else "",
+        mol.HasProp("_nispo_fragment_substituent_depth"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+        mol.HasProp("_nispo_fragment_substituent_view"),
+    )
 
 
 def _template_collection_label(templates: tuple[dict, ...]) -> str:

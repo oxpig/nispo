@@ -322,8 +322,11 @@ def _fast_polycyclic_route_name(
     previous_route_prop = mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if had_route_prop else ""
     mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, "1")
     try:
-        return _select_best_prepared_candidate(
-            _prepare_candidates(mol, Chem, ctx, bridge_rules),
+        return _first_valid_candidate_name(
+            mol,
+            Chem,
+            ctx,
+            bridge_rules,
             telemetry=telemetry,
         )
     finally:
@@ -331,6 +334,65 @@ def _fast_polycyclic_route_name(
             mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
         else:
             mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+
+
+def _first_valid_candidate_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+    max_length: int = _DEFAULT_MAX_NAME_LENGTH,
+) -> str:
+    for rule in rules:
+        if not rule.applies(ctx):
+            continue
+        if telemetry is None:
+            for candidate in rule.candidates(ctx):
+                if not candidate.name:
+                    continue
+                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if output_name:
+                    return output_name
+            continue
+
+        telemetry.rule_applies[rule.family] += 1
+        started = time.perf_counter()
+        previous_rule_family = telemetry.active_rule_family
+        telemetry.active_rule_family = rule.family
+        try:
+            for candidate in rule.candidates(ctx):
+                telemetry.candidate_count[rule.family] += 1
+                _record_candidate_fact_telemetry(telemetry, rule.family, candidate)
+                if not candidate.name:
+                    telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                if not output_name:
+                    telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
+                telemetry.rendered_candidate_count[rule.family] += 1
+                telemetry.selected_family[candidate.family] += 1
+                telemetry.selected_rule_family[rule.family] += 1
+                if _candidate_has_structured_facts(candidate):
+                    telemetry.structured_selected_count[candidate.family] += 1
+                if candidate.template_id is not None:
+                    telemetry.selected_with_template_id += 1
+                if candidate.parent_atoms:
+                    telemetry.selected_with_parent_atoms += 1
+                if candidate.render_rank is not None:
+                    telemetry.selected_render_rank_count[rule.family] += 1
+                    telemetry.selected_render_rank_total[rule.family] += candidate.render_rank
+                    telemetry.selected_render_rank_bucket[
+                        f"{rule.family}:{_render_rank_bucket(candidate.render_rank)}"
+                    ] += 1
+                telemetry.selected_safety_reasons.update(candidate_safety_reasons(candidate))
+                return output_name
+        finally:
+            telemetry.active_rule_family = previous_rule_family
+            telemetry.rule_seconds[rule.family] += time.perf_counter() - started
+    return ""
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

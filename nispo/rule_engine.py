@@ -148,6 +148,21 @@ _FAST_POLY_LOW_HETERO_SENIOR_FAMILIES = _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES | f
         "urea-retained-parent",
     }
 )
+_FAST_MULTI_MONOCYCLE_SENIOR_RULE_FAMILIES = frozenset(
+    {
+        "aminophosphane-parent",
+        "biphenyl-diphosphonite-parent",
+        "bis-phosphino-amine-retained-parent",
+        "charged-organophosphorus-oxo-parent",
+        "organophosphorus-oxide-parent",
+        "phosphanium-parent",
+        "phosphite-ester-parent",
+        "phosphorane-parent",
+        "phosphorus-acid-parent",
+        "sulfinate-retained-parent",
+        "sulfonamide-parent",
+    }
+)
 _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
@@ -174,6 +189,19 @@ _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
     }
 )
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
+_FAST_MULTI_MONOCYCLE_SENIOR_BLOCKED_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "beta-dicarbonyl-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-amide-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +289,9 @@ class NamingEngine:
         self._fast_poly_low_hetero_senior_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_LOW_HETERO_SENIOR_FAMILIES
         )
+        self._fast_multi_monocycle_senior_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_MULTI_MONOCYCLE_SENIOR_RULE_FAMILIES
+        )
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
@@ -286,6 +317,15 @@ class NamingEngine:
             return _finalize_direct_name(mol, self._Chem, polyatomic_name)
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+        multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
+            mol,
+            self._Chem,
+            ctx,
+            self._fast_multi_monocycle_senior_rules,
+            telemetry=telemetry,
+        )
+        if multi_monocycle_senior_name:
+            return multi_monocycle_senior_name
         fast_monocycle_name = _fast_monocycle_system_name(
             mol,
             self._Chem,
@@ -418,6 +458,27 @@ def _fast_monocycle_system_name(
         return ""
     return _select_best_prepared_candidate(
         _prepare_candidates(mol, Chem, ctx, rules),
+        telemetry=telemetry,
+    )
+
+
+def _fast_multi_monocycle_senior_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if not _can_fast_stage_multi_monocycle_senior(ctx):
+        return ""
+    prepared = [
+        item
+        for item in _prepare_candidates(mol, Chem, ctx, rules)
+        if item.candidate.family not in _FAST_MULTI_MONOCYCLE_SENIOR_BLOCKED_FAMILIES
+    ]
+    return _select_best_prepared_candidate(
+        prepared,
         telemetry=telemetry,
     )
 
@@ -572,6 +633,37 @@ def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
         or profile.has_sulfur
         or profile.has_formal_charge
     )
+
+
+def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
+    mol = ctx.mol
+    ring_count = mol.GetRingInfo().NumRings()
+    if ring_count < 3 or ring_count > 5:
+        return False
+    if _nonhalogen_hetero_atom_count(mol) > 6:
+        return False
+    if not _has_multimonocycle_stage_element_signal(mol):
+        return False
+    if _largest_ring_system_cycle_rank(ctx) > 1:
+        return False
+    if ctx.has_component_spiro_topology:
+        return False
+    profile = ctx.profile
+    return (
+        profile.has_functional_skeleton_signal
+        or profile.has_imino_skeleton_signal
+        or profile.has_neutral_phosphorus
+        or profile.has_sulfur
+        or profile.has_formal_charge
+    )
+
+
+def _has_multimonocycle_stage_element_signal(mol) -> bool:
+    cached = mol_cache_get(mol, "multimonocycle_stage_element_signal")
+    if cached is not None:
+        return cached
+    value = any(atom.GetAtomicNum() in {15, 16} for atom in mol.GetAtoms())
+    return mol_cache_set(mol, "multimonocycle_stage_element_signal", value)
 
 
 def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:

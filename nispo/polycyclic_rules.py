@@ -1933,49 +1933,17 @@ def _bond_locant(left: int, right: int, atom_count: int) -> str:
 
 
 def _unsaturation_contiguity_key(mol, seq: Sequence[int]) -> tuple[int, tuple[tuple[int, int], ...]]:
-    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
-    locants = []
-    noncontiguous = 0
-    seen = set()
-    for idx in seq:
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx not in pos:
-                continue
-            key = tuple(sorted((idx, nidx)))
-            if key in seen:
-                continue
-            seen.add(key)
-            bond = mol.GetBondBetweenAtoms(idx, nidx)
-            if bond.GetBondTypeAsDouble() <= 1.0:
-                continue
-            low, high = sorted((pos[idx], pos[nidx]))
-            locants.append((low, high))
-            if high != low + 1:
-                noncontiguous += 1
-    return noncontiguous, tuple(sorted(locants))
+    locants = tuple(sorted(_multiple_bond_locant_edges(mol, seq)))
+    noncontiguous = sum(1 for low, high in locants if high != low + 1)
+    return noncontiguous, locants
 
 
 def _noncontiguous_unsaturation_locants(mol, seq: Sequence[int]) -> tuple[tuple[int, int], ...]:
-    pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
-    locants = []
-    seen = set()
-    for idx in seq:
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx not in pos:
-                continue
-            key = tuple(sorted((idx, nidx)))
-            if key in seen:
-                continue
-            seen.add(key)
-            bond = mol.GetBondBetweenAtoms(idx, nidx)
-            if bond.GetBondTypeAsDouble() <= 1.0:
-                continue
-            low, high = sorted((pos[idx], pos[nidx]))
-            if high != low + 1:
-                locants.append((low, high))
-    return tuple(sorted(locants))
+    return tuple(
+        (low, high)
+        for low, high in sorted(_multiple_bond_locant_edges(mol, seq))
+        if high != low + 1
+    )
 
 
 def _bridge_unsaturation_preference_key(

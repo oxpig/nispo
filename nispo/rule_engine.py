@@ -199,14 +199,16 @@ class NamingEngine:
         )
         if fast_monocycle_name:
             return fast_monocycle_name
-        routed_polycyclic_name = _fast_polycyclic_route_name(
-            mol,
-            self._Chem,
-            ctx,
-            component_spiro_rules=self._fast_component_spiro_route_rules,
-            bridge_rules=self._fast_poly_bridge_route_rules,
-            telemetry=telemetry,
-        )
+        routed_polycyclic_name = ""
+        if mol.GetRingInfo().NumRings() >= 2 and _largest_ring_system_cycle_rank(ctx) >= 2:
+            routed_polycyclic_name = _fast_polycyclic_route_name(
+                mol,
+                self._Chem,
+                ctx,
+                component_spiro_rules=self._fast_component_spiro_route_rules,
+                bridge_rules=self._fast_poly_bridge_route_rules,
+                telemetry=telemetry,
+            )
         if routed_polycyclic_name:
             return routed_polycyclic_name
         if mol.GetRingInfo().NumRings() >= 3:

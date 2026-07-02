@@ -143,28 +143,49 @@ def nonring_positive_nitrogen(ctx) -> bool:
     return ctx.profile.has_nonring_positive_nitrogen
 
 
+nonring_positive_nitrogen._nispo_requires_all_facts = ("has_nitrogen", "has_formal_charge")
+
+
 def nonring_positive_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_positive_phosphorus
+
+
+nonring_positive_phosphorus._nispo_requires_all_facts = ("has_phosphorus", "has_formal_charge")
 
 
 def nonring_neutral_nitrogen(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_nitrogen
 
 
+nonring_neutral_nitrogen._nispo_requires_fact = "has_nitrogen"
+
+
 def nonring_neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_phosphorus
+
+
+nonring_neutral_phosphorus._nispo_requires_fact = "has_phosphorus"
 
 
 def neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_neutral_phosphorus
 
 
+neutral_phosphorus._nispo_requires_fact = "has_phosphorus"
+
+
 def nonring_neutral_pnictogen(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_pnictogen
 
 
+nonring_neutral_pnictogen._nispo_requires_any_facts = ("has_nitrogen", "has_phosphorus")
+
+
 def nonring_neutral_group14(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_group14
+
+
+nonring_neutral_group14._nispo_requires_fact = "has_group14"
 
 
 def charged_ring_atom(ctx) -> bool:
@@ -172,6 +193,7 @@ def charged_ring_atom(ctx) -> bool:
 
 
 charged_ring_atom._nispo_requires_ring = True
+charged_ring_atom._nispo_requires_fact = "has_formal_charge"
 
 
 def no_charged_ring_atom(ctx) -> bool:

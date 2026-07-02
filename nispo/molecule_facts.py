@@ -51,10 +51,13 @@ class MoleculeFacts:
     has_sulfur_oxo_retained_parent_signal: bool
     has_terminal_n_oxide: bool
     has_nonring_multiple_bond: bool
+    has_nitrogen: bool
+    has_oxygen: bool
     has_sulfur: bool
     has_phosphorus: bool
     has_boron: bool
     has_iodine: bool
+    has_group14: bool
 
     @property
     def element_symbols(self) -> frozenset[str]:
@@ -87,10 +90,11 @@ def build_molecule_facts(
     """Build reusable graph facts from already-centralized molecule views."""
 
     atoms = tuple(mol.GetAtoms())
+    element_counter = Counter(atom.GetSymbol() for atom in atoms)
     element_counts = tuple(
         sorted(
             (symbol, count)
-            for symbol, count in Counter(atom.GetSymbol() for atom in atoms).items()
+            for symbol, count in element_counter.items()
             if count
         )
     )
@@ -122,10 +126,13 @@ def build_molecule_facts(
         has_sulfur_oxo_retained_parent_signal=bool(profile.has_sulfur_oxo_retained_parent_signal),
         has_terminal_n_oxide=bool(profile.has_terminal_n_oxide),
         has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),
+        has_nitrogen=bool(profile.has_nitrogen),
+        has_oxygen=bool(profile.has_oxygen),
         has_sulfur=bool(profile.has_sulfur),
-        has_phosphorus=bool(profile.has_nonring_neutral_phosphorus or profile.has_nonring_positive_phosphorus),
+        has_phosphorus=bool(element_counter.get("P", 0)),
         has_boron=bool(profile.has_boron),
         has_iodine=bool(profile.has_iodine),
+        has_group14=any(element_counter.get(symbol, 0) for symbol in ("Si", "Ge", "Sn", "Pb")),
     )
 
 

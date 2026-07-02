@@ -1053,7 +1053,8 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             item.parent_name,
         )
     )
-    components.extend(_fused_component_names(mol, Chem, spiro_idx, seen))
+    if _should_try_retained_fused_component_names(components):
+        components.extend(_fused_component_names(mol, Chem, spiro_idx, seen))
     components.sort(
         key=lambda item: (
             item.component_rank,
@@ -1068,6 +1069,19 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     return _store_component_names(cache_key, components[:16])
 
 
+def _should_try_retained_fused_component_names(components: Sequence[_Component]) -> bool:
+    if not components:
+        return True
+    for component in components:
+        if component.component_rank >= 3:
+            return True
+        if component.replacement_prefixes and component.component_kind in _EXPLICIT_HETERO_GENERIC_COMPONENT_KINDS:
+            return True
+        if component.safety is not None or component.render_cost > 1:
+            return True
+    return False
+
+
 @lru_cache(maxsize=8)
 def _sorted_curated_fused_templates(Chem) -> tuple[dict, ...]:
     return tuple(
@@ -1078,12 +1092,23 @@ def _sorted_curated_fused_templates(Chem) -> tuple[dict, ...]:
     )
 
 
+@lru_cache(maxsize=256)
+def _curated_fused_component_templates_by_atom_count(Chem, atom_count: int) -> tuple[dict, ...]:
+    return tuple(
+        template
+        for template in _sorted_curated_fused_templates(Chem)
+        if template_record_mol(template).GetNumAtoms() == atom_count
+    )
+
+
 def _fused_component_names(mol, Chem, spiro_idx: int, seen: set | None = None) -> list[_Component]:
     if mol.GetRingInfo().NumRings() < 2:
         return []
     seen = seen if seen is not None else set()
     ctx = MoleculeContext(mol, Chem)
-    templates = _sorted_curated_fused_templates(Chem)
+    templates = _curated_fused_component_templates_by_atom_count(Chem, mol.GetNumAtoms())
+    if not templates:
+        return []
     components: list[_Component] = []
     for template, match in _iter_fused_template_matches(
         ctx,

@@ -1118,24 +1118,85 @@ def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
 
 
 def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    aromatic_view = _kekulized_aromatic_substituent_view(mol)
+    if aromatic_view is not None:
+        prefix = _fused_ring_substituent_prefix_for_view(
+            aromatic_view,
+            attachment_idx,
+            parent_idx,
+            carbocyclic_only=True,
+        )
+        if prefix:
+            return prefix
+    return _fused_ring_substituent_prefix_for_view(mol, attachment_idx, parent_idx)
+
+
+def _fused_ring_substituent_prefix_for_view(
+    mol,
+    attachment_idx: int,
+    parent_idx: int,
+    *,
+    carbocyclic_only: bool = False,
+) -> str:
     if not _attachment_in_multi_ring_system(mol, attachment_idx, parent_idx):
         return ""
+    curated_templates = _curated_fused_templates(Chem)
+    if carbocyclic_only:
+        curated_templates = _carbocyclic_fused_templates(curated_templates)
     curated = _fused_ring_substituent_prefix_from_templates(
-        mol, attachment_idx, parent_idx, _curated_fused_templates(Chem), generated=False
+        mol, attachment_idx, parent_idx, curated_templates, generated=False
     )
     if curated:
         return curated
     generated_templates = _candidate_generated_fused_templates(mol, Chem)
+    if carbocyclic_only:
+        generated_templates = _carbocyclic_fused_templates(generated_templates)
     generated = _fused_ring_substituent_prefix_from_templates(
         mol, attachment_idx, parent_idx, generated_templates, generated=True
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, generated_templates)
     if generated:
         return generated
     broad_generated_templates = _candidate_generated_fused_templates(mol, Chem, graph_filter=False)
+    if carbocyclic_only:
+        broad_generated_templates = _carbocyclic_fused_templates(broad_generated_templates)
     generated = _fused_ring_substituent_prefix_from_templates(
         mol, attachment_idx, parent_idx, broad_generated_templates, generated=True
     ) or _hydro_fused_ring_substituent_prefix_from_templates(mol, attachment_idx, parent_idx, broad_generated_templates)
     return generated
+
+
+_CARBOCYCLIC_FUSED_TEMPLATE_CACHE: dict[int, tuple[dict, ...]] = {}
+
+
+def _carbocyclic_fused_templates(templates: tuple[dict, ...]) -> tuple[dict, ...]:
+    cached = _CARBOCYCLIC_FUSED_TEMPLATE_CACHE.get(id(templates))
+    if cached is not None:
+        return cached
+    filtered = tuple(template for template in templates if _template_core_is_carbocyclic(template))
+    _CARBOCYCLIC_FUSED_TEMPLATE_CACHE[id(templates)] = filtered
+    return filtered
+
+
+def _template_core_is_carbocyclic(template: dict) -> bool:
+    core = template_record_mol(template)
+    return all(atom.GetSymbol() == "C" for atom in core.GetAtoms())
+
+
+def _kekulized_aromatic_substituent_view(mol):
+    if not getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view"):
+        return None
+    cache = mol_cache_dict(mol, "kekulized_aromatic_substituent_view")
+    if "view" in cache:
+        return cache["view"]
+    view = Chem.Mol(mol)
+    try:
+        Chem.SetAromaticity(view)
+        if view.HasProp("_nispo_kekulized_aromatic_view"):
+            view.ClearProp("_nispo_kekulized_aromatic_view")
+    except Exception:
+        view = None
+    cache["view"] = view
+    return view
 
 
 def _attachment_in_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> bool:
@@ -1881,7 +1942,6 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
         from ..rule_engine import (
             _first_valid_prepared_candidate,
             _prepare_candidates,
-            _select_best_prepared_candidate,
         )
 
         frag_mol.SetProp("_nispo_fragment_substituent_view", "1")
@@ -1896,7 +1956,7 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
             output_max_length=360,
         )
         prepared = ()
-        if selected is None:
+        if selected is None or _fragment_substituent_candidate_needs_retained_selection(selected):
             prepared = _prepare_candidates(
                 frag_mol,
                 Chem,
@@ -1910,8 +1970,9 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
     if selected is None and not prepared:
         return ""
     if selected is None:
-        best_name = _select_best_prepared_candidate(prepared)
-        selected = next((item for item in prepared if item.name == best_name), prepared[0])
+        selected = _fragment_substituent_best_prepared_candidate(prepared, attachment)
+    elif prepared:
+        selected = _fragment_substituent_best_prepared_candidate(prepared, attachment, selected) or selected
     locant = _candidate_atom_locant(selected.candidate, attachment)
     if not locant:
         return ""
@@ -1919,6 +1980,79 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
     if len(prefix) > 280:
         return ""
     return prefix
+
+
+_RETAINED_FRAGMENT_SUBSTITUENT_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "hydro-fused-retained-parent",
+        "partial-hydro-fused-retained-parent",
+        "retained-ring-scaffold-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+
+
+def _fragment_substituent_candidate_needs_retained_selection(selected) -> bool:
+    return selected.candidate.family == "kekulized-generic-polycyclic-parent"
+
+
+def _fragment_substituent_best_prepared_candidate(
+    prepared: Sequence,
+    attachment: int,
+    selected=None,
+):
+    selected_prefix = _fragment_substituent_prefix_for_item(selected, attachment)
+    selected_key = _fragment_substituent_preference_key(selected, attachment) if selected is not None else None
+    best = selected
+    best_key = selected_key
+    for item in prepared:
+        if selected is not None and item.candidate.family not in _RETAINED_FRAGMENT_SUBSTITUENT_FAMILIES:
+            continue
+        prefix = _fragment_substituent_prefix_for_item(item, attachment)
+        if not prefix:
+            continue
+        if selected_prefix and len(prefix) >= len(selected_prefix):
+            continue
+        key = _fragment_substituent_preference_key(item, attachment, prefix=prefix)
+        if key is None:
+            continue
+        if best_key is None or key < best_key:
+            best = item
+            best_key = key
+    return best
+
+
+def _fragment_substituent_prefix_for_item(item, attachment: int) -> str:
+    if item is None:
+        return ""
+    locant = _candidate_atom_locant(item.candidate, attachment)
+    if not locant:
+        return ""
+    return _parent_name_to_substituent_prefix(item.output_name or item.name, locant)
+
+
+def _fragment_substituent_preference_key(item, attachment: int, *, prefix: str = "") -> tuple | None:
+    if item is None:
+        return None
+    if not prefix:
+        prefix = _fragment_substituent_prefix_for_item(item, attachment)
+        if not prefix:
+            return None
+    if item.candidate.parent_atoms and attachment not in item.candidate.parent_atoms:
+        return None
+    retained_rank = 0 if item.candidate.family in _RETAINED_FRAGMENT_SUBSTITUENT_FAMILIES else 1
+    return (
+        retained_rank,
+        len(prefix),
+        item.candidate.render_rank if item.candidate.render_rank is not None else 999,
+        item.candidate.priority,
+        prefix,
+    )
 
 
 def _fragment_from_subtree_atoms(mol, atoms: set[int]):

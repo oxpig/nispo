@@ -57,7 +57,15 @@ _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallbac
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
 _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE = "single-ring:retained-carbohydrate-substituent"
-_FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset({"single-ring-parent"})
+_FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset(
+    {
+        "carbodiimide-retained-parent",
+        "dithiazole-retained-parent",
+        "oxazinone-retained-parent",
+        "oxirane-dione-retained-parent",
+        "single-ring-parent",
+    }
+)
 _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"})
 _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
     {
@@ -69,6 +77,7 @@ _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
         "azanium-parent",
         "carbodiimide-retained-parent",
         "charged-retained-parent",
+        "exact-retained-n-oxide-parent",
         "lambda-sulfanone-parent",
         "nitrile-oxide-retained-parent",
         "oxo-carboxylate-retained-parent",
@@ -172,8 +181,11 @@ _FAST_MULTI_MONOCYCLE_SENIOR_RULE_FAMILIES = frozenset(
 _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
+        "carbodiimide-retained-parent",
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
         "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "dithiazole-retained-parent",
+        "exact-retained-n-oxide-parent",
         "exact-retained-parent",
         "fused-retained-parent",
         "generated-fused-parent",
@@ -182,6 +194,8 @@ _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
         "kekulized-generic-polycyclic-parent",
         "lambda-sulfanone-parent",
         "natural-product-topology-parent",
+        "oxazinone-retained-parent",
+        "oxirane-dione-retained-parent",
         "phosphate-ester-retained-parent",
         "phosphanylium-imino-parent",
         "preferred-acyclic-skeleton-with-ring-substituents",
@@ -202,6 +216,15 @@ _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES = frozenset(
         "retained-ring-scaffold-parent",
         "retained-topology-replacement-fused-parent",
         "skeletal-replacement-fused-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
+_FAST_POLY_RETAINED_DEFER_LATE_ACYCLIC_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
         "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
     }
 )
@@ -312,6 +335,22 @@ class NamingEngine:
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
+        self._fast_poly_route_miss_retained_defer_initial_rules = tuple(
+            rule
+            for rule in self._fast_poly_route_miss_fallback_rules
+            if rule.family not in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
+        )
+        self._fast_poly_route_miss_retained_defer_ring_rules = tuple(
+            rule
+            for rule in self._fast_poly_route_miss_fallback_rules
+            if rule.family not in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
+            and rule.family not in _FAST_POLY_RETAINED_DEFER_LATE_ACYCLIC_FAMILIES
+        )
+        self._fast_poly_route_miss_retained_defer_acyclic_rules = tuple(
+            rule
+            for rule in self._fast_poly_route_miss_fallback_rules
+            if rule.family in _FAST_POLY_RETAINED_DEFER_LATE_ACYCLIC_FAMILIES
+        )
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
@@ -332,8 +371,6 @@ class NamingEngine:
         polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
         if polyatomic_name:
             return _finalize_direct_name(mol, self._Chem, polyatomic_name)
-        if _defer_expensive_low_confidence_ring_system(mol):
-            return ""
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
@@ -390,7 +427,9 @@ class NamingEngine:
                     mol,
                     self._Chem,
                     ctx,
-                    route_miss_rules=self._fast_poly_route_miss_fallback_rules,
+                    route_miss_initial_rules=self._fast_poly_route_miss_retained_defer_initial_rules,
+                    route_miss_ring_rules=self._fast_poly_route_miss_retained_defer_ring_rules,
+                    route_miss_acyclic_rules=self._fast_poly_route_miss_retained_defer_acyclic_rules,
                     bridge_rules=self._fast_poly_bridge_route_rules,
                     telemetry=telemetry,
                 )
@@ -597,13 +636,24 @@ def _retained_deferred_poly_route_miss_name(
     Chem,
     ctx: MoleculeContext,
     *,
-    route_miss_rules: Iterable[RuleSpec],
+    route_miss_initial_rules: Iterable[RuleSpec],
+    route_miss_ring_rules: Iterable[RuleSpec],
+    route_miss_acyclic_rules: Iterable[RuleSpec],
     bridge_rules: Iterable[RuleSpec],
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
-    prepared = _prepare_candidates(mol, Chem, ctx, route_miss_rules)
+    if _retained_deferred_should_rank_acyclic_route_miss(ctx):
+        prepared = _prepare_candidates(mol, Chem, ctx, route_miss_initial_rules)
+    else:
+        prepared = _prepare_candidates(mol, Chem, ctx, route_miss_ring_rules)
     selected = _select_best_prepared_candidate_item(prepared)
     if selected is None:
+        acyclic_name = _select_best_prepared_candidate(
+            _prepare_candidates(mol, Chem, ctx, route_miss_acyclic_rules),
+            telemetry=telemetry,
+        )
+        if acyclic_name:
+            return acyclic_name
         bridge_name = _fast_poly_bridge_name_with_retained_defer_bypass(
             mol,
             Chem,
@@ -625,6 +675,12 @@ def _retained_deferred_poly_route_miss_name(
         if bridge_name:
             return bridge_name
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _retained_deferred_should_rank_acyclic_route_miss(ctx: MoleculeContext) -> bool:
+    if ctx.has_component_spiro_topology:
+        return False
+    return ctx.features.get("max_ring_system_ring_count", 0) <= 3
 
 
 def _retained_deferred_selected_should_bridge_retry(selected: _PreparedCandidate) -> bool:
@@ -1025,6 +1081,8 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
     rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
     if not rings:
         return False
+    if _has_fast_monocycle_heterocarbonyl_defer_shape(mol, rings):
+        return False
     for index, ring in enumerate(rings):
         if any(ring & other for other in rings[index + 1 :]):
             return False
@@ -1052,22 +1110,65 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
     return True
 
 
-def _defer_expensive_low_confidence_ring_system(mol) -> bool:
-    ring_info = mol.GetRingInfo()
-    rings = tuple(frozenset(ring) for ring in ring_info.AtomRings())
-    chiral_count = sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in mol.GetAtoms())
-    has_spiro_pair = any(
-        len(left & right) == 1
-        for index, left in enumerate(rings)
-        for right in rings[index + 1 :]
-    )
-    return len(rings) >= 9 and not has_spiro_pair and chiral_count >= 3
+def _has_fast_monocycle_heterocarbonyl_defer_shape(mol, rings: tuple[frozenset[int], ...]) -> bool:
+    for ring in rings:
+        symbols = [mol.GetAtomWithIdx(idx).GetSymbol() for idx in ring]
+        counts = {symbol: symbols.count(symbol) for symbol in set(symbols)}
+        if (
+            len(ring) == 5
+            and counts.get("C") == 2
+            and counts.get("N") == 1
+            and counts.get("O") == 1
+            and counts.get("S") == 1
+            and _ring_has_exocyclic_carbonyl(mol, ring)
+        ):
+            return True
+        if {"N", "O", "S"}.issubset(counts) and _ring_has_terminal_carboxamide_or_ester(mol, ring):
+            return True
+    return False
 
 
-def _fast_fail_complex_ring_system(mol) -> bool:
-    if mol.GetRingInfo().NumRings() < 3 or mol.GetNumAtoms() <= 20:
-        return False
-    return _largest_ring_system_ring_count(mol) >= 3
+def _ring_has_exocyclic_carbonyl(mol, ring: frozenset[int]) -> bool:
+    for atom_idx in ring:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "C":
+            continue
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring or nbr.GetSymbol() != "O":
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                return True
+    return False
+
+
+def _ring_has_terminal_carboxamide_or_ester(mol, ring: frozenset[int]) -> bool:
+    for atom_idx in ring:
+        for carbon in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            carbon_idx = carbon.GetIdx()
+            if carbon_idx in ring or carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+                continue
+            bond_to_ring = mol.GetBondBetweenAtoms(atom_idx, carbon_idx)
+            if bond_to_ring is None or bond_to_ring.GetBondTypeAsDouble() != 1.0:
+                continue
+            has_double_oxygen = False
+            has_single_hetero = False
+            has_other_heavy = False
+            for nbr in carbon.GetNeighbors():
+                nidx = nbr.GetIdx()
+                if nidx == atom_idx:
+                    continue
+                bond = mol.GetBondBetweenAtoms(carbon_idx, nidx)
+                if nbr.GetSymbol() == "O" and bond is not None and bond.GetBondTypeAsDouble() == 2.0:
+                    has_double_oxygen = True
+                elif nbr.GetSymbol() in {"N", "O"} and bond is not None and bond.GetBondTypeAsDouble() == 1.0:
+                    has_single_hetero = True
+                elif nbr.GetAtomicNum() > 1:
+                    has_other_heavy = True
+            if has_double_oxygen and has_single_hetero and not has_other_heavy:
+                return True
+    return False
 
 
 def _largest_ring_system_ring_count(mol) -> int:
@@ -1203,6 +1304,10 @@ def _select_best_prepared_candidate(
 
 
 def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> _PreparedCandidate | None:
+    if not prepared:
+        return None
+    if len(prepared) == 1:
+        return prepared[0]
     best_item: _PreparedCandidate | None = None
     best_key: tuple | None = None
     keyed_items: list[tuple[tuple, _PreparedCandidate]] = []

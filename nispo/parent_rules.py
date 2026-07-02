@@ -22012,18 +22012,6 @@ def _cached_iter_fused_template_matches(
     require_fully_aromatic: bool = False,
     reject_extra_core_bonds: bool = False,
 ):
-    if ctx.telemetry is not None:
-        yield from _iter_fused_template_matches(
-            ctx,
-            templates,
-            Chem,
-            topology_query=topology_query,
-            require_one_ring_system=require_one_ring_system,
-            require_fully_aromatic=require_fully_aromatic,
-            reject_extra_core_bonds=reject_extra_core_bonds,
-        )
-        return
-
     cache = getattr(ctx.cache, "fused_template_matches", None)
     if cache is None:
         yield from _iter_fused_template_matches(

@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
+from heapq import nsmallest
 from itertools import combinations
 
 from ..branch_rules import branch_prefix
@@ -850,7 +851,15 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     by_locant = {}
     for locant, score in candidate_locs:
         by_locant[locant] = max(score, by_locant.get(locant, 0))
-    candidate_locs = sorted(by_locant.items(), key=lambda item: _locant_sort_key(item[0]))
+    candidate_locs = tuple(
+        sorted(
+            (
+                (locant, score, _locant_sort_key(locant), _locant_numeric_value(locant))
+                for locant, score in by_locant.items()
+            ),
+            key=lambda item: item[2],
+        )
+    )
     candidates = []
     if template_record_name(template).startswith("spiro["):
         for count, hydro in ((2, "dihydro"), (4, "tetrahydro"), (6, "hexahydro")):
@@ -863,30 +872,35 @@ def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
     for count, hydro in ((2, "dihydro"), (4, "tetrahydro"), (6, "hexahydro")):
         if len(candidate_locs) < count:
             continue
-        combos = sorted(
-            combinations(candidate_locs, count),
-            key=lambda items: (
-                -sum(score for _locant, score in items),
-                -_hydro_locant_span([locant for locant, _score in items]),
-                [_locant_sort_key(locant) for locant, _score in items],
-            ),
-        )
-        for items in combos:
-            locs = [locant for locant, _score in items]
-            locant_text = ",".join(locs)
-            full_even_set = count == len(candidate_locs) and count in {2, 4, 6, 8}
-            candidates.append((
-                (
-                    0 if full_even_set else 1,
-                    count,
-                    -sum(score for _locant, score in items),
-                    -_hydro_locant_span(locs),
-                    [_locant_sort_key(locant) for locant in locs],
-                ),
-                f"{locant_text}-{hydro}-{parent_name}",
-            ))
+        for hydro_key, locants in _top_partial_hydro_locant_sets(candidate_locs, count):
+            locant_text = ",".join(locants)
+            candidates.append((hydro_key, f"{locant_text}-{hydro}-{parent_name}"))
     for hydro_key, parent_name in sorted(candidates)[:12]:
         yield parent_name, hydro_key
+
+
+def _top_partial_hydro_locant_sets(
+    candidate_locs: Sequence[tuple[str, int, tuple, int | None]],
+    count: int,
+) -> tuple[tuple[tuple, tuple[str, ...]], ...]:
+    full_even_set = count == len(candidate_locs) and count in {2, 4, 6, 8}
+
+    def ranked_items():
+        for items in combinations(candidate_locs, count):
+            locants = tuple(locant for locant, _score, _sort_key, _numeric in items)
+            sort_keys = tuple(sort_key for _locant, _score, sort_key, _numeric in items)
+            numeric_values = [numeric for _locant, _score, _sort_key, numeric in items if numeric is not None]
+            span = max(numeric_values) - min(numeric_values) if numeric_values else 0
+            hydro_key = (
+                0 if full_even_set else 1,
+                count,
+                -sum(score for _locant, score, _sort_key, _numeric in items),
+                -span,
+                sort_keys,
+            )
+            yield (hydro_key, ",".join(locants)), hydro_key, locants
+
+    return tuple((hydro_key, locants) for _rank_key, hydro_key, locants in nsmallest(12, ranked_items()))
 
 
 def _hydro_locant_span(locants: Sequence[str]) -> int:
@@ -896,6 +910,11 @@ def _hydro_locant_span(locants: Sequence[str]) -> int:
         if digits:
             values.append(int(digits))
     return max(values) - min(values) if values else 0
+
+
+def _locant_numeric_value(locant: str) -> int | None:
+    digits = "".join(ch for ch in locant if ch.isdigit())
+    return int(digits) if digits else None
 
 
 def _partial_hydro_atom_score(mol, template_mol, mol_idx: int, template_idx: int, match: Sequence[int]) -> int:

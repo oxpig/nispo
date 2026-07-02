@@ -53,6 +53,7 @@ _CHARGE_PRESERVING_PREFIX_TERMS = frozenset(
 @dataclass(frozen=True, slots=True)
 class _AcyclicGraphView:
     symbols: tuple[str, ...]
+    isotopes: tuple[int, ...]
     neighbors: tuple[tuple[int, ...], ...]
     bond_orders: dict[tuple[int, int], float]
 
@@ -1570,7 +1571,12 @@ def _acyclic_graph_view(mol) -> _AcyclicGraphView:
     if cached is not None:
         return cached
     graph = graph_view(mol, Chem)
-    view = _AcyclicGraphView(symbols=graph.symbols, neighbors=graph.neighbors, bond_orders=graph.bond_orders)
+    view = _AcyclicGraphView(
+        symbols=graph.symbols,
+        isotopes=graph.isotopes,
+        neighbors=graph.neighbors,
+        bond_orders=graph.bond_orders,
+    )
     return mol_cache_set(mol, "acyclic_graph_view", view)
 
 
@@ -1598,37 +1604,70 @@ def _path_substituent_prefixes(
     skip_plain_hydrogen: bool = False,
 ) -> list[tuple[str, str]] | None:
     cache = mol_cache_dict(mol, "acyclic_path_substituent_prefixes")
-    cache_key = (
-        tuple(path),
-        tuple(sorted(skip_bonds or ())),
-        tuple(sorted(skip_atoms or ())),
-        tuple(sorted(allowed_atoms)) if allowed_atoms is not None else None,
-        skip_plain_hydrogen,
-        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+    path_tuple = tuple(path)
+    skip_bond_key = tuple(sorted(skip_bonds or ()))
+    skip_atom_key = tuple(sorted(skip_atoms or ()))
+    allowed_atom_key = tuple(sorted(allowed_atoms)) if allowed_atoms is not None else None
+    allow_fragment_fallback = mol.HasProp("_nispo_allow_fragment_substituent_fallback")
+    fragment_fallback_value = (
         mol.GetProp("_nispo_allow_fragment_substituent_fallback")
-        if mol.HasProp("_nispo_allow_fragment_substituent_fallback")
-        else "",
-        mol.HasProp("_nispo_fragment_substituent_depth"),
-        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
-        mol.HasProp("_nispo_fragment_substituent_view"),
+        if allow_fragment_fallback
+        else ""
+    )
+    fragment_depth = mol.HasProp("_nispo_fragment_substituent_depth")
+    fragment_depth_value = mol.GetProp("_nispo_fragment_substituent_depth") if fragment_depth else ""
+    fragment_view = mol.HasProp("_nispo_fragment_substituent_view")
+    cache_key = (
+        path_tuple,
+        skip_bond_key,
+        skip_atom_key,
+        allowed_atom_key,
+        skip_plain_hydrogen,
+        allow_fragment_fallback,
+        fragment_fallback_value,
+        fragment_depth,
+        fragment_depth_value,
+        fragment_view,
     )
     if cache_key in cache:
         cached = cache[cache_key]
         return None if cached is None else list(cached)
-    path_set = set(path)
+    reversed_path = tuple(reversed(path_tuple))
+    if reversed_path != path_tuple:
+        reverse_cache_key = (
+            reversed_path,
+            skip_bond_key,
+            skip_atom_key,
+            allowed_atom_key,
+            skip_plain_hydrogen,
+            allow_fragment_fallback,
+            fragment_fallback_value,
+            fragment_depth,
+            fragment_depth_value,
+            fragment_view,
+        )
+        if reverse_cache_key in cache:
+            cached = cache[reverse_cache_key]
+            if cached is None:
+                cache[cache_key] = None
+                return None
+            mirrored = _mirror_path_substituent_prefixes(cached, len(path_tuple))
+            cache[cache_key] = mirrored
+            return list(mirrored)
+    view = _acyclic_graph_view(mol)
+    path_set = set(path_tuple)
     skip_bonds = skip_bonds or set()
     skip_atoms = skip_atoms or set()
     prefixes: list[tuple[str, str]] = []
-    for pos, idx in enumerate(path, start=1):
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
+    for pos, idx in enumerate(path_tuple, start=1):
+        for nidx in view.neighbors[idx]:
             if nidx in path_set or nidx in skip_atoms:
                 continue
             if allowed_atoms is not None and nidx not in allowed_atoms:
                 continue
             if _bond_key(idx, nidx) in skip_bonds:
                 continue
-            if skip_plain_hydrogen and nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
+            if skip_plain_hydrogen and view.symbols[nidx] == "H" and view.isotopes[nidx] == 0:
                 continue
             prefix = simple_external_prefix(mol, nidx, idx) or branch_prefix(
                 mol,
@@ -1642,6 +1681,21 @@ def _path_substituent_prefixes(
             prefixes.append((str(pos), prefix))
     cache[cache_key] = tuple(prefixes)
     return prefixes
+
+
+def _mirror_path_substituent_prefixes(
+    prefixes: Sequence[tuple[str, str]],
+    path_len: int,
+) -> tuple[tuple[str, str], ...]:
+    by_reverse_locant: dict[int, list[str]] = {}
+    for locant, prefix in prefixes:
+        by_reverse_locant.setdefault(int(locant), []).append(prefix)
+    mirrored: list[tuple[str, str]] = []
+    for reverse_locant in range(path_len, 0, -1):
+        current_locant = str(path_len + 1 - reverse_locant)
+        for prefix in by_reverse_locant.get(reverse_locant, ()):
+            mirrored.append((current_locant, prefix))
+    return tuple(mirrored)
 
 
 def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> str:

@@ -14,6 +14,7 @@ class MoleculeGraphView:
     ring_count: int
     symbols: tuple[str, ...]
     atomic_nums: tuple[int, ...]
+    isotopes: tuple[int, ...]
     formal_charges: tuple[int, ...]
     aromatic_atoms: tuple[bool, ...]
     ring_atoms: tuple[bool, ...]
@@ -48,6 +49,7 @@ def graph_view(mol, Chem) -> MoleculeGraphView:
         ring_count=ring_count,
         symbols=symbols,
         atomic_nums=tuple(atom.GetAtomicNum() for atom in atoms),
+        isotopes=tuple(atom.GetIsotope() for atom in atoms),
         formal_charges=tuple(atom.GetFormalCharge() for atom in atoms),
         aromatic_atoms=tuple(atom.GetIsAromatic() for atom in atoms),
         ring_atoms=tuple(atom.IsInRing() for atom in atoms),

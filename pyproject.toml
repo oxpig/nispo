@@ -9,8 +9,41 @@ requires-python = ">=3.10"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["."]
 
 [tool.setuptools.package-data]
 nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.csv"]
+
+[tool.setuptools.exclude-package-data]
+"nispo" = [
+  ".DS_Store",
+  "__pycache__/*",
+  "*.py[cod]",
+  "*/__pycache__/*",
+  "graphify-out/*",
+  "graphify-out/**/*",
+]
+"nispo.acyclic" = [
+  ".DS_Store",
+  "__pycache__/*",
+  "*.py[cod]",
+]
+"nispo.branch" = [
+  ".DS_Store",
+  "__pycache__/*",
+  "*.py[cod]",
+]
+"nispo.parent" = [
+  ".DS_Store",
+  "__pycache__/*",
+  "*.py[cod]",
+]
+"nispo.ring" = [
+  ".DS_Store",
+  "__pycache__/*",
+  "*.py[cod]",
+]

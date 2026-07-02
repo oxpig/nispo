@@ -14,6 +14,7 @@ DEFAULT_OUTPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_templat
 DEFAULT_ELEMENT_OUTPUT = (
     NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_element_graph_index.json"
 )
+DEFAULT_RECORD_TABLE = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json"
 
 
 def main() -> int:
@@ -21,6 +22,7 @@ def main() -> int:
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--element-output", type=Path, default=DEFAULT_ELEMENT_OUTPUT)
+    parser.add_argument("--record-table", type=Path, default=DEFAULT_RECORD_TABLE)
     args = parser.parse_args()
 
     if str(NISPO_SOURCE) not in sys.path:
@@ -32,23 +34,36 @@ def main() -> int:
     RDLogger.DisableLog("rdApp.*")
 
     feature_buckets = json.loads(args.input.read_text(encoding="utf-8"))
+    record_table = json.loads(args.record_table.read_text(encoding="utf-8"))
+    record_ids = _record_id_map(record_table)
     graph_buckets: dict[str, dict[str, list[dict]]] = {}
     element_graph_buckets: dict[str, dict[str, dict[str, list[dict]]]] = {}
     indexed_records = 0
     skipped_records = 0
+    compacted_refs = 0
+    embedded_records = 0
     for feature_key, records in feature_buckets.items():
         grouped: dict[str, list[dict]] = {}
-        for record in records:
+        for item in records:
+            record = _resolve_record(item, record_table)
+            if not isinstance(record, dict):
+                skipped_records += 1
+                continue
             mol = Chem.MolFromSmiles(record.get("smiles", ""))
             if mol is None:
                 skipped_records += 1
                 continue
             signature = graph_signature_for_atom_set(mol, range(mol.GetNumAtoms()), Chem)
             element_signature = element_graph_signature_for_atom_set(mol, range(mol.GetNumAtoms()), Chem)
-            grouped.setdefault(signature, []).append(record)
+            record_ref = item if isinstance(item, int) else record_ids.get(_record_key(record), record)
+            if isinstance(record_ref, int):
+                compacted_refs += 1
+            else:
+                embedded_records += 1
+            grouped.setdefault(signature, []).append(record_ref)
             element_graph_buckets.setdefault(feature_key, {}).setdefault(signature, {}).setdefault(
                 element_signature, []
-            ).append(record)
+            ).append(record_ref)
             indexed_records += 1
         if grouped:
             graph_buckets[feature_key] = grouped
@@ -65,6 +80,8 @@ def main() -> int:
                 "feature_buckets": len(graph_buckets),
                 "graph_buckets": sum(len(items) for items in graph_buckets.values()),
                 "indexed_records": indexed_records,
+                "compacted_refs": compacted_refs,
+                "embedded_records": embedded_records,
                 "output": str(args.output),
                 "skipped_records": skipped_records,
             },
@@ -72,6 +89,32 @@ def main() -> int:
         )
     )
     return 0
+
+
+def _resolve_record(item, record_table: list[dict]):
+    if isinstance(item, int) and 0 <= item < len(record_table):
+        return record_table[item]
+    return item
+
+
+def _record_id_map(records: list[dict]) -> dict[tuple, int]:
+    return {
+        _record_key(record): index
+        for index, record in enumerate(records)
+        if isinstance(record, dict)
+    }
+
+
+def _record_key(record: dict) -> tuple:
+    return (
+        str(record.get("name", "")),
+        str(record.get("smiles", "")),
+        tuple(sorted((record.get("locants") or {}).items())),
+        tuple(str(flag) for flag in record.get("flags", ()) if str(flag)),
+        str(record.get("source_file") or ""),
+        str(record.get("source_subtype", "")),
+        record.get("general_parent_safe", None),
+    )
 
 
 if __name__ == "__main__":

@@ -50,17 +50,20 @@ def main() -> int:
     RDLogger.DisableLog("rdApp.*")
 
     records = json.loads(args.input.read_text(encoding="utf-8"))
+    record_ids = _record_id_map(records)
     selected = _select_records(Chem, records, args.per_skeleton, molecule_features, ring_system_feature_key, generated_template_key)
     _fill_cml_locants(Chem, selected, generated_template_key)
-    buckets = _bucket_records(selected)
+    buckets, compacted_refs, embedded_records = _bucket_records(selected, record_ids)
     for items in buckets.values():
-        items.sort(key=lambda item: generated_template_key(item))
+        items.sort(key=lambda item: generated_template_key(_resolve_ref(item, records)))
     args.output.write_text(json.dumps(buckets, sort_keys=True, separators=(",", ":")), encoding="utf-8")
     full_locants = sum(
         1
         for items in buckets.values()
         for item in items
-        if len(item.get("locants", {})) >= Chem.MolFromSmiles(item["smiles"]).GetNumAtoms()
+        for record in (_resolve_ref(item, records),)
+        if isinstance(record, dict)
+        and len(record.get("locants", {})) >= Chem.MolFromSmiles(record["smiles"]).GetNumAtoms()
     )
     print(
         json.dumps(
@@ -68,6 +71,8 @@ def main() -> int:
                 "buckets": len(buckets),
                 "full_locants": full_locants,
                 "indexed_records": sum(len(items) for items in buckets.values()),
+                "compacted_refs": compacted_refs,
+                "embedded_records": embedded_records,
                 "output": str(args.output),
                 "source_records": len(records),
             },
@@ -159,13 +164,50 @@ def _locants_from_cml_match(Chem, smiles: str, mol_el) -> dict[str, str]:
     return {str(match[qidx]): locant for qidx, locant in query_locs.items() if qidx < len(match)}
 
 
-def _bucket_records(selected: list[dict]) -> dict[str, list[dict]]:
-    buckets: dict[str, list[dict]] = {}
+def _bucket_records(selected: list[dict], record_ids: dict[tuple, int]) -> tuple[dict[str, list[object]], int, int]:
+    buckets: dict[str, list[object]] = {}
+    compacted_refs = 0
+    embedded_records = 0
     for item in selected:
         feature_key = item.pop("feature_key")
         key = json.dumps(feature_key, separators=(",", ":"))
-        buckets.setdefault(key, []).append(item)
-    return buckets
+        record_ref = _record_ref(item, record_ids)
+        if isinstance(record_ref, int):
+            compacted_refs += 1
+        else:
+            embedded_records += 1
+        buckets.setdefault(key, []).append(record_ref)
+    return buckets, compacted_refs, embedded_records
+
+
+def _resolve_ref(item, records: list[dict]):
+    if isinstance(item, int) and 0 <= item < len(records):
+        return records[item]
+    return item
+
+
+def _record_id_map(records: list[dict]) -> dict[tuple, int]:
+    return {
+        _record_key(record): index
+        for index, record in enumerate(records)
+        if isinstance(record, dict)
+    }
+
+
+def _record_ref(record: dict, record_ids: dict[tuple, int]):
+    return record_ids.get(_record_key(record), record)
+
+
+def _record_key(record: dict) -> tuple:
+    return (
+        str(record.get("name", "")),
+        str(record.get("smiles", "")),
+        tuple(sorted((record.get("locants") or {}).items())),
+        tuple(str(flag) for flag in record.get("flags", ()) if str(flag)),
+        str(record.get("source_file") or ""),
+        str(record.get("source_subtype", "")),
+        record.get("general_parent_safe", None),
+    )
 
 
 if __name__ == "__main__":

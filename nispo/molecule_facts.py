@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+from collections import Counter
+from dataclasses import dataclass
+
+
+_ORGANIC_ROUTE_ELEMENTS = frozenset(
+    {
+        "B",
+        "Br",
+        "C",
+        "Cl",
+        "F",
+        "I",
+        "N",
+        "O",
+        "P",
+        "S",
+        "Se",
+        "Si",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MoleculeFacts:
+    """Immutable graph facts shared by route planning and future rule dispatch."""
+
+    atom_count: int
+    heavy_atom_count: int
+    element_counts: tuple[tuple[str, int], ...]
+    ring_count: int
+    ring_system_count: int
+    max_ring_system_size: int
+    max_ring_system_ring_count: int
+    max_ring_system_cycle_rank: int
+    aromatic_atom_count: int
+    hetero_atom_count: int
+    chiral_atom_count: int
+    formal_charge_atom_count: int
+    abs_formal_charge_sum: int
+    radical_atom_count: int
+    isotope_atom_count: int
+    has_spiro_topology: bool
+    has_component_spiro_topology: bool
+    has_functional_skeleton_signal: bool
+    has_imino_skeleton_signal: bool
+    has_nonring_multiple_bond: bool
+    has_sulfur: bool
+    has_phosphorus: bool
+    has_boron: bool
+    has_iodine: bool
+
+    @property
+    def element_symbols(self) -> frozenset[str]:
+        return frozenset(symbol for symbol, count in self.element_counts if count)
+
+    @property
+    def allowed_organic_element_class(self) -> bool:
+        return self.element_symbols <= _ORGANIC_ROUTE_ELEMENTS
+
+    @property
+    def has_formal_charge(self) -> bool:
+        return self.formal_charge_atom_count > 0
+
+    @property
+    def has_ring_system(self) -> bool:
+        return self.ring_system_count > 0
+
+    @property
+    def has_polycyclic_ring_system(self) -> bool:
+        return self.max_ring_system_cycle_rank >= 2 or self.max_ring_system_ring_count >= 2
+
+
+def build_molecule_facts(
+    mol,
+    *,
+    features: dict,
+    ring_topologies,
+    profile,
+) -> MoleculeFacts:
+    """Build reusable graph facts from already-centralized molecule views."""
+
+    atoms = tuple(mol.GetAtoms())
+    element_counts = tuple(
+        sorted(
+            (symbol, count)
+            for symbol, count in Counter(atom.GetSymbol() for atom in atoms).items()
+            if count
+        )
+    )
+    ring_topologies = tuple(ring_topologies)
+    max_cycle_rank = max((topology.cycle_rank for topology in ring_topologies), default=0)
+    return MoleculeFacts(
+        atom_count=mol.GetNumAtoms(),
+        heavy_atom_count=mol.GetNumHeavyAtoms(),
+        element_counts=element_counts,
+        ring_count=mol.GetRingInfo().NumRings(),
+        ring_system_count=len(features.get("ring_systems", ())),
+        max_ring_system_size=int(features.get("max_ring_system_size", 0) or 0),
+        max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0) or 0),
+        max_ring_system_cycle_rank=max_cycle_rank,
+        aromatic_atom_count=sum(1 for atom in atoms if atom.GetIsAromatic()),
+        hetero_atom_count=sum(1 for atom in atoms if atom.GetAtomicNum() not in {1, 6}),
+        chiral_atom_count=sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in atoms),
+        formal_charge_atom_count=sum(1 for atom in atoms if atom.GetFormalCharge()),
+        abs_formal_charge_sum=sum(abs(atom.GetFormalCharge()) for atom in atoms),
+        radical_atom_count=sum(atom.GetNumRadicalElectrons() for atom in atoms),
+        isotope_atom_count=sum(1 for atom in atoms if atom.GetIsotope()),
+        has_spiro_topology=_has_spiro_ring_pair(mol, ring_topologies, max_cycle_rank=3),
+        has_component_spiro_topology=_has_spiro_ring_pair(mol, ring_topologies),
+        has_functional_skeleton_signal=bool(profile.has_functional_skeleton_signal),
+        has_imino_skeleton_signal=bool(profile.has_imino_skeleton_signal),
+        has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),
+        has_sulfur=bool(profile.has_sulfur),
+        has_phosphorus=bool(profile.has_nonring_neutral_phosphorus or profile.has_nonring_positive_phosphorus),
+        has_boron=bool(profile.has_boron),
+        has_iodine=bool(profile.has_iodine),
+    )
+
+
+def _has_spiro_ring_pair(mol, ring_topologies, *, max_cycle_rank: int | None = None) -> bool:
+    rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
+    for topology in ring_topologies:
+        if topology.cycle_rank < 2:
+            continue
+        if max_cycle_rank is not None and topology.cycle_rank > max_cycle_rank:
+            continue
+        system_rings = [ring for ring in rings if ring <= topology.atoms]
+        if any(
+            len(left & right) == 1
+            for idx, left in enumerate(system_rings)
+            for right in system_rings[idx + 1 :]
+        ):
+            return True
+    return False

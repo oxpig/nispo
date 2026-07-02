@@ -11,11 +11,13 @@ from .fused_template_families import (
     generated_template_key,
     _generated_templates_for_key,
 )
+from .molecule_facts import MoleculeFacts, build_molecule_facts
 from .polycyclic_rules import (
     bicyclic_parent_candidate_records,
     kekulized_polycyclic_parent_candidate_records,
     spiro_parent_candidate_records,
 )
+from .route_plan import RoutePlan, plan_routes
 from .structural_profile import StructuralProfile, structural_profile
 from .template_access import template_record_mol, template_record_name
 from .template_index import molecule_features
@@ -103,6 +105,8 @@ class MoleculeContext:
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
     _profile: StructuralProfile | None = None
     _template_store: TemplateStore | None = None
+    _facts: MoleculeFacts | None = None
+    _route_plan: RoutePlan | None = None
 
     def __post_init__(self) -> None:
         if self.telemetry is not None:
@@ -181,6 +185,23 @@ class MoleculeContext:
         if self._profile is None:
             self._profile = structural_profile(self.mol, self.Chem)
         return self._profile
+
+    @property
+    def facts(self) -> MoleculeFacts:
+        if self._facts is None:
+            self._facts = build_molecule_facts(
+                self.mol,
+                features=self.features,
+                ring_topologies=self.ring_topologies,
+                profile=self.profile,
+            )
+        return self._facts
+
+    @property
+    def route_plan(self) -> RoutePlan:
+        if self._route_plan is None:
+            self._route_plan = plan_routes(self.facts)
+        return self._route_plan
 
     @property
     def ring_systems(self) -> tuple[frozenset[int], ...]:

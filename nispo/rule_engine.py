@@ -36,6 +36,7 @@ from .fragment_rules import (
 )
 from .naming_context import MoleculeContext
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from .route_plan import RoutePlan
 from .rule_dispatch import RuleSpec
 from .stereochemistry import (
     apply_locanted_stereochemical_prefix,
@@ -357,22 +358,29 @@ class NamingEngine:
         if mol.GetNumAtoms() == 1:
             simple_name = simple_fragment_name(mol, self._Chem)
             if simple_name:
+                _record_direct_route(telemetry, "single_atom")
                 return _finalize_direct_name(mol, self._Chem, simple_name)
         fragment_atom_sets = self._Chem.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
         if len(fragment_atom_sets) > 1:
             fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
+            _record_direct_route(telemetry, "fragment_assembly")
             return _finalize_direct_name(mol, self._Chem, self._fragment_rule.name(fragments))
         simple_name = simple_fragment_name(mol, self._Chem)
         if simple_name:
+            _record_direct_route(telemetry, "simple_fragment")
             return _finalize_direct_name(mol, self._Chem, simple_name)
         standalone_polyatomic_name = standalone_polyatomic_fragment_name(mol, self._Chem)
         if standalone_polyatomic_name:
+            _record_direct_route(telemetry, "standalone_polyatomic")
             return _finalize_direct_name(mol, self._Chem, standalone_polyatomic_name)
         polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
         if polyatomic_name:
+            _record_direct_route(telemetry, "common_polyatomic")
             return _finalize_direct_name(mol, self._Chem, polyatomic_name)
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+        if telemetry is not None:
+            _record_route_plan(telemetry, ctx.route_plan)
         multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
             mol,
             self._Chem,
@@ -456,9 +464,13 @@ class NamingEngine:
         if best_name:
             return best_name
         if _should_skip_complex_empty_fallback(mol, ctx):
+            if telemetry is not None:
+                telemetry.legacy_fallback_skipped_count[ctx.route_plan.primary_route] += 1
             return ""
 
         fallback_evaluation_length, fallback_max_length = _empty_fallback_limits(mol, self._Chem)
+        if telemetry is not None:
+            telemetry.legacy_fallback_attempt_count[ctx.route_plan.primary_route] += 1
         had_fragment_fallback_prop = mol.HasProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
         previous_fragment_fallback_value = (
             mol.GetProp(_FRAGMENT_SUBSTITUENT_FALLBACK_PROP)
@@ -522,6 +534,11 @@ class NamingEngine:
                 mol.SetProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP, previous_partial_hydro_fallback_value)
             else:
                 mol.ClearProp(_RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
+        if telemetry is not None:
+            if fallback_name:
+                telemetry.legacy_fallback_success_count[ctx.route_plan.primary_route] += 1
+            else:
+                telemetry.legacy_fallback_empty_count[ctx.route_plan.primary_route] += 1
         return fallback_name
 
 
@@ -835,6 +852,24 @@ def _is_complex_polycycle_fallback_bounded(mol, ctx: MoleculeContext) -> bool:
     return True
 
 
+def _record_direct_route(telemetry: CandidateTelemetry | None, route: str) -> None:
+    if telemetry is None:
+        return
+    telemetry.primary_route_count[route] += 1
+    telemetry.route_plan_count[route] += 1
+
+
+def _record_route_plan(telemetry: CandidateTelemetry | None, route_plan: RoutePlan) -> None:
+    if telemetry is None:
+        return
+    telemetry.primary_route_count[route_plan.primary_route] += 1
+    telemetry.route_plan_count[route_plan.telemetry_key] += 1
+    if route_plan.uses_fused_resources:
+        telemetry.route_uses_fused_resources[route_plan.primary_route] += 1
+    if route_plan.uses_polycyclic_search:
+        telemetry.route_uses_polycyclic_search[route_plan.primary_route] += 1
+
+
 def _first_valid_candidate_name(
     mol,
     Chem,
@@ -846,7 +881,11 @@ def _first_valid_candidate_name(
     output_max_length: int | None = None,
 ) -> str:
     for rule in rules:
+        if telemetry is not None:
+            telemetry.rule_evaluations[rule.family] += 1
         if not rule.applies(ctx):
+            if telemetry is not None:
+                telemetry.rule_gate_skips[rule.family] += 1
             continue
         if telemetry is None:
             for candidate in rule.candidates(ctx):
@@ -1237,7 +1276,11 @@ def _prepare_candidates(
     for rule in rules:
         if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
             break
+        if ctx.telemetry is not None:
+            ctx.telemetry.rule_evaluations[rule.family] += 1
         if not rule.applies(ctx):
+            if ctx.telemetry is not None:
+                ctx.telemetry.rule_gate_skips[rule.family] += 1
             continue
         if ctx.telemetry is None:
             for candidate in rule.candidates(ctx):

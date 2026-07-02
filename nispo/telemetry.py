@@ -55,6 +55,16 @@ class CandidateTelemetry:
     template_candidate_count: Counter[str] = field(default_factory=Counter)
     substructure_match_calls: int = 0
     substructure_match_calls_by_rule: Counter[str] = field(default_factory=Counter)
+    route_plan_count: Counter[str] = field(default_factory=Counter)
+    primary_route_count: Counter[str] = field(default_factory=Counter)
+    route_uses_fused_resources: Counter[str] = field(default_factory=Counter)
+    route_uses_polycyclic_search: Counter[str] = field(default_factory=Counter)
+    rule_evaluations: Counter[str] = field(default_factory=Counter)
+    rule_gate_skips: Counter[str] = field(default_factory=Counter)
+    legacy_fallback_attempt_count: Counter[str] = field(default_factory=Counter)
+    legacy_fallback_success_count: Counter[str] = field(default_factory=Counter)
+    legacy_fallback_empty_count: Counter[str] = field(default_factory=Counter)
+    legacy_fallback_skipped_count: Counter[str] = field(default_factory=Counter)
 
 
 _COUNTER_FIELDS = (
@@ -89,6 +99,16 @@ _COUNTER_FIELDS = (
     "filter_stage_count",
     "template_candidate_count",
     "substructure_match_calls_by_rule",
+    "route_plan_count",
+    "primary_route_count",
+    "route_uses_fused_resources",
+    "route_uses_polycyclic_search",
+    "rule_evaluations",
+    "rule_gate_skips",
+    "legacy_fallback_attempt_count",
+    "legacy_fallback_success_count",
+    "legacy_fallback_empty_count",
+    "legacy_fallback_skipped_count",
 )
 
 _INTEGER_FIELDS = (
@@ -163,6 +183,13 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
         "top_substructure_match_calls_by_rule": _top_items(
             telemetry.get("substructure_match_calls_by_rule", {})
         ),
+        "top_primary_route": _top_items(telemetry.get("primary_route_count", {})),
+        "top_route_plan": _top_items(telemetry.get("route_plan_count", {})),
+        "top_rule_evaluations": _top_items(telemetry.get("rule_evaluations", {})),
+        "top_rule_gate_skips": _top_items(telemetry.get("rule_gate_skips", {})),
+        "top_legacy_fallback_attempts": _top_items(
+            telemetry.get("legacy_fallback_attempt_count", {})
+        ),
         "top_branch_prefix_produced": _top_items(telemetry.get("branch_prefix_produced", {})),
         "top_branch_prefix_calls_by_rule": _top_items(telemetry.get("branch_prefix_calls_by_rule", {})),
         "top_branch_prefix_cache_hits_by_rule": _top_items(
@@ -218,6 +245,20 @@ def compact_telemetry_summary(telemetry: dict, telemetry_path) -> dict:
             telemetry.get("branch_legacy_prefix_detail", {})
         ),
         "total_substructure_match_calls": int(telemetry.get("substructure_match_calls", 0) or 0),
+        "total_rule_evaluations": _sum_values(telemetry.get("rule_evaluations", {})),
+        "total_rule_gate_skips": _sum_values(telemetry.get("rule_gate_skips", {})),
+        "total_legacy_fallback_attempts": _sum_values(
+            telemetry.get("legacy_fallback_attempt_count", {})
+        ),
+        "total_legacy_fallback_successes": _sum_values(
+            telemetry.get("legacy_fallback_success_count", {})
+        ),
+        "total_legacy_fallback_empty": _sum_values(
+            telemetry.get("legacy_fallback_empty_count", {})
+        ),
+        "total_legacy_fallback_skipped": _sum_values(
+            telemetry.get("legacy_fallback_skipped_count", {})
+        ),
     }
 
 

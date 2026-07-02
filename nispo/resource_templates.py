@@ -2424,6 +2424,18 @@ def _read_retained_ring_csv_records(filename: str) -> tuple[dict, ...]:
 
 
 def _resolve_generated_record_refs(value, table: list[dict]) -> tuple[dict, ...]:
+    if isinstance(value, dict):
+        if "record_id_range" in value:
+            record_range = value.get("record_id_range") or ()
+            if len(record_range) != 2:
+                return ()
+            start, end = int(record_range[0]), int(record_range[1])
+            return tuple(
+                table[index]
+                for index in range(start, end + 1)
+                if 0 <= index < len(table) and isinstance(table[index], dict)
+            )
+        value = value.get("record_ids", ())
     if not isinstance(value, list):
         return ()
     records = []

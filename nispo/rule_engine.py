@@ -58,6 +58,25 @@ _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
         "kekulized-generic-polycyclic-parent",
     }
 )
+_FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
+    {
+        "azanium-parent",
+        "carbodiimide-retained-parent",
+        "charged-retained-parent",
+        "lambda-sulfanone-parent",
+        "nitrile-oxide-retained-parent",
+        "oxo-carboxylate-retained-parent",
+        "phosphate-ester-retained-parent",
+        "phosphite-ester-parent",
+        "phosphorane-parent",
+        "phosphorus-acid-parent",
+        "small-inorganic-retained-parent",
+        "sulfonamide-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+        "sydnone-retained-parent",
+        "thiooxo-ester-retained-parent",
+    }
+)
 _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
@@ -165,6 +184,9 @@ class NamingEngine:
         self._fast_poly_bridge_route_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
         )
+        self._fast_poly_pre_route_senior_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES
+        )
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
@@ -199,6 +221,15 @@ class NamingEngine:
         )
         if fast_monocycle_name:
             return fast_monocycle_name
+        pre_route_senior_name = _fast_poly_pre_route_senior_name(
+            mol,
+            self._Chem,
+            ctx,
+            self._fast_poly_pre_route_senior_rules,
+            telemetry=telemetry,
+        )
+        if pre_route_senior_name:
+            return pre_route_senior_name
         routed_polycyclic_name = ""
         if mol.GetRingInfo().NumRings() >= 2 and _largest_ring_system_cycle_rank(ctx) >= 2:
             routed_polycyclic_name = _fast_polycyclic_route_name(
@@ -308,6 +339,22 @@ def _fast_monocycle_system_name(
     )
 
 
+def _fast_poly_pre_route_senior_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if not _can_fast_stage_poly_pre_route_senior(ctx):
+        return ""
+    return _select_best_prepared_candidate(
+        _prepare_candidates(mol, Chem, ctx, rules),
+        telemetry=telemetry,
+    )
+
+
 def _fast_polycyclic_route_name(
     mol,
     Chem,
@@ -408,6 +455,24 @@ def _first_valid_candidate_name(
 
 def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
     return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
+
+
+def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
+    mol = ctx.mol
+    if mol.GetRingInfo().NumRings() < 3:
+        return False
+    if ctx.has_component_spiro_topology:
+        return False
+    if _largest_ring_system_cycle_rank(ctx) != 2:
+        return False
+    profile = ctx.profile
+    return (
+        profile.has_functional_skeleton_signal
+        or profile.has_imino_skeleton_signal
+        or profile.has_neutral_phosphorus
+        or profile.has_sulfur
+        or profile.has_formal_charge
+    )
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

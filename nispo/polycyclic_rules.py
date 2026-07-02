@@ -265,12 +265,13 @@ def _bicyclic_parent_sequence_candidates(
     mol, atoms: set[int], graph: dict[int, set[int]]
 ) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     candidates = []
+    graph_key = _graph_cache_key(graph)
     base_orient_remaining_paths = (
         _ring_multiple_bond_count(mol, atoms) == 0
         and _has_multi_external_substituted_ring_atom(mol, atoms)
     )
     for a, b in _bridgehead_pair_candidates(graph, atoms, 3):
-        paths = _bridge_paths(graph, atoms, a, b)
+        paths = _bridge_paths(graph, atoms, a, b, graph_key=graph_key)
         if not paths:
             continue
         alternate_remaining_paths = (
@@ -366,8 +367,9 @@ def _tricyclic_ring_system_candidate_records(
         if candidates:
             return candidates
     parent_sequences = []
+    graph_key = _graph_cache_key(graph)
     for a, b in _bridgehead_pair_candidates(graph, atoms, 4):
-        paths = _bridge_paths_with_count(graph, atoms, a, b, 4)
+        paths = _bridge_paths_with_count(graph, atoms, a, b, 4, graph_key=graph_key)
         if not paths:
             continue
         for seq, bracket in _polybridge_numbering_sequences(paths, annotate_zero_bridges=True):
@@ -397,6 +399,7 @@ def _secondary_bridge_tricyclic_candidate_records(
     allow_relaxed_base_paths = multiple_bond_count <= 8
     use_saturated_bridge_selection = multiple_bond_count == 0
     atom_mask = _atom_bitmask(atoms)
+    graph_key = _graph_cache_key(graph)
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph,
@@ -405,6 +408,7 @@ def _secondary_bridge_tricyclic_candidate_records(
             right,
             allow_relaxed=allow_relaxed_base_paths,
             atom_mask=atom_mask,
+            graph_key=graph_key,
         ):
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
                 completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, 3)
@@ -736,6 +740,7 @@ def _secondary_bridge_polycyclic_candidate_records(
         multiple_bond_count,
     )
     atom_mask = _atom_bitmask(atoms)
+    graph_key = _graph_cache_key(graph)
     base_path_max_paths = 8 if route_fast and allow_relaxed_base_paths else None
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
@@ -746,6 +751,7 @@ def _secondary_bridge_polycyclic_candidate_records(
             allow_relaxed=allow_relaxed_base_paths,
             atom_mask=atom_mask,
             max_paths=base_path_max_paths,
+            graph_key=graph_key,
         ):
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
                 completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
@@ -1236,17 +1242,16 @@ def _secondary_bridge_base_path_sets(
     allow_relaxed: bool,
     atom_mask: int | None = None,
     max_paths: int | None = None,
-) -> list[tuple[tuple[int, ...], ...]]:
-    return list(
-        _secondary_bridge_base_path_sets_for_key(
-            _graph_cache_key(graph),
-            tuple(sorted(atoms)),
-            a,
-            b,
-            allow_relaxed,
-            atom_mask,
-            max_paths,
-        )
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    return _secondary_bridge_base_path_sets_for_key(
+        _graph_cache_key(graph) if graph_key is None else graph_key,
+        tuple(sorted(atoms)),
+        a,
+        b,
+        allow_relaxed,
+        atom_mask,
+        max_paths,
     )
 
 
@@ -1260,13 +1265,12 @@ def _secondary_bridge_base_path_sets_for_key(
     atom_mask: int | None,
     max_paths: int | None,
 ) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    graph = {idx: set(neighbors) for idx, neighbors in graph_key}
     atoms = set(atoms_key)
     path_limit = max_paths if max_paths is not None else 36
     path_infos = (
-        _simple_path_infos(graph, a, b, max_paths=path_limit)
+        _simple_path_infos_for_key(graph_key, a, b, path_limit)
         if allow_relaxed
-        else _simple_path_infos(graph, a, b, max_paths=12)
+        else _simple_path_infos_for_key(graph_key, a, b, 12)
     )
     exact = _bridge_paths_with_count_from_infos(path_infos[:12], atoms, a, b, 3)
     if exact:
@@ -1406,8 +1410,15 @@ def _unsuitable_ring_atom(mol, idx: int) -> bool:
     )
 
 
-def _bridge_paths(graph: dict[int, set[int]], atoms: set[int], a: int, b: int) -> list[tuple[int, ...]]:
-    return _bridge_paths_with_count(graph, atoms, a, b, 3)
+def _bridge_paths(
+    graph: dict[int, set[int]],
+    atoms: set[int],
+    a: int,
+    b: int,
+    *,
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
+) -> list[tuple[int, ...]]:
+    return _bridge_paths_with_count(graph, atoms, a, b, 3, graph_key=graph_key)
 
 
 def _bridgehead_pair_candidates(
@@ -1432,10 +1443,16 @@ def _bridgehead_pair_candidates(
 
 
 def _bridge_paths_with_count(
-    graph: dict[int, set[int]], atoms: set[int], a: int, b: int, path_count: int
+    graph: dict[int, set[int]],
+    atoms: set[int],
+    a: int,
+    b: int,
+    path_count: int,
+    *,
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
 ) -> list[tuple[int, ...]]:
     return _bridge_paths_with_count_from_infos(
-        _simple_path_infos(graph, a, b, max_paths=12),
+        _simple_path_infos_for_key(_graph_cache_key(graph) if graph_key is None else graph_key, a, b, 12),
         atoms,
         a,
         b,
@@ -2167,7 +2184,7 @@ def _hetero_locants(mol, seq: Sequence[int]) -> list[int]:
 
 def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: set[int]) -> tuple:
     cache = mol_cache_dict(mol, "polycyclic_numbering_preference_key")
-    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cache_key = (tuple(seq), frozenset(core_atoms))
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -2185,7 +2202,7 @@ def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: se
 
 def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:
     cache = mol_cache_dict(mol, "polycyclic_multi_external_substituent_locants_desc")
-    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cache_key = (tuple(seq), frozenset(core_atoms))
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)
@@ -2216,7 +2233,7 @@ def _has_multi_external_substituted_ring_atom(mol, atoms: set[int]) -> bool:
 
 def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:
     cache = mol_cache_dict(mol, "polycyclic_substituent_locants")
-    cache_key = (tuple(seq), tuple(sorted(core_atoms)))
+    cache_key = (tuple(seq), frozenset(core_atoms))
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)

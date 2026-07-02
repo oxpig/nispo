@@ -276,8 +276,6 @@ def _fast_polycyclic_route_name(
         return ""
     if not _fast_fail_complex_ring_system(mol):
         return ""
-    if _has_assigned_stereo(mol, Chem):
-        return ""
     if ctx.has_component_spiro_topology:
         name = _select_best_prepared_candidate(
             _prepare_candidates(mol, Chem, ctx, component_spiro_rules),

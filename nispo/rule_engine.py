@@ -77,6 +77,77 @@ _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
         "thiooxo-ester-retained-parent",
     }
 )
+_FAST_POLY_LOW_HETERO_SENIOR_FAMILIES = _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES | frozenset(
+    {
+        "acyl-diphosphate-retained-parent",
+        "acyl-hydrazide-retained-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "amino-acid-retained-parent",
+        "aminophosphane-parent",
+        "azidobenzylidene-cyclohexanone-retained-parent",
+        "azinobis-benzothiazoline-retained-parent",
+        "beta-dicarbonyl-parent",
+        "biphenyl-diphosphonite-parent",
+        "bis-diethylaminobenzylidene-cyclopentanone-retained-parent",
+        "bis-phosphino-amine-retained-parent",
+        "bis-sulfonium-sulfide-retained-parent",
+        "boronic-pinacol-ester-parent",
+        "carbamate-retained-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-iminium-retained-parent",
+        "charged-organophosphorus-oxo-parent",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "conjugated-carbonyl-acyclic-skeleton-with-ring-substituents",
+        "cyclic-n-carbamate-carboxylate-retained-parent",
+        "cyclic-nitroimine-parent",
+        "cyclopropane-triylidene-nitrile-retained-parent",
+        "dithiocarbamate-retained-parent",
+        "dithiocarbonate-retained-parent",
+        "dithiophosphate-retained-parent",
+        "dithiazole-retained-parent",
+        "formamidine-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "glutarimide-retained-parent",
+        "group14-hydride-parent",
+        "guanidine-retained-parent",
+        "hexamethylenediamide-retained-parent",
+        "hydrazine-parent",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "iodane-parent",
+        "iodine-oxo-parent",
+        "iodonium-parent",
+        "methylenebis-dithiocarbamate-retained-parent",
+        "neutral-amine-parent",
+        "organoborane-parent",
+        "organic-peroxide-retained-parent",
+        "organophosphorus-oxide-parent",
+        "oxazinone-retained-parent",
+        "oxido-nitroso-azanium-parent",
+        "oxime-sulfonate-nitrile-parent",
+        "oxirane-dione-retained-parent",
+        "oxo-sulfanium-parent",
+        "phosphanylium-imino-parent",
+        "phosphanylium-oxide-parent",
+        "phosphanylium-ylidene-parent",
+        "phosphanium-parent",
+        "phosphorothioic-triamide-retained-parent",
+        "phosphorylcholine-retained-parent",
+        "piperazine-dione-ylidene-retained-parent",
+        "pnictogen-hydride-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+        "sulfanium-parent",
+        "sulfinate-retained-parent",
+        "sulfonamide-retained-parent",
+        "sulfonohydrazide-retained-parent",
+        "sulfonimidamide-parent",
+        "sulfur-oxo-retained-parent",
+        "terminal-carboxylate-parent",
+        "thiadiazole-dithio-retained-parent",
+        "urea-retained-parent",
+    }
+)
 _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
@@ -187,6 +258,9 @@ class NamingEngine:
         self._fast_poly_pre_route_senior_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES
         )
+        self._fast_poly_low_hetero_senior_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_POLY_LOW_HETERO_SENIOR_FAMILIES
+        )
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
@@ -230,6 +304,15 @@ class NamingEngine:
         )
         if pre_route_senior_name:
             return pre_route_senior_name
+        low_hetero_senior_name = _fast_poly_low_hetero_senior_name(
+            mol,
+            self._Chem,
+            ctx,
+            self._fast_poly_low_hetero_senior_rules,
+            telemetry=telemetry,
+        )
+        if low_hetero_senior_name:
+            return low_hetero_senior_name
         routed_polycyclic_name = ""
         if mol.GetRingInfo().NumRings() >= 2 and _largest_ring_system_cycle_rank(ctx) >= 2:
             routed_polycyclic_name = _fast_polycyclic_route_name(
@@ -355,6 +438,22 @@ def _fast_poly_pre_route_senior_name(
     )
 
 
+def _fast_poly_low_hetero_senior_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if not _can_fast_stage_low_hetero_poly_senior(ctx):
+        return ""
+    return _select_best_prepared_candidate(
+        _prepare_candidates(mol, Chem, ctx, rules),
+        telemetry=telemetry,
+    )
+
+
 def _fast_polycyclic_route_name(
     mol,
     Chem,
@@ -473,6 +572,37 @@ def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
         or profile.has_sulfur
         or profile.has_formal_charge
     )
+
+
+def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
+    mol = ctx.mol
+    ring_count = mol.GetRingInfo().NumRings()
+    if ring_count < 3 or ring_count > 5:
+        return False
+    if ctx.has_component_spiro_topology:
+        return False
+    if _largest_ring_system_cycle_rank(ctx) != 2:
+        return False
+    if _nonhalogen_hetero_atom_count(mol) > 5:
+        return False
+    profile = ctx.profile
+    return (
+        profile.has_functional_skeleton_signal
+        or profile.has_imino_skeleton_signal
+        or profile.has_neutral_phosphorus
+        or profile.has_sulfur
+        or profile.has_formal_charge
+    )
+
+
+def _nonhalogen_hetero_atom_count(mol) -> int:
+    cached = mol_cache_get(mol, "nonhalogen_hetero_atom_count")
+    if cached is not None:
+        return cached
+    halogens = {9, 17, 35, 53, 85}
+    excluded_atomic_numbers = {1, 6} | halogens
+    count = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() not in excluded_atomic_numbers)
+    return mol_cache_set(mol, "nonhalogen_hetero_atom_count", count)
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

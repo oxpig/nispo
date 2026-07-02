@@ -8,8 +8,9 @@ from .acyclic_rules import AcyclicNameRecord, name_acyclic_record
 from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
     candidate_generated_fused_templates,
+    generated_record_key,
     generated_template_key,
-    _generated_templates_for_key,
+    _generated_records_for_graph,
 )
 from .molecule_facts import MoleculeFacts, build_molecule_facts
 from .polycyclic_rules import (
@@ -17,6 +18,7 @@ from .polycyclic_rules import (
     kekulized_polycyclic_parent_candidate_records,
     spiro_parent_candidate_records,
 )
+from .resource_templates import build_generated_fused_parent_templates_from_records
 from .route_plan import RoutePlan, plan_routes
 from .structural_profile import StructuralProfile, structural_profile
 from .template_access import template_record_mol, template_record_name
@@ -359,7 +361,36 @@ def _supplement_generated_fused_templates_by_ring_graph(
 ) -> tuple[dict, ...]:
     """Add same-topology generated fused aliases missing from element graph keys."""
 
-    supplements = []
+    supplement_records = []
+    candidate_records_found = False
+    seen_record_ids: set[int] = set()
+    seen_record_keys: set[tuple[str, str]] = set()
+    record_limit = _GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
+    for system in features["ring_systems"]:
+        key = json.dumps(ring_system_feature_key(system), separators=(",", ":"))
+        system = ring_system_with_graph_signatures(mol, system, Chem)
+        graph_key = system.get("graph_signature", "")
+        if not graph_key:
+            continue
+        records = _generated_records_for_graph(key, graph_key, "", False, Chem)
+        if not records:
+            continue
+        candidate_records_found = True
+        for record in records:
+            name = str(record.get("name", ""))
+            smiles = str(record.get("smiles", ""))
+            if not name:
+                continue
+            record_id = id(record)
+            record_key = (name, smiles)
+            if record_id in seen_record_ids or record_key in seen_record_keys:
+                continue
+            seen_record_ids.add(record_id)
+            seen_record_keys.add(record_key)
+            supplement_records.append(record)
+    if not candidate_records_found:
+        return templates
+
     seen: set[tuple[str, str]] = {
         (
             template_record_name(template),
@@ -367,13 +398,15 @@ def _supplement_generated_fused_templates_by_ring_graph(
         )
         for template in templates
     }
-    for system in features["ring_systems"]:
-        key = json.dumps(ring_system_feature_key(system), separators=(",", ":"))
-        system = ring_system_with_graph_signatures(mol, system, Chem)
-        graph_key = system.get("graph_signature", "")
-        if not graph_key:
-            continue
-        for template in _generated_templates_for_key(key, graph_key, "", False, Chem):
+    supplements = []
+    sorted_records = sorted(supplement_records, key=generated_record_key)
+    for start in range(0, len(sorted_records), record_limit):
+        record_batch = tuple(sorted_records[start : start + record_limit])
+        for template in build_generated_fused_parent_templates_from_records(
+            Chem,
+            record_batch,
+            source_file="generated_fused_template_index.json",
+        ):
             marker = (
                 template_record_name(template),
                 Chem.MolToSmiles(template_record_mol(template), canonical=True),
@@ -382,10 +415,12 @@ def _supplement_generated_fused_templates_by_ring_graph(
                 continue
             seen.add(marker)
             supplements.append(template)
+            if len(supplements) >= record_limit:
+                break
+        if len(supplements) >= record_limit:
+            break
     if supplements:
-        supplements = sorted(supplements, key=generated_template_key)[
-            :_GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT
-        ]
+        supplements = sorted(supplements, key=generated_template_key)[:record_limit]
     return intern_template_tuple(sorted(tuple(templates) + tuple(supplements), key=generated_template_key))
 
 

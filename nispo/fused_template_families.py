@@ -306,6 +306,11 @@ def generated_template_key(template: dict) -> tuple:
     return (len(name), generated_fusion_preference(name), name)
 
 
+def generated_record_key(record: dict) -> tuple:
+    name = str(record.get("name", ""))
+    return (len(name), generated_fusion_preference(name), name)
+
+
 def is_targeted_generated_fused_alias_key(
     feature_key: tuple,
     graph_key: str,
@@ -455,7 +460,7 @@ def _preferred_records_per_scaffold(
     return tuple(
         sorted(
             selected,
-            key=lambda record: (len(str(record.get("name", ""))), generated_fusion_preference(str(record.get("name", "")))),
+            key=generated_record_key,
         )
     )
 

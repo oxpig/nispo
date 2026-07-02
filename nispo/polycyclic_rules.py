@@ -131,14 +131,14 @@ def kekulized_polycyclic_parent_candidate_records(
                     Chem,
                     ring_system,
                     max_records=render_late_limit,
-                    render_late=route_fast,
+                    render_late=route_fast or limit is not None,
                 ),
                 lambda: _spiro_ring_system_candidate_records(
                     kekulized,
                     Chem,
                     ring_system,
                     max_records=render_late_limit,
-                    render_late=route_fast,
+                    render_late=route_fast or limit is not None,
                 ),
             )
         elif rank == 3:
@@ -148,7 +148,7 @@ def kekulized_polycyclic_parent_candidate_records(
                     Chem,
                     ring_system,
                     max_records=render_late_limit,
-                    render_late=route_fast,
+                    render_late=route_fast or limit is not None,
                 ),
                 lambda: _dispiro_ring_system_candidate_records(kekulized, Chem, ring_system),
             )
@@ -551,12 +551,6 @@ def _decorated_polycyclic_records(
             while index < len(facts) and facts[index][0] == key:
                 tied.append(facts[index])
                 index += 1
-            if max_records == 1:
-                for _key, seq, parent in tied:
-                    name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
-                    if name:
-                        return [(name, seq)]
-                continue
             rendered = []
             for _key, seq, parent in tied:
                 name = _decorate_polycyclic_parent(mol, seq, atoms, parent)

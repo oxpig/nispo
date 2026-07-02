@@ -100,7 +100,13 @@ def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) ->
     return base
 
 
-def branch_prefix(mol, idx: int, parent_idx: int) -> str:
+def branch_prefix(
+    mol,
+    idx: int,
+    parent_idx: int,
+    *,
+    assume_simple_external_prefix_miss: bool = False,
+) -> str:
     telemetry = mol_cache_get(mol, "candidate_telemetry")
     if telemetry is not None:
         telemetry.branch_prefix_calls += 1
@@ -134,12 +140,13 @@ def branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
     in_progress.add(key)
     try:
-        prefix = simple_external_prefix(mol, idx, parent_idx)
-        if prefix:
-            cache[key] = prefix
-            if telemetry is not None:
-                telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
-            return prefix
+        if not assume_simple_external_prefix_miss:
+            prefix = simple_external_prefix(mol, idx, parent_idx)
+            if prefix:
+                cache[key] = prefix
+                if telemetry is not None:
+                    telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
+                return prefix
         render_ctx = branch_render_context(mol, Chem)
         prefix = select_branch_prefix_text(
             render_ctx,

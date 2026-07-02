@@ -340,7 +340,12 @@ def _external_substituent_names(mol, atom_idx: int, blocked_idx: int) -> list[st
 
 
 def _safe_owner_prefix(mol, atom_idx: int, blocked_idx: int) -> str:
-    name = simple_external_prefix(mol, atom_idx, blocked_idx) or branch_prefix(mol, atom_idx, blocked_idx)
+    name = simple_external_prefix(mol, atom_idx, blocked_idx) or branch_prefix(
+        mol,
+        atom_idx,
+        blocked_idx,
+        assume_simple_external_prefix_miss=True,
+    )
     name = _substituent_alias(name)
     if not _safe_substituent_name(name):
         return ""

@@ -62,7 +62,12 @@ _COMPONENT_NAME_CACHE: OrderedDict[tuple, tuple["_Component", ...]] = OrderedDic
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=True,
+    )
 
 
 def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]:
@@ -88,15 +93,11 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
             continue
         if _cycle_rank_for_atoms(graph, ring_system_atoms) > 7 and _has_ring_peroxide(mol, Chem, ring_system_atoms):
             continue
-        components_by_spiro = {
-            idx: _components_without_atom(graph, idx) for idx in ring_system_atoms
-        }
-        spiro_split_count = sum(1 for parts in components_by_spiro.values() if len(parts) == 2)
+        components_by_spiro = _two_component_splits_by_articulation(graph, ring_system_atoms)
+        spiro_split_count = len(components_by_spiro)
         has_ring_system_carbonyl = None
-        for spiro_idx in sorted(atom_set):
+        for spiro_idx in sorted(components_by_spiro):
             parts = components_by_spiro[spiro_idx]
-            if len(parts) != 2:
-                continue
             sides = []
             for part in parts:
                 sub_atoms = set(part) | {spiro_idx}
@@ -1413,6 +1414,76 @@ def _components_without_atom(graph: dict[int, set[int]], atom_idx: int) -> list[
         remaining -= component
         components.append(component)
     return components
+
+
+def _two_component_splits_by_articulation(
+    graph: dict[int, set[int]],
+    atoms: set[int],
+) -> dict[int, list[set[int]]]:
+    if not graph:
+        return {}
+    if not _graph_is_connected(graph, atoms):
+        return {
+            idx: parts
+            for idx in atoms
+            if len(parts := _components_without_atom(graph, idx)) == 2
+        }
+    return {
+        idx: parts
+        for idx in _articulation_atoms(graph, atoms)
+        if len(parts := _components_without_atom(graph, idx)) == 2
+    }
+
+
+def _graph_is_connected(graph: dict[int, set[int]], atoms: set[int]) -> bool:
+    if not atoms:
+        return True
+    start = next(iter(atoms))
+    seen = set()
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(nbr for nbr in graph.get(node, ()) if nbr in atoms and nbr not in seen)
+    return seen == atoms
+
+
+def _articulation_atoms(graph: dict[int, set[int]], atoms: set[int]) -> set[int]:
+    discovery: dict[int, int] = {}
+    low: dict[int, int] = {}
+    parent: dict[int, int | None] = {}
+    articulation: set[int] = set()
+    time = 0
+
+    def visit(node: int) -> None:
+        nonlocal time
+        time += 1
+        discovery[node] = low[node] = time
+        child_count = 0
+        for nbr in graph.get(node, ()):
+            if nbr not in atoms:
+                continue
+            if nbr not in discovery:
+                parent[nbr] = node
+                child_count += 1
+                visit(nbr)
+                low[node] = min(low[node], low[nbr])
+                if parent.get(node) is None:
+                    if child_count > 1:
+                        articulation.add(node)
+                elif low[nbr] >= discovery[node]:
+                    articulation.add(node)
+            elif nbr != parent.get(node):
+                low[node] = min(low[node], discovery[nbr])
+
+    for node in atoms:
+        if node in discovery:
+            continue
+        parent[node] = None
+        visit(node)
+    return articulation
 
 
 def _cycle_rank_for_atoms(graph: dict[int, set[int]], atoms: set[int]) -> int:

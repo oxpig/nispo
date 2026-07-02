@@ -153,7 +153,12 @@ def _parenthesized_if_complex(name: str) -> str:
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=True,
+    )
 
 
 def _acyclic_carbohydrate_retained_name(mol, Chem) -> str:
@@ -13147,7 +13152,12 @@ def _ring_carboxamide_parent_name(
             nidx = nbr.GetIdx()
             if nidx in ring_set or nidx == carbonyl_idx:
                 continue
-            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
+            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(
+                mol,
+                nidx,
+                ring_idx,
+                assume_simple_external_prefix_miss=True,
+            )
             if not prefix:
                 return ""
             raw_subs.append((ring_idx, prefix))
@@ -13192,7 +13202,12 @@ def _ring_carbohydrazide_parent_name(
             nidx = nbr.GetIdx()
             if nidx in ring_set or nidx == carbonyl_idx:
                 continue
-            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(mol, nidx, ring_idx)
+            prefix = simple_external_prefix(mol, nidx, ring_idx) or branch_prefix(
+                mol,
+                nidx,
+                ring_idx,
+                assume_simple_external_prefix_miss=True,
+            )
             if not prefix:
                 return ""
             raw_subs.append((ring_idx, prefix))
@@ -20967,11 +20982,11 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
     cached = mol_cache_get(mol, "fast_poly_retained_defer_candidate")
     if cached is not None:
         return cached
-    template_sets = (
-        ctx.candidate_templates(_curated_fused_templates(Chem)),
-        ctx.generated_fused_templates,
-    )
-    for templates in template_sets:
+    for templates in _iter_retained_fused_parent_template_sets(
+        ctx,
+        Chem,
+        generated_templates=ctx.narrow_generated_fused_templates,
+    ):
         for template, match in _cached_iter_fused_template_matches(
             ctx,
             templates,
@@ -21080,11 +21095,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     cached = mol_cache_get(mol, "has_retained_fused_parent_candidate")
     if cached is not None:
         return cached
-    template_sets = (
-        ctx.candidate_templates(_curated_fused_templates(Chem)),
-        ctx.generated_fused_templates,
-    )
-    for templates in template_sets:
+    for templates in _iter_retained_fused_parent_template_sets(ctx, Chem):
         for template, match in _cached_iter_fused_template_matches(
             ctx,
             templates,
@@ -21095,6 +21106,11 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
             if name and not _unsafe_benz_a_anthracene_candidate(name):
                 return mol_cache_set(mol, "has_retained_fused_parent_candidate", True)
     return mol_cache_set(mol, "has_retained_fused_parent_candidate", False)
+
+
+def _iter_retained_fused_parent_template_sets(ctx, Chem, *, generated_templates=None):
+    yield ctx.candidate_templates(_curated_fused_templates(Chem))
+    yield ctx.generated_fused_templates if generated_templates is None else generated_templates
 
 
 class ExactRetainedParentRule:

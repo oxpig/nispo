@@ -56,10 +56,21 @@ from .ring_substituents import (
 )
 
 
-def branch_prefix(mol, idx: int, parent_idx: int) -> str:
+def branch_prefix(
+    mol,
+    idx: int,
+    parent_idx: int,
+    *,
+    assume_simple_external_prefix_miss: bool = False,
+) -> str:
     from .. import branch_rules
 
-    return branch_rules.branch_prefix(mol, idx, parent_idx)
+    return branch_rules.branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+    )
 
 
 def _parenthesize_complex_prefix(name: str) -> str:

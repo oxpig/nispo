@@ -1622,7 +1622,12 @@ def _path_substituent_prefixes(
                 continue
             if skip_plain_hydrogen and nbr.GetSymbol() == "H" and nbr.GetIsotope() == 0:
                 continue
-            prefix = simple_external_prefix(mol, nidx, idx) or branch_prefix(mol, nidx, idx)
+            prefix = simple_external_prefix(mol, nidx, idx) or branch_prefix(
+                mol,
+                nidx,
+                idx,
+                assume_simple_external_prefix_miss=True,
+            )
             if not prefix:
                 cache[cache_key] = None
                 return None

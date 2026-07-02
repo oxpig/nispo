@@ -53,7 +53,7 @@ def candidate_templates(
             if marker in seen:
                 continue
             seen.add(marker)
-            candidates.append(template)
+            candidates.append((system["atom_count"], template))
     if exact_atom_count:
         atom_count = features["atom_count"]
         atom_count_items = (
@@ -96,9 +96,9 @@ def candidate_templates(
                 for symbol, count in template_features["elements"].items()
             ):
                 continue
-            candidates.append(template)
-    candidates.sort(key=lambda item: _template_features(item, Chem)["atom_count"], reverse=True)
-    result = tuple(candidates)
+            candidates.append((_atom_count, template))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    result = tuple(template for _atom_count, template in candidates)
     cache[cache_key] = result
     return result
 

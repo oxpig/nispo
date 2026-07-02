@@ -97,6 +97,7 @@ class MoleculeContext:
     cache: ContextCache = field(default_factory=ContextCache)
     _features: dict | None = None
     _generated_fused_templates: tuple[dict, ...] | None = None
+    _narrow_generated_fused_templates: tuple[dict, ...] | None = None
     _ring_systems: tuple[frozenset[int], ...] | None = None
     _ring_topologies: tuple[RingSystemTopology, ...] | None = None
     _profile: StructuralProfile | None = None
@@ -298,17 +299,7 @@ class MoleculeContext:
     @property
     def generated_fused_templates(self) -> tuple[dict, ...]:
         if self._generated_fused_templates is None:
-            narrow = candidate_generated_fused_templates(
-                self.mol,
-                self.Chem,
-                features=self.features,
-            )
-            self._generated_fused_templates = _supplement_generated_fused_templates_by_ring_graph(
-                self.mol,
-                self.Chem,
-                self.features,
-                narrow,
-            )
+            self._generated_fused_templates = self.narrow_generated_fused_templates
             if not self._generated_fused_templates:
                 self._generated_fused_templates = candidate_generated_fused_templates(
                     self.mol,
@@ -317,6 +308,22 @@ class MoleculeContext:
                     graph_filter=False,
                 )
         return self._generated_fused_templates
+
+    @property
+    def narrow_generated_fused_templates(self) -> tuple[dict, ...]:
+        if self._narrow_generated_fused_templates is None:
+            narrow = candidate_generated_fused_templates(
+                self.mol,
+                self.Chem,
+                features=self.features,
+            )
+            self._narrow_generated_fused_templates = _supplement_generated_fused_templates_by_ring_graph(
+                self.mol,
+                self.Chem,
+                self.features,
+                narrow,
+            )
+        return self._narrow_generated_fused_templates
 
 
 def _supplement_generated_fused_templates_by_ring_graph(

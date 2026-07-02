@@ -58,7 +58,12 @@ def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, .
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=True,
+    )
 
 
 def spiro_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:

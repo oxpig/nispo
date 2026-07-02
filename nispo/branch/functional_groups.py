@@ -44,8 +44,19 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     return _branch_rules()._ring_substituent_prefix(mol, attachment_idx, parent_idx)
 
 
-def branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return _branch_rules().branch_prefix(mol, idx, parent_idx)
+def branch_prefix(
+    mol,
+    idx: int,
+    parent_idx: int,
+    *,
+    assume_simple_external_prefix_miss: bool = False,
+) -> str:
+    return _branch_rules().branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+    )
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:

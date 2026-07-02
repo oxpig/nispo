@@ -49,14 +49,30 @@ from .functional_groups import (
 )
 
 
-def branch_prefix(mol, idx: int, parent_idx: int) -> str:
+def branch_prefix(
+    mol,
+    idx: int,
+    parent_idx: int,
+    *,
+    assume_simple_external_prefix_miss: bool = False,
+) -> str:
     from .. import branch_rules
 
-    return branch_rules.branch_prefix(mol, idx, parent_idx)
+    return branch_rules.branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+    )
 
 
 def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(mol, idx, parent_idx)
+    return simple_external_prefix(mol, idx, parent_idx) or branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=True,
+    )
 
 
 def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:

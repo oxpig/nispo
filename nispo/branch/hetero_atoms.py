@@ -40,8 +40,19 @@ def _branch_rules():
     return branch_rules
 
 
-def branch_prefix(mol, idx: int, parent_idx: int) -> str:
-    return _branch_rules().branch_prefix(mol, idx, parent_idx)
+def branch_prefix(
+    mol,
+    idx: int,
+    parent_idx: int,
+    *,
+    assume_simple_external_prefix_miss: bool = False,
+) -> str:
+    return _branch_rules().branch_prefix(
+        mol,
+        idx,
+        parent_idx,
+        assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+    )
 
 
 def _alkylidene_prefix(mol, carbon_idx: int, parent_idx: int) -> str:

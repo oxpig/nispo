@@ -274,8 +274,6 @@ def _fast_polycyclic_route_name(
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 2:
         return ""
-    if not _fast_fail_complex_ring_system(mol):
-        return ""
     if ctx.has_component_spiro_topology:
         name = _select_best_prepared_candidate(
             _prepare_candidates(mol, Chem, ctx, component_spiro_rules),

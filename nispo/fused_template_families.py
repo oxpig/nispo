@@ -7,6 +7,7 @@ import re
 
 from .fused_rules import build_fused_templates
 from .molecule_cache import mol_cache_get, mol_cache_set
+from .resource_io import read_json_resource
 from .resource_templates import build_generated_fused_parent_templates_from_records
 from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
 from .template_access import template_record_mol, template_record_name
@@ -351,8 +352,7 @@ def _generated_fused_template_element_graph_index() -> dict[str, dict[str, dict[
 @lru_cache(maxsize=1)
 def _generated_fused_record_table() -> tuple[dict, ...]:
     try:
-        path = resources.files(__package__).joinpath("resources", "generated_fused_template_index_records.json")
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_json_resource("resources", "generated_fused_template_index_records.json")
     except Exception:
         return ()
     return tuple(record for record in raw if isinstance(record, dict))

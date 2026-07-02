@@ -11,6 +11,7 @@ from .opsin_resource_utils import (
     primary_label,
     unsupported_token_attributes,
 )
+from .resource_io import read_json_resource
 from .resource_manifest import FUSION_COMPONENT_FAMILY, RETAINED_PARENT_FAMILY
 from .resource_operations import apply_token_operations
 
@@ -2395,8 +2396,7 @@ def _raw_template_mol(Chem, smiles: str):
 
 def _read_generated_fused_records() -> tuple[dict, ...]:
     try:
-        path = resources.files(__package__).joinpath("resources", "generated_fused_template_index_records.json")
-        table = json.loads(path.read_text(encoding="utf-8"))
+        table = read_json_resource("resources", "generated_fused_template_index_records.json")
         index_path = resources.files(__package__).joinpath("resources", "generated_fused_templates.json")
         return _resolve_generated_record_refs(json.loads(index_path.read_text(encoding="utf-8")), table)
     except Exception:

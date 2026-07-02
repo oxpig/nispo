@@ -16,7 +16,7 @@ include-package-data = false
 where = ["."]
 
 [tool.setuptools.package-data]
-nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.csv"]
+nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.json.gz", "resources/*.csv"]
 
 [tool.setuptools.exclude-package-data]
 "nispo" = [
@@ -24,6 +24,7 @@ nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.csv"]
   "__pycache__/*",
   "*.py[cod]",
   "*/__pycache__/*",
+  "resources/generated_fused_template_index_records.json",
   "graphify-out/*",
   "graphify-out/**/*",
 ]

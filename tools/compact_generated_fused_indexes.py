@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESOURCE_ROOT = REPO_ROOT / "nispo" / "resources"
-DEFAULT_RECORD_TABLE = RESOURCE_ROOT / "generated_fused_template_index_records.json"
+DEFAULT_RECORD_TABLE = RESOURCE_ROOT / "generated_fused_template_index_records.json.gz"
 DEFAULT_INDEXES = (
     RESOURCE_ROOT / "generated_fused_template_index.json",
     RESOURCE_ROOT / "generated_fused_template_graph_index.json",
@@ -24,7 +25,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="Fail if an index still embeds records.")
     args = parser.parse_args()
 
-    table = json.loads(args.record_table.read_text(encoding="utf-8"))
+    table = _read_json(args.record_table)
     id_by_key = {
         _record_key(record): index
         for index, record in enumerate(table)
@@ -44,6 +45,12 @@ def main() -> int:
         path.write_text(json.dumps(compacted, sort_keys=True, separators=(",", ":")), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
+
+
+def _read_json(path: Path):
+    if path.suffix == ".gz":
+        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _compact(value: Any, id_by_key: dict[tuple, int]) -> tuple[Any, dict[str, int]]:

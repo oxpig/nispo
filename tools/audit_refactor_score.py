@@ -77,7 +77,9 @@ def _score_template_store() -> dict:
 def _score_generated_resources() -> dict:
     evidence = []
     score = 0
-    record_table = RESOURCE_ROOT / "generated_fused_template_index_records.json"
+    record_table = RESOURCE_ROOT / "generated_fused_template_index_records.json.gz"
+    if not record_table.exists():
+        record_table = RESOURCE_ROOT / "generated_fused_template_index_records.json"
     if record_table.exists():
         score += 3
         evidence.append("canonical generated fused index record table exists")

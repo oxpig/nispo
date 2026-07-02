@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import sys
 from pathlib import Path
@@ -14,7 +15,7 @@ DEFAULT_OUTPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_templat
 DEFAULT_ELEMENT_OUTPUT = (
     NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_element_graph_index.json"
 )
-DEFAULT_RECORD_TABLE = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json"
+DEFAULT_RECORD_TABLE = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json.gz"
 
 
 def main() -> int:
@@ -33,8 +34,8 @@ def main() -> int:
 
     RDLogger.DisableLog("rdApp.*")
 
-    feature_buckets = json.loads(args.input.read_text(encoding="utf-8"))
-    record_table = json.loads(args.record_table.read_text(encoding="utf-8"))
+    feature_buckets = _read_json(args.input)
+    record_table = _read_json(args.record_table)
     record_ids = _record_id_map(record_table)
     graph_buckets: dict[str, dict[str, list[dict]]] = {}
     element_graph_buckets: dict[str, dict[str, dict[str, list[dict]]]] = {}
@@ -89,6 +90,12 @@ def main() -> int:
         )
     )
     return 0
+
+
+def _read_json(path: Path):
+    if path.suffix == ".gz":
+        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _resolve_record(item, record_table: list[dict]):

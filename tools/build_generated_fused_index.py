@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import subprocess
@@ -28,7 +29,7 @@ def _default_opsin_jar() -> Path:
 
 
 OPSIN_JAR = _default_opsin_jar()
-DEFAULT_INPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json"
+DEFAULT_INPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index_records.json.gz"
 DEFAULT_OUTPUT = NISPO_SOURCE / "nispo" / "resources" / "generated_fused_template_index.json"
 NS = {"c": "http://www.xml-cml.org/schema"}
 
@@ -49,7 +50,7 @@ def main() -> int:
 
     RDLogger.DisableLog("rdApp.*")
 
-    records = json.loads(args.input.read_text(encoding="utf-8"))
+    records = _read_json(args.input)
     record_ids = _record_id_map(records)
     selected = _select_records(Chem, records, args.per_skeleton, molecule_features, ring_system_feature_key, generated_template_key)
     _fill_cml_locants(Chem, selected, generated_template_key)
@@ -80,6 +81,12 @@ def main() -> int:
         )
     )
     return 0
+
+
+def _read_json(path: Path):
+    if path.suffix == ".gz":
+        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _select_records(Chem, records, per_skeleton, molecule_features, ring_system_feature_key, generated_template_key):

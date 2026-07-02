@@ -84,6 +84,10 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
         mol,
         attachment_idx,
         parent_idx,
+    ) or _unsubstituted_simple_ring_prefix(
+        mol,
+        attachment_idx,
+        parent_idx,
     ) or _simple_ring_substituent_prefix(
         mol,
         attachment_idx,
@@ -138,6 +142,70 @@ def _unsubstituted_carbocycle_prefix(mol, attachment_idx: int, parent_idx: int) 
             return ""
     root = ROOTS.get(len(ring), "")
     return f"cyclo{root}yl" if root else ""
+
+
+_SIMPLE_RING_FAST_SUFFIX_ALIASES = {
+    "isoxazol": "isooxazol",
+    "thiomorpholin": "thiamorpholin",
+}
+
+
+def _unsubstituted_simple_ring_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    parent_bond = mol.GetBondBetweenAtoms(attachment_idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return ""
+    rings = [
+        tuple(ring)
+        for ring in mol.GetRingInfo().AtomRings()
+        if attachment_idx in ring and parent_idx not in ring
+    ]
+    if len(rings) != 1:
+        return ""
+    ring = rings[0]
+    ring_set = set(ring)
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetFormalCharge() != 0 or atom.GetIsotope():
+            return ""
+        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            return ""
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set:
+                continue
+            if idx == attachment_idx and nidx == parent_idx:
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return ""
+    for bond in mol.GetBonds():
+        if bond.GetBeginAtomIdx() in ring_set and bond.GetEndAtomIdx() in ring_set:
+            if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+                return ""
+    ordered = ordered_ring(mol, ring)
+    if not ordered:
+        return ""
+    best = ""
+    best_key = None
+    for parent_name, seq in _ring_parent_candidates(mol, ordered):
+        if attachment_idx not in seq:
+            continue
+        loc = seq.index(attachment_idx) + 1
+        suffix = _ring_substituent_suffix(parent_name, loc, None, "")
+        if not suffix:
+            continue
+        suffix = _fast_simple_ring_suffix_alias(suffix)
+        key = (0 if loc == 1 else 1, suffix)
+        if best_key is None or key < best_key:
+            best_key = key
+            best = suffix
+    return best
+
+
+def _fast_simple_ring_suffix_alias(suffix: str) -> str:
+    for old, new in _SIMPLE_RING_FAST_SUFFIX_ALIASES.items():
+        if suffix.startswith(old):
+            return new + suffix[len(old) :]
+    return suffix
 
 
 def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> bool:

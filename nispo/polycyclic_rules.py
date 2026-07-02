@@ -11,7 +11,7 @@ from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import join_locants as _join_locants
 from .formatting import join_prefix_parent as _join_prefix_parent
-from .molecule_cache import mol_cache_dict
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
 from .simple_prefixes import simple_external_prefix
@@ -888,11 +888,11 @@ def _locant_graph_edges(mol, seq: Sequence[int]) -> frozenset[tuple[int, int]]:
     if cached is not None:
         return cached
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
     edges = set()
     for idx in seq:
         left = pos[idx]
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
+        for nidx in neighbors_by_atom[idx]:
             right = pos.get(nidx)
             if right is None or right <= left:
                 continue
@@ -909,19 +909,19 @@ def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int
     if cached is not None:
         return cached
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
+    bond_orders = _bond_orders(mol)
     edges = []
     seen = set()
     for idx in seq:
-        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
-            nidx = nbr.GetIdx()
+        for nidx in neighbors_by_atom[idx]:
             if nidx not in pos:
                 continue
             key = tuple(sorted((idx, nidx)))
             if key in seen:
                 continue
             seen.add(key)
-            bond = mol.GetBondBetweenAtoms(idx, nidx)
-            if bond.GetBondTypeAsDouble() <= 1.0:
+            if bond_orders.get(key, 0.0) <= 1.0:
                 continue
             edges.append(tuple(sorted((pos[idx], pos[nidx]))))
     result = tuple(edges)
@@ -929,7 +929,34 @@ def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int
     return result
 
 
+def _heavy_neighbor_indices_by_atom(mol) -> tuple[tuple[int, ...], ...]:
+    neighbors = mol_cache_get(mol, "polycyclic_heavy_neighbor_indices")
+    if neighbors is None:
+        neighbors = tuple(
+            tuple(nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1)
+            for atom in mol.GetAtoms()
+        )
+        mol_cache_set(mol, "polycyclic_heavy_neighbor_indices", neighbors)
+    return neighbors
+
+
+def _bond_orders(mol) -> dict[tuple[int, int], float]:
+    orders = mol_cache_get(mol, "polycyclic_bond_orders")
+    if orders is None:
+        orders = {
+            tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))): bond.GetBondTypeAsDouble()
+            for bond in mol.GetBonds()
+        }
+        mol_cache_set(mol, "polycyclic_bond_orders", orders)
+    return orders
+
+
 def _opsin_oriented_polybridge_edges(bracket: Sequence[int | str]) -> frozenset[tuple[int, int]]:
+    return _opsin_oriented_polybridge_edges_for_key(tuple(bracket))
+
+
+@lru_cache(maxsize=32768)
+def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> frozenset[tuple[int, int]]:
     parsed = _bridge_sort_key(bracket)
     if len(parsed) < 3:
         return frozenset()
@@ -1647,6 +1674,11 @@ def _zero_bridge_descriptor(left: int, right: int) -> str:
 
 
 def _bridge_sort_key(bracket: Sequence[int | str]) -> tuple:
+    return _bridge_sort_key_for_tuple(tuple(bracket))
+
+
+@lru_cache(maxsize=32768)
+def _bridge_sort_key_for_tuple(bracket: tuple[int | str, ...]) -> tuple:
     values = []
     for item in bracket:
         if isinstance(item, int):
@@ -2161,12 +2193,9 @@ def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms
         cache[cache_key] = ()
         return []
     locants = []
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
     for loc, idx in enumerate(seq, start=1):
-        external_count = sum(
-            1
-            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
-            if nbr.GetIdx() not in core_atoms and nbr.GetAtomicNum() > 1
-        )
+        external_count = sum(1 for nidx in neighbors_by_atom[idx] if nidx not in core_atoms)
         if external_count >= 2:
             locants.append(-loc)
     cache[cache_key] = tuple(locants)
@@ -2192,8 +2221,9 @@ def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[
     if cached is not None:
         return list(cached)
     locants = []
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
     for loc, idx in enumerate(seq, start=1):
-        if any(nbr.GetIdx() not in core_atoms for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()):
+        if any(nidx not in core_atoms for nidx in neighbors_by_atom[idx]):
             locants.append(loc)
     cache[cache_key] = tuple(locants)
     return locants

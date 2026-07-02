@@ -1033,6 +1033,8 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             item.parent_name,
         )
     )
+    if components:
+        return _store_component_names(cache_key, components[:16])
     components.extend(_fused_component_names(mol, Chem, spiro_idx, seen))
     components.sort(
         key=lambda item: (

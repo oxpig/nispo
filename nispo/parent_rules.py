@@ -20850,9 +20850,9 @@ _MAX_POLYCYCLIC_RECORDS_BY_FAMILY = {
     "kekulized-generic-polycyclic-parent": 12,
 }
 _FAST_ROUTE_POLYCYCLIC_RECORDS_BY_FAMILY = {
-    "functional-generic-bicyclic-parent": 4,
-    "generic-bicyclic-parent": 4,
-    "kekulized-generic-polycyclic-parent": 4,
+    "functional-generic-bicyclic-parent": 1,
+    "generic-bicyclic-parent": 1,
+    "kekulized-generic-polycyclic-parent": 1,
 }
 
 

@@ -728,10 +728,10 @@ def _secondary_bridge_polycyclic_candidate_records(
     )
     route_fast = bool(getattr(mol, "HasProp", lambda _name: False)(FAST_POLY_BRIDGE_ROUTE_PROP))
     candidate_limit = 8 if relaxed_aromatic_fallback else _secondary_bridge_candidate_limit(rank)
+    if max_records is not None:
+        candidate_limit = min(candidate_limit, max_records)
     if route_fast:
         candidate_limit = min(candidate_limit, 2)
-        if max_records is not None:
-            candidate_limit = min(candidate_limit, max_records)
     candidate_pool_limit = max(
         candidate_limit * (24 if route_fast else 4),
         candidate_limit + (48 if route_fast else 8),

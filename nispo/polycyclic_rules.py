@@ -2015,10 +2015,11 @@ def _unsat_sort_key(locant: str) -> tuple[int, int]:
 
 
 def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], parent: str) -> str:
+    core_atom_set = frozenset(core_atoms)
     cache = mol_cache_dict(mol, "decorate_polycyclic_parent_cache")
     cache_key = (
         tuple(seq),
-        tuple(sorted(core_atoms)),
+        core_atom_set,
         parent,
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
@@ -2026,23 +2027,51 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
     if cache_key in cache:
         return cache[cache_key]
     parent = _append_polycyclic_parent_isotope_suffixes(mol, seq, parent)
+    prefixes_by_parent = _polycyclic_external_prefixes_by_parent(mol, core_atom_set)
+    if prefixes_by_parent is None:
+        cache[cache_key] = ""
+        return ""
     pos = {idx: str(loc) for loc, idx in enumerate(seq, start=1)}
     prefixes = []
     for idx in seq:
         locant = pos[idx]
+        for prefix in prefixes_by_parent.get(idx, ()):
+            prefixes.append((locant, prefix))
+    prefix_text = _format_prefixes(prefixes)
+    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    cache[cache_key] = name
+    return name
+
+
+def _polycyclic_external_prefixes_by_parent(
+    mol,
+    core_atoms: frozenset[int],
+) -> dict[int, tuple[str, ...]] | None:
+    cache = mol_cache_dict(mol, "polycyclic_external_prefixes_by_parent")
+    cache_key = (
+        core_atoms,
+        mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
+        mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
+    )
+    if cache_key in cache:
+        return cache[cache_key]
+    prefixes_by_parent: dict[int, list[str]] = {}
+    for idx in core_atoms:
+        atom_prefixes = []
         for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
             nidx = nbr.GetIdx()
             if nidx in core_atoms:
                 continue
             prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
-                cache[cache_key] = ""
-                return ""
-            prefixes.append((locant, prefix))
-    prefix_text = _format_prefixes(prefixes)
-    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
-    cache[cache_key] = name
-    return name
+                cache[cache_key] = None
+                return None
+            atom_prefixes.append(prefix)
+        if atom_prefixes:
+            prefixes_by_parent[idx] = atom_prefixes
+    result = {idx: tuple(prefixes) for idx, prefixes in prefixes_by_parent.items()}
+    cache[cache_key] = result
+    return result
 
 
 def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:

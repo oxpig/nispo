@@ -210,10 +210,19 @@ class NamingEngine:
         if routed_polycyclic_name:
             return routed_polycyclic_name
         if mol.GetRingInfo().NumRings() >= 3:
-            route_miss_name = _select_best_prepared_candidate(
-                _prepare_candidates(mol, self._Chem, ctx, self._fast_poly_route_miss_fallback_rules),
-                telemetry=telemetry,
-            )
+            if mol.GetRingInfo().NumRings() <= 3 and _largest_ring_system_cycle_rank(ctx) <= 1:
+                route_miss_name = _select_best_prepared_candidate(
+                    _prepare_candidates(mol, self._Chem, ctx, self._fast_poly_route_miss_fallback_rules),
+                    telemetry=telemetry,
+                )
+            else:
+                route_miss_name = _first_valid_candidate_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._fast_poly_route_miss_fallback_rules,
+                    telemetry=telemetry,
+                )
             if route_miss_name:
                 return route_miss_name
         best_name = _select_best_prepared_candidate(
@@ -393,6 +402,10 @@ def _first_valid_candidate_name(
             telemetry.active_rule_family = previous_rule_family
             telemetry.rule_seconds[rule.family] += time.perf_counter() - started
     return ""
+
+
+def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
+    return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

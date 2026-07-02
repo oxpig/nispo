@@ -80,6 +80,10 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
         mol,
         attachment_idx,
         parent_idx,
+    ) or _unsubstituted_carbocycle_prefix(
+        mol,
+        attachment_idx,
+        parent_idx,
     ) or _simple_ring_substituent_prefix(
         mol,
         attachment_idx,
@@ -95,6 +99,45 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
         prefix = _ring_substituent_unsaturated_suffix(mol, attachment_idx, parent_idx, prefix)
     cache[cache_key] = prefix
     return prefix
+
+
+def _unsubstituted_carbocycle_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
+    rings = [
+        tuple(ring)
+        for ring in mol.GetRingInfo().AtomRings()
+        if attachment_idx in ring and parent_idx not in ring
+    ]
+    if len(rings) != 1:
+        return ""
+    ring = rings[0]
+    ring_set = set(ring)
+    if any(
+        mol.GetAtomWithIdx(idx).GetSymbol() != "C"
+        or mol.GetAtomWithIdx(idx).GetFormalCharge() != 0
+        or mol.GetAtomWithIdx(idx).GetIsotope()
+        for idx in ring
+    ):
+        return ""
+    for idx in ring:
+        atom = mol.GetAtomWithIdx(idx)
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set:
+                continue
+            if idx == attachment_idx and nidx == parent_idx:
+                continue
+            if nbr.GetAtomicNum() > 1:
+                return ""
+    if len(ring) == 6 and all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
+        return "phenyl"
+    if any(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
+        return ""
+    for left, right in zip(ring, ring[1:] + ring[:1]):
+        bond = mol.GetBondBetweenAtoms(left, right)
+        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+            return ""
+    root = ROOTS.get(len(ring), "")
+    return f"cyclo{root}yl" if root else ""
 
 
 def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> bool:

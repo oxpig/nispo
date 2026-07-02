@@ -20983,6 +20983,8 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
             name = _name_fused_core_match(mol, template, match)
             if name and not _unsafe_benz_a_anthracene_candidate(name):
                 return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
+    if _has_fast_poly_retained_scaffold_defer_candidate(ctx, Chem):
+        return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     return mol_cache_set(mol, "fast_poly_retained_defer_candidate", False)
 
 
@@ -20991,6 +20993,86 @@ def _fast_poly_retained_defer_template_is_fragile(template: dict) -> bool:
         str(template.get("source_family", "")),
         template_record_name(template),
     ) in FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS
+
+
+def _has_fast_poly_retained_scaffold_defer_candidate(ctx, Chem) -> bool:
+    mol = ctx.mol
+    cached = mol_cache_get(mol, "fast_poly_retained_scaffold_defer_candidate")
+    if cached is not None:
+        return cached
+    if ctx.features.get("max_ring_system_ring_count", 0) < 2:
+        return mol_cache_set(mol, "fast_poly_retained_scaffold_defer_candidate", False)
+    if _too_large_for_exhaustive_ring_parent_search(mol):
+        return mol_cache_set(mol, "fast_poly_retained_scaffold_defer_candidate", False)
+
+    molecule_aromatic_atom_count = _aromatic_atom_count(mol)
+    molecule_charged_atom_values = _charged_atom_values(mol)
+    has_stereo_evidence = _has_stereo_evidence(mol, Chem)
+    selected_facts: list[tuple[tuple, object]] = []
+    trimmed = False
+    for compiled in ctx.candidate_compiled_templates(_general_retained_ring_scaffold_templates(Chem)):
+        if not _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compiled, Chem):
+            continue
+        if has_stereo_evidence and not _fast_poly_retained_scaffold_template_is_stable(compiled.record.name):
+            continue
+        if compiled.features.atom_count >= mol.GetNumAtoms():
+            continue
+        if compiled.features.aromatic_atom_count > molecule_aromatic_atom_count:
+            continue
+        if (
+            compiled.features.charged_atom_values
+            and not all(value in molecule_charged_atom_values for value in compiled.features.charged_atom_values)
+        ):
+            continue
+        structural_key = _retained_ring_scaffold_template_fact_sort_key(compiled)
+        entry = (structural_key, compiled)
+        if not trimmed:
+            selected_facts.append(entry)
+            if len(selected_facts) > _RETAINED_RING_SCAFFOLD_TEMPLATE_FACT_SET_SIZE:
+                selected_facts.sort(key=lambda item: item[0])
+                selected_facts.pop()
+                trimmed = True
+        elif structural_key < selected_facts[-1][0]:
+            selected_facts.pop()
+            insort(selected_facts, entry)
+
+    for _structural_key, compiled in selected_facts:
+        template = compiled.runtime
+        for match in ctx.template_matches(template):
+            if _match_has_extra_core_bonds(mol, template, match):
+                continue
+            if _match_has_unlocanted_external_substitution(mol, template, match):
+                continue
+            name = _name_fused_core_match(mol, template, match)
+            if name and not _unsafe_retained_ring_scaffold_candidate(name):
+                return mol_cache_set(mol, "fast_poly_retained_scaffold_defer_candidate", True)
+    return mol_cache_set(mol, "fast_poly_retained_scaffold_defer_candidate", False)
+
+
+def _fast_poly_retained_scaffold_template_is_stable(template_name: str) -> bool:
+    return template_name in _FAST_POLY_RETAINED_STABLE_SCAFFOLD_TEMPLATE_NAMES
+
+
+_FAST_POLY_RETAINED_STABLE_SCAFFOLD_TEMPLATE_NAMES = frozenset(
+    {
+        "pentacene",
+        "hexacene",
+        "heptacene",
+        "octacene",
+        "nonacene",
+        "decacene",
+        "undecacene",
+        "dodecacene",
+        "pentaphene",
+        "hexaphene",
+        "heptaphene",
+        "octaphene",
+        "nonaphene",
+        "decaphene",
+        "undecaphene",
+        "dodecaphene",
+    }
+)
 
 
 def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:

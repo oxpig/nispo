@@ -1686,7 +1686,7 @@ def _fresh_atom_stereochemistry(mol, Chem) -> dict[int, str]:
         return cached
     result = {
         idx: descriptor
-        for idx, descriptor in _fresh_all_atom_stereochemistry(mol, Chem).items()
+        for idx, descriptor in assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
         if descriptor in {"R", "S"}
     }
     return mol_cache_set(mol, "fresh_atom_stereochemistry", result)

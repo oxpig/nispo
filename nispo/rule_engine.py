@@ -26,6 +26,7 @@ from .engine_flags import (
     FAST_POLY_RETAINED_DEFER_BYPASS_PROP,
     FAST_POLY_RETAINED_DEFER_CACHE_KEY,
     FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS,
+    FAST_POLY_RETAINED_TOPOLOGY_DEFER_TEMPLATE_NAMES,
 )
 from .fragment_rules import (
     FragmentAssemblyRule,
@@ -613,11 +614,7 @@ def _retained_deferred_poly_route_miss_name(
         if bridge_name:
             return bridge_name
         return ""
-    if (
-        selected.candidate.family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
-        or selected.producer_family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
-        or _retained_deferred_selected_template_is_fragile(selected)
-    ):
+    if _retained_deferred_selected_should_bridge_retry(selected):
         bridge_name = _fast_poly_bridge_name_with_retained_defer_bypass(
             mol,
             Chem,
@@ -628,6 +625,95 @@ def _retained_deferred_poly_route_miss_name(
         if bridge_name:
             return bridge_name
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _retained_deferred_selected_should_bridge_retry(selected: _PreparedCandidate) -> bool:
+    if _is_stable_retained_ring_scaffold_selection(selected):
+        return False
+    if _is_stable_retained_topology_selection(selected):
+        return False
+    if _is_stable_skeletal_replacement_selection(selected):
+        return False
+    return (
+        selected.candidate.family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
+        or selected.producer_family in _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES
+        or _retained_deferred_selected_template_is_fragile(selected)
+    )
+
+
+def _is_stable_retained_ring_scaffold_selection(selected: _PreparedCandidate) -> bool:
+    candidate = selected.candidate
+    if selected.producer_family != "retained-ring-scaffold-parent":
+        return False
+    if candidate.source_family != "opsin-retained-ring-cml":
+        return False
+    if candidate.template_name not in _STABLE_RETAINED_RING_SCAFFOLD_TEMPLATE_NAMES and candidate.stereo is not None:
+        return False
+    if not candidate.template_name or _retained_deferred_selected_template_is_fragile(selected):
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+def _is_stable_retained_topology_selection(selected: _PreparedCandidate) -> bool:
+    candidate = selected.candidate
+    if selected.producer_family != "retained-topology-replacement-fused-parent":
+        return False
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if candidate.source_family != "opsin-retained-ring-cml":
+        return False
+    if candidate.template_name not in FAST_POLY_RETAINED_TOPOLOGY_DEFER_TEMPLATE_NAMES:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    if candidate.stereo is not None:
+        return False
+    if _retained_deferred_selected_template_is_fragile(selected):
+        return False
+    if not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.prefixes or candidate.suffixes or candidate.charge is not None:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+def _is_stable_skeletal_replacement_selection(selected: _PreparedCandidate) -> bool:
+    candidate = selected.candidate
+    if selected.producer_family != "skeletal-replacement-fused-parent":
+        return False
+    if candidate.family != "skeletal-replacement-fused-parent":
+        return False
+    if candidate.template_name not in {"fluoren", "fluorene"}:
+        return False
+    if candidate.source_family not in {"arylGroups:ring:ring", "opsin-retained-ring-cml"}:
+        return False
+    if candidate.parent_element_counts != (("C", 12), ("O", 1)):
+        return False
+    if candidate.stereo is not None:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+_STABLE_RETAINED_RING_SCAFFOLD_TEMPLATE_NAMES = frozenset(
+    {
+        "pentacene",
+        "hexacene",
+        "heptacene",
+        "octacene",
+        "nonacene",
+        "decacene",
+        "undecacene",
+        "dodecacene",
+        "pentaphene",
+        "hexaphene",
+        "heptaphene",
+        "octaphene",
+        "nonaphene",
+        "decaphene",
+        "undecaphene",
+        "dodecaphene",
+    }
+)
 
 
 def _retained_deferred_selected_template_is_fragile(selected: _PreparedCandidate) -> bool:
@@ -1264,6 +1350,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _retained_topology_alternative_for_kekulized_generic_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _acyclic_skeleton_alternative_for_low_confidence_retained_fused_choice(
             keyed_items,
             selected_item,
@@ -1314,6 +1407,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _external_acyl_generated_fused_single_ring_alternative_for_generated_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _exact_high_impact_retained_lactone_alternative_for_generated_topology_choice(
             keyed_items,
             selected_item,
         )
@@ -1946,6 +2046,43 @@ def _external_acyl_generated_fused_single_ring_alternative_for_generated_fused_c
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+def _exact_high_impact_retained_lactone_alternative_for_generated_topology_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in {
+        "generated-fused-parent",
+        "high-signal-generated-topology-fused-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or candidate_safety_reasons(selected_candidate):
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_exact_high_impact_retained_lactone_parent(candidate):
+            continue
+        if candidate.parent_atoms != selected_candidate.parent_atoms:
+            continue
+        if candidate.priority > selected_candidate.priority:
+            continue
+        if candidate.charge is not None:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 80:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _retained_fused_alternative_for_neutral_amine_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -2226,7 +2363,7 @@ def _retained_amide_alternative_for_spiro_carboxamide_choice(
         return None
     if selected_candidate.source_file != "generated_spiro_scaffold_templates.json":
         return None
-    if selected_candidate.render_rank != 1:
+    if selected_candidate.render_rank is None or selected_candidate.render_rank > 4:
         return None
     if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
         return None
@@ -4003,6 +4140,69 @@ def _kekulized_polycyclic_alternative_for_low_confidence_generated_fused_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _retained_topology_alternative_for_kekulized_generic_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "kekulized-generic-polycyclic-parent":
+        return None
+    if selected_candidate.source_family != "kekulized":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_file:
+        return None
+    if selected_candidate.render_rank is None or selected_candidate.render_rank > 4:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes or selected_candidate.prefixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 8 or selected_parent_count > 14:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "retained-topology-replacement-fused-parent":
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) != selected_parent_count:
+            continue
+        if candidate.parent_element_counts != selected_candidate.parent_element_counts:
+            continue
+        if candidate.parent_hetero_atom_count != selected_candidate.parent_hetero_atom_count:
+            continue
+        if candidate.parent_aromatic_atom_count > selected_candidate.parent_aromatic_atom_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes or candidate.prefixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 2:
+            continue
+        if len(item.name) >= len(selected.name):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: (len(keyed[1].name), keyed[0]))[1]
 
 
 def _acyclic_skeleton_alternative_for_low_confidence_retained_fused_choice(
@@ -8569,6 +8769,22 @@ _FRAGILE_RETAINED_TOPOLOGY_REPLACEMENT_SELECTED_TEMPLATE_TERMS = (
     "benzothiazep",
     "pyrido[",
 )
+
+
+def _is_exact_high_impact_retained_lactone_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "fused-retained-parent":
+        return False
+    if candidate.source_family != "static-retained":
+        return False
+    if candidate.source_file != "high_impact_fused_parent_templates.json":
+        return False
+    if candidate.template_name not in _RETAINED_LACTONE_TEMPLATE_NAMES:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
 _BIOCHEM_HETEROFUSED_RETAINED_STEMS = (
     "adenin",
     "guanin",
@@ -8902,6 +9118,8 @@ def _candidate_selection_broad_graph_parent_penalty(
     if item.candidate.source_family == "acyclic-carbohydrate-retained":
         return 0
     if item.candidate.source_family == _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE:
+        return 0
+    if _is_exact_high_impact_retained_lactone_parent(item.candidate):
         return 0
     charged_fused_parent_penalty = _contextual_charged_fused_parent_fallback_penalty(item, prepared)
     if item.candidate.family in _ACYCLIC_SKELETON_PARENT_FAMILIES:
@@ -9266,6 +9484,29 @@ def _has_contextual_retained_lactone_topology_candidate(
         prepared,
         template_names=_RETAINED_LACTONE_TEMPLATE_NAMES,
     )
+
+
+def _has_contextual_exact_high_impact_retained_lactone_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    candidate_parent_count = len(candidate.parent_atoms)
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_exact_high_impact_retained_lactone_parent(other_candidate):
+            continue
+        if candidate_parent_count and len(candidate.parent_atoms & other_candidate.parent_atoms) < min(
+            candidate_parent_count,
+            len(other_candidate.parent_atoms),
+        ):
+            continue
+        if item.stability_penalty >= other.stability_penalty + 100:
+            continue
+        return True
+    return False
 
 
 def _has_contextual_retained_cyclic_anhydride_topology_candidate(
@@ -10496,8 +10737,14 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
 
     if item.candidate.source_family == "acyclic-carbohydrate-retained":
         return 0
+    if _is_exact_high_impact_retained_lactone_parent(item.candidate):
+        return 0
     name = item.name
     retained_lactone_topology = _has_contextual_retained_lactone_topology_candidate(item, prepared)
+    exact_high_impact_lactone_parent = _has_contextual_exact_high_impact_retained_lactone_parent(
+        item,
+        prepared,
+    )
     retained_cyclic_anhydride_topology = _has_contextual_retained_cyclic_anhydride_topology_candidate(
         item,
         prepared,
@@ -10911,7 +11158,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         return 0
 
     penalty = 0
-    if retained_lactone_topology:
+    if retained_lactone_topology and not exact_high_impact_lactone_parent:
         penalty -= _RETAINED_LACTONE_TOPOLOGY_BONUS
     if retained_cyclic_anhydride_topology:
         penalty -= _RETAINED_CYCLIC_ANHYDRIDE_TOPOLOGY_BONUS
@@ -12809,6 +13056,8 @@ def _contextual_named_template_pair_parent_bonus(
             frozenset({"dibenzofuran"}),
         )
     ):
+        if _has_contextual_exact_opsin_dibenzofuran_parent(item, prepared):
+            return 0
         return _NAMED_TEMPLATE_PAIR_PARENT_BONUS
     if (
         candidate.family == "generated-hydro-fused-parent"
@@ -12842,6 +13091,39 @@ def _contextual_named_template_pair_parent_bonus(
     ):
         return _TETRALIN_TO_BENZODIOXANE_TEMPLATE_PAIR_BONUS
     return 0
+
+
+def _has_contextual_exact_opsin_dibenzofuran_parent(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not _is_exact_opsin_dibenzofuran_parent(other_candidate):
+            continue
+        if other_candidate.parent_atoms != candidate.parent_atoms:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        return True
+    return False
+
+
+def _is_exact_opsin_dibenzofuran_parent(candidate: NameCandidate) -> bool:
+    if candidate.template_name != "dibenzofuran":
+        return False
+    if candidate.source_family != "opsin-retained-ring-cml":
+        return False
+    if candidate.source_file != "opsin-derived-heteroarene-templates":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    return not candidate_safety_reasons(candidate)
 
 
 def _contextual_low_confidence_fused_template_parent_penalty(
@@ -14892,6 +15174,8 @@ def _has_sibling_spiro_functional_chain_parent(
 
 
 def _has_fragile_dibenzofuran_alias(name: str, candidate: NameCandidate) -> bool:
+    if _is_exact_opsin_dibenzofuran_parent(candidate):
+        return False
     return "dibenzofuran" in name and "oxafluoren" not in name
 
 

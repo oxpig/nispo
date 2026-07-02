@@ -1219,6 +1219,10 @@ _SYSTEMATIC_ONLY_SUBSTITUENT_TEMPLATE_NAMES = frozenset(
         # locanted substituent forms. Let the graph renderer emit
         # 1,4-dioxaspiro[4.5]decane substituents instead.
         "cyclohexanone ethylene ketal",
+        # OPSIN accepts dibenzofuran parents, but some locanted fused-substituent
+        # aliases are orientation-fragile in larger fused systems. Keep the
+        # retained parent available and use the graph renderer for substituents.
+        "dibenzofuran",
     }
 )
 

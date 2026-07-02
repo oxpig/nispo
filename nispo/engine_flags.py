@@ -23,6 +23,8 @@ FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS = frozenset(
         ("generated-fused", "pyrido[3,4-a]benzene"),
         ("generated-fused", "spiro[cyclopropane-1,2'-pyrrolin]"),
         ("generated-fused", "thieno[2,3-b]pyridine"),
+        ("opsin-retained-ring-cml", "indan"),
+        ("opsin-retained-ring-cml", "indane"),
         ("opsin-retained-ring-cml", "quinoxalin"),
         ("simpleCyclicGroups:ring:simpleGroup", "tetrahydropterin"),
         ("simpleGroups:simpleGroup:simpleGroup", "benzocyclobutene"),
@@ -33,5 +35,14 @@ FAST_POLY_RETAINED_DEFER_FRAGILE_TEMPLATE_KEYS = frozenset(
         ("static-retained", "pterin"),
         ("static-retained", "pyrido[1,2-a]pyrimidin-4-one"),
         ("static-retained", "pyrimido[1,2-b]pyridazin-4-one"),
+    }
+)
+
+FAST_POLY_RETAINED_TOPOLOGY_DEFER_TEMPLATE_NAMES = frozenset(
+    {
+        "anthracen",
+        "chinolin",
+        "ind-1-en",
+        "quinolin",
     }
 )

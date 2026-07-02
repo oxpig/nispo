@@ -2043,12 +2043,113 @@ def _opsin_derived_phene_records() -> tuple[dict, ...]:
     )
 
 
+_POLYPHENYLENE_PREFIXES = {
+    2: "bi",
+    3: "tri",
+    4: "tetra",
+    5: "penta",
+    6: "hexa",
+    7: "hepta",
+    8: "octa",
+    9: "nona",
+    10: "deca",
+    11: "undeca",
+    12: "dodeca",
+}
+
+
+def _polyphenylene_smiles(unit_count: int) -> str:
+    return "C1=CC=CC=2" + ("C3=CC=CC=C3" * (unit_count - 1)) + "C12"
+
+
+def _polyphenylene_locants(unit_count: int) -> tuple[str, ...]:
+    locants: list[str] = []
+    for unit_index in range(unit_count):
+        base = unit_index * 4
+        locants.extend(
+            (
+                str(base + 1),
+                str(base + 2),
+                str(base + 3),
+                str(base + 4),
+                f"{base + 4}a",
+                f"{base + 4}b",
+            )
+        )
+    return tuple(locants)
+
+
+def _opsin_derived_polyphenylene_records() -> tuple[dict, ...]:
+    return tuple(
+        {
+            "name": f"{prefix}phenylene",
+            "smiles": _polyphenylene_smiles(unit_count),
+            "locants": {
+                str(idx): locant
+                for idx, locant in enumerate(_polyphenylene_locants(unit_count))
+            },
+            "source_file": "opsin-derived-polyphenylene-templates",
+            "source_subtype": "opsin-cml-located-retained-ring",
+        }
+        for unit_count, prefix in _POLYPHENYLENE_PREFIXES.items()
+    )
+
+
+_OPSIN_DERIVED_HETEROARENE_RETAINED_RING_RECORDS = (
+    (
+        "benzofuran",
+        "O1C=CC2=C1C=CC=C2",
+        ("1", "2", "3", "3a", "7a", "7", "6", "5", "4"),
+    ),
+    (
+        "benzothiophene",
+        "S1C=CC2=C1C=CC=C2",
+        ("1", "2", "3", "3a", "7a", "7", "6", "5", "4"),
+    ),
+    (
+        "benzimidazole",
+        "N1=CNC2=C1C=CC=C2",
+        ("1", "2", "3", "3a", "7a", "7", "6", "5", "4"),
+    ),
+    (
+        "1H-benzimidazole",
+        "N1C=NC2=C1C=CC=C2",
+        ("1", "2", "3", "3a", "7a", "7", "6", "5", "4"),
+    ),
+    (
+        "dibenzofuran",
+        "C1=CC=CC=2OC3=C(C21)C=CC=C3",
+        ("1", "2", "3", "4", "4a", "5", "5a", "9a", "9b", "9", "8", "7", "6"),
+    ),
+    (
+        "indazole",
+        "N1N=CC2=CC=CC=C12",
+        ("1", "2", "3", "3a", "4", "5", "6", "7", "7a"),
+    ),
+)
+
+
+def _opsin_derived_heteroarene_records() -> tuple[dict, ...]:
+    return tuple(
+        {
+            "name": name,
+            "smiles": smiles,
+            "locants": {str(idx): locant for idx, locant in enumerate(locants)},
+            "source_file": "opsin-derived-heteroarene-templates",
+            "source_subtype": "opsin-cml-located-retained-ring",
+        }
+        for name, smiles, locants in _OPSIN_DERIVED_HETEROARENE_RETAINED_RING_RECORDS
+    )
+
+
 def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[dict, ...]:
     locanted_records = (
         _read_json_records("opsin_retained_mono_fused_ring_templates.json")
         + _read_json_records("opsin_polyacene_helicene_templates.json")
         + _read_json_records("opsin_polycyclic_arene_templates.json")
         + _opsin_derived_phene_records()
+        + _opsin_derived_polyphenylene_records()
+        + _opsin_derived_heteroarene_records()
     )
     if locanted_records:
         smiles_by_name = {

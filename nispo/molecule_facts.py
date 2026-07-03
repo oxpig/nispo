@@ -28,6 +28,8 @@ class MoleculeFacts:
 
     atom_count: int
     heavy_atom_count: int
+    nonring_heavy_atom_count: int
+    ring_heavy_atom_count: int
     element_counts: tuple[tuple[str, int], ...]
     ring_count: int
     ring_system_count: int
@@ -47,6 +49,7 @@ class MoleculeFacts:
     has_functional_skeleton_signal: bool
     has_imino_skeleton_signal: bool
     has_acyclic_preference_signal: bool
+    may_have_chain_dominant_acyclic_parent: bool
     has_kekulized_polycycle_signal: bool
     has_charged_ring_atom: bool
     has_generic_bicyclic_topology: bool
@@ -101,6 +104,8 @@ def build_molecule_facts(
 
     atoms = tuple(mol.GetAtoms())
     element_counter = Counter(atom.GetSymbol() for atom in atoms)
+    nonring_heavy_atom_count = sum(1 for atom in atoms if atom.GetAtomicNum() > 1 and not atom.IsInRing())
+    ring_heavy_atom_count = sum(1 for atom in atoms if atom.GetAtomicNum() > 1 and atom.IsInRing())
     element_counts = tuple(
         sorted(
             (symbol, count)
@@ -113,6 +118,8 @@ def build_molecule_facts(
     return MoleculeFacts(
         atom_count=mol.GetNumAtoms(),
         heavy_atom_count=mol.GetNumHeavyAtoms(),
+        nonring_heavy_atom_count=nonring_heavy_atom_count,
+        ring_heavy_atom_count=ring_heavy_atom_count,
         element_counts=element_counts,
         ring_count=mol.GetRingInfo().NumRings(),
         ring_system_count=len(features.get("ring_systems", ())),
@@ -132,6 +139,11 @@ def build_molecule_facts(
         has_functional_skeleton_signal=bool(profile.has_functional_skeleton_signal),
         has_imino_skeleton_signal=bool(profile.has_imino_skeleton_signal),
         has_acyclic_preference_signal=bool(profile.may_prefer_acyclic_skeleton),
+        may_have_chain_dominant_acyclic_parent=_may_have_chain_dominant_acyclic_parent(
+            mol,
+            nonring_heavy_atom_count=nonring_heavy_atom_count,
+            ring_heavy_atom_count=ring_heavy_atom_count,
+        ),
         has_kekulized_polycycle_signal=bool(profile.has_kekulized_polycycle_signal),
         has_charged_ring_atom=bool(profile.has_charged_ring_atom),
         has_generic_bicyclic_topology=any(topology.cycle_rank == 2 for topology in ring_topologies),
@@ -171,3 +183,32 @@ def _has_spiro_ring_pair(mol, ring_topologies, *, max_cycle_rank: int | None = N
         ):
             return True
     return False
+
+
+def _may_have_chain_dominant_acyclic_parent(
+    mol,
+    *,
+    nonring_heavy_atom_count: int,
+    ring_heavy_atom_count: int,
+) -> bool:
+    """Cheap graph superset for chain-dominant acyclic parent rendering."""
+
+    if not ring_heavy_atom_count or nonring_heavy_atom_count < 2:
+        return False
+    if nonring_heavy_atom_count >= ring_heavy_atom_count:
+        return True
+    if mol.GetRingInfo().NumRings() > 1 and nonring_heavy_atom_count >= 4:
+        return True
+    nonring_atoms = frozenset(
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() > 1 and not atom.IsInRing()
+    )
+    if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in nonring_atoms):
+        return True
+    return any(
+        bond.GetBondTypeAsDouble() > 1.0
+        and bond.GetBeginAtomIdx() in nonring_atoms
+        and bond.GetEndAtomIdx() in nonring_atoms
+        for bond in mol.GetBonds()
+    )

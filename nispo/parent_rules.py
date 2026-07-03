@@ -64,6 +64,7 @@ from .rule_dispatch import (
     acyclic,
     acyclic_preference_signal,
     boron_signal,
+    chain_dominant_acyclic_parent_signal,
     charged_ring_atom,
     component_spiro_topology,
     conjugated_carbonyl_diene_signal,
@@ -78,10 +79,12 @@ from .rule_dispatch import (
     imino_skeleton_signal,
     iodine_signal,
     kekulized_polycycle_signal,
+    min_nonring_heavy_atom_count,
     min_ring_count,
     min_ring_system_ring_count,
     no_charged_ring_atom,
     no_exocyclic_charged_fused_parent,
+    nitrogen_oxygen_signal,
     neutral_phosphorus,
     nonring_neutral_group14,
     nonring_neutral_nitrogen,
@@ -91,12 +94,15 @@ from .rule_dispatch import (
     nonring_positive_phosphorus,
     nonring_positive_sulfur,
     nitrile_oxide_signal,
+    oxygen_signal,
     oxygen_oxygen_single_bond_signal,
     oxime_sulfonate_nitrile_signal,
     spiro_topology,
     small_inorganic_retained_signal,
     sulfinate_retained_parent_signal,
     sulfur_imino_signal,
+    sulfur_nitrogen_oxygen_signal,
+    sulfur_oxygen_signal,
     sulfur_oxo_retained_parent_signal,
     sulfur_signal,
     terminal_carboxylate_signal,
@@ -15913,15 +15919,15 @@ class AcyclicSkeletonWithRingSubstituentsRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0:
             return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
+        if _is_direct_ring_carboxylate_acyclic_parent(ctx.mol, ctx.Chem, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
-            return
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
-        if name and _is_direct_ring_carboxylate_acyclic_parent(ctx.mol, ctx.Chem, parent_atoms):
-            return
         if (
             name
             and mol.GetRingInfo().NumRings() >= 2
@@ -15997,19 +16003,19 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
         if (
             profile.ring_count == 0
             or not profile.may_prefer_acyclic_skeleton
-            or _nonring_heavy_atom_count(mol) < 8
+            or ctx.facts.nonring_heavy_atom_count < 8
         ):
-            return
-        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
-        name = name_record.name
-        if not name or not _prefer_acyclic_skeleton_name(name):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+        if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
             return
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
+        name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
+        name = name_record.name
+        if not name or not _prefer_acyclic_skeleton_name(name):
             return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
@@ -16033,17 +16039,17 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
         profile = ctx.profile
         if profile.ring_count == 0:
             return
-        if _nonring_heavy_atom_count(mol) < 2:
+        if ctx.facts.nonring_heavy_atom_count < 2:
             return
-        if not _may_have_chain_dominant_acyclic_parent(mol):
+        if not ctx.facts.may_have_chain_dominant_acyclic_parent:
+            return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
             return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
-            return
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _chain_dominates_single_ring(mol, name):
@@ -16108,11 +16114,11 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
         nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
         if len(nonring_atoms) < 4 or len(nonring_atoms) < len(ring_atoms) // 2:
             return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
-            return
         if (
             name
             and "spiro[" in name
@@ -16246,11 +16252,11 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
         profile = ctx.profile
         if profile.ring_count == 0 or not profile.has_charged_ring_atom:
             return
+        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
         if (
             name
             and "ium" in name
@@ -16282,16 +16288,16 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             or profile.has_charged_ring_atom
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
-            or _nonring_heavy_atom_count(mol) < 8
+            or ctx.facts.nonring_heavy_atom_count < 8
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and _prefer_acyclic_skeleton_name(name):
@@ -16319,16 +16325,16 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             profile.ring_count == 0
             or not profile.has_imino_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
-            or _nonring_heavy_atom_count(mol) < 2
+            or ctx.facts.nonring_heavy_atom_count < 2
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
+        parent_atoms = _nonring_heavy_atom_indices(mol)
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(mol)
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if name and "imino" in name and _prefer_acyclic_skeleton_name(name):
@@ -16359,16 +16365,16 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             or not profile.has_functional_skeleton_signal
             or not profile.may_prefer_acyclic_skeleton
             or not _has_carbonyl_group(ctx.mol, ctx.Chem)
-            or _nonring_heavy_atom_count(ctx.mol) < 8
+            or ctx.facts.nonring_heavy_atom_count < 8
         ):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
+        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
+        if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
+            return
         name_record = ctx.acyclic_name_record(allow_ring_atoms=False)
         name = name_record.name
-        parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
-        if name and _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
-            return
         if name and _should_defer_substituent_like_acyclic_name_to_ring_parent(ctx, name):
             return
         if (
@@ -17675,7 +17681,7 @@ class FusedParentRule:
         self._Chem = Chem
 
     def _templates(self) -> tuple[dict, ...]:
-        return _curated_fused_templates(self._Chem)
+        return _retained_fused_parent_templates(self._Chem)
 
     def _template_iter(self, ctx) -> Sequence[dict]:
         return ctx.candidate_templates(self._templates())
@@ -17804,6 +17810,32 @@ class FusedParentRule:
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
+
+
+_RETAINED_FUSED_PARENT_SOURCE_FAMILIES = frozenset(
+    {
+        "",
+        "arylGroups:ring:biochemical",
+        "arylGroups:ring:ring",
+        "carbohydrates:carbohydrate:ring",
+        "naturalProducts:ring:biochemical",
+        "opsin-retained-ring-cml",
+        "opsin-test-scaffold",
+        "simpleCyclicGroups:ring:biochemical",
+        "simpleCyclicGroups:ring:simpleGroup",
+        "simpleGroups:simpleGroup:simpleGroup",
+        "static-retained",
+    }
+)
+
+
+@lru_cache(maxsize=8)
+def _retained_fused_parent_templates(Chem) -> tuple[dict, ...]:
+    return tuple(
+        template
+        for template in _curated_fused_templates(Chem)
+        if str(template.get("source_family", "")) in _RETAINED_FUSED_PARENT_SOURCE_FAMILIES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -20994,23 +21026,60 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
     cached = mol_cache_get(mol, "fast_poly_retained_defer_candidate")
     if cached is not None:
         return cached
-    for templates in _iter_retained_fused_parent_template_sets(
+    templates = ctx.candidate_templates(_fast_poly_retained_defer_templates(Chem))
+    for template, match in _cached_iter_fused_template_matches(
         ctx,
+        templates,
         Chem,
-        generated_templates=ctx.narrow_generated_fused_templates,
+        reject_extra_core_bonds=True,
     ):
+        if _fast_poly_retained_defer_template_is_fragile(template):
+            continue
+        return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
+    if _should_try_fast_poly_generated_defer_candidate(ctx):
+        generated_templates = ctx.narrow_generated_fused_templates
         for template, match in _cached_iter_fused_template_matches(
             ctx,
-            templates,
+            generated_templates,
             Chem,
             reject_extra_core_bonds=True,
         ):
             if _fast_poly_retained_defer_template_is_fragile(template):
                 continue
             return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
-    if _has_fast_poly_retained_scaffold_defer_candidate(ctx, Chem):
-        return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     return mol_cache_set(mol, "fast_poly_retained_defer_candidate", False)
+
+
+_FAST_POLY_RETAINED_DEFER_SOURCE_FAMILIES = frozenset(
+    {
+        "",
+        "arylGroups:ring:biochemical",
+        "arylGroups:ring:ring",
+        "carbohydrates:carbohydrate:ring",
+        "naturalProducts:ring:biochemical",
+        "opsin-retained-ring-cml",
+        "opsin-test-scaffold",
+        "static-retained",
+    }
+)
+
+
+@lru_cache(maxsize=8)
+def _fast_poly_retained_defer_templates(Chem) -> tuple[dict, ...]:
+    return tuple(
+        template
+        for template in _curated_fused_templates(Chem)
+        if str(template.get("source_family", "")) in _FAST_POLY_RETAINED_DEFER_SOURCE_FAMILIES
+    )
+
+
+def _should_try_fast_poly_generated_defer_candidate(ctx) -> bool:
+    facts = ctx.facts
+    if facts.ring_count > 6:
+        return False
+    if facts.aromatic_atom_count < 12:
+        return False
+    return facts.max_ring_system_ring_count >= 2
 
 
 def _fast_poly_retained_defer_template_is_fragile(template: dict) -> bool:
@@ -21106,7 +21175,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     for templates in _iter_retained_fused_parent_template_sets(ctx, Chem):
-        for template, match in _iter_fused_template_matches(
+        for template, match in _cached_iter_fused_template_matches(
             ctx,
             templates,
             Chem,
@@ -21631,7 +21700,7 @@ def parent_rules(Chem) -> tuple:
             (nonring_neutral_phosphorus,),
             phosphate_ester.candidates,
         ),
-        RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), thiooxo_ester.candidates),
+        RuleSpec("thiooxo-ester-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, sulfur_signal), thiooxo_ester.candidates),
         RuleSpec(
             "sulfinate-retained-parent",
             parent_priority("senior-functional-exception"),
@@ -21648,8 +21717,18 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("bis-phosphino-amine-retained-parent", parent_priority("senior-functional-exception"), (nonring_neutral_phosphorus,), bis_phosphino_amine.candidates),
         RuleSpec("dithiazole-retained-parent", parent_priority("senior-functional-exception"), (sulfur_signal,), dithiazole.candidates),
         RuleSpec("thiadiazole-dithio-retained-parent", parent_priority("senior-functional-exception"), (sulfur_signal,), thiadiazole_dithio.candidates),
-        RuleSpec("oxazinone-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), oxazinone.candidates),
-        RuleSpec("oxirane-dione-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), oxirane_dione.candidates),
+        RuleSpec(
+            "oxazinone-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (min_ring_count(1), functional_skeleton_signal, nitrogen_oxygen_signal),
+            oxazinone.candidates,
+        ),
+        RuleSpec(
+            "oxirane-dione-retained-parent",
+            parent_priority("senior-functional-exception"),
+            (min_ring_count(1), oxygen_signal),
+            oxirane_dione.candidates,
+        ),
         RuleSpec(
             "piperazine-dione-ylidene-retained-parent",
             parent_priority("senior-functional-exception"),
@@ -21721,7 +21800,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
         RuleSpec("retained-amide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_amide.candidates),
         RuleSpec("beta-dicarbonyl-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), beta_dicarbonyl.candidates),
-        RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), oxo_carboxylate.candidates),
+        RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, terminal_carboxylate_signal), oxo_carboxylate.candidates),
         RuleSpec("terminal-carboxylate-parent", parent_priority("senior-functional-exception"), (terminal_carboxylate_signal,), terminal_carboxylate.candidates),
         RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
         RuleSpec("carbamate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), carbamate.candidates),
@@ -21731,10 +21810,10 @@ def parent_rules(Chem) -> tuple:
             (min_ring_count(1), functional_skeleton_signal),
             cyclic_n_carbamate_carboxylate.candidates,
         ),
-        RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), sulfonamide.candidates),
-        RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), n_substituted_sulfonamide.candidates),
+        RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, sulfur_nitrogen_oxygen_signal), sulfonamide.candidates),
+        RuleSpec("sulfonamide-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, sulfur_nitrogen_oxygen_signal), n_substituted_sulfonamide.candidates),
         RuleSpec("sulfonimidamide-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonimidamide.candidates),
-        RuleSpec("lambda-sulfanone-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), lambda_sulfanone.candidates),
+        RuleSpec("lambda-sulfanone-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, sulfur_oxygen_signal), lambda_sulfanone.candidates),
         RuleSpec("urea-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), urea.candidates),
         RuleSpec("sydnone-urea-amidate-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom, functional_skeleton_signal), sydnone_urea_amidate.candidates),
         RuleSpec("glutarimide-retained-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), functional_skeleton_signal), glutarimide.candidates),
@@ -21752,7 +21831,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",
             parent_priority("functional-acyclic-skeleton"),
-            (imino_skeleton_signal, no_exocyclic_charged_fused_parent),
+            (imino_skeleton_signal, min_nonring_heavy_atom_count(2), no_exocyclic_charged_fused_parent),
             imino_functional_acyclic.candidates,
         ),
         RuleSpec(
@@ -21762,6 +21841,7 @@ def parent_rules(Chem) -> tuple:
                 functional_skeleton_signal,
                 acyclic_preference_signal,
                 conjugated_carbonyl_diene_signal,
+                min_nonring_heavy_atom_count(8),
                 no_charged_ring_atom,
             ),
             conjugated_carbonyl_acyclic.candidates,
@@ -21781,7 +21861,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "preferred-acyclic-skeleton-with-ring-substituents",
             parent_priority("polycyclic-functional-skeleton"),
-            (acyclic_preference_signal,),
+            (acyclic_preference_signal, min_nonring_heavy_atom_count(8)),
             preferred_acyclic.candidates,
         ),
         RuleSpec(
@@ -21793,7 +21873,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "chain-dominant-acyclic-skeleton-with-ring-substituents",
             parent_priority("spiro-functional-chain-substituent"),
-            (min_ring_count(1),),
+            (min_ring_count(1), min_nonring_heavy_atom_count(2), chain_dominant_acyclic_parent_signal),
             chain_dominant_acyclic.candidates,
         ),
         RuleSpec(
@@ -21914,7 +21994,12 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "functional-acyclic-skeleton-with-ring-substituents",
             parent_priority("polycyclic-functional-skeleton"),
-            (functional_skeleton_signal, acyclic_preference_signal, no_charged_ring_atom),
+            (
+                functional_skeleton_signal,
+                acyclic_preference_signal,
+                min_nonring_heavy_atom_count(8),
+                no_charged_ring_atom,
+            ),
             functional_acyclic.candidates,
         ),
         RuleSpec(

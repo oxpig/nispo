@@ -150,7 +150,12 @@ def branch_prefix(
         render_ctx = branch_render_context(mol, Chem)
         prefix = select_branch_prefix_text(
             render_ctx,
-            render_branch_candidates(render_ctx, idx, parent_idx),
+            render_branch_candidates(
+                render_ctx,
+                idx,
+                parent_idx,
+                assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+            ),
         )
         if prefix:
             cache[key] = prefix

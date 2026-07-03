@@ -111,6 +111,10 @@ def _remember_batch_name(smiles: str, name: str) -> None:
     return None
 
 
+def _cached_batch_name(smiles: str) -> str | None:
+    return None
+
+
 def _name_molecule(mol) -> str:
     return _engine().name(mol)
 

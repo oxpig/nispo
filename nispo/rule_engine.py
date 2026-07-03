@@ -336,11 +336,6 @@ class NamingEngine:
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
-        self._fast_poly_route_miss_retained_defer_initial_rules = tuple(
-            rule
-            for rule in self._fast_poly_route_miss_fallback_rules
-            if rule.family not in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
-        )
         self._fast_poly_route_miss_retained_defer_ring_rules = tuple(
             rule
             for rule in self._fast_poly_route_miss_fallback_rules
@@ -435,7 +430,6 @@ class NamingEngine:
                     mol,
                     self._Chem,
                     ctx,
-                    route_miss_initial_rules=self._fast_poly_route_miss_retained_defer_initial_rules,
                     route_miss_ring_rules=self._fast_poly_route_miss_retained_defer_ring_rules,
                     route_miss_acyclic_rules=self._fast_poly_route_miss_retained_defer_acyclic_rules,
                     bridge_rules=self._fast_poly_bridge_route_rules,
@@ -655,24 +649,20 @@ def _retained_deferred_poly_route_miss_name(
     Chem,
     ctx: MoleculeContext,
     *,
-    route_miss_initial_rules: Iterable[RuleSpec],
     route_miss_ring_rules: Iterable[RuleSpec],
     route_miss_acyclic_rules: Iterable[RuleSpec],
     bridge_rules: Iterable[RuleSpec],
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
-    if _retained_deferred_should_rank_acyclic_route_miss(ctx):
-        prepared = _prepare_candidates(mol, Chem, ctx, route_miss_initial_rules)
-    else:
-        prepared = _prepare_candidates(mol, Chem, ctx, route_miss_ring_rules)
+    # Acyclic route-miss candidates are expensive on retained/polycyclic misses.
+    # Try graph-first ring/polycyclic candidates first and only add acyclic
+    # context when the selected ring candidate already points at a bridge retry.
+    prepared = _prepare_candidates(mol, Chem, ctx, route_miss_ring_rules)
     selected = _select_best_prepared_candidate_item(prepared)
+    if selected is not None and _retained_deferred_selected_should_bridge_retry(selected):
+        prepared_with_acyclic_context = prepared + _prepare_candidates(mol, Chem, ctx, route_miss_acyclic_rules)
+        selected = _select_best_prepared_candidate_item(prepared_with_acyclic_context)
     if selected is None:
-        acyclic_name = _select_best_prepared_candidate(
-            _prepare_candidates(mol, Chem, ctx, route_miss_acyclic_rules),
-            telemetry=telemetry,
-        )
-        if acyclic_name:
-            return acyclic_name
         bridge_name = _fast_poly_bridge_name_with_retained_defer_bypass(
             mol,
             Chem,
@@ -694,12 +684,6 @@ def _retained_deferred_poly_route_miss_name(
         if bridge_name:
             return bridge_name
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
-
-
-def _retained_deferred_should_rank_acyclic_route_miss(ctx: MoleculeContext) -> bool:
-    if ctx.has_component_spiro_topology:
-        return False
-    return ctx.features.get("max_ring_system_ring_count", 0) <= 3
 
 
 def _retained_deferred_selected_should_bridge_retry(selected: _PreparedCandidate) -> bool:
@@ -1055,7 +1039,7 @@ def _fallback_first_valid_candidate_needs_selection(item: _PreparedCandidate) ->
 
 
 def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
-    return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
+    return ctx.facts.max_ring_system_cycle_rank
 
 
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:

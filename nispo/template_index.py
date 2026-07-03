@@ -369,7 +369,14 @@ def graph_signature_for_atom_set(mol, atom_indices, Chem) -> str:
     cached = cache.get(atom_indices)
     if cached is not None:
         return cached
-    signature = graph_signatures_for_atom_set(mol, atom_indices, Chem)[0]
+    combined_cache = mol_cache_dict(mol, "graph_signatures_for_atom_set")
+    combined = combined_cache.get(atom_indices)
+    if combined is not None:
+        signature = combined[0]
+        cache[atom_indices] = signature
+        return signature
+    edges = _atom_set_edges(mol, atom_indices, Chem)
+    signature = _graph_signature_from_structure(len(atom_indices), edges, Chem)
     cache[atom_indices] = signature
     return signature
 
@@ -400,18 +407,47 @@ def graph_signatures_for_atom_set(mol, atom_indices, Chem) -> tuple[str, str]:
         return cached
     atom_set = set(atom_indices)
     local_index = {old_idx: local_idx for local_idx, old_idx in enumerate(atom_indices)}
-    atomic_nums = tuple(mol.GetAtomWithIdx(old_idx).GetAtomicNum() for old_idx in atom_indices)
-    edges = []
-    for bond in mol.GetBonds():
-        begin = bond.GetBeginAtomIdx()
-        end = bond.GetEndAtomIdx()
-        if begin in atom_set and end in atom_set:
-            left, right = local_index[begin], local_index[end]
-            edges.append((left, right) if left < right else (right, left))
+    view = graph_view(mol, Chem)
+    atomic_nums = tuple(view.atomic_nums[old_idx] for old_idx in atom_indices)
+    edges = _atom_set_edges_from_view(view, atom_indices, atom_set, local_index)
     signatures = _graph_signatures_from_structure(atomic_nums, tuple(sorted(edges)), Chem)
     cache[atom_indices] = signatures
     mol_cache_dict(mol, "graph_signature_for_atom_set")[atom_indices] = signatures[0]
     return signatures
+
+
+def _atom_set_edges(mol, atom_indices: tuple[int, ...], Chem) -> tuple[tuple[int, int], ...]:
+    atom_set = set(atom_indices)
+    local_index = {old_idx: local_idx for local_idx, old_idx in enumerate(atom_indices)}
+    view = graph_view(mol, Chem)
+    return tuple(sorted(_atom_set_edges_from_view(view, atom_indices, atom_set, local_index)))
+
+
+def _atom_set_edges_from_view(
+    view,
+    atom_indices: tuple[int, ...],
+    atom_set: set[int],
+    local_index: dict[int, int],
+) -> list[tuple[int, int]]:
+    edges = []
+    for begin in atom_indices:
+        left = local_index[begin]
+        for end in view.neighbors[begin]:
+            if end not in atom_set or begin > end:
+                continue
+            right = local_index[end]
+            edges.append((left, right) if left < right else (right, left))
+    return edges
+
+
+@lru_cache(maxsize=8192)
+def _graph_signature_from_structure(atom_count: int, edges: tuple[tuple[int, int], ...], Chem) -> str:
+    graph_mol = Chem.RWMol()
+    for _ in range(atom_count):
+        graph_mol.AddAtom(Chem.Atom("C"))
+    for left, right in edges:
+        graph_mol.AddBond(left, right, Chem.BondType.SINGLE)
+    return Chem.MolToSmiles(graph_mol.GetMol(), canonical=True, isomericSmiles=False)
 
 
 @lru_cache(maxsize=8192)

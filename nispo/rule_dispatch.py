@@ -87,6 +87,12 @@ def _rule_impossible_for_facts(rule: RuleSpec, facts) -> bool:
             and facts.max_ring_system_ring_count < min_ring_system_ring_count_value
         ):
             return True
+        min_nonring_heavy_atom_count_value = getattr(gate, "_nispo_min_nonring_heavy_atom_count", None)
+        if (
+            min_nonring_heavy_atom_count_value is not None
+            and facts.nonring_heavy_atom_count < min_nonring_heavy_atom_count_value
+        ):
+            return True
         if facts.ring_count == 0 and getattr(gate, "_nispo_requires_ring", False):
             return True
         if facts.ring_count != 0 and getattr(gate, "_nispo_requires_acyclic", False):
@@ -125,6 +131,14 @@ def min_ring_system_ring_count(count: int) -> Gate:
 
     gate._nispo_min_ring_system_ring_count = count
     gate._nispo_requires_ring = count > 0
+    return gate
+
+
+def min_nonring_heavy_atom_count(count: int) -> Gate:
+    def gate(ctx) -> bool:
+        return ctx.facts.nonring_heavy_atom_count >= count
+
+    gate._nispo_min_nonring_heavy_atom_count = count
     return gate
 
 
@@ -230,6 +244,38 @@ def sulfur_signal(ctx) -> bool:
 
 
 sulfur_signal._nispo_requires_fact = "has_sulfur"
+
+
+def oxygen_signal(ctx) -> bool:
+    return ctx.facts.has_oxygen
+
+
+oxygen_signal._nispo_requires_fact = "has_oxygen"
+
+
+def nitrogen_oxygen_signal(ctx) -> bool:
+    return ctx.facts.has_nitrogen and ctx.facts.has_oxygen
+
+
+nitrogen_oxygen_signal._nispo_requires_all_facts = ("has_nitrogen", "has_oxygen")
+
+
+def sulfur_oxygen_signal(ctx) -> bool:
+    return ctx.facts.has_sulfur and ctx.facts.has_oxygen
+
+
+sulfur_oxygen_signal._nispo_requires_all_facts = ("has_sulfur", "has_oxygen")
+
+
+def sulfur_nitrogen_oxygen_signal(ctx) -> bool:
+    return ctx.facts.has_sulfur and ctx.facts.has_nitrogen and ctx.facts.has_oxygen
+
+
+sulfur_nitrogen_oxygen_signal._nispo_requires_all_facts = (
+    "has_sulfur",
+    "has_nitrogen",
+    "has_oxygen",
+)
 
 
 def oxygen_oxygen_single_bond_signal(ctx) -> bool:
@@ -393,6 +439,13 @@ def acyclic_preference_signal(ctx) -> bool:
 
 
 acyclic_preference_signal._nispo_requires_fact = "has_acyclic_preference_signal"
+
+
+def chain_dominant_acyclic_parent_signal(ctx) -> bool:
+    return ctx.facts.may_have_chain_dominant_acyclic_parent
+
+
+chain_dominant_acyclic_parent_signal._nispo_requires_fact = "may_have_chain_dominant_acyclic_parent"
 
 
 def conjugated_carbonyl_diene_signal(ctx) -> bool:

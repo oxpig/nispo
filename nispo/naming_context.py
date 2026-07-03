@@ -74,6 +74,12 @@ def _assigned_chiral_atom_count(mol) -> int:
     return sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in mol.GetAtoms())
 
 
+def _polycyclic_parent_record_limit(mol, family: str) -> int | None:
+    if family == "kekulized":
+        return _kekulized_polycyclic_parent_record_limit(mol)
+    return None
+
+
 @dataclass(slots=True)
 class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
@@ -81,7 +87,9 @@ class ContextCache:
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
     compiled_rules: dict[tuple[int, ...], tuple[object, ...]] = field(default_factory=dict)
     substituent_like_acyclic_defer: dict[str, bool] = field(default_factory=dict)
-    polycyclic_records: dict[str, tuple[tuple[str, tuple[int, ...]], ...]] = field(default_factory=dict)
+    polycyclic_records: dict[tuple[str, int | None], tuple[tuple[str, tuple[int, ...]], ...]] = field(
+        default_factory=dict
+    )
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     template_matches: dict[int, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     fused_template_matches: dict[
@@ -229,37 +237,19 @@ class MoleculeContext:
 
     @property
     def has_generic_bicyclic_topology(self) -> bool:
-        cached = self.cache.topology_flags.get("generic_bicyclic")
-        if cached is None:
-            cached = any(topology.cycle_rank == 2 for topology in self.ring_topologies)
-            self.cache.topology_flags["generic_bicyclic"] = cached
-        return cached
+        return self.facts.has_generic_bicyclic_topology
 
     @property
     def has_generic_polycyclic_topology(self) -> bool:
-        cached = self.cache.topology_flags.get("generic_polycyclic")
-        if cached is None:
-            cached = any(2 <= topology.cycle_rank <= 9 for topology in self.ring_topologies)
-            self.cache.topology_flags["generic_polycyclic"] = cached
-        return cached
+        return self.facts.has_generic_polycyclic_topology
 
     @property
     def has_spiro_topology(self) -> bool:
-        cached = self.cache.topology_flags.get("spiro")
-        if cached is not None:
-            return cached
-        cached = self._has_spiro_ring_pair(max_cycle_rank=3)
-        self.cache.topology_flags["spiro"] = cached
-        return cached
+        return self.facts.has_spiro_topology
 
     @property
     def has_component_spiro_topology(self) -> bool:
-        cached = self.cache.topology_flags.get("component_spiro")
-        if cached is not None:
-            return cached
-        cached = self._has_spiro_ring_pair()
-        self.cache.topology_flags["component_spiro"] = cached
-        return cached
+        return self.facts.has_component_spiro_topology
 
     def _has_spiro_ring_pair(self, *, max_cycle_rank: int | None = None) -> bool:
         rings = tuple(frozenset(ring) for ring in self.mol.GetRingInfo().AtomRings())
@@ -310,7 +300,9 @@ class MoleculeContext:
         return cached
 
     def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
-        cached = self.cache.polycyclic_records.get(family)
+        limit = _polycyclic_parent_record_limit(self.mol, family)
+        cache_key = (family, limit)
+        cached = self.cache.polycyclic_records.get(cache_key)
         if cached is not None:
             return cached
         if family == "bicyclic":
@@ -322,12 +314,12 @@ class MoleculeContext:
                 kekulized_polycyclic_parent_candidate_records(
                     self.mol,
                     self.Chem,
-                    limit=_kekulized_polycyclic_parent_record_limit(self.mol),
+                    limit=limit,
                 )
             )
         else:
             records = ()
-        self.cache.polycyclic_records[family] = records
+        self.cache.polycyclic_records[cache_key] = records
         return records
 
     @property

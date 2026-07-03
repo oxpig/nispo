@@ -49,6 +49,9 @@ from .functional_groups import (
 )
 
 
+_RING_SUBSTITUENT_PREFIX_CACHE_MISS = object()
+
+
 def branch_prefix(
     mol,
     idx: int,
@@ -83,8 +86,9 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    if cache_key in cache:
-        return cache[cache_key]
+    cached = cache.get(cache_key, _RING_SUBSTITUENT_PREFIX_CACHE_MISS)
+    if cached is not _RING_SUBSTITUENT_PREFIX_CACHE_MISS:
+        return cached
     if _same_ring_system_attachment(mol, attachment_idx, parent_idx):
         cache[cache_key] = ""
         return ""

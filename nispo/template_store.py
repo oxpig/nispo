@@ -157,6 +157,18 @@ class TemplateStore:
         self._compiled: dict[int, CompiledTemplate] = {}
         self._compiled_indexes: dict[int, tuple[tuple[dict, ...], _CompiledTemplateIndex]] = {}
         self._catalog: ParentScaffoldCatalog | None = None
+        self._static_retained: tuple[dict, ...] | None = None
+        self._opsin_test_scaffolds: tuple[dict, ...] | None = None
+        self._generated_spiro_scaffolds: tuple[dict, ...] | None = None
+        self._opsin_retained_ring_csv: tuple[dict, ...] | None = None
+        self._opsin_retained_ring_csv_parent: tuple[dict, ...] | None = None
+        self._opsin_retained_ring_csv_single_ring: tuple[dict, ...] | None = None
+        self._opsin_retained_ring_csv_fused: tuple[dict, ...] | None = None
+        self._opsin_retained_fused: tuple[dict, ...] | None = None
+        self._fusion_component_parents: tuple[dict, ...] | None = None
+        self._generated_fused_parent_templates: tuple[dict, ...] | None = None
+        self._exact_templates: tuple[dict, ...] | None = None
+        self._single_ring_templates: tuple[dict, ...] | None = None
 
     @property
     def catalog(self) -> ParentScaffoldCatalog:
@@ -166,28 +178,12 @@ class TemplateStore:
         opsin_test_scaffolds = self.opsin_test_scaffolds()
         generated_spiro_scaffolds = self.generated_spiro_scaffolds()
         opsin_retained_ring_csv = self.opsin_retained_ring_csv()
-        opsin_retained_ring_csv_parent = self._general_retained_ring_csv_parent_templates(
-            opsin_retained_ring_csv
-        )
-        opsin_retained_ring_csv_single_ring = self._general_retained_mono_ring_csv_templates(
-            opsin_retained_ring_csv
-        )
-        opsin_retained_ring_csv_fused = self._general_retained_ring_csv_templates(opsin_retained_ring_csv)
+        opsin_retained_ring_csv_parent = self.opsin_retained_ring_csv_parent()
+        opsin_retained_ring_csv_single_ring = self.opsin_retained_ring_csv_single_ring()
+        opsin_retained_ring_csv_fused = self.opsin_retained_ring_csv_fused()
         opsin_retained_fused = self.opsin_retained_fused()
         fusion_component_parents = self.fusion_component_parents()
-        exact_biochemical = build_exact_biochemical_parent_templates(self.Chem)
-        exact_unlocanted = build_exact_unlocanted_resource_templates(self.Chem)
-        exact = self._dedupe_templates(
-            build_retained_parent_templates(self.Chem, min_rings=0, max_atoms=48)
-            + static_retained
-            + exact_biochemical
-            + exact_unlocanted
-            + opsin_test_scaffolds
-            + generated_spiro_scaffolds
-            + opsin_retained_ring_csv
-            + fusion_component_parents
-        )
-        single_ring = build_retained_parent_templates(self.Chem, min_rings=1, max_rings=1)
+        exact = self.exact_templates()
         fused = (
             static_retained
             + opsin_test_scaffolds
@@ -196,7 +192,7 @@ class TemplateStore:
             + opsin_retained_ring_csv_fused
             + fusion_component_parents
         )
-        single_ring = self._dedupe_templates(single_ring + opsin_retained_ring_csv_single_ring)
+        single_ring = self.single_ring_templates()
         self._catalog = ParentScaffoldCatalog(
             static_retained=static_retained,
             opsin_test_scaffolds=opsin_test_scaffolds,
@@ -215,16 +211,45 @@ class TemplateStore:
         return self._catalog
 
     def static_retained(self) -> tuple[dict, ...]:
-        return build_static_parent_templates(self.Chem)
+        if self._static_retained is None:
+            self._static_retained = build_static_parent_templates(self.Chem)
+        return self._static_retained
 
     def opsin_test_scaffolds(self) -> tuple[dict, ...]:
-        return build_opsin_test_scaffold_templates(self.Chem)
+        if self._opsin_test_scaffolds is None:
+            self._opsin_test_scaffolds = build_opsin_test_scaffold_templates(self.Chem)
+        return self._opsin_test_scaffolds
 
     def generated_spiro_scaffolds(self) -> tuple[dict, ...]:
-        return build_generated_spiro_scaffold_templates(self.Chem)
+        if self._generated_spiro_scaffolds is None:
+            self._generated_spiro_scaffolds = build_generated_spiro_scaffold_templates(self.Chem)
+        return self._generated_spiro_scaffolds
 
     def opsin_retained_ring_csv(self) -> tuple[dict, ...]:
-        return build_opsin_retained_ring_csv_templates(self.Chem)
+        if self._opsin_retained_ring_csv is None:
+            self._opsin_retained_ring_csv = build_opsin_retained_ring_csv_templates(self.Chem)
+        return self._opsin_retained_ring_csv
+
+    def opsin_retained_ring_csv_parent(self) -> tuple[dict, ...]:
+        if self._opsin_retained_ring_csv_parent is None:
+            self._opsin_retained_ring_csv_parent = self._general_retained_ring_csv_parent_templates(
+                self.opsin_retained_ring_csv()
+            )
+        return self._opsin_retained_ring_csv_parent
+
+    def opsin_retained_ring_csv_single_ring(self) -> tuple[dict, ...]:
+        if self._opsin_retained_ring_csv_single_ring is None:
+            self._opsin_retained_ring_csv_single_ring = self._general_retained_mono_ring_csv_templates(
+                self.opsin_retained_ring_csv()
+            )
+        return self._opsin_retained_ring_csv_single_ring
+
+    def opsin_retained_ring_csv_fused(self) -> tuple[dict, ...]:
+        if self._opsin_retained_ring_csv_fused is None:
+            self._opsin_retained_ring_csv_fused = self._general_retained_ring_csv_templates(
+                self.opsin_retained_ring_csv()
+            )
+        return self._opsin_retained_ring_csv_fused
 
     def _general_retained_ring_csv_parent_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:
         selected = []
@@ -264,13 +289,41 @@ class TemplateStore:
         return tuple(selected)
 
     def opsin_retained_fused(self) -> tuple[dict, ...]:
-        return build_opsin_resource_templates(self.Chem)
+        if self._opsin_retained_fused is None:
+            self._opsin_retained_fused = build_opsin_resource_templates(self.Chem)
+        return self._opsin_retained_fused
 
     def fusion_component_parents(self) -> tuple[dict, ...]:
-        return build_fusion_component_parent_templates(self.Chem)
+        if self._fusion_component_parents is None:
+            self._fusion_component_parents = build_fusion_component_parent_templates(self.Chem)
+        return self._fusion_component_parents
 
     def generated_fused_parent_templates(self) -> tuple[dict, ...]:
-        return build_generated_fused_parent_templates(self.Chem)
+        if self._generated_fused_parent_templates is None:
+            self._generated_fused_parent_templates = build_generated_fused_parent_templates(self.Chem)
+        return self._generated_fused_parent_templates
+
+    def exact_templates(self) -> tuple[dict, ...]:
+        if self._exact_templates is None:
+            self._exact_templates = self._dedupe_templates(
+                build_retained_parent_templates(self.Chem, min_rings=0, max_atoms=48)
+                + self.static_retained()
+                + build_exact_biochemical_parent_templates(self.Chem)
+                + build_exact_unlocanted_resource_templates(self.Chem)
+                + self.opsin_test_scaffolds()
+                + self.generated_spiro_scaffolds()
+                + self.opsin_retained_ring_csv()
+                + self.fusion_component_parents()
+            )
+        return self._exact_templates
+
+    def single_ring_templates(self) -> tuple[dict, ...]:
+        if self._single_ring_templates is None:
+            self._single_ring_templates = self._dedupe_templates(
+                build_retained_parent_templates(self.Chem, min_rings=1, max_rings=1)
+                + self.opsin_retained_ring_csv_single_ring()
+            )
+        return self._single_ring_templates
 
     def candidate_templates(
         self,

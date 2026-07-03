@@ -225,11 +225,11 @@ def _partial_hydro_spiro_alias_penalty(name: str) -> int:
 
 @lru_cache(maxsize=8)
 def _curated_exact_parent_templates(Chem) -> tuple[dict, ...]:
-    from ..scaffold_catalog import parent_scaffold_catalog
+    from ..template_store import template_store
 
     return tuple(
         template
-        for template in parent_scaffold_catalog(Chem).exact
+        for template in template_store(Chem).exact_templates()
         if template.get("source_family") != "generated-fused"
     )
 

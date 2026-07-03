@@ -9,7 +9,8 @@ from .fused_rules import build_fused_templates
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .resource_io import read_json_resource
 from .resource_templates import build_generated_fused_parent_templates_from_records
-from .scaffold_catalog import generated_fused_parent_templates, parent_scaffold_catalog
+from .scaffold_catalog import generated_fused_parent_templates
+from .template_store import template_store
 from .template_access import template_record_mol, template_record_name
 from .template_index import (
     intern_template_tuple,
@@ -115,15 +116,15 @@ _FUSION_BASE_PRIORITY = {
 
 @lru_cache(maxsize=8)
 def curated_fused_templates(Chem) -> tuple[dict, ...]:
-    catalog = parent_scaffold_catalog(Chem)
+    store = template_store(Chem)
     templates = (
         build_fused_templates(Chem)
-        + catalog.static_retained
-        + catalog.opsin_test_scaffolds
-        + catalog.generated_spiro_scaffolds
-        + catalog.opsin_retained_fused
-        + catalog.opsin_retained_ring_csv_fused
-        + catalog.fusion_component_parents
+        + store.static_retained()
+        + store.opsin_test_scaffolds()
+        + store.generated_spiro_scaffolds()
+        + store.opsin_retained_fused()
+        + store.opsin_retained_ring_csv_fused()
+        + store.fusion_component_parents()
     )
     return tuple(template for template in templates if not _exact_retained_only(template))
 
@@ -135,13 +136,14 @@ def preferred_generated_fused_templates(Chem) -> tuple[dict, ...]:
 
 @lru_cache(maxsize=8)
 def hydrocarbon_replacement_parent_templates(Chem) -> tuple[dict, ...]:
+    store = template_store(Chem)
     templates = (
         generated_fused_parent_templates(Chem)
-        + parent_scaffold_catalog(Chem).opsin_test_scaffolds
-        + parent_scaffold_catalog(Chem).opsin_retained_fused
-        + parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
-        + parent_scaffold_catalog(Chem).fusion_component_parents
-        + parent_scaffold_catalog(Chem).static_retained
+        + store.opsin_test_scaffolds()
+        + store.opsin_retained_fused()
+        + store.opsin_retained_ring_csv_fused()
+        + store.fusion_component_parents()
+        + store.static_retained()
     )
     selected = []
     seen: set[tuple[str, str]] = set()
@@ -168,14 +170,15 @@ def hydrocarbon_replacement_parent_templates_for_graph(
         records,
         source_file="generated_fused_template_index.json",
     )
+    store = template_store(Chem)
     retained = tuple(
         template
         for template in (
-            parent_scaffold_catalog(Chem).opsin_test_scaffolds
-            + parent_scaffold_catalog(Chem).opsin_retained_fused
-            + parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
-            + parent_scaffold_catalog(Chem).fusion_component_parents
-            + parent_scaffold_catalog(Chem).static_retained
+            store.opsin_test_scaffolds()
+            + store.opsin_retained_fused()
+            + store.opsin_retained_ring_csv_fused()
+            + store.fusion_component_parents()
+            + store.static_retained()
         )
         if template_record_mol(template).GetNumAtoms() == atom_count
     )
@@ -211,12 +214,13 @@ def retained_topology_replacement_parent_templates_for_graph(
     locanted replacement prefixes when the ring graph is identical.
     """
 
+    store = template_store(Chem)
     templates = (
-        parent_scaffold_catalog(Chem).opsin_retained_ring_csv_fused
-        + parent_scaffold_catalog(Chem).opsin_retained_fused
-        + parent_scaffold_catalog(Chem).opsin_test_scaffolds
-        + parent_scaffold_catalog(Chem).fusion_component_parents
-        + parent_scaffold_catalog(Chem).static_retained
+        store.opsin_retained_ring_csv_fused()
+        + store.opsin_retained_fused()
+        + store.opsin_test_scaffolds()
+        + store.fusion_component_parents()
+        + store.static_retained()
     )
     selected = []
     seen: set[tuple[str, str]] = set()

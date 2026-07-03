@@ -351,7 +351,8 @@ class NamingEngine:
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
-        if mol.GetNumAtoms() == 1:
+        atom_count = mol.GetNumAtoms()
+        if atom_count == 1:
             simple_name = simple_fragment_name(mol, self._Chem)
             if simple_name:
                 _record_direct_route(telemetry, "single_atom")
@@ -361,18 +362,16 @@ class NamingEngine:
             fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
             _record_direct_route(telemetry, "fragment_assembly")
             return _finalize_direct_name(mol, self._Chem, self._fragment_rule.name(fragments))
-        simple_name = simple_fragment_name(mol, self._Chem)
-        if simple_name:
-            _record_direct_route(telemetry, "simple_fragment")
-            return _finalize_direct_name(mol, self._Chem, simple_name)
-        standalone_polyatomic_name = standalone_polyatomic_fragment_name(mol, self._Chem)
-        if standalone_polyatomic_name:
-            _record_direct_route(telemetry, "standalone_polyatomic")
-            return _finalize_direct_name(mol, self._Chem, standalone_polyatomic_name)
-        polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
-        if polyatomic_name:
-            _record_direct_route(telemetry, "common_polyatomic")
-            return _finalize_direct_name(mol, self._Chem, polyatomic_name)
+        if 2 <= atom_count <= 24:
+            standalone_polyatomic_name = standalone_polyatomic_fragment_name(mol, self._Chem)
+            if standalone_polyatomic_name:
+                _record_direct_route(telemetry, "standalone_polyatomic")
+                return _finalize_direct_name(mol, self._Chem, standalone_polyatomic_name)
+        if atom_count >= 2:
+            polyatomic_name = common_polyatomic_fragment_name(mol, self._Chem)
+            if polyatomic_name:
+                _record_direct_route(telemetry, "common_polyatomic")
+                return _finalize_direct_name(mol, self._Chem, polyatomic_name)
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         if telemetry is not None:

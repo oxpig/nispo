@@ -29,6 +29,7 @@ from .simple_prefixes import simple_external_prefix
 _LEGACY_BRANCH_PREFIX_CACHE_LIMIT = 32768
 _LEGACY_BRANCH_PREFIX_CACHE: OrderedDict[tuple, str] = OrderedDict()
 _LEGACY_BRANCH_PREFIX_CACHE_MISS = object()
+_BRANCH_PREFIX_CACHE_MISS = object()
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -121,8 +122,8 @@ def branch_prefix(
         mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
-    if key in cache:
-        cached = cache[key]
+    cached = cache.get(key, _BRANCH_PREFIX_CACHE_MISS)
+    if cached is not _BRANCH_PREFIX_CACHE_MISS:
         if telemetry is not None:
             telemetry.branch_prefix_cache_hits += 1
             telemetry.branch_prefix_cache_hits_by_rule[active_rule_family] += 1

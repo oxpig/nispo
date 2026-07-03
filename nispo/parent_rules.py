@@ -50,7 +50,6 @@ from .fused_template_families import (
     hydrocarbon_replacement_parent_templates_for_graph as _hydrocarbon_replacement_parent_templates_for_graph,
     retained_topology_replacement_parent_templates_for_graph as _retained_topology_replacement_parent_templates_for_graph,
 )
-from .scaffold_catalog import parent_scaffold_catalog
 from .ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from .ring_rules import (
     _fixed_saturated_heterocycle_candidates,
@@ -59,6 +58,7 @@ from .ring_rules import (
 )
 from .branch.ring_substituents import _ring_substituent_prefix
 from .spiro_component_rules import component_spiro_parent_candidates
+from .template_store import template_store
 from .rule_dispatch import (
     RuleSpec,
     acyclic,
@@ -17755,6 +17755,11 @@ class FusedParentRule:
             )
             exact_facts += 1
 
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
+        if exact_facts > _RETAINED_FUSED_RENDER_SET_SIZE:
+            return tuple(facts)
+
         for template, match in _cached_iter_fused_template_matches(
             ctx,
             self._template_iter(ctx),
@@ -17777,7 +17782,6 @@ class FusedParentRule:
             )
             topology_facts += 1
         if ctx.telemetry is not None:
-            ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
             ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += topology_facts
         return tuple(facts)
 
@@ -18183,7 +18187,7 @@ def _charged_atom_values(mol) -> frozenset[int]:
 @lru_cache(maxsize=1)
 def _general_retained_ring_scaffold_templates(Chem) -> tuple[dict, ...]:
     templates = []
-    for template in parent_scaffold_catalog(Chem).opsin_retained_ring_csv_parent:
+    for template in template_store(Chem).opsin_retained_ring_csv_parent():
         if not template.get("general_parent_safe", True):
             continue
         flags = set(template.get("flags", ()))
@@ -18791,6 +18795,12 @@ class GeneratedFusedParentRule(FusedParentRule):
             )
             exact_facts += 1
 
+        if ctx.telemetry is not None:
+            ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
+        filtered_exact_facts = _filter_generated_fused_orientation_alias_facts(tuple(facts))
+        if len(filtered_exact_facts) > _GENERATED_FUSED_RENDER_SET_SIZE:
+            return filtered_exact_facts
+
         topology_templates = tuple(
             template
             for template in self._template_iter(ctx)
@@ -18817,7 +18827,6 @@ class GeneratedFusedParentRule(FusedParentRule):
             topology_facts += 1
 
         if ctx.telemetry is not None:
-            ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
             ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += topology_facts
         return _filter_generated_fused_orientation_alias_facts(tuple(facts))
 
@@ -20153,7 +20162,7 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
             return
         candidates = []
         templates = ctx.candidate_templates(
-            parent_scaffold_catalog(self._Chem).generated_spiro_scaffolds,
+            template_store(self._Chem).generated_spiro_scaffolds(),
             exact_atom_count=True,
         )
         for template, match in _cached_iter_fused_template_matches(

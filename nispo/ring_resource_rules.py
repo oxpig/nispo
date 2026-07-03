@@ -3,9 +3,9 @@ from __future__ import annotations
 from functools import lru_cache
 
 from .molecule_cache import mol_cache_dict
-from .scaffold_catalog import parent_scaffold_catalog
 from .template_access import template_record_locants, template_record_mol, template_record_name
 from .template_match_utils import match_has_extra_core_bonds
+from .template_store import template_store
 
 
 def resource_ring_parent_candidates(mol, ordered: tuple[int, ...], Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -40,7 +40,7 @@ def _resource_ring_parent_candidates_uncached(mol, ordered: tuple[int, ...], Che
 def _single_ring_templates(Chem) -> dict[int, tuple[dict, ...]]:
     grouped: dict[int, list[dict]] = {}
     seen: set[tuple[str, str]] = set()
-    for template in parent_scaffold_catalog(Chem).single_ring:
+    for template in template_store(Chem).single_ring_templates():
         key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
         if key in seen:
             continue

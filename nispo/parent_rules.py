@@ -21044,7 +21044,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     templates = ctx.candidate_templates(_fast_poly_retained_defer_templates(Chem))
-    for template, match in _cached_iter_fused_template_matches(
+    for template, match in _iter_fused_template_matches(
         ctx,
         templates,
         Chem,
@@ -21055,7 +21055,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
         return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     if _should_try_fast_poly_generated_defer_candidate(ctx):
         generated_templates = ctx.narrow_generated_fused_templates
-        for template, match in _cached_iter_fused_template_matches(
+        for template, match in _iter_fused_template_matches(
             ctx,
             generated_templates,
             Chem,
@@ -21192,7 +21192,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     for templates in _iter_retained_fused_parent_template_sets(ctx, Chem):
-        for template, match in _cached_iter_fused_template_matches(
+        for template, match in _iter_fused_template_matches(
             ctx,
             templates,
             Chem,

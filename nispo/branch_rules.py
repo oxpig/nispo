@@ -170,8 +170,13 @@ def branch_prefix(
                 if telemetry is not None:
                     telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(cached_prefix)] += 1
                 return cached_prefix
-        record_branch_legacy_prefix_call(render_ctx)
         atom = mol.GetAtomWithIdx(idx)
+        if atom.IsInRing() and _same_ring_system_attachment(mol, idx, parent_idx):
+            cache[key] = ""
+            if telemetry is not None:
+                telemetry.branch_prefix_produced["empty"] += 1
+            return ""
+        record_branch_legacy_prefix_call(render_ctx)
         if atom.GetSymbol() == "H":
             prefix = _isotopic_hydrogen_prefix(atom)
         elif atom.IsInRing():
@@ -355,6 +360,7 @@ from .branch.carbon import (
 from .branch.ring_substituents import (
     _ring_substituent_prefix,
     _generic_polycyclic_ring_substituent_prefix,
+    _same_ring_system_attachment,
     _ring_alkyl_prefix,
     _aryloxy_methyl_prefix,
     _iminomethyl_prefix,

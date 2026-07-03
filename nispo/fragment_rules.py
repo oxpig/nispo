@@ -308,6 +308,11 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
 
     if mol.GetNumAtoms() < 2:
         return ""
+    # Large neutral organic molecules are not common standalone counterions.
+    # Keep charged molecules on this path because borate/phosphorus anion
+    # helpers can intentionally render organic substituents.
+    if mol.GetNumAtoms() > 24 and _total_charge(mol) == 0:
+        return ""
     return (
         _small_standalone_polyatomic_name(mol, Chem)
         or _substituted_borohydride_name(mol, Chem)
@@ -338,6 +343,11 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     """Name retained neutral/cationic simple fragments outside salt assembly."""
 
     if mol.GetNumAtoms() < 2:
+        return ""
+    # Standalone retained fragments here are small, closed-form names. Larger
+    # organic molecules should enter the graph/rule engine instead of probing
+    # fragment-only templates and heteroatom motifs.
+    if mol.GetNumAtoms() > 24:
         return ""
     return (
         _simple_phosphorus_chalcogen_neutral_name(mol, Chem)

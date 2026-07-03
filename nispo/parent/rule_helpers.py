@@ -27,7 +27,7 @@ from ..ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
 )
 from ..simple_prefixes import simple_external_prefix
-from ..stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
+from ..stereochemistry import _has_assigned_bond_stereo, _has_assigned_stereo, assigned_atom_stereochemistry
 from ..substituent_resource_rules import resource_substituent_match as _resource_substituent_match
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
@@ -2814,13 +2814,7 @@ def _safe_rendered_relative_stereo_external_prefix(prefix: str) -> bool:
 def _polycyclic_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
     if not seq:
         return ""
-    seq_set = set(seq)
-    tagged_atoms = [
-        atom.GetIdx()
-        for atom in mol.GetAtoms()
-        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
-    ]
-    if not tagged_atoms:
+    if not _has_assigned_stereo(mol, Chem):
         return ""
     if _has_assigned_bond_stereo(mol, Chem):
         return ""

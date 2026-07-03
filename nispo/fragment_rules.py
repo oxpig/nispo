@@ -306,13 +306,16 @@ def simple_fragment_name(mol, Chem) -> str:
 def common_polyatomic_fragment_name(mol, Chem) -> str:
     """Name common standalone counterions by graph features, not row lookups."""
 
-    if mol.GetNumAtoms() < 2:
+    atom_count = mol.GetNumAtoms()
+    if atom_count < 2:
         return ""
     # Large neutral organic molecules are not common standalone counterions.
     # Keep charged molecules on this path because borate/phosphorus anion
     # helpers can intentionally render organic substituents.
-    if mol.GetNumAtoms() > 24 and _total_charge(mol) == 0:
-        return ""
+    if atom_count > 24:
+        if _total_charge(mol) == 0:
+            return ""
+        return _large_common_polyatomic_fragment_name(mol, Chem)
     return (
         _small_standalone_polyatomic_name(mol, Chem)
         or _substituted_borohydride_name(mol, Chem)
@@ -337,6 +340,41 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         or _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem)
         or _trifluoromethanesulfonate_name(mol, Chem)
     )
+
+
+def _large_common_polyatomic_fragment_name(mol, Chem) -> str:
+    """Probe only graph-general counterion helpers for large charged fragments."""
+
+    counts = _element_counts(mol)
+    charge = _total_charge(mol)
+    if charge >= 0:
+        return ""
+    if "B" in counts:
+        borate = _organotrifluoroborate_name(mol, Chem) or _tetraorganoborate_name(mol, Chem)
+        if borate:
+            return borate
+    if "N" in counts:
+        azanide = _azanide_name(mol, Chem)
+        if azanide:
+            return azanide
+    if counts.get("F") == mol.GetNumAtoms() - 1:
+        perfluoro = _perfluoro_counterion_name(mol, Chem)
+        if perfluoro:
+            return perfluoro
+    if counts.get("O") == mol.GetNumAtoms() - 1:
+        return _oxoanion_name(mol, Chem)
+    if "P" in counts:
+        return (
+            _diphosphite_name(mol, Chem)
+            or _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem)
+            or _phosphorus_hydrido_oxoanion_name(mol, Chem)
+            or _phosphorus_hydrido_thiooxoanion_name(mol, Chem)
+            or _simple_phosphorus_chalcogen_anion_name(mol, Chem)
+            or _phosphorus_thiooxoanion_name(mol, Chem)
+            or _phosphorus_selenooxoanion_name(mol, Chem)
+            or _organophosphorus_oxoanion_name(mol, Chem)
+        )
+    return ""
 
 
 def standalone_polyatomic_fragment_name(mol, Chem) -> str:

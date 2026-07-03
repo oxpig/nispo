@@ -19237,6 +19237,8 @@ class SingleRingParentRule:
         ring_count = mol.GetRingInfo().NumRings()
         if ring_count < 1:
             return
+        if ring_count > 2 and ctx.facts.ring_system_count == 1:
+            return
         parent_rings = tuple(mol.GetRingInfo().AtomRings())
         candidate_priority = self.priority
         if ring_count > 2:

@@ -996,24 +996,34 @@ def _multiple_bond_locant_edges(mol, seq: Sequence[int]) -> tuple[tuple[int, int
     if cached is not None:
         return cached
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
-    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
-    bond_orders = _bond_orders(mol)
+    multiple_bond_neighbors = _multiple_bond_neighbor_indices_by_atom(mol)
     edges = []
-    seen = set()
     for idx in seq:
-        for nidx in neighbors_by_atom[idx]:
-            if nidx not in pos:
+        left = pos[idx]
+        for nidx in multiple_bond_neighbors[idx]:
+            right = pos.get(nidx)
+            if right is None or right <= left:
                 continue
-            key = tuple(sorted((idx, nidx)))
-            if key in seen:
-                continue
-            seen.add(key)
-            if bond_orders.get(key, 0.0) <= 1.0:
-                continue
-            edges.append(tuple(sorted((pos[idx], pos[nidx]))))
+            edges.append((left, right))
     result = tuple(edges)
     cache[cache_key] = result
     return result
+
+
+def _multiple_bond_neighbor_indices_by_atom(mol) -> tuple[tuple[int, ...], ...]:
+    neighbors = mol_cache_get(mol, "polycyclic_multiple_bond_neighbor_indices")
+    if neighbors is not None:
+        return neighbors
+    grouped: list[list[int]] = [[] for _ in range(mol.GetNumAtoms())]
+    for bond in mol.GetBonds():
+        if bond.GetBondTypeAsDouble() <= 1.0:
+            continue
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        grouped[begin].append(end)
+        grouped[end].append(begin)
+    neighbors = tuple(tuple(values) for values in grouped)
+    return mol_cache_set(mol, "polycyclic_multiple_bond_neighbor_indices", neighbors)
 
 
 def _heavy_neighbor_indices_by_atom(mol) -> tuple[tuple[int, ...], ...]:
@@ -2040,6 +2050,7 @@ def _join_polycyclic_locants(locants: Sequence[str]) -> str:
     return ",".join(sorted(locants, key=_polycyclic_locant_sort_key))
 
 
+@lru_cache(maxsize=8192)
 def _polycyclic_locant_sort_key(locant: str) -> tuple[int, str]:
     digits = []
     for char in locant:
@@ -2365,10 +2376,23 @@ def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)
-    locants = []
-    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
-    for loc, idx in enumerate(seq, start=1):
-        if any(nidx not in core_atoms for nidx in neighbors_by_atom[idx]):
-            locants.append(loc)
+    external_atoms = _external_substituted_core_atoms(mol, core_atoms)
+    locants = [loc for loc, idx in enumerate(seq, start=1) if idx in external_atoms]
     cache[cache_key] = tuple(locants)
     return locants
+
+
+def _external_substituted_core_atoms(mol, core_atoms: set[int]) -> frozenset[int]:
+    cache = mol_cache_dict(mol, "polycyclic_external_substituted_core_atoms")
+    atom_set = frozenset(core_atoms)
+    cached = cache.get(atom_set)
+    if cached is not None:
+        return cached
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
+    external_atoms = frozenset(
+        idx
+        for idx in atom_set
+        if any(nidx not in atom_set for nidx in neighbors_by_atom[idx])
+    )
+    cache[atom_set] = external_atoms
+    return external_atoms

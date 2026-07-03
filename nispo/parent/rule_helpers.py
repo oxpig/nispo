@@ -666,6 +666,7 @@ def _has_nonaromatic_core_imine(mol, core_atoms: set[int]) -> bool:
     return False
 
 
+@lru_cache(maxsize=8192)
 def _locant_sort_key(locant: str) -> tuple[int, str]:
     digits = "".join(ch for ch in locant if ch.isdigit())
     return (int(digits) if digits else 999, locant)

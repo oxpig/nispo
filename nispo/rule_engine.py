@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 import re
 import time
 
@@ -1126,7 +1127,7 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
             return False
         if atom.GetFormalCharge() != 0:
             return False
-        if str(atom.GetChiralTag()) != "CHI_UNSPECIFIED":
+        if int(atom.GetChiralTag()) != 0:
             return False
         if not atom.IsInRing() and atom.GetSymbol() in {"I", "S"}:
             return False
@@ -8606,6 +8607,18 @@ def _candidate_key(candidate: NameCandidate) -> tuple:
 
 
 def _comparable_sort_key(value) -> tuple:
+    try:
+        return _comparable_sort_key_cached(value)
+    except TypeError:
+        return _comparable_sort_key_uncached(value)
+
+
+@lru_cache(maxsize=65536)
+def _comparable_sort_key_cached(value) -> tuple:
+    return _comparable_sort_key_uncached(value)
+
+
+def _comparable_sort_key_uncached(value) -> tuple:
     if isinstance(value, tuple):
         return (3, tuple(_comparable_sort_key(item) for item in value))
     if isinstance(value, list):
@@ -15095,6 +15108,7 @@ def _has_contextual_isoindolinone_alternative(
 _BRIDGE_PARENT_PATTERN = r"(?:bicyclo|tricyclo|tetracyclo|pentacyclo|hexacyclo|heptacyclo|spiro|dispiro)\["
 
 
+@lru_cache(maxsize=32768)
 def _has_fragile_bridge_indicated_h_ketone_suffix(name: str) -> bool:
     if not re.search(r"-\d+[a-z]?\(\d+[a-z]?H\)-one\b", name):
         return False
@@ -17282,6 +17296,7 @@ def _has_fragile_single_ring_sulfamoyl_benzene(name: str, candidate: NameCandida
     return bool(re.search(r"(?:aza|diaza|oxa|thia|imino|dioxo).*\)sulfamoyl\)-benzene", name))
 
 
+@lru_cache(maxsize=32768)
 def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
     """Defer aza-polycycle aliases with unstable OPSIN orientation.
 
@@ -17312,6 +17327,7 @@ def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
     return 0
 
 
+@lru_cache(maxsize=32768)
 def _has_unstable_replacement_polycycle_alias(name: str) -> bool:
     if "spiro[" in name or "bicyclo[" in name or "tricyclo[" in name:
         return False
@@ -17333,10 +17349,12 @@ def _has_unstable_replacement_polycycle_alias(name: str) -> bool:
     )
 
 
+@lru_cache(maxsize=32768)
 def _has_stable_oxafluorene_alias(name: str) -> bool:
     return bool(re.search(r"(?:^|-)(?:\d+[a-z]?-)?oxafluoren\b", name))
 
 
+@lru_cache(maxsize=32768)
 def _has_unstable_benzimidazolyl_orientation_artifact(name: str) -> bool:
     if "benzimidazolium" in name:
         return False
@@ -17556,14 +17574,17 @@ def _has_top_level_generated_benzimidazole_orientation_locant(name: str) -> bool
     return False
 
 
+@lru_cache(maxsize=32768)
 def _has_retained_indicated_h_parent(name: str) -> bool:
     return bool(re.search(r"(?:^|-)\d+H-(?:indazol|purin)e?", name))
 
 
+@lru_cache(maxsize=32768)
 def _has_indicated_h_generated_fused_parent(name: str) -> bool:
     return bool(re.search(r"(?:^|-)\d+H-(?:pyrazolo|pyrrolo|imidazo)\[[^\]]+\](?:pyridin|pyrimidin)", name))
 
 
+@lru_cache(maxsize=32768)
 def _has_fused_indicated_h_ketone_suffix(name: str) -> bool:
     if "acenaphthen" in name:
         return False
@@ -17573,6 +17594,7 @@ def _has_fused_indicated_h_ketone_suffix(name: str) -> bool:
     )
 
 
+@lru_cache(maxsize=32768)
 def _has_fused_functional_suffix_parent(name: str) -> bool:
     return bool(
         re.search(
@@ -17582,6 +17604,7 @@ def _has_fused_functional_suffix_parent(name: str) -> bool:
     )
 
 
+@lru_cache(maxsize=32768)
 def _has_indicated_h_fused_functional_suffix_parent(name: str) -> bool:
     return bool(
         re.search(
@@ -17669,6 +17692,7 @@ def _has_spiro_methylidene_methane_artifact(name: str) -> bool:
     return name.endswith("-methane") and "spiro[" in name and "methylidene" in name and "yl)-methane" in name
 
 
+@lru_cache(maxsize=32768)
 def _has_spiro_single_ring_decomposition_artifact(name: str) -> bool:
     if not re.search(r"\b\d+,\d+-di(?:methyl|ethyl|propyl|butyl|amyl|hexyl|heptyl|octyl)-", name):
         return False
@@ -17721,6 +17745,7 @@ def _has_ring_substituted_methane_parent_artifact(name: str) -> bool:
     return any(term in name for term in ring_terms)
 
 
+@lru_cache(maxsize=32768)
 def _has_retained_parent_substituent_artifact(name: str) -> bool:
     return bool(re.search(r"(?:benzil|tolan)-\d+'?-yl\b", name))
 
@@ -17733,6 +17758,7 @@ def _has_fragile_bicyclic_carbamate_lactam_name(name: str) -> bool:
     return True
 
 
+@lru_cache(maxsize=32768)
 def _has_fragile_imido_oxycarbonyl_alias(name: str) -> bool:
     return bool(re.search(r"\b\d+,\d+-dioxopyrrolidino\)?oxycarbonyl\b", name))
 

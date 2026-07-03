@@ -1265,7 +1265,7 @@ def _ring_locant(mol, ring_set: set[int], start_idx: int, target_idx: int) -> in
 
 
 def _atom_has_assigned_stereo(atom) -> bool:
-    return str(atom.GetChiralTag()) != "CHI_UNSPECIFIED"
+    return int(atom.GetChiralTag()) != 0
 
 
 def _simple_oxygen_prefix(mol, atom, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

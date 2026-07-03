@@ -2702,7 +2702,7 @@ def _cycloalkyl_substituent_locant(
 
 
 def _atom_has_assigned_stereo(atom) -> bool:
-    return str(atom.GetChiralTag()) != "CHI_UNSPECIFIED"
+    return int(atom.GetChiralTag()) != 0
 
 
 def _atom_has_isotopic_hydrogen(atom) -> bool:

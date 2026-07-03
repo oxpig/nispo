@@ -358,12 +358,23 @@ class TemplateStore:
             ring_system_feature_key(system)
             for system in features["ring_systems"]
         }
-        molecule_ring_system_graph_keys = _molecule_ring_system_graph_keys(mol, features, self.Chem)
+        molecule_ring_system_graph_keys: set[tuple] | None = None
+        graph_index_coarse_keys = {
+            key[:3]
+            for key in pure_ring_templates
+            if len(key) > 3
+        }
         for system in features["ring_systems"]:
-            if system.get("graph_signature"):
+            coarse_key = ring_system_feature_key(system)
+            if coarse_key in graph_index_coarse_keys and not system.get("graph_signature"):
+                system = ring_system_with_graph_signature(mol, system, self.Chem)
+            if system.get("graph_signature") and (
+                coarse_key in graph_index_coarse_keys
+                or _ring_system_graph_key(system) in pure_ring_templates
+            ):
                 key = _ring_system_graph_key(system)
             else:
-                key = ring_system_feature_key(system)
+                key = coarse_key
             for compiled in pure_ring_templates.get(key, ()):
                 marker = compiled.record.id
                 if marker in seen:
@@ -387,11 +398,14 @@ class TemplateStore:
                     for key in compiled.features.ring_system_keys
                 ):
                     continue
-                if compiled.features.ring_system_graph_keys and not any(
-                    key in molecule_ring_system_graph_keys
-                    for key in compiled.features.ring_system_graph_keys
-                ):
-                    continue
+                if compiled.features.ring_system_graph_keys:
+                    if molecule_ring_system_graph_keys is None:
+                        molecule_ring_system_graph_keys = _molecule_ring_system_graph_keys(mol, features, self.Chem)
+                    if not any(
+                        key in molecule_ring_system_graph_keys
+                        for key in compiled.features.ring_system_graph_keys
+                    ):
+                        continue
                 if compiled.features.ring_count > features["ring_count"]:
                     continue
                 if compiled.features.max_ring_system_ring_count > features.get("max_ring_system_ring_count", 0):

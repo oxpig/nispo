@@ -1531,6 +1531,7 @@ def _retained_fused_substituent_default_locant_key(locant: str) -> tuple:
     return (-1, locant)
 
 
+@lru_cache(maxsize=8192)
 def _locant_sort_key(locant: str) -> tuple[int, str]:
     if locant.isdigit():
         return (int(locant), "")

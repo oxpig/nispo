@@ -57,7 +57,7 @@ def candidate_templates(
         return cached
     features = features or molecule_features(mol, Chem)
     molecule_charge_counts = features.get("charged_atom_value_counts") or {}
-    molecule_ring_system_graph_keys: set[tuple] = set()
+    molecule_ring_system_graph_keys: set[tuple] | None = None
     (
         pure_ring_templates,
         other_templates_by_atom_count,
@@ -98,7 +98,7 @@ def candidate_templates(
         for template, template_features in entries:
             template_graph_keys = template_features.get("ring_system_graph_keys") or ()
             if template_graph_keys:
-                if not molecule_ring_system_graph_keys:
+                if molecule_ring_system_graph_keys is None:
                     molecule_ring_system_graph_keys = _molecule_ring_system_graph_keys(mol, features, Chem)
                 if not any(key in molecule_ring_system_graph_keys for key in template_graph_keys):
                     continue

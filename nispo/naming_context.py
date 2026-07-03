@@ -71,7 +71,7 @@ def _kekulized_polycyclic_parent_record_limit(mol) -> int:
 
 
 def _assigned_chiral_atom_count(mol) -> int:
-    return sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in mol.GetAtoms())
+    return sum(int(atom.GetChiralTag()) != 0 for atom in mol.GetAtoms())
 
 
 def _polycyclic_parent_record_limit(mol, family: str) -> int | None:
@@ -279,7 +279,8 @@ class MoleculeContext:
 
     def substruct_matches(self, query, *, use_chirality: bool = False) -> tuple[tuple[int, ...], ...]:
         key = (id(query), use_chirality)
-        cached = self.cache.substruct_matches.get(key)
+        cache = self.cache.substruct_matches
+        cached = cache.get(key)
         if cached is not None:
             return cached
         if not use_chirality:
@@ -293,8 +294,8 @@ class MoleculeContext:
             self.telemetry.substructure_match_calls += 1
             active_rule_family = self.telemetry.active_rule_family or "unknown"
             self.telemetry.substructure_match_calls_by_rule[active_rule_family] += 1
-        result = tuple(tuple(match) for match in matches)
-        self.cache.substruct_matches[key] = result
+        result = matches if isinstance(matches, tuple) else tuple(tuple(match) for match in matches)
+        cache[key] = result
         return result
 
     def template_matches(self, template: dict) -> tuple[tuple[int, ...], ...]:

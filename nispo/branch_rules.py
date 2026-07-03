@@ -141,6 +141,7 @@ def branch_prefix(
 
     in_progress.add(key)
     try:
+        simple_external_prefix_missed = assume_simple_external_prefix_miss
         if not assume_simple_external_prefix_miss:
             prefix = simple_external_prefix(mol, idx, parent_idx)
             if prefix:
@@ -148,6 +149,7 @@ def branch_prefix(
                 if telemetry is not None:
                     telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
                 return prefix
+            simple_external_prefix_missed = True
         atom = mol.GetAtomWithIdx(idx)
         if atom.IsInRing() and _same_ring_system_attachment(mol, idx, parent_idx):
             cache[key] = ""
@@ -161,7 +163,7 @@ def branch_prefix(
                 render_ctx,
                 idx,
                 parent_idx,
-                assume_simple_external_prefix_miss=assume_simple_external_prefix_miss,
+                assume_simple_external_prefix_miss=simple_external_prefix_missed,
             ),
         )
         if prefix:
@@ -260,7 +262,7 @@ def _component_has_assigned_stereo(mol, atoms: tuple[int, ...], parent_bond) -> 
         return True
     for idx in atoms:
         atom = mol.GetAtomWithIdx(idx)
-        if str(atom.GetChiralTag()) != "CHI_UNSPECIFIED":
+        if int(atom.GetChiralTag()) != 0:
             return True
     for bond in mol.GetBonds():
         if bond.GetBeginAtomIdx() not in atom_set or bond.GetEndAtomIdx() not in atom_set:

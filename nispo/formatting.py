@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Sequence
+from functools import lru_cache
 
 from .constants import MULT
 
@@ -185,6 +186,11 @@ def _safe_substituted_alkoxy_stem(stem: str) -> bool:
 def format_prefixes(prefixes: list[tuple[str, str]]) -> str:
     if not prefixes:
         return ""
+    if isinstance(prefixes, (list, tuple)) and len(prefixes) == 1:
+        loc, name = prefixes[0]
+        if _prefix_needs_parentheses(name):
+            return f"{loc}-({name})"
+        return f"{loc}-{name}"
     grouped: dict[str, list[str]] = defaultdict(list)
     for loc, name in prefixes:
         grouped[name].append(loc)
@@ -260,6 +266,7 @@ _PREFERRED_PARENT_STEMS = (
 )
 
 
+@lru_cache(maxsize=16384)
 def preferred_parent_stem(parent: str) -> str:
     if not parent:
         return parent
@@ -392,6 +399,7 @@ def _strip_leading_indicated_hydrogen(name: str) -> str:
         name = name[idx + 2 :]
 
 
+@lru_cache(maxsize=32768)
 def _prefix_needs_parentheses(name: str) -> bool:
     if name in _UNPARENTHESIZED_HYPHENATED_PREFIXES:
         return False
@@ -407,6 +415,7 @@ _UNPARENTHESIZED_HYPHENATED_PREFIXES = {
 }
 
 
+@lru_cache(maxsize=32768)
 def _is_composite_substituent_name(name: str) -> bool:
     if name.endswith("diazenyl") and name != "diazenyl":
         return True
@@ -417,6 +426,7 @@ def _is_composite_substituent_name(name: str) -> bool:
     return name.endswith("amino") and _has_leading_multiplier(name)
 
 
+@lru_cache(maxsize=32768)
 def _multiplied_prefix_needs_parentheses(name: str) -> bool:
     if name != "carbamyl" and ("carbamyl" in name or "carbamoyl" in name):
         return True
@@ -429,6 +439,7 @@ def _multiplied_prefix_needs_parentheses(name: str) -> bool:
     return name.endswith("aniumyl") or name.endswith("oniumyl")
 
 
+@lru_cache(maxsize=32768)
 def _has_leading_multiplier(name: str) -> bool:
     return any(name.startswith(multiplier) for count, multiplier in MULT.items() if count > 1)
 
@@ -438,10 +449,11 @@ def join_locants(locs: Sequence[int]) -> str:
     return ",".join(str(loc) for loc in sorted(locs))
 
 
-def _locant_sort_key(locant: str) -> list[tuple[int, str]]:
+@lru_cache(maxsize=8192)
+def _locant_sort_key(locant: str) -> tuple[tuple[int, str], ...]:
     key = []
     for part in locant.split(","):
         digits = "".join(ch for ch in part if ch.isdigit())
         suffix = part[len(digits):]
         key.append((int(digits) if digits else 0, suffix))
-    return key
+    return tuple(key)

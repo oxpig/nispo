@@ -136,7 +136,7 @@ def build_molecule_facts(
         nonhalogen_hetero_atom_count=sum(
             1 for atom in atoms if atom.GetAtomicNum() not in {1, 6, 9, 17, 35, 53, 85}
         ),
-        chiral_atom_count=sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in atoms),
+        chiral_atom_count=sum(int(atom.GetChiralTag()) != 0 for atom in atoms),
         formal_charge_atom_count=sum(1 for atom in atoms if atom.GetFormalCharge()),
         abs_formal_charge_sum=sum(abs(atom.GetFormalCharge()) for atom in atoms),
         radical_atom_count=sum(atom.GetNumRadicalElectrons() for atom in atoms),

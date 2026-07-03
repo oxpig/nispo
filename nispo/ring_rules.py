@@ -1316,7 +1316,7 @@ def _carbocycle_parent(mol, seq: Sequence[int]) -> str:
         return ""
     root = "cyclo" + root
     if not ene_locs and not yne_locs:
-        if any(str(mol.GetAtomWithIdx(idx).GetChiralTag()) != "CHI_UNSPECIFIED" for idx in seq):
+        if any(int(mol.GetAtomWithIdx(idx).GetChiralTag()) != 0 for idx in seq):
             return root + "ane"
         return root + "an"
     if ene_locs and not yne_locs:

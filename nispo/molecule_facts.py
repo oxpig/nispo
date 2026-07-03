@@ -39,6 +39,7 @@ class MoleculeFacts:
     all_atoms_in_one_ring_system: bool
     aromatic_atom_count: int
     hetero_atom_count: int
+    nonhalogen_hetero_atom_count: int
     chiral_atom_count: int
     formal_charge_atom_count: int
     abs_formal_charge_sum: int
@@ -132,6 +133,9 @@ def build_molecule_facts(
         all_atoms_in_one_ring_system=bool(features.get("all_atoms_in_one_ring_system", False)),
         aromatic_atom_count=sum(1 for atom in atoms if atom.GetIsAromatic()),
         hetero_atom_count=sum(1 for atom in atoms if atom.GetAtomicNum() not in {1, 6}),
+        nonhalogen_hetero_atom_count=sum(
+            1 for atom in atoms if atom.GetAtomicNum() not in {1, 6, 9, 17, 35, 53, 85}
+        ),
         chiral_atom_count=sum(str(atom.GetChiralTag()) != "CHI_UNSPECIFIED" for atom in atoms),
         formal_charge_atom_count=sum(1 for atom in atoms if atom.GetFormalCharge()),
         abs_formal_charge_sum=sum(abs(atom.GetFormalCharge()) for atom in atoms),

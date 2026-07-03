@@ -1043,12 +1043,12 @@ def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
 
 
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
-    mol = ctx.mol
-    if mol.GetRingInfo().NumRings() < 3:
+    facts = ctx.facts
+    if facts.ring_count < 3:
         return False
-    if ctx.has_component_spiro_topology:
+    if facts.has_component_spiro_topology:
         return False
-    if _largest_ring_system_cycle_rank(ctx) != 2:
+    if facts.max_ring_system_cycle_rank != 2:
         return False
     profile = ctx.profile
     return (
@@ -1061,17 +1061,17 @@ def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
 
 
 def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
-    mol = ctx.mol
-    ring_count = mol.GetRingInfo().NumRings()
+    facts = ctx.facts
+    ring_count = facts.ring_count
     if ring_count < 3 or ring_count > 5:
         return False
-    if _nonhalogen_hetero_atom_count(mol) > 6:
+    if facts.has_component_spiro_topology:
         return False
-    if not _has_multimonocycle_stage_element_signal(mol):
+    if facts.nonhalogen_hetero_atom_count > 6:
         return False
-    if _largest_ring_system_cycle_rank(ctx) > 1:
+    if not (facts.has_sulfur or facts.has_phosphorus):
         return False
-    if ctx.has_component_spiro_topology:
+    if facts.max_ring_system_cycle_rank > 1:
         return False
     profile = ctx.profile
     return (
@@ -1081,26 +1081,18 @@ def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
         or profile.has_sulfur
         or profile.has_formal_charge
     )
-
-
-def _has_multimonocycle_stage_element_signal(mol) -> bool:
-    cached = mol_cache_get(mol, "multimonocycle_stage_element_signal")
-    if cached is not None:
-        return cached
-    value = any(atom.GetAtomicNum() in {15, 16} for atom in mol.GetAtoms())
-    return mol_cache_set(mol, "multimonocycle_stage_element_signal", value)
 
 
 def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
-    mol = ctx.mol
-    ring_count = mol.GetRingInfo().NumRings()
+    facts = ctx.facts
+    ring_count = facts.ring_count
     if ring_count < 3 or ring_count > 5:
         return False
-    if ctx.has_component_spiro_topology:
+    if facts.has_component_spiro_topology:
         return False
-    if _largest_ring_system_cycle_rank(ctx) != 2:
+    if facts.max_ring_system_cycle_rank != 2:
         return False
-    if _nonhalogen_hetero_atom_count(mol) > 5:
+    if facts.nonhalogen_hetero_atom_count > 5:
         return False
     profile = ctx.profile
     return (
@@ -1110,16 +1102,6 @@ def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
         or profile.has_sulfur
         or profile.has_formal_charge
     )
-
-
-def _nonhalogen_hetero_atom_count(mol) -> int:
-    cached = mol_cache_get(mol, "nonhalogen_hetero_atom_count")
-    if cached is not None:
-        return cached
-    halogens = {9, 17, 35, 53, 85}
-    excluded_atomic_numbers = {1, 6} | halogens
-    count = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() not in excluded_atomic_numbers)
-    return mol_cache_set(mol, "nonhalogen_hetero_atom_count", count)
 
 
 def _can_fast_stage_monocycle_system(mol) -> bool:

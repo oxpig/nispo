@@ -105,6 +105,9 @@ def test_positive_replacement_heterocycle_parent_roundtrips_with_opsin():
         "N[11C](N)=O",
         "O=C([O-])CC(O)[13C](=O)[O-]",
         "O=[32P]([O-])([O-])[O-]",
+        "[13CH3]CCCCCCC(=O)O",
+        "NCCCC[C@H]([15NH2])C(=O)O",
+        "NCCCC[13C@H](N)C(=O)O",
     ],
 )
 def test_explicit_isotope_labels_roundtrip_with_opsin(input_smiles):
@@ -682,6 +685,27 @@ def test_retained_hydro_fused_template_pair_roundtrips_with_opsin():
     ],
 )
 def test_retained_hydro_alias_route_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "c1ccc(NN=NNc2ccccc2)cc1",
+        "O=[N+]([O-])C(=Cc1ccccc1)[N+](=O)[O-]",
+        "[2H]C(C=O)=Cc1ccccc1",
+        "C=C=NCc1ccccc1",
+        "CCCCC=NS(=O)(=O)c1ccccc1",
+        "NCC=[SH]c1ccccn1",
+        "CCCCc1ccc(C#CC(=O)c2ccc(OC)cc2)cc1",
+        "O=C(ON=Nc1ccc(OCCCCCl)cc1)c1ccccc1",
+    ],
+)
+def test_unsaturated_acyclic_alternative_for_single_ring_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

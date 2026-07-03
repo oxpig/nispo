@@ -68,6 +68,17 @@ _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset(
         "single-ring-parent",
     }
 )
+_UNSATURATED_ACYCLIC_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
+_FAST_MONOCYCLE_UNSATURATED_ACYCLIC_RULE_FAMILIES = _UNSATURATED_ACYCLIC_ALTERNATIVE_FAMILIES
 _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"})
 _FAST_COMPONENT_SPIRO_SKELETAL_REPLACEMENT_RULE_FAMILIES = frozenset(
     {"skeletal-replacement-fused-parent"}
@@ -298,6 +309,7 @@ class NameCandidate:
     parent_external_nitrogen_substituent_count: int = 0
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
+    parent_external_isotope_hydrogen_count: int = 0
     parent_external_relative_stereo_branch_count: int = 0
     parent_indicated_hydrogen_locants: tuple[str, ...] = ()
     molecule_formal_charge_atom_count: int = 0
@@ -339,6 +351,9 @@ class NamingEngine:
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
         self._fast_monocycle_system_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES
+        )
+        self._fast_monocycle_unsaturated_acyclic_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_MONOCYCLE_UNSATURATED_ACYCLIC_RULE_FAMILIES
         )
         self._fast_component_spiro_route_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES
@@ -422,6 +437,7 @@ class NamingEngine:
             self._Chem,
             ctx,
             self._fast_monocycle_system_rules,
+            unsaturated_acyclic_rules=self._fast_monocycle_unsaturated_acyclic_rules,
             telemetry=telemetry,
         )
         if fast_monocycle_name:
@@ -594,14 +610,24 @@ def _fast_monocycle_system_name(
     ctx: MoleculeContext,
     rules: Iterable[RuleSpec],
     *,
+    unsaturated_acyclic_rules: Iterable[RuleSpec] = (),
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
     if not _can_fast_stage_monocycle_system(mol):
         return ""
-    return _select_best_prepared_candidate(
-        _prepare_candidates(mol, Chem, ctx, rules),
-        telemetry=telemetry,
-    )
+    prepared = _prepare_candidates(mol, Chem, ctx, rules)
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is None:
+        return ""
+    if unsaturated_acyclic_rules and _single_ring_choice_can_consider_unsaturated_acyclic(selected):
+        alternatives = _prepare_candidates(mol, Chem, ctx, unsaturated_acyclic_rules)
+        if alternatives:
+            keyed_items = [
+                (_prepared_candidate_selection_key(item, prepared + alternatives), item)
+                for item in [selected, *alternatives]
+            ]
+            selected = _unsaturated_acyclic_alternative_for_single_ring_choice(keyed_items, selected) or selected
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _fast_multi_monocycle_senior_name(
@@ -1583,6 +1609,9 @@ def _candidate_fact_ranked_item(
     selected_item = _hydro_retained_alternative_for_retained_fused_choice(keyed_items, current)
     if selected_item is not None:
         return selected_item
+    selected_item = _unsaturated_acyclic_alternative_for_single_ring_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
     if _deterministic_key_winner_is_high_confidence(current):
         return current
     metrics = _candidate_fact_ranker_row_metrics([item for _key, item in keyed_items])
@@ -2077,6 +2106,81 @@ _HIGH_CONFIDENCE_DETERMINISTIC_KEY_FAMILIES = frozenset(
         "whole-molecule-retained-parent",
     }
 )
+
+
+def _single_ring_choice_can_consider_unsaturated_acyclic(item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    if len(item.name) > 90:
+        return False
+    if candidate.parent_hetero_atom_count:
+        return False
+    if candidate.parent_external_oxygen_substituent_count:
+        return False
+    if candidate.parent_external_isotope_hydrogen_count:
+        return False
+    if candidate.parent_internal_unsaturated_bond_count:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+def _unsaturated_acyclic_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if not _single_ring_choice_can_consider_unsaturated_acyclic(selected):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _UNSATURATED_ACYCLIC_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_count = len(candidate.parent_atoms)
+        if parent_count < 4 or parent_count > 16:
+            continue
+        if candidate.parent_internal_unsaturated_bond_count < 1:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 110 or len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 170:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    -candidate.parent_internal_unsaturated_bond_count,
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 def _deterministic_key_winner_is_high_confidence(item: _PreparedCandidate) -> bool:
@@ -8728,6 +8832,7 @@ def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
     int,
     int,
     int,
+    int,
 ]:
     cache = mol_cache_dict(mol, "parent_atom_evidence")
     cached = cache.get(parent_atoms)
@@ -8738,6 +8843,7 @@ def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
     abs_formal_charge_sum = 0
     external_unsaturated_bond_count = 0
     internal_unsaturated_bond_count = 0
+    external_isotope_hydrogen_count = 0
     for atom_idx in parent_atoms:
         atom = mol.GetAtomWithIdx(atom_idx)
         symbol = atom.GetSymbol()
@@ -8758,6 +8864,8 @@ def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
                     ):
                         internal_unsaturated_bond_count += 1
                 continue
+            if neighbor.GetAtomicNum() == 1 and neighbor.GetIsotope() in {2, 3}:
+                external_isotope_hydrogen_count += 1
             bond = mol.GetBondBetweenAtoms(atom_idx, neighbor_idx)
             if bond is not None and bond.GetBondTypeAsDouble() > 1.1:
                 external_unsaturated_bond_count += 1
@@ -8767,6 +8875,7 @@ def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
         abs_formal_charge_sum,
         external_unsaturated_bond_count,
         internal_unsaturated_bond_count,
+        external_isotope_hydrogen_count,
     )
     cache[parent_atoms] = evidence
     return evidence
@@ -8778,6 +8887,8 @@ def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate)
         updated = replace(updated, external_bond_stereo_parent_fragile=True)
     fragility_reasons: list[str] = []
     if _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate):
+        fragility_reasons.append(OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT)
+    if _candidate_has_parent_oxyazo_carbonyl(mol, Chem, candidate):
         fragility_reasons.append(OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT)
     if not fragility_reasons:
         return updated
@@ -8829,6 +8940,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         abs_formal_charge_sum,
         external_unsaturated_bond_count,
         internal_unsaturated_bond_count,
+        external_isotope_hydrogen_count,
     ) = _parent_atom_evidence(mol, parent_atoms)
     molecule_formal_charge_atom_count, molecule_abs_formal_charge_sum = _molecule_charge_counts(mol)
     if (
@@ -8839,6 +8951,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         and candidate.parent_abs_formal_charge_sum == abs_formal_charge_sum
         and candidate.parent_external_unsaturated_bond_count == external_unsaturated_bond_count
         and candidate.parent_internal_unsaturated_bond_count == internal_unsaturated_bond_count
+        and candidate.parent_external_isotope_hydrogen_count == external_isotope_hydrogen_count
     ):
         return candidate
     return replace(
@@ -8850,6 +8963,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         parent_abs_formal_charge_sum=abs_formal_charge_sum,
         parent_external_unsaturated_bond_count=external_unsaturated_bond_count,
         parent_internal_unsaturated_bond_count=internal_unsaturated_bond_count,
+        parent_external_isotope_hydrogen_count=external_isotope_hydrogen_count,
     )
 
 
@@ -8886,6 +9000,58 @@ def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameC
                 continue
             if _is_external_oxyimino_carbonyl(mol, Chem, carbonyl_idx, blocked_idx=parent_idx):
                 return True
+    return False
+
+
+def _candidate_has_parent_oxyazo_carbonyl(mol, Chem, candidate: NameCandidate) -> bool:
+    if candidate.family not in _UNSATURATED_ACYCLIC_ALTERNATIVE_FAMILIES:
+        return False
+    if not candidate.parent_atoms:
+        return False
+    parent_atoms = set(candidate.parent_atoms)
+    for carbonyl_idx in parent_atoms:
+        carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
+        if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
+            continue
+        double_oxygen_count = 0
+        single_oxygen_idx = None
+        for nbr in carbonyl.GetNeighbors():
+            nidx = nbr.GetIdx()
+            bond = mol.GetBondBetweenAtoms(carbonyl_idx, nidx)
+            if bond is None:
+                continue
+            if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+            elif nidx in parent_atoms and nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE:
+                single_oxygen_idx = nidx if single_oxygen_idx is None else -1
+        if double_oxygen_count != 1 or single_oxygen_idx is None or single_oxygen_idx < 0:
+            continue
+        oxygen = mol.GetAtomWithIdx(single_oxygen_idx)
+        if oxygen.GetFormalCharge() != 0 or oxygen.IsInRing() or oxygen.GetIsotope():
+            continue
+        for nitrogen in oxygen.GetNeighbors():
+            nitrogen_idx = nitrogen.GetIdx()
+            if nitrogen_idx == carbonyl_idx or nitrogen_idx not in parent_atoms:
+                continue
+            if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing() or nitrogen.GetIsotope():
+                continue
+            bond = mol.GetBondBetweenAtoms(single_oxygen_idx, nitrogen_idx)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                continue
+            for distal in nitrogen.GetNeighbors():
+                distal_idx = distal.GetIdx()
+                if distal_idx == single_oxygen_idx or distal_idx not in parent_atoms:
+                    continue
+                distal_bond = mol.GetBondBetweenAtoms(nitrogen_idx, distal_idx)
+                if (
+                    distal.GetSymbol() == "N"
+                    and distal.GetFormalCharge() == 0
+                    and not distal.IsInRing()
+                    and not distal.GetIsotope()
+                    and distal_bond is not None
+                    and distal_bond.GetBondType() == Chem.BondType.DOUBLE
+                ):
+                    return True
     return False
 
 

@@ -1825,7 +1825,15 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         name = "-".join(pieces)
     else:
         name = _join_prefix_parent(prefix_text, parent) if prefix_text else _preferred_parent_stem(parent)
-    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+    if stereo_prefix:
+        name = f"({stereo_prefix})-{name}"
+    if not as_substituent:
+        name = _append_path_carbon_isotope_suffixes(
+            mol,
+            name,
+            {atom_idx: str(locant) for locant, atom_idx in enumerate(path, start=1)},
+        )
+    return name
 
 
 def _standalone_saturated_chain_parent(parent: str) -> str:
@@ -1961,7 +1969,63 @@ def _terminal_carboxy_suffix_parent_name(
     prefix_text = _format_prefixes(remaining)
     name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
     stereo_prefix = _terminal_carboxy_stereo_prefix(mol, oriented_path)
-    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+    if stereo_prefix:
+        name = f"({stereo_prefix})-{name}"
+    locants_by_atom = {atom_idx: str(locant) for locant, atom_idx in enumerate(oriented_path, start=2)}
+    terminal_root = _terminal_suffix_root_atom(mol, path, terminal_loc, terminal_prefix)
+    if terminal_root is not None:
+        locants_by_atom[terminal_root] = "1"
+    return _append_path_carbon_isotope_suffixes(mol, name, locants_by_atom)
+
+
+def _terminal_suffix_root_atom(
+    mol,
+    path: Sequence[int],
+    terminal_loc: str,
+    terminal_prefix: str,
+) -> int | None:
+    if not terminal_loc.isdigit():
+        return None
+    anchor_pos = int(terminal_loc) - 1
+    if anchor_pos < 0 or anchor_pos >= len(path):
+        return None
+    anchor_idx = path[anchor_pos]
+    path_set = set(path)
+    for neighbor in mol.GetAtomWithIdx(anchor_idx).GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx in path_set or neighbor.GetAtomicNum() <= 1:
+            continue
+        if simple_external_prefix(mol, nidx, anchor_idx) == terminal_prefix:
+            return nidx
+    return None
+
+
+def _append_path_carbon_isotope_suffixes(
+    mol,
+    name: str,
+    locants_by_atom: dict[int, str],
+) -> str:
+    if not name or any(f"{isotope}C" in name for isotope in (13, 14)):
+        return name
+    total_carbons = sum(1 for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    labeled: dict[int, list[str]] = {}
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() != "C" or atom.GetIsotope() not in {13, 14}:
+            continue
+        locant = locants_by_atom.get(atom.GetIdx())
+        if not locant:
+            return name
+        labeled.setdefault(atom.GetIsotope(), []).append(locant)
+    if not labeled:
+        return name
+    if len(labeled) == 1 and len(next(iter(labeled.values()))) == total_carbons:
+        return name
+    suffixes = []
+    for isotope, locants in sorted(labeled.items()):
+        ordered = sorted(set(locants), key=lambda value: (int(value) if value.isdigit() else 9999, value))
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        suffixes.append(f"{','.join(ordered)}-{isotope}C{count_text}")
+    return name + "-" + "-".join(suffixes)
 
 
 def _diterminal_carboxy_suffix_parent_name(

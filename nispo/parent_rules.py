@@ -13508,8 +13508,110 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
             continue
         stereo = _amino_acid_alpha_stereo_prefix(mol, Chem, alpha_idx)
         prefix = _amino_acid_n_substituent_prefix(n_names)
-        names.append(stereo + prefix + parent)
+        name = stereo + prefix + parent
+        carbon_locants = {carboxyl[0]: "1", alpha_idx: "2"}
+        nitrogen_locants = {nidx: "N2"}
+        if sidechains:
+            sidechain_component = _collect_component_atoms(mol, sidechains[0], alpha_idx)
+            if any(mol.GetAtomWithIdx(idx).IsInRing() for idx in sidechain_component):
+                carbon_locants = {}
+            sidechain_carbon_locants, sidechain_nitrogen_locants = _amino_acid_linear_sidechain_isotope_locants(
+                mol,
+                sidechains[0],
+                alpha_idx,
+            )
+            carbon_locants.update(sidechain_carbon_locants)
+            nitrogen_locants.update(sidechain_nitrogen_locants)
+        names.append(_append_amino_acid_isotope_suffixes(mol, name, carbon_locants, nitrogen_locants))
     return names
+
+
+def _amino_acid_linear_sidechain_isotope_locants(
+    mol,
+    sidechain_idx: int,
+    alpha_idx: int,
+) -> tuple[dict[int, str], dict[int, str]]:
+    component = _collect_component_atoms(mol, sidechain_idx, alpha_idx)
+    if any(mol.GetAtomWithIdx(idx).IsInRing() for idx in component):
+        return {}, {}
+    carbon_locants: dict[int, str] = {}
+    nitrogen_locants: dict[int, str] = {}
+    previous_idx = alpha_idx
+    current_idx = sidechain_idx
+    locant = 3
+    while True:
+        atom = mol.GetAtomWithIdx(current_idx)
+        if atom.GetSymbol() == "C":
+            carbon_locants[current_idx] = str(locant)
+        elif atom.GetSymbol() == "N" and atom.GetFormalCharge() == 0:
+            nitrogen_locants[current_idx] = f"N{max(2, locant - 1)}"
+            return carbon_locants, nitrogen_locants
+        else:
+            return carbon_locants, nitrogen_locants
+        next_atoms = [
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() in component and nbr.GetIdx() != previous_idx and nbr.GetAtomicNum() > 1
+        ]
+        if not next_atoms:
+            return carbon_locants, nitrogen_locants
+        if len(next_atoms) > 1:
+            return {}, {}
+        previous_idx, current_idx = current_idx, next_atoms[0]
+        locant += 1
+
+
+def _append_amino_acid_isotope_suffixes(
+    mol,
+    name: str,
+    carbon_locants: dict[int, str],
+    nitrogen_locants: dict[int, str],
+) -> str:
+    if not name or re.search(r"\d+(?:C|N)", name):
+        return name
+    labeled_carbons: dict[int, list[str]] = {}
+    labeled_nitrogens: dict[int, list[str]] = {}
+    total_carbons = 0
+    total_nitrogens = 0
+    for atom in mol.GetAtoms():
+        symbol = atom.GetSymbol()
+        isotope = atom.GetIsotope()
+        if symbol == "C":
+            total_carbons += 1
+            if isotope in {13, 14}:
+                locant = carbon_locants.get(atom.GetIdx())
+                if not locant:
+                    return name
+                labeled_carbons.setdefault(isotope, []).append(locant)
+        elif symbol == "N":
+            total_nitrogens += 1
+            if isotope:
+                locant = nitrogen_locants.get(atom.GetIdx())
+                if not locant:
+                    return name
+                labeled_nitrogens.setdefault(isotope, []).append(locant)
+    if labeled_carbons and labeled_nitrogens:
+        return name
+    if labeled_carbons:
+        if len(labeled_carbons) != 1:
+            return name
+        isotope, locants = next(iter(labeled_carbons.items()))
+        if len(locants) == total_carbons:
+            return name
+        ordered = sorted(set(locants), key=lambda value: (int(value) if value.isdigit() else 9999, value))
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        return f"{name}-{','.join(ordered)}-{isotope}C{count_text}"
+    if labeled_nitrogens:
+        if len(labeled_nitrogens) != 1:
+            return name
+        isotope, locants = next(iter(labeled_nitrogens.items()))
+        if len(locants) == total_nitrogens:
+            count_text = str(len(locants)) if len(locants) > 1 else ""
+            return f"{name}-{isotope}N{count_text}"
+        ordered = sorted(set(locants), key=lambda value: (int(value[1:]) if value[1:].isdigit() else 9999, value))
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        return f"{name}-{','.join(ordered)}-{isotope}N{count_text}"
+    return name
 
 
 def _amino_acid_n_substituent_is_opsin_fragile(mol, Chem, sub_idx: int, nitrogen_idx: int) -> bool:
@@ -14892,10 +14994,16 @@ def _imino_carbon_retained_substituent(mol, carbon_idx: int, imine_nitrogen_idx:
     if len(substituents) != 2:
         return ""
     if "amino" in substituents:
-        other = next(name for name in substituents if name != "amino")
+        non_amino = [name for name in substituents if name != "amino"]
+        if not non_amino:
+            return ""
+        other = non_amino[0]
         return f"amino({_strip_outer_parentheses(other)})methylene"
     if "methyl" in substituents:
-        other = next(name for name in substituents if name != "methyl")
+        non_methyl = [name for name in substituents if name != "methyl"]
+        if not non_methyl:
+            return ""
+        other = non_methyl[0]
         return f"1-({_strip_outer_parentheses(other)})ethylidene"
     return ""
 

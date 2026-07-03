@@ -48,6 +48,7 @@ _CHARGE_PRESERVING_PREFIX_TERMS = frozenset(
         "sulfonato",
     )
 )
+_CHARGE_PRESERVING_CENTER_SYMBOLS = frozenset(("C", "P", "S"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1539,13 +1540,20 @@ def _path_quality_descriptor(mol, path: Sequence[int]) -> tuple:
 
 
 def _path_charge_preserving_prefix_count(mol, path: Sequence[int]) -> int:
-    if not _has_formal_charge(mol):
+    charged_atoms = _formal_charge_atom_indices(mol)
+    if not charged_atoms:
+        return 0
+    path_set = set(path)
+    if set(charged_atoms) <= path_set:
         return 0
     cache = mol_cache_dict(mol, "acyclic_path_charge_preserving_prefix_count")
     cache_key = tuple(sorted(path))
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    if not _path_has_charge_preserving_prefix_candidate(mol, path, path_set):
+        cache[cache_key] = 0
+        return 0
     prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
     if prefixes is None:
         cache[cache_key] = 0
@@ -1562,8 +1570,94 @@ def _has_formal_charge(mol) -> bool:
     return mol_cache_set(mol, "has_formal_charge", any(atom.GetFormalCharge() for atom in mol.GetAtoms()))
 
 
+def _formal_charge_atom_indices(mol) -> tuple[int, ...]:
+    cached = mol_cache_get(mol, "formal_charge_atom_indices")
+    if cached is not None:
+        return cached
+    return mol_cache_set(
+        mol,
+        "formal_charge_atom_indices",
+        tuple(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetFormalCharge()),
+    )
+
+
 def _prefix_preserves_formal_charge(prefix: str) -> bool:
     return any(term in prefix for term in _CHARGE_PRESERVING_PREFIX_TERMS)
+
+
+def _path_has_charge_preserving_prefix_candidate(mol, path: Sequence[int], path_set: set[int]) -> bool:
+    roots = _charge_preserving_prefix_candidate_roots(mol)
+    if not roots:
+        return False
+    view = _acyclic_graph_view(mol)
+    for idx in path:
+        for nidx in view.neighbors[idx]:
+            if nidx not in path_set and (idx, nidx) in roots:
+                return True
+    return False
+
+
+def _charge_preserving_prefix_candidate_roots(mol) -> frozenset[tuple[int, int]]:
+    cached = mol_cache_get(mol, "acyclic_charge_preserving_prefix_candidate_roots")
+    if cached is not None:
+        return cached
+    negative_oxygen_atoms = {
+        atom.GetIdx()
+        for atom in mol.GetAtoms()
+        if atom.GetAtomicNum() == 8 and atom.GetFormalCharge() < 0
+    }
+    if not negative_oxygen_atoms:
+        return mol_cache_set(mol, "acyclic_charge_preserving_prefix_candidate_roots", frozenset())
+    view = _acyclic_graph_view(mol)
+    center_atoms = {
+        idx
+        for idx, symbol in enumerate(view.symbols)
+        if symbol in _CHARGE_PRESERVING_CENTER_SYMBOLS
+    }
+    if not center_atoms:
+        return mol_cache_set(mol, "acyclic_charge_preserving_prefix_candidate_roots", frozenset())
+    roots: set[tuple[int, int]] = set()
+    for parent_idx, neighbors in enumerate(view.neighbors):
+        for root_idx in neighbors:
+            if _component_has_charge_preserving_prefix_shape(
+                view,
+                root_idx,
+                parent_idx,
+                negative_oxygen_atoms,
+                center_atoms,
+            ):
+                roots.add((parent_idx, root_idx))
+    return mol_cache_set(mol, "acyclic_charge_preserving_prefix_candidate_roots", frozenset(roots))
+
+
+def _component_has_charge_preserving_prefix_shape(
+    view: _AcyclicGraphView,
+    root_idx: int,
+    parent_idx: int,
+    negative_oxygen_atoms: set[int],
+    center_atoms: set[int],
+) -> bool:
+    seen = {parent_idx}
+    stack = [root_idx]
+    has_negative_oxygen = False
+    has_center = False
+    while stack:
+        idx = stack.pop()
+        if idx in seen:
+            continue
+        seen.add(idx)
+        if idx in negative_oxygen_atoms:
+            has_negative_oxygen = True
+            if has_center:
+                return True
+        if idx in center_atoms:
+            has_center = True
+            if has_negative_oxygen:
+                return True
+        for nidx in view.neighbors[idx]:
+            if nidx not in seen:
+                stack.append(nidx)
+    return False
 
 
 def _acyclic_graph_view(mol) -> _AcyclicGraphView:

@@ -153,12 +153,16 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     parent_order = parent_bond.GetBondType() if parent_bond is not None else None
     neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
+    neighbor_bonds = {
+        (mol.GetAtomWithIdx(nidx).GetSymbol(), mol.GetBondBetweenAtoms(idx, nidx).GetBondType())
+        for nidx in neighbors
+    }
 
     if parent_order == Chem.BondType.SINGLE:
         name = _resource_prefix(mol, idx, parent_idx)
         if _prefer_resource_carbon_prefix(name):
             return _with_root_carbon_isotope(mol, idx, name)
-        has_double_c = _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.DOUBLE)
+        has_double_c = ("C", Chem.BondType.DOUBLE) in neighbor_bonds
         if has_double_c:
             for renderer in (
                 _ketenyl_prefix,
@@ -179,36 +183,36 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         name = _boc_aminoalkyl_prefix(mol, idx, parent_idx)
         if name:
             return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.DOUBLE):
+        if ("O", Chem.BondType.DOUBLE) in neighbor_bonds:
             name = _acyl_halide_prefix(mol, idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
             name = _carbonyl_substituent_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "N", Chem.BondType.DOUBLE):
+        if ("N", Chem.BondType.DOUBLE) in neighbor_bonds:
             name = _iminomethyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "N", Chem.BondType.SINGLE):
+        if ("N", Chem.BondType.SINGLE) in neighbor_bonds:
             name = _sulfonamidomethyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.TRIPLE):
+        if ("C", Chem.BondType.TRIPLE) in neighbor_bonds:
             name = _ring_ethynyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
             name = _alkynyl_substituent_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "C", Chem.BondType.DOUBLE):
+        if ("C", Chem.BondType.DOUBLE) in neighbor_bonds:
             name = _ring_alkenyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
             name = _dicyanoethenyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
-        if _has_neighbor_bond(mol, idx, neighbors, "O", Chem.BondType.SINGLE):
+        if ("O", Chem.BondType.SINGLE) in neighbor_bonds:
             name = _mesyloxymethyl_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)

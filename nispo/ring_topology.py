@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .graph_model import graph_view
-from .molecule_cache import mol_cache_get, mol_cache_set
+from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,10 +29,17 @@ def ring_system_topologies(mol, Chem) -> tuple[RingSystemTopology, ...]:
 
 def ring_system_graph(mol, Chem, atoms) -> dict[int, frozenset[int]]:
     atom_set = frozenset(atoms)
+    cache = mol_cache_dict(mol, "ring_system_graph_by_atoms")
+    cached = cache.get(atom_set)
+    if cached is not None:
+        return cached
     for topology in ring_system_topologies(mol, Chem):
         if topology.atoms == atom_set:
+            cache[atom_set] = topology.graph
             return topology.graph
-    return _graph_for_atom_set(graph_view(mol, Chem), atom_set)
+    graph = _graph_for_atom_set(graph_view(mol, Chem), atom_set)
+    cache[atom_set] = graph
+    return graph
 
 
 def _build_topology(view, atoms: frozenset[int]) -> RingSystemTopology:

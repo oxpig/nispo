@@ -85,7 +85,7 @@ class ContextCache:
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     compiled_template_candidates: dict[tuple[int, bool], tuple[object, ...]] = field(default_factory=dict)
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
-    compiled_rules: dict[tuple[int, ...], tuple[object, ...]] = field(default_factory=dict)
+    compiled_rules: dict[object, tuple[tuple[object, ...], tuple[object, ...]]] = field(default_factory=dict)
     substituent_like_acyclic_defer: dict[str, bool] = field(default_factory=dict)
     polycyclic_records: dict[tuple[str, int | None], tuple[tuple[str, tuple[int, ...]], ...]] = field(
         default_factory=dict

@@ -49,10 +49,14 @@ def compile_rules_for_context(
             telemetry.compiled_rule_output_count[route] += len(rules)
         return rules
     cache = getattr(ctx, "cache", None)
-    cache_key = tuple(id(rule) for rule in rules)
+    cache_key = id(rules)
     cached = None
     if cache is not None:
-        cached = cache.compiled_rules.get(cache_key)
+        cached_entry = cache.compiled_rules.get(cache_key)
+        if cached_entry is not None:
+            cached_rules, cached = cached_entry
+            if cached_rules is not rules:
+                cached = None
     if cached is not None:
         compiled = cached
         skipped = len(rules) - len(compiled)
@@ -79,7 +83,7 @@ def compile_rules_for_context(
         telemetry.compiled_rule_skip_count[route] += skipped
     result = tuple(compiled)
     if cache is not None:
-        cache.compiled_rules[cache_key] = result
+        cache.compiled_rules[cache_key] = (rules, result)
     return result
 
 

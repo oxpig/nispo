@@ -51,23 +51,28 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
     engine = _engine()
     names: list[str] = []
     batch_cache: dict[str, str] = {}
+    mol_from_smiles = Chem.MolFromSmiles
+    name_molecule = engine.name
+    cache_get = batch_cache.get
+    cache_set = batch_cache.__setitem__
+    append_name = names.append
     for smiles in smiles_values:
-        cached = batch_cache.get(smiles)
+        cached = cache_get(smiles)
         if cached is not None:
-            names.append(cached)
+            append_name(cached)
             continue
         try:
-            mol = Chem.MolFromSmiles(smiles)
+            mol = mol_from_smiles(smiles)
             if mol is None or mol.GetNumAtoms() == 0:
                 name = ""
-                batch_cache[smiles] = name
-                names.append(name)
+                cache_set(smiles, name)
+                append_name(name)
                 continue
-            name = engine.name(mol)
+            name = name_molecule(mol)
         except Exception:
             name = ""
-        batch_cache[smiles] = name
-        names.append(name)
+        cache_set(smiles, name)
+        append_name(name)
     return names
 
 

@@ -21,7 +21,6 @@ from ..fused_template_families import (
     curated_fused_templates as _curated_fused_templates,
     generated_fusion_preference as _generated_fusion_preference,
 )
-from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict
 from ..ring.hydrogen import _drop_indicated_hydrogen_prefix
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
@@ -227,12 +226,54 @@ def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> b
     if not attachment.IsInRing() or not parent.IsInRing():
         cache[key] = False
         return False
-    for system in graph_view(mol, Chem).ring_systems:
-        if attachment_idx in system and parent_idx in system:
-            cache[key] = True
-            return True
-    cache[key] = False
-    return False
+    system_ids = _ring_system_id_by_atom(mol)
+    result = system_ids[attachment_idx] >= 0 and system_ids[attachment_idx] == system_ids[parent_idx]
+    cache[key] = result
+    return result
+
+
+def _ring_system_id_by_atom(mol) -> tuple[int, ...]:
+    cached = mol_cache_dict(mol, "ring_system_id_by_atom_cache").get("ids")
+    if cached is not None:
+        return cached
+    atom_rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
+    systems = _merged_ring_systems(atom_rings)
+    ids = [-1] * mol.GetNumAtoms()
+    for system_id, system in enumerate(systems):
+        for atom_idx in system:
+            ids[atom_idx] = system_id
+    result = tuple(ids)
+    mol_cache_dict(mol, "ring_system_id_by_atom_cache")["ids"] = result
+    return result
+
+
+def _merged_ring_systems(atom_rings: tuple[frozenset[int], ...]) -> tuple[frozenset[int], ...]:
+    systems: list[set[int]] = []
+    for ring in atom_rings:
+        current = set(ring)
+        rest = []
+        for system in systems:
+            if current & system:
+                current |= system
+            else:
+                rest.append(system)
+        rest.append(current)
+        systems = rest
+    changed = True
+    while changed:
+        changed = False
+        merged = []
+        while systems:
+            current = systems.pop()
+            overlapping = [system for system in systems if current & system]
+            if overlapping:
+                changed = True
+                for system in overlapping:
+                    current |= system
+                    systems.remove(system)
+            merged.append(current)
+        systems = merged
+    return tuple(frozenset(system) for system in systems)
 
 
 def _rings_for_attachment_excluding_parent(

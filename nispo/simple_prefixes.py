@@ -42,7 +42,8 @@ def simple_external_prefix_candidates(mol, idx: int, parent_idx: int) -> tuple[P
         candidate = _terminal_halogen_prefix(atom, idx, parent_idx, order)
     elif symbol == "C":
         candidate = (
-            _simple_methylidene_prefix(mol, idx, parent_idx, order)
+            _simple_terminal_methyl_prefix(mol, atom, idx, parent_idx, order)
+            or _simple_methylidene_prefix(mol, idx, parent_idx, order)
             or _simple_isotopic_methyl_prefix(mol, idx, parent_idx, order)
             or _simple_fluoromethyl_prefix(mol, idx, parent_idx, order)
             or _simple_halomethyl_prefix(mol, idx, parent_idx, order)
@@ -93,6 +94,18 @@ def _terminal_halogen_prefix(atom, idx: int, parent_idx: int, order: float) -> P
     symbol = atom.GetSymbol()
     text = f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     return _prefix_candidate(text, {idx}, idx, parent_idx, "terminal-halogen")
+
+
+def _simple_terminal_methyl_prefix(mol, atom, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:
+    if order != 1.0:
+        return None
+    if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        return None
+    if _atom_has_assigned_stereo(atom) or _atom_has_isotopic_hydrogen(atom):
+        return None
+    if any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors()):
+        return None
+    return _prefix_candidate("methyl", {idx}, idx, parent_idx, "linear-alkyl")
 
 
 def _simple_methylidene_prefix(mol, idx: int, parent_idx: int, order: float) -> PrefixCandidate | None:

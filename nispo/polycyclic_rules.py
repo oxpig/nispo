@@ -23,6 +23,8 @@ _POLYCYCLIC_VIEW_SYNC_PROPS = (
     "_nispo_fragment_substituent_depth",
     "_nispo_fragment_substituent_view",
 )
+_POLYCYCLIC_VIEW_VALUE_CACHE_KEYS = ("assigned_atom_stereochemistry_raw",)
+_CACHE_MISS = object()
 
 
 def _polycyclic_record_cache_key(mol, family: str, limit: int | None = None) -> tuple:
@@ -76,7 +78,17 @@ def _sync_polycyclic_view_props(source, target) -> None:
             target.SetProp(prop, source.GetProp(prop))
         elif target.HasProp(prop):
             target.ClearProp(prop)
+    _sync_polycyclic_view_cache(source, target)
     target.SetBoolProp("_nispo_kekulized_aromatic_view", True)
+
+
+def _sync_polycyclic_view_cache(source, target) -> None:
+    for key in _POLYCYCLIC_VIEW_VALUE_CACHE_KEYS:
+        if mol_cache_get(target, key, _CACHE_MISS) is not _CACHE_MISS:
+            continue
+        value = mol_cache_get(source, key, _CACHE_MISS)
+        if value is not _CACHE_MISS:
+            mol_cache_set(target, key, value)
 
 
 def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -766,7 +778,7 @@ def _secondary_bridge_polycyclic_candidate_records(
         candidate_limit + (48 if route_fast else 8),
     )
     if route_fast:
-        candidate_pool_limit = max(candidate_limit * 6, candidate_limit + 8)
+        candidate_pool_limit = candidate_limit
     use_large_hetero_bridge_order = bool(
         getattr(mol, "HasProp", lambda _name: False)("_nispo_kekulized_aromatic_view")
     ) and _use_large_hetero_kekulized_bridge_order(
@@ -1565,10 +1577,10 @@ def _simple_path_infos_for_key(
     end: int,
     max_paths: int,
 ) -> tuple[tuple[tuple[int, ...], int, int], ...]:
-    graph = {idx: set(neighbors) for idx, neighbors in graph_key}
+    adjacency = dict(graph_key)
     return tuple(
         (path, _atom_bitmask(path[1:-1]), len(path) - 2)
-        for path in _simple_paths(graph, start, end, max_paths=max_paths)
+        for path in _simple_paths_from_adjacency(adjacency, start, end, max_paths=max_paths)
     )
 
 
@@ -1626,6 +1638,28 @@ def _simple_paths(graph: dict[int, set[int]], start: int, end: int, max_paths: i
             neighbors = tuple(sorted(graph[current]))
             sorted_neighbors[current] = neighbors
         for nbr in neighbors:
+            nbr_mask = 1 << nbr
+            if visited_mask & nbr_mask:
+                continue
+            next_path = path + (nbr,)
+            if nbr == end:
+                paths.append(next_path)
+            else:
+                stack.append((nbr, next_path, visited_mask | nbr_mask))
+    return paths
+
+
+def _simple_paths_from_adjacency(
+    adjacency: dict[int, tuple[int, ...]],
+    start: int,
+    end: int,
+    max_paths: int,
+) -> list[tuple[int, ...]]:
+    paths = []
+    stack = [(start, (start,), 1 << start)]
+    while stack and len(paths) < max_paths:
+        current, path, visited_mask = stack.pop()
+        for nbr in adjacency[current]:
             nbr_mask = 1 << nbr
             if visited_mask & nbr_mask:
                 continue

@@ -981,6 +981,30 @@ def _bond_orders(mol) -> dict[tuple[int, int], float]:
     return orders
 
 
+def _atom_symbols(mol) -> tuple[str, ...]:
+    symbols = mol_cache_get(mol, "polycyclic_atom_symbols")
+    if symbols is None:
+        symbols = tuple(atom.GetSymbol() for atom in mol.GetAtoms())
+        mol_cache_set(mol, "polycyclic_atom_symbols", symbols)
+    return symbols
+
+
+def _external_attachment_atom_count(mol, atoms: set[int] | frozenset[int]) -> int:
+    cache = mol_cache_dict(mol, "polycyclic_external_attachment_atom_count")
+    atom_set = frozenset(atoms)
+    cached = cache.get(atom_set)
+    if cached is not None:
+        return cached
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
+    count = sum(
+        1
+        for idx in atom_set
+        if any(nidx not in atom_set for nidx in neighbors_by_atom[idx])
+    )
+    cache[atom_set] = count
+    return count
+
+
 def _opsin_oriented_polybridge_edges(bracket: Sequence[int | str]) -> frozenset[tuple[int, int]]:
     return _opsin_oriented_polybridge_edges_for_key(tuple(bracket))
 
@@ -1065,14 +1089,9 @@ def _use_large_hetero_kekulized_bridge_order(mol, atoms: set[int]) -> bool:
         return False
     if _ring_multiple_bond_count(mol, atoms) < 9:
         return False
-    has_oxygen_or_sulfur = False
-    external_attachment_atoms = 0
-    for idx in atoms:
-        atom = mol.GetAtomWithIdx(idx)
-        if atom.GetSymbol() in {"O", "S"}:
-            has_oxygen_or_sulfur = True
-        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
-            external_attachment_atoms += 1
+    symbols = _atom_symbols(mol)
+    has_oxygen_or_sulfur = any(symbols[idx] in {"O", "S"} for idx in atoms)
+    external_attachment_atoms = _external_attachment_atom_count(mol, atoms)
     return has_oxygen_or_sulfur and external_attachment_atoms >= 3
 
 
@@ -1087,14 +1106,9 @@ def _use_kekulized_blue_book_bridge_selection(
         return False
     if rank < 4 or multiple_bond_count < 5:
         return False
-    hetero_atoms = 0
-    external_attachment_atoms = 0
-    for idx in atoms:
-        atom = mol.GetAtomWithIdx(idx)
-        if atom.GetSymbol() != "C":
-            hetero_atoms += 1
-        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
-            external_attachment_atoms += 1
+    symbols = _atom_symbols(mol)
+    hetero_atoms = sum(1 for idx in atoms if symbols[idx] != "C")
+    external_attachment_atoms = _external_attachment_atom_count(mol, atoms)
 
     if len(atoms) >= 14 and multiple_bond_count * 20 >= len(atoms) * 9:
         return True
@@ -1142,18 +1156,16 @@ def _use_stereo_hetero_kekulized_macrocycle_bridge_order(
     if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
         return False
 
+    symbols = _atom_symbols(mol)
     hetero_atoms = 0
-    external_attachment_atoms = 0
     for idx in atoms:
-        atom = mol.GetAtomWithIdx(idx)
-        symbol = atom.GetSymbol()
+        symbol = symbols[idx]
         if symbol not in {"C", "N", "O"}:
             return False
         if symbol != "C":
             hetero_atoms += 1
-        if any(nbr.GetIdx() not in atoms for nbr in atom.GetNeighbors()):
-            external_attachment_atoms += 1
 
+    external_attachment_atoms = _external_attachment_atom_count(mol, atoms)
     return hetero_atoms >= 5 and 1 <= external_attachment_atoms <= 3
 
 
@@ -1167,7 +1179,8 @@ def _use_reused_lower_endpoint_fragility_order(
         return False
     if rank < 4 or len(atoms) < 24 or multiple_bond_count < 3:
         return False
-    return any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in atoms)
+    symbols = _atom_symbols(mol)
+    return any(symbols[idx] != "C" for idx in atoms)
 
 
 def _stereo_hetero_kekulized_macrocycle_bridge_preference_key(
@@ -2204,7 +2217,8 @@ def _hetero_locants(mol, seq: Sequence[int]) -> list[int]:
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)
-    result = tuple(loc for loc, idx in enumerate(seq, start=1) if mol.GetAtomWithIdx(idx).GetSymbol() != "C")
+    symbols = _atom_symbols(mol)
+    result = tuple(loc for loc, idx in enumerate(seq, start=1) if symbols[idx] != "C")
     cache[cache_key] = result
     return list(result)
 
@@ -2247,12 +2261,10 @@ def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms
 
 
 def _has_multi_external_substituted_ring_atom(mol, atoms: set[int]) -> bool:
-    for idx in atoms:
-        external_count = sum(
-            1
-            for nbr in mol.GetAtomWithIdx(idx).GetNeighbors()
-            if nbr.GetIdx() not in atoms and nbr.GetAtomicNum() > 1
-        )
+    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
+    atom_set = frozenset(atoms)
+    for idx in atom_set:
+        external_count = sum(1 for nidx in neighbors_by_atom[idx] if nidx not in atom_set)
         if external_count >= 2:
             return True
     return False

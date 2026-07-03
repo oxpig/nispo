@@ -123,11 +123,7 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
 
 
 def _unsubstituted_carbocycle_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    rings = [
-        tuple(ring)
-        for ring in mol.GetRingInfo().AtomRings()
-        if attachment_idx in ring and parent_idx not in ring
-    ]
+    rings = _rings_for_attachment_excluding_parent(mol, attachment_idx, parent_idx)
     if len(rings) != 1:
         return ""
     ring = rings[0]
@@ -171,11 +167,7 @@ def _unsubstituted_simple_ring_prefix(mol, attachment_idx: int, parent_idx: int)
     parent_bond = mol.GetBondBetweenAtoms(attachment_idx, parent_idx)
     if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
-    rings = [
-        tuple(ring)
-        for ring in mol.GetRingInfo().AtomRings()
-        if attachment_idx in ring and parent_idx not in ring
-    ]
+    rings = _rings_for_attachment_excluding_parent(mol, attachment_idx, parent_idx)
     if len(rings) != 1:
         return ""
     ring = rings[0]
@@ -243,6 +235,25 @@ def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> b
     return False
 
 
+def _rings_for_attachment_excluding_parent(
+    mol,
+    attachment_idx: int,
+    parent_idx: int,
+) -> tuple[tuple[int, ...], ...]:
+    cache = mol_cache_dict(mol, "attachment_rings_excluding_parent_cache")
+    key = (attachment_idx, parent_idx)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    rings = tuple(
+        tuple(ring)
+        for ring in mol.GetRingInfo().AtomRings()
+        if attachment_idx in ring and parent_idx not in ring
+    )
+    cache[key] = rings
+    return rings
+
+
 def _carbohydrate_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     if not mol.GetAtomWithIdx(parent_idx).IsInRing():
         return ""
@@ -262,7 +273,7 @@ def _generic_polycyclic_ring_substituent_prefix(mol, attachment_idx: int, parent
 
 
 def _cyclobutenedione_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    rings = [tuple(r) for r in mol.GetRingInfo().AtomRings() if attachment_idx in r and parent_idx not in r]
+    rings = _rings_for_attachment_excluding_parent(mol, attachment_idx, parent_idx)
     if len(rings) != 1 or len(rings[0]) != 4:
         return ""
     ring = rings[0]
@@ -769,7 +780,7 @@ def _linear_alkynyl_paths(
 
 
 def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    rings = [tuple(r) for r in mol.GetRingInfo().AtomRings() if attachment_idx in r and parent_idx not in r]
+    rings = _rings_for_attachment_excluding_parent(mol, attachment_idx, parent_idx)
     if len(rings) != 1:
         return ""
     ring = rings[0]
@@ -1227,9 +1238,18 @@ def _attachment_multi_ring_system_is_carbocyclic(mol, attachment_idx: int, paren
 
 
 def _attachment_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> frozenset[int]:
-    rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if parent_idx not in ring]
-    containing = [ring for ring in rings if attachment_idx in ring]
+    cache = mol_cache_dict(mol, "attachment_multi_ring_system_cache")
+    key = (attachment_idx, parent_idx)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    containing = [frozenset(ring) for ring in _rings_for_attachment_excluding_parent(mol, attachment_idx, parent_idx)]
     if not containing:
+        cache[key] = frozenset()
+        return frozenset()
+    rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if parent_idx not in ring]
+    if not rings:
+        cache[key] = frozenset()
         return frozenset()
     system = set(containing[0])
     changed = True
@@ -1240,8 +1260,11 @@ def _attachment_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> 
                 system.update(ring)
                 changed = True
     if sum(1 for ring in rings if ring <= system) < 2:
+        cache[key] = frozenset()
         return frozenset()
-    return frozenset(system)
+    result = frozenset(system)
+    cache[key] = result
+    return result
 
 
 def _fused_ring_substituent_prefix_from_templates(

@@ -226,13 +226,20 @@ def _fast_simple_ring_suffix_alias(suffix: str) -> str:
 
 
 def _same_ring_system_attachment(mol, attachment_idx: int, parent_idx: int) -> bool:
+    cache = mol_cache_dict(mol, "same_ring_system_attachment_cache")
+    key = (attachment_idx, parent_idx)
+    if key in cache:
+        return cache[key]
     attachment = mol.GetAtomWithIdx(attachment_idx)
     parent = mol.GetAtomWithIdx(parent_idx)
     if not attachment.IsInRing() or not parent.IsInRing():
+        cache[key] = False
         return False
     for system in graph_view(mol, Chem).ring_systems:
         if attachment_idx in system and parent_idx in system:
+            cache[key] = True
             return True
+    cache[key] = False
     return False
 
 

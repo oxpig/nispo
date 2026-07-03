@@ -1119,7 +1119,9 @@ def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
 
 
 def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
-    aromatic_view = _kekulized_aromatic_substituent_view(mol)
+    aromatic_view = None
+    if _attachment_multi_ring_system_is_carbocyclic(mol, attachment_idx, parent_idx):
+        aromatic_view = _kekulized_aromatic_substituent_view(mol)
     if aromatic_view is not None:
         prefix = _fused_ring_substituent_prefix_for_view(
             aromatic_view,
@@ -1207,10 +1209,21 @@ def _kekulized_aromatic_substituent_view(mol):
 
 
 def _attachment_in_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> bool:
+    return bool(_attachment_multi_ring_system(mol, attachment_idx, parent_idx))
+
+
+def _attachment_multi_ring_system_is_carbocyclic(mol, attachment_idx: int, parent_idx: int) -> bool:
+    system = _attachment_multi_ring_system(mol, attachment_idx, parent_idx)
+    if not system:
+        return False
+    return all(mol.GetAtomWithIdx(idx).GetSymbol() == "C" for idx in system)
+
+
+def _attachment_multi_ring_system(mol, attachment_idx: int, parent_idx: int) -> frozenset[int]:
     rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if parent_idx not in ring]
     containing = [ring for ring in rings if attachment_idx in ring]
     if not containing:
-        return False
+        return frozenset()
     system = set(containing[0])
     changed = True
     while changed:
@@ -1219,7 +1232,9 @@ def _attachment_in_multi_ring_system(mol, attachment_idx: int, parent_idx: int) 
             if system & ring and not ring <= system:
                 system.update(ring)
                 changed = True
-    return sum(1 for ring in rings if ring <= system) >= 2
+    if sum(1 for ring in rings if ring <= system) < 2:
+        return frozenset()
+    return frozenset(system)
 
 
 def _fused_ring_substituent_prefix_from_templates(

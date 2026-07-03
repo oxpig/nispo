@@ -313,6 +313,13 @@ def terminal_carboxylate_signal(ctx) -> bool:
 terminal_carboxylate_signal._nispo_requires_fact = "has_terminal_carboxylate_signal"
 
 
+def amide_acyl_signal(ctx) -> bool:
+    return ctx.facts.has_amide_acyl_motif
+
+
+amide_acyl_signal._nispo_requires_fact = "has_amide_acyl_motif"
+
+
 def dithiocarbamate_retained_signal(ctx) -> bool:
     return ctx.profile.has_dithiocarbamate_signal
 

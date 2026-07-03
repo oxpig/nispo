@@ -55,6 +55,11 @@ BYPASS_CALL_NAMES = {
     "ring_parent_candidates",
 }
 
+RULE_METADATA_PREFIXES = (
+    "_nispo_min_",
+    "_nispo_requires_",
+)
+
 
 def main() -> None:
     report = architectural_debt_report()
@@ -185,7 +190,11 @@ def _count_hidden_mol_cache_writes() -> int:
         if path.name == "molecule_cache.py":
             continue
         for node in ast.walk(_parse(path)):
-            if isinstance(node, ast.Attribute) and node.attr.startswith("_nispo_"):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr.startswith("_nispo_")
+                and not node.attr.startswith(RULE_METADATA_PREFIXES)
+            ):
                 if isinstance(node.ctx, (ast.Store, ast.Del)):
                     total += 1
             elif isinstance(node, ast.Call) and _is_setattr_hidden_cache_write(node):
@@ -198,7 +207,8 @@ def _is_setattr_hidden_cache_write(node: ast.Call) -> bool:
         return False
     if len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
         return False
-    return isinstance(node.args[1].value, str) and node.args[1].value.startswith("_nispo_")
+    value = node.args[1].value
+    return value.startswith("_nispo_") and not value.startswith(RULE_METADATA_PREFIXES)
 
 
 def _count_registry_bypass_calls() -> int:

@@ -22,6 +22,7 @@ class StructuralProfile:
     exocyclic_carbonyl_count: int
     halogenated_alkene_count: int
     carbonyl_count: int
+    amide_acyl_motif_count: int
     nonring_conjugated_diene_count: int
     nitrile_like_count: int
     sulfone_like_count: int
@@ -95,6 +96,10 @@ class StructuralProfile:
     @property
     def has_terminal_carboxylate_signal(self) -> bool:
         return self.has_formal_charge and self.carbonyl_count > 0
+
+    @property
+    def has_amide_acyl_motif(self) -> bool:
+        return self.amide_acyl_motif_count > 0
 
     @property
     def has_dithiocarbamate_signal(self) -> bool:
@@ -187,6 +192,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     exocyclic_carbonyl = 0
     halogenated_alkene = 0
     carbonyl = 0
+    amide_acyl_motifs = 0
     nitrile_like = 0
     sulfone_like = 0
     nonring_positive_sulfur = 0
@@ -306,6 +312,30 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         if any(nidx != end_idx for nidx in nonring_carbon_double_neighbors.get(begin_idx, ()))
         and any(nidx != begin_idx for nidx in nonring_carbon_double_neighbors.get(end_idx, ()))
     )
+    for carbon in mol.GetAtoms():
+        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
+            continue
+        cidx = carbon.GetIdx()
+        double_oxygen = 0
+        single_neutral_nonring_nitrogen = 0
+        single_carbon = 0
+        for nbr in carbon.GetNeighbors():
+            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
+            if bond is None:
+                continue
+            if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
+                double_oxygen += 1
+            elif (
+                nbr.GetSymbol() == "N"
+                and nbr.GetFormalCharge() == 0
+                and not nbr.IsInRing()
+                and bond.GetBondTypeAsDouble() == 1.0
+            ):
+                single_neutral_nonring_nitrogen += 1
+            elif nbr.GetSymbol() == "C" and bond.GetBondTypeAsDouble() == 1.0:
+                single_carbon += 1
+        if double_oxygen == 1 and single_neutral_nonring_nitrogen == 1 and single_carbon == 1:
+            amide_acyl_motifs += 1
 
     return StructuralProfile(
         ring_count=view.ring_count,
@@ -324,6 +354,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         exocyclic_carbonyl_count=exocyclic_carbonyl,
         halogenated_alkene_count=halogenated_alkene,
         carbonyl_count=carbonyl,
+        amide_acyl_motif_count=amide_acyl_motifs,
         nonring_conjugated_diene_count=conjugated_diene,
         nitrile_like_count=nitrile_like,
         sulfone_like_count=sulfone_like,

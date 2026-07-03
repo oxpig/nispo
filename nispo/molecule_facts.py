@@ -61,6 +61,7 @@ class MoleculeFacts:
     has_nitrile_oxide_signal: bool
     has_oxime_sulfonate_nitrile_signal: bool
     has_terminal_carboxylate_signal: bool
+    has_amide_acyl_motif: bool
     has_dithiocarbamate_signal: bool
     has_conjugated_carbonyl_diene_signal: bool
     has_nonring_multiple_bond: bool
@@ -155,6 +156,7 @@ def build_molecule_facts(
         has_nitrile_oxide_signal=bool(profile.has_nitrile_oxide_signal),
         has_oxime_sulfonate_nitrile_signal=bool(profile.has_oxime_sulfonate_nitrile_signal),
         has_terminal_carboxylate_signal=bool(profile.has_terminal_carboxylate_signal),
+        has_amide_acyl_motif=bool(profile.has_amide_acyl_motif),
         has_dithiocarbamate_signal=bool(profile.has_dithiocarbamate_signal),
         has_conjugated_carbonyl_diene_signal=bool(profile.has_conjugated_carbonyl_diene_signal),
         has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),

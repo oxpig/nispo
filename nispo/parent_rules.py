@@ -63,6 +63,7 @@ from .rule_dispatch import (
     RuleSpec,
     acyclic,
     acyclic_preference_signal,
+    amide_acyl_signal,
     boron_signal,
     chain_dominant_acyclic_parent_signal,
     charged_ring_atom,
@@ -21816,7 +21817,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "retained-amide-parent",
             parent_priority("senior-functional-exception"),
-            (functional_skeleton_signal, nitrogen_oxygen_signal),
+            (functional_skeleton_signal, nitrogen_oxygen_signal, amide_acyl_signal),
             retained_amide.candidates,
         ),
         RuleSpec(

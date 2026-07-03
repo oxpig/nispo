@@ -1043,9 +1043,10 @@ def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
 
 
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
-    facts = ctx.facts
-    if facts.ring_count < 3:
+    ring_count = ctx.mol.GetRingInfo().NumRings()
+    if ring_count < 3:
         return False
+    facts = ctx.facts
     if facts.has_component_spiro_topology:
         return False
     if facts.max_ring_system_cycle_rank != 2:
@@ -1061,10 +1062,10 @@ def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
 
 
 def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
-    facts = ctx.facts
-    ring_count = facts.ring_count
+    ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3 or ring_count > 5:
         return False
+    facts = ctx.facts
     if facts.has_component_spiro_topology:
         return False
     if facts.nonhalogen_hetero_atom_count > 6:
@@ -1084,10 +1085,10 @@ def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
 
 
 def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
-    facts = ctx.facts
-    ring_count = facts.ring_count
+    ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3 or ring_count > 5:
         return False
+    facts = ctx.facts
     if facts.has_component_spiro_topology:
         return False
     if facts.max_ring_system_cycle_rank != 2:

@@ -620,13 +620,20 @@ def _fast_monocycle_system_name(
     if selected is None:
         return ""
     if unsaturated_acyclic_rules and _single_ring_choice_can_consider_unsaturated_acyclic(selected):
+        extended_unsaturated_acyclic_context = _single_ring_choice_uses_extended_unsaturated_acyclic_context(selected)
         alternatives = _prepare_candidates(mol, Chem, ctx, unsaturated_acyclic_rules)
         if alternatives:
             keyed_items = [
                 (_prepared_candidate_selection_key(item, prepared + alternatives), item)
                 for item in [selected, *alternatives]
             ]
-            selected = _unsaturated_acyclic_alternative_for_single_ring_choice(keyed_items, selected) or selected
+            alternative = _unsaturated_acyclic_alternative_for_single_ring_choice(keyed_items, selected)
+            if alternative is not None:
+                selected = alternative
+            elif extended_unsaturated_acyclic_context:
+                return ""
+        elif extended_unsaturated_acyclic_context:
+            return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
@@ -2109,11 +2116,30 @@ _HIGH_CONFIDENCE_DETERMINISTIC_KEY_FAMILIES = frozenset(
 
 
 def _single_ring_choice_can_consider_unsaturated_acyclic(item: _PreparedCandidate) -> bool:
+    if not _single_ring_choice_has_unsaturated_acyclic_base_context(item):
+        return False
+    if _single_ring_choice_matches_narrow_unsaturated_acyclic_context(item):
+        return True
+    return _single_ring_choice_matches_extended_unsaturated_acyclic_context(item)
+
+
+def _single_ring_choice_has_unsaturated_acyclic_base_context(item: _PreparedCandidate) -> bool:
     candidate = item.candidate
     if candidate.family != "single-ring-parent":
         return False
     if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
         return False
+    if candidate.parent_internal_unsaturated_bond_count:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return True
+
+
+def _single_ring_choice_matches_narrow_unsaturated_acyclic_context(item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
     if candidate.render_rank is not None and candidate.render_rank > 2:
         return False
     if len(item.name) > 90:
@@ -2124,13 +2150,20 @@ def _single_ring_choice_can_consider_unsaturated_acyclic(item: _PreparedCandidat
         return False
     if candidate.parent_external_isotope_hydrogen_count:
         return False
-    if candidate.parent_internal_unsaturated_bond_count:
-        return False
-    if candidate.charge is not None or candidate.suffixes:
-        return False
-    if candidate_safety_reasons(candidate):
-        return False
     return True
+
+
+def _single_ring_choice_matches_extended_unsaturated_acyclic_context(item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
+    if candidate.render_rank is not None and candidate.render_rank > 3:
+        return False
+    return len(item.name) <= 125
+
+
+def _single_ring_choice_uses_extended_unsaturated_acyclic_context(item: _PreparedCandidate) -> bool:
+    return _single_ring_choice_can_consider_unsaturated_acyclic(
+        item
+    ) and not _single_ring_choice_matches_narrow_unsaturated_acyclic_context(item)
 
 
 def _unsaturated_acyclic_alternative_for_single_ring_choice(
@@ -2152,7 +2185,7 @@ def _unsaturated_acyclic_alternative_for_single_ring_choice(
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
             continue
         parent_count = len(candidate.parent_atoms)
-        if parent_count < 4 or parent_count > 16:
+        if parent_count < 4 or parent_count > 22:
             continue
         if candidate.parent_internal_unsaturated_bond_count < 1:
             continue
@@ -2160,17 +2193,20 @@ def _unsaturated_acyclic_alternative_for_single_ring_choice(
             continue
         if candidate_safety_reasons(candidate):
             continue
-        if len(item.name) > 110 or len(item.name) - len(selected.name) > 80:
+        if len(item.name) > 175 or len(item.name) - len(selected.name) > 140:
             continue
-        if item.stability_penalty > selected.stability_penalty + 170:
+        if item.stability_penalty > selected.stability_penalty + 280:
             continue
-        if candidate_key[0] > selected_key[0] + 220:
+        if candidate_key[0] > selected_key[0] + 340:
+            continue
+        if _guarded_unsaturated_acyclic_alternative_blocks(selected, item):
             continue
         alternatives.append(
             (
                 (
                     candidate_key[0],
                     -candidate.parent_internal_unsaturated_bond_count,
+                    -len(candidate.parent_atoms),
                     len(item.name) - item.selection_bonus,
                     len(item.name),
                     candidate_key,
@@ -2181,6 +2217,54 @@ def _unsaturated_acyclic_alternative_for_single_ring_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _guarded_unsaturated_acyclic_alternative_blocks(
+    selected: _PreparedCandidate,
+    item: _PreparedCandidate,
+) -> bool:
+    selected_candidate = selected.candidate
+    candidate = item.candidate
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    parent_count = len(candidate.parent_atoms)
+    length_delta = len(item.name) - len(selected.name)
+    if (
+        selected_candidate.parent_hetero_atom_count
+        and parent_count < selected_parent_count
+        and selected_candidate.parent_external_nitrogen_substituent_count == 0
+    ):
+        return True
+    selected_is_aromatic_carbocycle = (
+        selected_parent_count > 0
+        and selected_candidate.parent_hetero_atom_count == 0
+        and selected_candidate.parent_aromatic_atom_count == selected_parent_count
+    )
+    if not selected_is_aromatic_carbocycle:
+        return False
+    if (
+        selected_candidate.parent_external_oxygen_substituent_count
+        and length_delta > 15
+        and candidate.parent_internal_unsaturated_bond_count <= 2
+        and parent_count <= 12
+    ):
+        return True
+    if (
+        len(selected.name) > 110
+        and length_delta > -5
+        and candidate.parent_internal_unsaturated_bond_count <= 3
+        and parent_count >= 18
+    ):
+        return True
+    parent_elements = {element for element, _count in candidate.parent_element_counts}
+    if (
+        length_delta > 20
+        and candidate.parent_internal_unsaturated_bond_count <= 2
+        and parent_count >= 14
+        and {"N", "O", "S"} <= parent_elements
+        and selected_candidate.parent_terminal_hetero_substituent_count == 0
+    ):
+        return True
+    return False
 
 
 def _deterministic_key_winner_is_high_confidence(item: _PreparedCandidate) -> bool:

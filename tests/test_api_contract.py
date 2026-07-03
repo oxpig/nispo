@@ -703,6 +703,12 @@ def test_retained_hydro_alias_route_roundtrips_with_opsin(input_smiles):
         "NCC=[SH]c1ccccn1",
         "CCCCc1ccc(C#CC(=O)c2ccc(OC)cc2)cc1",
         "O=C(ON=Nc1ccc(OCCCCCl)cc1)c1ccccc1",
+        "c1ccc(NN=NN(c2ccccc2)c2cc[nH]n2)cc1",
+        "NC(=N/N=C/c1ccc(Cl)cc1)N/N=C/c1ccc(Cl)cc1",
+        "CCOCCC(C)=Nc1ccnn1Cc1ccc(OC)cc1",
+        "CCOC(=O)C(=NNc1nccs1)C(=O)c1ccccc1",
+        "CC(C)C(N)C(=O)Nc1ccc(C#Cc2ccccc2)cc1",
+        "CNC(=O)/C(=N/OC)c1cccc(C)c1CO/N=C(\\COC)c1c(F)cc(F)cc1F",
     ],
 )
 def test_unsaturated_acyclic_alternative_for_single_ring_roundtrips_with_opsin(input_smiles):

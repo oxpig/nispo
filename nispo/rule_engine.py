@@ -230,6 +230,17 @@ _FAST_POLY_RETAINED_DEFER_LATE_ACYCLIC_FAMILIES = frozenset(
         "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
     }
 )
+_EXPLICIT_ISOTOPE_HYDROGEN_RETAINED_RULE_FAMILIES = frozenset(
+    {
+        "whole-molecule-retained-parent",
+        "exact-retained-parent",
+        "exact-functional-retained-parent",
+        "exact-biochemical-retained-parent",
+        "retained-ring-scaffold-parent",
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
+    }
+)
 _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS = frozenset({6, 7, 8, 9, 16, 17, 35, 53})
 _FAST_MULTI_MONOCYCLE_SENIOR_BLOCKED_FAMILIES = frozenset(
     {
@@ -335,6 +346,9 @@ class NamingEngine:
         self._fast_multi_monocycle_senior_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_MULTI_MONOCYCLE_SENIOR_RULE_FAMILIES
         )
+        self._explicit_isotope_hydrogen_retained_rules = tuple(
+            rule for rule in self._rules if rule.family in _EXPLICIT_ISOTOPE_HYDROGEN_RETAINED_RULE_FAMILIES
+        )
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
@@ -413,6 +427,15 @@ class NamingEngine:
         )
         if low_hetero_senior_name:
             return low_hetero_senior_name
+        isotope_hydrogen_retained_name = _explicit_isotope_hydrogen_retained_name(
+            mol,
+            self._Chem,
+            ctx,
+            self._explicit_isotope_hydrogen_retained_rules,
+            telemetry=telemetry,
+        )
+        if isotope_hydrogen_retained_name:
+            return isotope_hydrogen_retained_name
         routed_polycyclic_name = ""
         if mol.GetRingInfo().NumRings() >= 2 and _largest_ring_system_cycle_rank(ctx) >= 2:
             routed_polycyclic_name = _fast_polycyclic_route_name(
@@ -604,6 +627,22 @@ def _fast_poly_low_hetero_senior_name(
         _prepare_candidates(mol, Chem, ctx, rules),
         telemetry=telemetry,
     )
+
+
+def _explicit_isotope_hydrogen_retained_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if not _mol_has_explicit_isotope_hydrogen(mol):
+        return ""
+    prepared = _prepare_candidates(mol, Chem, ctx, rules)
+    if not prepared:
+        return ""
+    return _select_best_prepared_candidate(prepared, telemetry=telemetry)
 
 
 def _fast_polycyclic_route_name(
@@ -18156,28 +18195,78 @@ def _apply_uniform_isotope_label(mol, name: str) -> str:
         return name
     if not _mol_has_isotope(mol):
         return name
-    labels: list[tuple[str, int, int]] = []
-    for symbol in sorted({atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetSymbol() != "H"}):
-        atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == symbol]
-        isotopes = {atom.GetIsotope() for atom in atoms}
-        if len(isotopes) != 1:
-            continue
-        isotope = next(iter(isotopes))
-        if isotope:
-            labels.append((symbol, isotope, len(atoms)))
+    labels = _heavy_isotope_label_groups(mol)
     if len(labels) != 1:
+        multi_label_name = _multi_heavy_isotope_prefix_name(name, labels)
+        if multi_label_name:
+            return multi_label_name
         return name
-    symbol, isotope, count = labels[0]
+    symbol, isotope, count, total_count = labels[0]
     if f"{isotope}{symbol}" in name:
         return name
     if symbol == "C" and isotope in {13, 14}:
+        if count != total_count:
+            count_text = str(count) if count > 1 else ""
+            if _prefers_prefix_carbon_isotope_label(name):
+                return f"[{isotope}{symbol}{count_text}]{name}"
+            return f"{name}-{isotope}{symbol}{count_text}"
         count_text = str(count) if count > 1 else ""
+        return f"{name}-{isotope}{symbol}{count_text}"
+    if symbol == "C":
+        count_text = str(count) if count > 1 else ""
+        if _prefers_prefix_carbon_isotope_label(name):
+            return f"[{isotope}{symbol}{count_text}]{name}"
         return f"{name}-{isotope}{symbol}{count_text}"
     if symbol == "F" and isotope == 18 and count == 1:
         return _inline_single_fluorine_isotope(name)
     if symbol == "N" and count == 1 and not name.startswith("("):
         return f"[{isotope}{symbol}]{name}"
+    if symbol in {"B", "N", "O", "P", "S", "Se"} and not name.startswith("("):
+        count_text = str(count) if count > 1 else ""
+        return f"[{isotope}{symbol}{count_text}]{name}"
     return name
+
+
+def _heavy_isotope_label_groups(mol) -> list[tuple[str, int, int, int]]:
+    totals: dict[str, int] = {}
+    labeled: dict[tuple[str, int], int] = {}
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() <= 1:
+            continue
+        symbol = atom.GetSymbol()
+        totals[symbol] = totals.get(symbol, 0) + 1
+        isotope = atom.GetIsotope()
+        if isotope:
+            key = (symbol, isotope)
+            labeled[key] = labeled.get(key, 0) + 1
+    return [
+        (symbol, isotope, count, totals.get(symbol, count))
+        for (symbol, isotope), count in sorted(labeled.items())
+    ]
+
+
+def _prefers_prefix_carbon_isotope_label(name: str) -> bool:
+    if name.startswith("("):
+        return False
+    if re.match(r"^\d", name):
+        return False
+    if len(name) > 16:
+        return False
+    return not any(token in name for token in (",", "(", ")", "[", "]"))
+
+
+def _multi_heavy_isotope_prefix_name(name: str, labels: list[tuple[str, int, int, int]]) -> str:
+    if not labels or len(labels) > 3 or name.startswith("("):
+        return ""
+    if any(f"{isotope}{symbol}" in name for symbol, isotope, _count, _total in labels):
+        return ""
+    if len(name) > 24 and name not in {"urea", "hydrazine"}:
+        return ""
+    label_text = ",".join(
+        f"{isotope}{symbol}{count if count > 1 else ''}"
+        for symbol, isotope, count, _total in labels
+    )
+    return f"[{label_text}]{name}"
 
 
 def _inline_single_fluorine_isotope(name: str) -> str:
@@ -18191,6 +18280,17 @@ def _mol_has_isotope(mol) -> bool:
     if cached is not None:
         return cached
     return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
+
+
+def _mol_has_explicit_isotope_hydrogen(mol) -> bool:
+    cached = mol_cache_get(mol, "has_explicit_isotope_hydrogen")
+    if cached is not None:
+        return cached
+    return mol_cache_set(
+        mol,
+        "has_explicit_isotope_hydrogen",
+        any(atom.GetAtomicNum() == 1 and atom.GetIsotope() in {2, 3} for atom in mol.GetAtoms()),
+    )
 
 
 def _fallback_stereo_atom_order(family: str, name: str = "", *, stereo_locant_count: int = 0) -> str:

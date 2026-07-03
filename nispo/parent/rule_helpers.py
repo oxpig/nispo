@@ -1328,6 +1328,8 @@ def _name_fused_core_match(
             nidx = nbr.GetIdx()
             if nidx in core_set:
                 continue
+            if nbr.GetAtomicNum() == 1 and nbr.GetIsotope() in _ISOTOPE_HYDROGEN_PREFIX:
+                continue
             if not locant:
                 cache[cache_key] = ""
                 return ""
@@ -1536,6 +1538,16 @@ def _match_has_unlocanted_external_substitution(
 def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[int], parent_name: str) -> str:
     if not _molecule_has_isotope(mol):
         return parent_name
+    parent_name = _template_heavy_isotope_prefixed_parent_name(mol, template, match, parent_name)
+    return _template_isotope_hydrogen_prefixed_parent_name(mol, template, match, parent_name)
+
+
+def _template_heavy_isotope_prefixed_parent_name(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    parent_name: str,
+) -> str:
     grouped: dict[tuple[str, int], list[str]] = {}
     locants = template_record_locants(template)
     for template_idx, mol_idx in enumerate(match):
@@ -1556,6 +1568,92 @@ def _template_isotope_prefixed_parent_name(mol, template: dict, match: Sequence[
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
         prefixes.append(f"({','.join(ordered)}-{isotope}{symbol}{count_text})")
     return "".join(prefixes) + parent_name if prefixes else parent_name
+
+
+_ISOTOPE_HYDROGEN_PREFIX = {
+    2: "deuterio",
+    3: "tritio",
+}
+
+
+def _template_isotope_hydrogen_prefixed_parent_name(
+    mol,
+    template: dict,
+    match: Sequence[int],
+    parent_name: str,
+) -> str:
+    if any(prefix in parent_name for prefix in _ISOTOPE_HYDROGEN_PREFIX.values()):
+        return parent_name
+    locants = template_record_locants(template)
+    reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
+    match_set = set(match)
+    grouped: dict[int, list[str]] = {}
+    for atom in mol.GetAtoms():
+        isotope = atom.GetIsotope()
+        if atom.GetAtomicNum() != 1 or isotope not in _ISOTOPE_HYDROGEN_PREFIX:
+            continue
+        heavy_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy_neighbors) != 1:
+            return parent_name
+        heavy_idx = heavy_neighbors[0].GetIdx()
+        if heavy_idx not in match_set:
+            return parent_name
+        template_idx = reverse.get(heavy_idx)
+        if template_idx is None:
+            return parent_name
+        locant = locants.get(template_idx, "")
+        if not locant:
+            return parent_name
+        grouped.setdefault(isotope, []).append(str(locant))
+    if not grouped:
+        return parent_name
+    prefixes = []
+    for isotope, isotope_locants in sorted(grouped.items()):
+        ordered = sorted(isotope_locants, key=_locant_sort_key)
+        multiplier = MULT.get(len(ordered), "")
+        locants_text = ",".join(ordered)
+        prefixes.append(f"{locants_text}-{multiplier}{_ISOTOPE_HYDROGEN_PREFIX[isotope]}")
+    return _join_prefix_parent("-".join(prefixes), parent_name)
+
+
+def _template_atom_count_compatible_with_isotope_hydrogens(mol, template_mol) -> bool:
+    template_atom_count = template_mol.GetNumAtoms()
+    if template_atom_count == mol.GetNumAtoms():
+        return True
+    if not _molecule_has_explicit_isotope_hydrogen(mol):
+        return False
+    return template_atom_count == _heavy_atom_count(mol) and _only_explicit_isotope_hydrogens_outside_heavy_graph(mol)
+
+
+def _match_covers_molecule_except_isotope_hydrogens(mol, match: Sequence[int]) -> bool:
+    match_set = set(match)
+    heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    if match_set != heavy_atoms:
+        return False
+    return _only_explicit_isotope_hydrogens_outside_heavy_graph(mol)
+
+
+def _molecule_has_explicit_isotope_hydrogen(mol) -> bool:
+    return any(
+        atom.GetAtomicNum() == 1 and atom.GetIsotope() in _ISOTOPE_HYDROGEN_PREFIX
+        for atom in mol.GetAtoms()
+    )
+
+
+def _heavy_atom_count(mol) -> int:
+    return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
+
+
+def _only_explicit_isotope_hydrogens_outside_heavy_graph(mol) -> bool:
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() > 1:
+            continue
+        if atom.GetIsotope() not in _ISOTOPE_HYDROGEN_PREFIX:
+            return False
+        heavy_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy_neighbors) != 1:
+            return False
+    return True
 
 
 def _molecule_has_isotope(mol) -> bool:

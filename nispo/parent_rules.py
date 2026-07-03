@@ -17510,8 +17510,6 @@ class WholeMoleculeRetainedParentRule:
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        atom_count = mol.GetNumAtoms()
-        atom_set = set(range(atom_count))
         formal_charge = _formal_charge(mol)
         has_stereo_evidence = _has_stereo_evidence(mol, self._Chem)
         for template in ctx.candidate_templates(self._templates(), exact_atom_count=True):
@@ -17520,7 +17518,7 @@ class WholeMoleculeRetainedParentRule:
                 continue
             if _should_defer_natural_product_to_generic_polycycle(ctx, mol, self._Chem, template):
                 continue
-            if template_record_mol(template).GetNumAtoms() != atom_count:
+            if not _template_atom_count_compatible_with_isotope_hydrogens(mol, template_record_mol(template)):
                 continue
             if _formal_charge(template_record_mol(template)) != formal_charge:
                 continue
@@ -17529,7 +17527,9 @@ class WholeMoleculeRetainedParentRule:
             if template.get("stereochemical") and not has_stereo_evidence:
                 continue
             for match in ctx.template_matches(template):
-                if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
+                if not _match_covers_molecule_except_isotope_hydrogens(mol, match):
+                    continue
+                if _match_has_extra_core_bonds(mol, template, match):
                     continue
                 candidate_name = _template_isotope_prefixed_parent_name(mol, template, match, name)
                 candidate_name = _opsin_parseable_retained_parent_name(candidate_name)
@@ -21259,23 +21259,27 @@ class ExactRetainedParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() == 0 or not ctx.features["all_atoms_in_one_ring_system"]:
+        if mol.GetRingInfo().NumRings() == 0 or not (
+            ctx.features["all_atoms_in_one_ring_system"]
+            or ctx.features.get("all_heavy_atoms_in_one_ring_system")
+        ):
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
-        atom_count = mol.GetNumAtoms()
-        atom_set = set(range(atom_count))
         for template in self._template_iter(ctx):
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
-            if template_record_mol(template).GetNumAtoms() != atom_count:
+            if not _template_atom_count_compatible_with_isotope_hydrogens(mol, template_record_mol(template)):
                 continue
             if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
                 continue
             for match in ctx.template_matches(template):
-                if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                if _match_covers_molecule_except_isotope_hydrogens(
+                    mol,
+                    match,
+                ) and not _match_has_extra_core_bonds(mol, template, match):
                     if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
                     family = (
@@ -21324,17 +21328,18 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
             return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
-        atom_count = mol.GetNumAtoms()
-        atom_set = set(range(atom_count))
         for template in self._template_iter(ctx):
             if template.get("stereochemical") and not _has_stereo_evidence(mol, self._Chem):
                 continue
-            if template_record_mol(template).GetNumAtoms() != atom_count:
+            if not _template_atom_count_compatible_with_isotope_hydrogens(mol, template_record_mol(template)):
                 continue
             if _formal_charge(template_record_mol(template)) != _formal_charge(mol):
                 continue
             for match in ctx.template_matches(template):
-                if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                if _match_covers_molecule_except_isotope_hydrogens(
+                    mol,
+                    match,
+                ) and not _match_has_extra_core_bonds(mol, template, match):
                     if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
                     family = (
@@ -22098,6 +22103,8 @@ from .parent.rule_helpers import (
     _has_stereo_evidence,
     _locanted_template_stereo_prefix,
     _template_isotope_prefixed_parent_name,
+    _template_atom_count_compatible_with_isotope_hydrogens,
+    _match_covers_molecule_except_isotope_hydrogens,
     _topology_query,
     _template_has_one_ring_system,
     _template_is_fully_aromatic,

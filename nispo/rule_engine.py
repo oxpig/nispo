@@ -69,9 +69,18 @@ _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset(
     }
 )
 _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES = frozenset({"component-spiro-parent"})
+_FAST_COMPONENT_SPIRO_SKELETAL_REPLACEMENT_RULE_FAMILIES = frozenset(
+    {"skeletal-replacement-fused-parent"}
+)
 _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
     {
         "kekulized-generic-polycyclic-parent",
+    }
+)
+_FAST_POLY_BRIDGE_RETAINED_HYDRO_RULE_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "hydro-fused-retained-parent",
     }
 )
 _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
@@ -334,8 +343,16 @@ class NamingEngine:
         self._fast_component_spiro_route_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_COMPONENT_SPIRO_ROUTE_RULE_FAMILIES
         )
+        self._fast_component_spiro_skeletal_replacement_rules = tuple(
+            rule
+            for rule in self._rules
+            if rule.family in _FAST_COMPONENT_SPIRO_SKELETAL_REPLACEMENT_RULE_FAMILIES
+        )
         self._fast_poly_bridge_route_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES
+        )
+        self._fast_poly_bridge_retained_hydro_rules = tuple(
+            rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_RETAINED_HYDRO_RULE_FAMILIES
         )
         self._fast_poly_pre_route_senior_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES
@@ -443,7 +460,9 @@ class NamingEngine:
                 self._Chem,
                 ctx,
                 component_spiro_rules=self._fast_component_spiro_route_rules,
+                component_spiro_skeletal_replacement_rules=self._fast_component_spiro_skeletal_replacement_rules,
                 bridge_rules=self._fast_poly_bridge_route_rules,
+                bridge_retained_hydro_rules=self._fast_poly_bridge_retained_hydro_rules,
                 telemetry=telemetry,
             )
         if routed_polycyclic_name:
@@ -473,6 +492,15 @@ class NamingEngine:
                     telemetry=telemetry,
                 )
             if route_miss_name:
+                retained_hydro_name = _fast_retained_hydro_override_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._fast_poly_bridge_retained_hydro_rules,
+                    telemetry=telemetry,
+                )
+                if retained_hydro_name:
+                    return retained_hydro_name
                 return route_miss_name
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
@@ -651,37 +679,99 @@ def _fast_polycyclic_route_name(
     ctx: MoleculeContext,
     *,
     component_spiro_rules: Iterable[RuleSpec],
+    component_spiro_skeletal_replacement_rules: Iterable[RuleSpec],
     bridge_rules: Iterable[RuleSpec],
+    bridge_retained_hydro_rules: Iterable[RuleSpec],
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
     ring_count = mol.GetRingInfo().NumRings()
     if ring_count < 2:
         return ""
     if ctx.has_component_spiro_topology:
-        name = _select_best_prepared_candidate(
-            _prepare_candidates(mol, Chem, ctx, component_spiro_rules),
-            telemetry=telemetry,
-        )
-        if name:
-            return name
+        component_prepared = _prepare_candidates(mol, Chem, ctx, component_spiro_rules)
+        selected = _select_best_prepared_candidate_item(component_prepared)
+        if selected is not None:
+            if _component_spiro_route_needs_skeletal_replacement_alternative(selected):
+                replacement_prepared = _prepare_candidates(
+                    mol,
+                    Chem,
+                    ctx,
+                    component_spiro_skeletal_replacement_rules,
+                )
+                if replacement_prepared:
+                    selected = (
+                        _select_best_prepared_candidate_item(component_prepared + replacement_prepared)
+                        or selected
+                    )
+            return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
     if ring_count < 3:
         return ""
     had_route_prop = mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP)
     previous_route_prop = mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP) if had_route_prop else ""
     mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, "1")
     try:
-        return _first_valid_candidate_name(
+        bridge_selected = _first_valid_prepared_candidate(
             mol,
             Chem,
             ctx,
             bridge_rules,
+        )
+        if bridge_selected is None:
+            return ""
+        if had_route_prop:
+            mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
+        else:
+            mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+        retained_hydro_name = _fast_retained_hydro_override_name(
+            mol,
+            Chem,
+            ctx,
+            bridge_retained_hydro_rules,
             telemetry=telemetry,
         )
+        mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, "1")
+        if retained_hydro_name:
+            return retained_hydro_name
+        return _record_and_return_prepared_candidate(bridge_selected, telemetry=telemetry)
     finally:
         if had_route_prop:
             mol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, previous_route_prop)
         else:
             mol.ClearProp(FAST_POLY_BRIDGE_ROUTE_PROP)
+
+
+def _component_spiro_route_needs_skeletal_replacement_alternative(
+    selected: _PreparedCandidate,
+) -> bool:
+    candidate = selected.candidate
+    if candidate.family != "component-spiro-parent":
+        return False
+    if candidate.parent_atoms and candidate_has_complete_graph(candidate):
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+def _fast_retained_hydro_override_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    prepared = _prepare_candidates(mol, Chem, ctx, rules)
+    if not prepared:
+        return ""
+    keyed_items = [(_prepared_candidate_selection_key(item, prepared), item) for item in prepared]
+    for _key, item in sorted(keyed_items, key=lambda keyed: keyed[0]):
+        if item.candidate.family != "fused-retained-parent":
+            continue
+        selected = _hydro_retained_alternative_for_retained_fused_choice(keyed_items, item)
+        if selected is not None:
+            return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+    return ""
 
 
 def _retained_deferred_poly_route_miss_name(
@@ -1490,6 +1580,11 @@ def _candidate_fact_ranked_item(
 ) -> _PreparedCandidate | None:
     if current is None or len(keyed_items) < 2:
         return current
+    selected_item = _hydro_retained_alternative_for_retained_fused_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
+    if _deterministic_key_winner_is_high_confidence(current):
+        return current
     metrics = _candidate_fact_ranker_row_metrics([item for _key, item in keyed_items])
     try:
         current_facts = _candidate_fact_ranker_facts(current, metrics)
@@ -1670,6 +1765,13 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _hydro_retained_alternative_for_retained_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _high_confidence_generated_fused_template_alternative(
             keyed_items,
             selected_item,
@@ -1741,6 +1843,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _retained_amide_alternative_for_spiro_carboxamide_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice(
             keyed_items,
             selected_item,
         )
@@ -1954,6 +2063,51 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+
+
+_HIGH_CONFIDENCE_DETERMINISTIC_KEY_FAMILIES = frozenset(
+    {
+        "exact-biochemical-retained-parent",
+        "exact-functional-retained-parent",
+        "exact-retained-parent",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "whole-molecule-retained-parent",
+    }
+)
+
+
+def _deterministic_key_winner_is_high_confidence(item: _PreparedCandidate) -> bool:
+    """Preserve strong graph-complete key winners from learned post-rank switches."""
+
+    candidate = item.candidate
+    if item.stability_penalty:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if candidate.family not in _HIGH_CONFIDENCE_DETERMINISTIC_KEY_FAMILIES:
+        return True
+    if candidate.family == "whole-molecule-retained-parent":
+        return len(candidate.parent_atoms) >= 6
+    if candidate.family == "fused-retained-parent":
+        if candidate.source_family == "static-retained":
+            return False
+        if candidate.render_rank is not None and candidate.render_rank > 4:
+            return False
+        return len(candidate.parent_atoms) >= 9
+    if candidate.family in {
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+    }:
+        if candidate.render_rank is None or candidate.render_rank > 3:
+            return False
+        return len(candidate.parent_atoms) >= 8
+    return True
 
 
 _ADAMANTANE_TEMPLATELESS_PARENT_COMPETITOR_FAMILIES = frozenset(
@@ -2649,6 +2803,12 @@ def _acyclic_parent_alternative_for_unsaturated_neutral_amine_choice(
 _SPIRO_PYRAZOLO_AZEPINE_CARBOXAMIDE_TEMPLATE = (
     "8-oxo-spiro[6,7-dihydro-4H-pyrazolo[3,4-c]azepine-5,4'-oxane]"
 )
+_HYDRO_RETAINED_ALIAS_REPLACEMENT_TEMPLATES = frozenset(
+    {
+        "1,2,3,4-tetrahydroquinoline",
+        "1,2,3,4-tetrahydroquinoxaline",
+    }
+)
 
 
 def _retained_amide_alternative_for_spiro_carboxamide_choice(
@@ -2712,6 +2872,88 @@ def _retained_amide_alternative_for_spiro_carboxamide_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "component-spiro-parent":
+        return None
+    if selected_candidate.parent_atoms and candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "skeletal-replacement-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not (candidate.template_name or "").startswith("spiro["):
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 2:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_count = len(candidate.parent_atoms)
+        if parent_count < 10 or parent_count > 24:
+            continue
+        if _is_low_confidence_generated_spiro_skeletal_replacement(candidate):
+            continue
+        if candidate.suffixes or candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 220 or len(item.name) - len(selected.name) > 120:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 190:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    candidate.render_rank,
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_low_confidence_generated_spiro_skeletal_replacement(candidate: NameCandidate) -> bool:
+    if candidate.family != "skeletal-replacement-fused-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if len(candidate.parent_atoms) != 11:
+        return False
+    if candidate.parent_element_counts != (("C", 8), ("N", 2), ("O", 1)):
+        return False
+    if candidate.parent_external_unsaturated_bond_count:
+        return False
+    return candidate.parent_internal_unsaturated_bond_count == 0
 
 
 _ZERO_PARENT_RETAINED_FUNCTIONAL_SINGLE_RING_FAMILIES = frozenset(
@@ -5415,6 +5657,74 @@ def _generated_hydro_fused_alternative_for_retained_fused_choice(
                 item,
             )
         )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _hydro_retained_alternative_for_retained_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "fused-retained-parent":
+        return None
+    if selected_candidate.template_name not in _HYDRO_RETAINED_ALIAS_REPLACEMENT_TEMPLATES:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 9 or selected_parent_count > 14:
+        return None
+    if not selected_candidate.stereo_locants:
+        return None
+    if selected_candidate.parent_external_unsaturated_bond_count < 1:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_rank = selected_candidate.render_rank
+    if selected_rank is not None and selected_rank > 3:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "hydro-fused-retained-parent":
+            continue
+        if candidate.source_family != "opsin-retained-ring-cml":
+            continue
+        if candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+            continue
+        if candidate.parent_atoms != selected_candidate.parent_atoms:
+            continue
+        if not candidate_has_complete_graph(candidate):
+            continue
+        if set(candidate.stereo_locants) != set(selected_candidate.stereo_locants):
+            continue
+        if candidate.parent_element_counts != selected_candidate.parent_element_counts:
+            continue
+        if candidate.parent_external_unsaturated_bond_count != selected_candidate.parent_external_unsaturated_bond_count:
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 180:
+            continue
+        alternatives.append((candidate_key, item))
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
@@ -11059,6 +11369,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         return 0
     if _is_exact_high_impact_retained_lactone_parent(item.candidate):
         return 0
+    if _is_high_confidence_amino_acid_retained_parent(item.candidate):
+        return 0
     name = item.name
     retained_lactone_topology = _has_contextual_retained_lactone_topology_candidate(item, prepared)
     exact_high_impact_lactone_parent = _has_contextual_exact_high_impact_retained_lactone_parent(
@@ -11234,6 +11546,9 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     )
     generated_partial_hydro_templateless_parent = (
         _has_contextual_templateless_parent_alternative_for_generated_partial_hydro(item, prepared)
+    )
+    retained_topology_generated_partial_hydro_parent = (
+        _has_contextual_generated_partial_hydro_parent_alternative_for_retained_topology(item, prepared)
     )
     low_confidence_indan_topology_parent = _has_contextual_low_confidence_indan_topology_parent(
         item,
@@ -11425,6 +11740,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or low_confidence_fused_template_parent_penalty
         or low_confidence_retained_topology_parent_penalty
         or generated_partial_hydro_templateless_parent
+        or retained_topology_generated_partial_hydro_parent
         or low_confidence_indan_topology_parent
         or broad_incomplete_shortcut_graph_parent
         or strict_incomplete_shortcut_graph_parent
@@ -11709,6 +12025,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += low_confidence_retained_topology_parent_penalty
     if generated_partial_hydro_templateless_parent:
         penalty += _GENERATED_PARTIAL_HYDRO_TEMPLATELESS_PARENT_PENALTY
+    if retained_topology_generated_partial_hydro_parent:
+        penalty += 140
     if low_confidence_indan_topology_parent:
         penalty += _LOW_CONFIDENCE_INDAN_TOPOLOGY_TEMPLATELESS_PARENT_PENALTY
     if broad_incomplete_shortcut_graph_parent:
@@ -11842,6 +12160,16 @@ def _candidate_selection_contextual_bonus(item: _PreparedCandidate, prepared: li
     if _has_contextual_preferred_generated_exact_orientation(item, prepared):
         bonus += 24
     return bonus
+
+
+def _is_high_confidence_amino_acid_retained_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "amino-acid-retained-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    return len(candidate.parent_atoms) >= 5
 
 
 def _has_contextual_preferred_generated_exact_orientation(
@@ -13523,6 +13851,52 @@ def _has_contextual_templateless_parent_alternative_for_generated_partial_hydro(
         max_extra=170,
         max_stability_extra=240,
     )
+
+
+def _has_contextual_generated_partial_hydro_parent_alternative_for_retained_topology(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.family != "retained-topology-replacement-fused-parent":
+        return False
+    if not candidate_has_complete_graph(candidate) or not candidate.parent_atoms:
+        return False
+    if candidate.render_rank is not None and candidate.render_rank > 2:
+        return False
+    if candidate.suffixes or candidate.charge is not None or candidate_safety_reasons(candidate):
+        return False
+    parent_count = len(candidate.parent_atoms)
+    if parent_count < 8:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if other_candidate.family != "generated-partial-hydro-fused-parent":
+            continue
+        if other_candidate.source_family != "generated-fused":
+            continue
+        if other_candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not candidate_has_complete_graph(other_candidate) or not other_candidate.parent_atoms:
+            continue
+        if other_candidate.render_rank is None or other_candidate.render_rank > 3:
+            continue
+        if other_candidate.suffixes or other_candidate.charge is not None or candidate_safety_reasons(other_candidate):
+            continue
+        if len(other.name) > 160 or len(other.name) - len(item.name) > 90:
+            continue
+        if other.stability_penalty > item.stability_penalty + 80:
+            continue
+        if other_candidate.parent_atoms == candidate.parent_atoms:
+            return True
+        if (
+            len(other_candidate.parent_atoms) == parent_count
+            and other_candidate.parent_element_counts == candidate.parent_element_counts
+        ):
+            return True
+    return False
 
 
 def _has_contextual_low_confidence_indan_topology_parent(

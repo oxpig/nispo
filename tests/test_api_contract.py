@@ -552,6 +552,23 @@ def test_targeted_generated_fused_alias_expansion_roundtrips_with_opsin(input_sm
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C1CC2(CCCc3ccccc32)CN1",
+        "CN1CC2(CCc3ccc(N)cc32)CC1=O",
+        "CN1C(=O)c2c([nH]c(-c3ccnc(NC(=O)Cc4ccc(F)cc4)c3)c2Nc2ccccc2)CC12CCC2",
+        "Fc1ccc(-c2nn3c(c2-c2ccnc4[nH]ncc24)OCC2(CC2)C3)nc1",
+    ],
+)
+def test_generated_spiro_skeletal_replacement_route_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "c1c[nH]c2nccc-2n1",
         "c1ncc2ccc3nncc3c2[nH]1",
         "c1cc2c(ccc3n[nH]cc32)cn1",
@@ -648,6 +665,23 @@ def test_retained_quinoxalin_dicarbonyl_parent_roundtrips_with_opsin(
 
 def test_retained_hydro_fused_template_pair_roundtrips_with_opsin():
     input_smiles = "Cc1cc(C#C[C@]2(O)CCc3cccnc32)cc(-c2ncc3ccnc(N)c3n2)c1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "O=C1CNc2ccccc2N1Br",
+        "O=C1CNc2cc(-c3ccccc3)ccc2N1",
+        "O=C1CC(c2nccs2)Cc2[nH]c3ccc(Cl)cc3c(=O)c21",
+        "Cc1ccc2[nH]c3nc4c(c(N)c3c2c1)CCCC4",
+    ],
+)
+def test_retained_hydro_alias_route_roundtrips_with_opsin(input_smiles):
     generated_name = smiles_to_iupac(input_smiles)
     assert generated_name
 

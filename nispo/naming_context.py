@@ -95,6 +95,9 @@ class ContextCache:
     fused_template_matches: dict[
         tuple[int, bool, bool, bool, bool], tuple[tuple[dict, tuple[int, ...]], ...]
     ] = field(default_factory=dict)
+    rule_candidates: dict[tuple[int, tuple[tuple[bool, str], ...]], tuple[object, ...]] = field(
+        default_factory=dict
+    )
     topology_flags: dict[str, bool] = field(default_factory=dict)
 
     def shared_for_fallback(self) -> "ContextCache":
@@ -106,6 +109,7 @@ class ContextCache:
             substruct_matches=self.substruct_matches,
             template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,
+            rule_candidates=self.rule_candidates,
             topology_flags=self.topology_flags,
         )
 
@@ -237,21 +241,25 @@ class MoleculeContext:
 
     @property
     def has_generic_bicyclic_topology(self) -> bool:
-        return self.facts.has_generic_bicyclic_topology
+        return any(topology.cycle_rank == 2 for topology in self.ring_topologies)
 
     @property
     def has_generic_polycyclic_topology(self) -> bool:
-        return self.facts.has_generic_polycyclic_topology
+        return any(2 <= topology.cycle_rank <= 9 for topology in self.ring_topologies)
 
     @property
     def has_spiro_topology(self) -> bool:
-        return self.facts.has_spiro_topology
+        return self._has_spiro_ring_pair(max_cycle_rank=3)
 
     @property
     def has_component_spiro_topology(self) -> bool:
-        return self.facts.has_component_spiro_topology
+        return self._has_spiro_ring_pair()
 
     def _has_spiro_ring_pair(self, *, max_cycle_rank: int | None = None) -> bool:
+        cache_key = f"spiro_pair:{max_cycle_rank}"
+        cached = self.cache.topology_flags.get(cache_key)
+        if cached is not None:
+            return cached
         rings = tuple(frozenset(ring) for ring in self.mol.GetRingInfo().AtomRings())
         for topology in self.ring_topologies:
             if topology.cycle_rank < 2:
@@ -264,7 +272,9 @@ class MoleculeContext:
                 for idx, left in enumerate(system_rings)
                 for right in system_rings[idx + 1 :]
             ):
+                self.cache.topology_flags[cache_key] = True
                 return True
+        self.cache.topology_flags[cache_key] = False
         return False
 
     def substruct_matches(self, query, *, use_chirality: bool = False) -> tuple[tuple[int, ...], ...]:

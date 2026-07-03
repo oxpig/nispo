@@ -243,6 +243,7 @@ _FAST_MULTI_MONOCYCLE_SENIOR_BLOCKED_FAMILIES = frozenset(
         "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
     }
 )
+_NONHALOGEN_HETERO_EXCLUDED_SYMBOLS = frozenset({"C", "H", "F", "Cl", "Br", "I", "At"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -1039,17 +1040,16 @@ def _fallback_first_valid_candidate_needs_selection(item: _PreparedCandidate) ->
 
 
 def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
-    return ctx.facts.max_ring_system_cycle_rank
+    return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
 
 
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3:
         return False
-    facts = ctx.facts
-    if facts.has_component_spiro_topology:
+    if ctx.has_component_spiro_topology:
         return False
-    if facts.max_ring_system_cycle_rank != 2:
+    if _largest_ring_system_cycle_rank(ctx) != 2:
         return False
     profile = ctx.profile
     return (
@@ -1065,14 +1065,15 @@ def _can_fast_stage_multi_monocycle_senior(ctx: MoleculeContext) -> bool:
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3 or ring_count > 5:
         return False
-    facts = ctx.facts
-    if facts.has_component_spiro_topology:
+    if ctx.has_component_spiro_topology:
         return False
-    if facts.nonhalogen_hetero_atom_count > 6:
+    nonhalogen_hetero_count = _context_nonhalogen_hetero_atom_count(ctx)
+    if nonhalogen_hetero_count > 6:
         return False
-    if not (facts.has_sulfur or facts.has_phosphorus):
+    elements = ctx.features["elements"]
+    if not (elements.get("S", 0) or elements.get("P", 0)):
         return False
-    if facts.max_ring_system_cycle_rank > 1:
+    if _largest_ring_system_cycle_rank(ctx) > 1:
         return False
     profile = ctx.profile
     return (
@@ -1088,12 +1089,11 @@ def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3 or ring_count > 5:
         return False
-    facts = ctx.facts
-    if facts.has_component_spiro_topology:
+    if ctx.has_component_spiro_topology:
         return False
-    if facts.max_ring_system_cycle_rank != 2:
+    if _largest_ring_system_cycle_rank(ctx) != 2:
         return False
-    if facts.nonhalogen_hetero_atom_count > 5:
+    if _context_nonhalogen_hetero_atom_count(ctx) > 5:
         return False
     profile = ctx.profile
     return (
@@ -1102,6 +1102,14 @@ def _can_fast_stage_low_hetero_poly_senior(ctx: MoleculeContext) -> bool:
         or profile.has_neutral_phosphorus
         or profile.has_sulfur
         or profile.has_formal_charge
+    )
+
+
+def _context_nonhalogen_hetero_atom_count(ctx: MoleculeContext) -> int:
+    return sum(
+        count
+        for symbol, count in ctx.features["elements"].items()
+        if symbol not in _NONHALOGEN_HETERO_EXCLUDED_SYMBOLS
     )
 
 
@@ -1243,6 +1251,7 @@ def _prepare_candidates(
 ) -> list[_PreparedCandidate]:
     prepared: list[_PreparedCandidate] = []
     rules = compile_rules_for_context(ctx, rules, telemetry=ctx.telemetry)
+    rule_candidate_cache_state = _rule_candidate_cache_state(mol) if ctx.telemetry is None else ()
     for rule in rules:
         if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
             break
@@ -1253,7 +1262,7 @@ def _prepare_candidates(
                 ctx.telemetry.rule_gate_skips[rule.family] += 1
             continue
         if ctx.telemetry is None:
-            for candidate in rule.candidates(ctx):
+            for candidate in _cached_rule_candidates(ctx, rule, rule_candidate_cache_state):
                 if not candidate.name:
                     continue
                 output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
@@ -1325,6 +1334,38 @@ def _prepare_candidates(
             ctx.telemetry.active_rule_family = previous_rule_family
             ctx.telemetry.rule_seconds[rule.family] += time.perf_counter() - started
     return prepared
+
+
+def _cached_rule_candidates(
+    ctx: MoleculeContext,
+    rule: RuleSpec,
+    cache_state: tuple[tuple[bool, str], ...],
+) -> tuple[NameCandidate, ...]:
+    cache = getattr(ctx.cache, "rule_candidates", None)
+    if cache is None:
+        return tuple(rule.candidates(ctx))
+    cache_key = (id(rule), cache_state)
+    cached = cache.get(cache_key)
+    if cached is None:
+        cached = tuple(rule.candidates(ctx))
+        cache[cache_key] = cached
+    return cached
+
+
+def _rule_candidate_cache_state(mol) -> tuple[tuple[bool, str], ...]:
+    props = (
+        FAST_POLY_BRIDGE_ROUTE_PROP,
+        FAST_POLY_RETAINED_DEFER_BYPASS_PROP,
+        _FRAGMENT_SUBSTITUENT_FALLBACK_PROP,
+        _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP,
+        "_nispo_fragment_substituent_depth",
+        "_nispo_fragment_substituent_view",
+        "_nispo_kekulized_aromatic_view",
+    )
+    return tuple(
+        (mol.HasProp(prop), mol.GetProp(prop) if mol.HasProp(prop) else "")
+        for prop in props
+    )
 
 
 def _select_best_prepared_candidate(

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 Gate = Callable[[object], bool]
 CandidateProducer = Callable[[object], Iterable[object]]
+_PREFILTER_MIN_RULE_COUNT = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,12 @@ def compile_rules_for_context(
     """
 
     rules = rules if isinstance(rules, tuple) else tuple(rules)
+    if len(rules) < _PREFILTER_MIN_RULE_COUNT:
+        if telemetry is not None:
+            route = ctx.route_plan.primary_route
+            telemetry.compiled_rule_input_count[route] += len(rules)
+            telemetry.compiled_rule_output_count[route] += len(rules)
+        return rules
     cache = getattr(ctx, "cache", None)
     cache_key = tuple(id(rule) for rule in rules)
     cached = None

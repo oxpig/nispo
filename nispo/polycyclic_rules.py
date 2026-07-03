@@ -17,6 +17,13 @@ from .ring_topology import ring_system_topologies as _cached_ring_system_topolog
 from .simple_prefixes import simple_external_prefix
 from .stereochemistry import _has_assigned_bond_stereo, assigned_atom_stereochemistry
 
+_POLYCYCLIC_VIEW_SYNC_PROPS = (
+    FAST_POLY_BRIDGE_ROUTE_PROP,
+    "_nispo_allow_fragment_substituent_fallback",
+    "_nispo_fragment_substituent_depth",
+    "_nispo_fragment_substituent_view",
+)
+
 
 def _polycyclic_record_cache_key(mol, family: str, limit: int | None = None) -> tuple:
     return (
@@ -44,6 +51,32 @@ def _cached_polycyclic_records(mol, cache_key: tuple):
 def _store_polycyclic_records(mol, cache_key: tuple, records: list[tuple]) -> list[tuple]:
     mol_cache_dict(mol, "polycyclic_parent_candidate_records")[cache_key] = tuple(records)
     return records
+
+
+def _kekulized_polycyclic_view(mol, Chem):
+    cached = mol_cache_get(mol, "kekulized_polycyclic_view")
+    if cached is False:
+        return mol
+    if cached is None:
+        kekulized = Chem.Mol(mol)
+        try:
+            Chem.Kekulize(kekulized, clearAromaticFlags=True)
+            kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
+            cached = mol_cache_set(mol, "kekulized_polycyclic_view", kekulized)
+        except Exception:
+            mol_cache_set(mol, "kekulized_polycyclic_view", False)
+            return mol
+    _sync_polycyclic_view_props(mol, cached)
+    return cached
+
+
+def _sync_polycyclic_view_props(source, target) -> None:
+    for prop in _POLYCYCLIC_VIEW_SYNC_PROPS:
+        if source.HasProp(prop):
+            target.SetProp(prop, source.GetProp(prop))
+        elif target.HasProp(prop):
+            target.ClearProp(prop)
+    target.SetBoolProp("_nispo_kekulized_aromatic_view", True)
 
 
 def bicyclic_parent_candidate_records(mol, Chem) -> list[tuple[str, tuple[int, ...]]]:
@@ -94,12 +127,7 @@ def kekulized_polycyclic_parent_candidate_records(
     if cached is not None:
         return cached
 
-    kekulized = Chem.Mol(mol)
-    try:
-        Chem.Kekulize(kekulized, clearAromaticFlags=True)
-        kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
-    except Exception:
-        kekulized = mol
+    kekulized = _kekulized_polycyclic_view(mol, Chem)
     if limit is not None and limit <= 0:
         return _store_polycyclic_records(mol, cache_key, [])
     seen = set()
@@ -176,11 +204,8 @@ def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: in
     if candidates:
         return min(candidates)[-1]
 
-    kekulized = Chem.Mol(mol)
-    try:
-        Chem.Kekulize(kekulized, clearAromaticFlags=True)
-        kekulized.SetBoolProp("_nispo_kekulized_aromatic_view", True)
-    except Exception:
+    kekulized = _kekulized_polycyclic_view(mol, Chem)
+    if kekulized is mol and not mol.HasProp("_nispo_kekulized_aromatic_view"):
         return ""
     candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx)
     return min(candidates)[-1] if candidates else ""
@@ -405,6 +430,7 @@ def _secondary_bridge_tricyclic_candidate_records(
     use_saturated_bridge_selection = multiple_bond_count == 0
     atom_mask = _atom_bitmask(atoms)
     graph_key = _graph_cache_key(graph)
+    graph_edges = tuple(_graph_edges(graph))
     for left, right in combinations(branch_atoms, 2):
         for base_paths in _secondary_bridge_base_path_sets(
             graph,
@@ -415,8 +441,17 @@ def _secondary_bridge_tricyclic_candidate_records(
             atom_mask=atom_mask,
             graph_key=graph_key,
         ):
+            extra_edges = _secondary_bridge_extra_edges(graph_edges, base_paths)
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
-                completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, 3)
+                completed = _secondary_bridge_completion(
+                    graph,
+                    atoms,
+                    base_paths,
+                    base_seq,
+                    base_bracket,
+                    3,
+                    extra_edges=extra_edges,
+                )
                 if completed is None:
                     continue
                 seq, bracket = completed
@@ -746,6 +781,7 @@ def _secondary_bridge_polycyclic_candidate_records(
     )
     atom_mask = _atom_bitmask(atoms)
     graph_key = _graph_cache_key(graph)
+    graph_edges = tuple(_graph_edges(graph))
     base_path_max_paths = 8 if route_fast and allow_relaxed_base_paths else None
     fast_pair_scan_limit = (
         2
@@ -766,8 +802,17 @@ def _secondary_bridge_polycyclic_candidate_records(
             max_paths=base_path_max_paths,
             graph_key=graph_key,
         ):
+            extra_edges = _secondary_bridge_extra_edges(graph_edges, base_paths)
             for base_seq, base_bracket in _polybridge_numbering_sequences(base_paths):
-                completed = _secondary_bridge_completion(graph, atoms, base_paths, base_seq, base_bracket, rank)
+                completed = _secondary_bridge_completion(
+                    graph,
+                    atoms,
+                    base_paths,
+                    base_seq,
+                    base_bracket,
+                    rank,
+                    extra_edges=extra_edges,
+                )
                 if completed is None:
                     continue
                 seq, bracket = completed
@@ -1226,12 +1271,11 @@ def _secondary_bridge_completion(
     base_seq: Sequence[int],
     base_bracket: Sequence[int],
     rank: int,
+    *,
+    extra_edges: Sequence[tuple[int, int]] | None = None,
 ) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
-    base_edges = set()
-    for path in base_paths:
-        for left, right in zip(path, path[1:]):
-            base_edges.add(tuple(sorted((left, right))))
-    extra_edges = [edge for edge in _graph_edges(graph) if edge not in base_edges]
+    if extra_edges is None:
+        extra_edges = _secondary_bridge_extra_edges(tuple(_graph_edges(graph)), base_paths)
     base_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
     used_edges: set[tuple[int, int]] = set()
     bridges = []
@@ -1268,6 +1312,17 @@ def _secondary_bridge_completion(
     if len(bracket) != rank + 1:
         return None
     return seq, tuple(bracket)
+
+
+def _secondary_bridge_extra_edges(
+    graph_edges: Sequence[tuple[int, int]],
+    base_paths: Sequence[tuple[int, ...]],
+) -> tuple[tuple[int, int], ...]:
+    base_edges = set()
+    for path in base_paths:
+        for left, right in zip(path, path[1:]):
+            base_edges.add(tuple(sorted((left, right))))
+    return tuple(edge for edge in graph_edges if edge not in base_edges)
 
 
 def _secondary_bridge_base_path_sets(

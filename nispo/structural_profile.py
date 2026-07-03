@@ -214,6 +214,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     oxygen_oxygen_single = 0
     nonring_carbon_double_neighbors: dict[int, set[int]] = {}
     nonring_carbon_single_bonds: list[tuple[int, int]] = []
+    amide_neighbor_counts: dict[int, list[int]] = {}
     for idx, symbol in enumerate(view.symbols):
         if symbol == "B":
             boron_atoms += 1
@@ -253,9 +254,17 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     for bond in mol.GetBonds():
         begin = bond.GetBeginAtom()
         end = bond.GetEndAtom()
+        begin_idx = begin.GetIdx()
+        end_idx = end.GetIdx()
         begin_symbol = begin.GetSymbol()
         end_symbol = end.GetSymbol()
         order = bond.GetBondTypeAsDouble()
+        if begin_symbol == "C" and begin.GetFormalCharge() == 0:
+            counts = amide_neighbor_counts.setdefault(begin_idx, [0, 0, 0, 0])
+            _record_amide_acyl_neighbor(counts, end, order)
+        if end_symbol == "C" and end.GetFormalCharge() == 0:
+            counts = amide_neighbor_counts.setdefault(end_idx, [0, 0, 0, 0])
+            _record_amide_acyl_neighbor(counts, begin, order)
         if begin.IsInRing() and end.IsInRing():
             continue
         if order <= 1.0:
@@ -312,30 +321,14 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         if any(nidx != end_idx for nidx in nonring_carbon_double_neighbors.get(begin_idx, ()))
         and any(nidx != begin_idx for nidx in nonring_carbon_double_neighbors.get(end_idx, ()))
     )
-    for carbon in mol.GetAtoms():
-        if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
-            continue
-        cidx = carbon.GetIdx()
-        double_oxygen = 0
-        single_neutral_nonring_nitrogen = 0
-        single_carbon = 0
-        for nbr in carbon.GetNeighbors():
-            bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
-            if bond is None:
-                continue
-            if nbr.GetSymbol() == "O" and bond.GetBondTypeAsDouble() == 2.0:
-                double_oxygen += 1
-            elif (
-                nbr.GetSymbol() == "N"
-                and nbr.GetFormalCharge() == 0
-                and not nbr.IsInRing()
-                and bond.GetBondTypeAsDouble() == 1.0
-            ):
-                single_neutral_nonring_nitrogen += 1
-            elif nbr.GetSymbol() == "C" and bond.GetBondTypeAsDouble() == 1.0:
-                single_carbon += 1
-        if double_oxygen == 1 and single_neutral_nonring_nitrogen == 1 and single_carbon == 1:
-            amide_acyl_motifs += 1
+    amide_acyl_motifs = sum(
+        1
+        for double_oxygen, single_neutral_nonring_nitrogen, single_carbon, other in amide_neighbor_counts.values()
+        if double_oxygen == 1
+        and single_neutral_nonring_nitrogen == 1
+        and single_carbon == 1
+        and other == 0
+    )
 
     return StructuralProfile(
         ring_count=view.ring_count,
@@ -371,6 +364,18 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         oxygen_oxygen_single_bond_count=oxygen_oxygen_single,
         aromatic_atom_count=aromatic_atoms,
     )
+
+
+def _record_amide_acyl_neighbor(counts: list[int], neighbor, order: float) -> None:
+    symbol = neighbor.GetSymbol()
+    if symbol == "O" and order == 2.0:
+        counts[0] += 1
+    elif symbol == "N" and neighbor.GetFormalCharge() == 0 and not neighbor.IsInRing() and order == 1.0:
+        counts[1] += 1
+    elif symbol == "C" and order == 1.0:
+        counts[2] += 1
+    else:
+        counts[3] += 1
 
 
 def _has_sulfur_oxo_retained_parent_signal(mol) -> bool:

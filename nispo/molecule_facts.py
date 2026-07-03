@@ -58,6 +58,7 @@ class MoleculeFacts:
     has_sulfur_oxo_retained_parent_signal: bool
     has_terminal_n_oxide: bool
     has_oxygen_oxygen_single_bond: bool
+    has_oxirane_dione_signal: bool
     has_nitrile_oxide_signal: bool
     has_oxime_sulfonate_nitrile_signal: bool
     has_terminal_carboxylate_signal: bool
@@ -153,6 +154,7 @@ def build_molecule_facts(
         has_sulfur_oxo_retained_parent_signal=bool(profile.has_sulfur_oxo_retained_parent_signal),
         has_terminal_n_oxide=bool(profile.has_terminal_n_oxide),
         has_oxygen_oxygen_single_bond=bool(profile.has_oxygen_oxygen_single_bond),
+        has_oxirane_dione_signal=bool(profile.has_oxirane_dione_signal),
         has_nitrile_oxide_signal=bool(profile.has_nitrile_oxide_signal),
         has_oxime_sulfonate_nitrile_signal=bool(profile.has_oxime_sulfonate_nitrile_signal),
         has_terminal_carboxylate_signal=bool(profile.has_terminal_carboxylate_signal),

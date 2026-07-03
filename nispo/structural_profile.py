@@ -37,6 +37,7 @@ class StructuralProfile:
     sulfur_oxo_retained_parent_signal: bool
     terminal_n_oxide_count: int
     oxygen_oxygen_single_bond_count: int
+    oxirane_dione_signal: bool
     aromatic_atom_count: int
 
     @property
@@ -70,6 +71,10 @@ class StructuralProfile:
     @property
     def has_oxygen_oxygen_single_bond(self) -> bool:
         return self.oxygen_oxygen_single_bond_count > 0
+
+    @property
+    def has_oxirane_dione_signal(self) -> bool:
+        return self.oxirane_dione_signal
 
     @property
     def has_imino_skeleton_signal(self) -> bool:
@@ -207,6 +212,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     terminal_n_oxide = 0
     formal_charge_atoms = 0
     boron_atoms = 0
+    carbon_atoms = 0
     iodine_atoms = 0
     nitrogen_atoms = 0
     oxygen_atoms = 0
@@ -218,6 +224,8 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
     for idx, symbol in enumerate(view.symbols):
         if symbol == "B":
             boron_atoms += 1
+        elif symbol == "C":
+            carbon_atoms += 1
         elif symbol == "I":
             iodine_atoms += 1
         elif symbol == "N":
@@ -362,6 +370,12 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         sulfur_oxo_retained_parent_signal=_has_sulfur_oxo_retained_parent_signal(mol),
         terminal_n_oxide_count=terminal_n_oxide,
         oxygen_oxygen_single_bond_count=oxygen_oxygen_single,
+        oxirane_dione_signal=(
+            view.atom_count == 5
+            and view.ring_count == 1
+            and carbon_atoms == 2
+            and oxygen_atoms == 3
+        ),
         aromatic_atom_count=aromatic_atoms,
     )
 

@@ -292,6 +292,13 @@ def oxygen_oxygen_single_bond_signal(ctx) -> bool:
 oxygen_oxygen_single_bond_signal._nispo_requires_fact = "has_oxygen_oxygen_single_bond"
 
 
+def oxirane_dione_signal(ctx) -> bool:
+    return ctx.profile.has_oxirane_dione_signal
+
+
+oxirane_dione_signal._nispo_requires_fact = "has_oxirane_dione_signal"
+
+
 def nitrile_oxide_signal(ctx) -> bool:
     return ctx.profile.has_nitrile_oxide_signal
 

@@ -98,6 +98,7 @@ from .rule_dispatch import (
     nitrile_oxide_signal,
     oxygen_signal,
     oxygen_oxygen_single_bond_signal,
+    oxirane_dione_signal,
     oxime_sulfonate_nitrile_signal,
     spiro_topology,
     small_inorganic_retained_signal,
@@ -21742,7 +21743,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "oxirane-dione-retained-parent",
             parent_priority("senior-functional-exception"),
-            (min_ring_count(1), oxygen_signal),
+            (oxirane_dione_signal,),
             oxirane_dione.candidates,
         ),
         RuleSpec(

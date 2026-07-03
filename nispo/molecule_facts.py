@@ -117,6 +117,7 @@ def build_molecule_facts(
     )
     ring_topologies = tuple(ring_topologies)
     max_cycle_rank = max((topology.cycle_rank for topology in ring_topologies), default=0)
+    has_spiro_topology, has_component_spiro_topology = _spiro_topology_flags(mol, ring_topologies)
     return MoleculeFacts(
         atom_count=mol.GetNumAtoms(),
         heavy_atom_count=mol.GetNumHeavyAtoms(),
@@ -136,8 +137,8 @@ def build_molecule_facts(
         abs_formal_charge_sum=sum(abs(atom.GetFormalCharge()) for atom in atoms),
         radical_atom_count=sum(atom.GetNumRadicalElectrons() for atom in atoms),
         isotope_atom_count=sum(1 for atom in atoms if atom.GetIsotope()),
-        has_spiro_topology=_has_spiro_ring_pair(mol, ring_topologies, max_cycle_rank=3),
-        has_component_spiro_topology=_has_spiro_ring_pair(mol, ring_topologies),
+        has_spiro_topology=has_spiro_topology,
+        has_component_spiro_topology=has_component_spiro_topology,
         has_functional_skeleton_signal=bool(profile.has_functional_skeleton_signal),
         has_imino_skeleton_signal=bool(profile.has_imino_skeleton_signal),
         has_acyclic_preference_signal=bool(profile.may_prefer_acyclic_skeleton),
@@ -172,12 +173,12 @@ def build_molecule_facts(
     )
 
 
-def _has_spiro_ring_pair(mol, ring_topologies, *, max_cycle_rank: int | None = None) -> bool:
+def _spiro_topology_flags(mol, ring_topologies) -> tuple[bool, bool]:
+    has_route_spiro = False
+    has_component_spiro = False
     rings = tuple(frozenset(ring) for ring in mol.GetRingInfo().AtomRings())
     for topology in ring_topologies:
         if topology.cycle_rank < 2:
-            continue
-        if max_cycle_rank is not None and topology.cycle_rank > max_cycle_rank:
             continue
         system_rings = [ring for ring in rings if ring <= topology.atoms]
         if any(
@@ -185,8 +186,12 @@ def _has_spiro_ring_pair(mol, ring_topologies, *, max_cycle_rank: int | None = N
             for idx, left in enumerate(system_rings)
             for right in system_rings[idx + 1 :]
         ):
-            return True
-    return False
+            has_component_spiro = True
+            if topology.cycle_rank <= 3:
+                has_route_spiro = True
+            if has_route_spiro and has_component_spiro:
+                break
+    return has_route_spiro, has_component_spiro
 
 
 def _may_have_chain_dominant_acyclic_parent(

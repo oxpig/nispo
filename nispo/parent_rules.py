@@ -86,6 +86,7 @@ from .rule_dispatch import (
     no_exocyclic_charged_fused_parent,
     nitrogen_oxygen_signal,
     neutral_phosphorus,
+    nitrogen_signal,
     nonring_neutral_group14,
     nonring_neutral_nitrogen,
     nonring_neutral_pnictogen,
@@ -12826,6 +12827,10 @@ def _retained_amide_names(mol, Chem) -> list[str]:
 def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
     records = []
     for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
+        acyl_parent_paths = _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx)
+        has_ring_carboxamide_parent = _has_ring_carboxamide_parent_candidate_ring(mol, acyl_idx)
+        if not acyl_parent_paths and not has_ring_carboxamide_parent:
+            continue
         n_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
         if n_substituents is None or len(n_substituents) > 2:
             continue
@@ -12834,7 +12839,7 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
             continue
         if any(_unstable_retained_functional_parent_substituent(name) for name in n_substituents):
             continue
-        for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
+        for path in acyl_parent_paths:
             core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "amide")
             if not core:
                 continue
@@ -12854,18 +12859,28 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
                     path,
                 )
             records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms))
-        records.extend(
-            (name, source_family, frozenset())
-            for name, source_family in _ring_carboxamide_parent_records(
-                mol,
-                Chem,
-                carbonyl_idx,
-                nitrogen_idx,
-                acyl_idx,
-                n_prefix,
+        if has_ring_carboxamide_parent:
+            records.extend(
+                (name, source_family, frozenset())
+                for name, source_family in _ring_carboxamide_parent_records(
+                    mol,
+                    Chem,
+                    carbonyl_idx,
+                    nitrogen_idx,
+                    acyl_idx,
+                    n_prefix,
+                )
             )
-        )
     return records
+
+
+def _has_ring_carboxamide_parent_candidate_ring(mol, acyl_idx: int) -> bool:
+    if not mol.GetAtomWithIdx(acyl_idx).IsInRing():
+        return False
+    for ring in mol.GetRingInfo().AtomRings():
+        if acyl_idx in ring and not _ring_is_fused_to_another_ring(mol, ring) and ordered_ring(mol, ring):
+            return True
+    return False
 
 
 def _complete_oxalamide_carboxylate_parent_atoms(
@@ -21658,7 +21673,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "hexamethylenediamide-retained-parent",
             parent_priority("senior-functional-exception"),
-            (functional_skeleton_signal,),
+            (functional_skeleton_signal, nitrogen_oxygen_signal),
             hexamethylenediamide.candidates,
         ),
         RuleSpec("sulfanium-parent", parent_priority("senior-functional-exception"), (nonring_positive_sulfur,), sulfanium.candidates),
@@ -21732,25 +21747,25 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "piperazine-dione-ylidene-retained-parent",
             parent_priority("senior-functional-exception"),
-            (min_ring_count(1), functional_skeleton_signal),
+            (min_ring_count(1), functional_skeleton_signal, nitrogen_oxygen_signal),
             piperazine_dione_ylidene.candidates,
         ),
         RuleSpec(
             "azidobenzylidene-cyclohexanone-retained-parent",
             parent_priority("senior-functional-exception"),
-            (),
+            (min_ring_count(3), nitrogen_oxygen_signal),
             azidobenzylidene_cyclohexanone.candidates,
         ),
         RuleSpec(
             "bis-diethylaminobenzylidene-cyclopentanone-retained-parent",
             parent_priority("senior-functional-exception"),
-            (),
+            (min_ring_count(3), nitrogen_oxygen_signal),
             bis_diethylaminobenzylidene_cyclopentanone.candidates,
         ),
         RuleSpec(
             "cyclopropane-triylidene-nitrile-retained-parent",
             parent_priority("senior-functional-exception"),
-            (min_ring_count(1),),
+            (min_ring_count(1), nitrogen_signal),
             cyclopropane_triylidene_nitrile.candidates,
         ),
         RuleSpec(
@@ -21790,14 +21805,14 @@ def parent_rules(Chem) -> tuple:
         RuleSpec("cyclic-nitroimine-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), imino_skeleton_signal), cyclic_nitroimine.candidates),
         RuleSpec("oxime-sulfonate-nitrile-parent", parent_priority("senior-functional-exception"), (oxime_sulfonate_nitrile_signal,), oxime_sulfonate_nitrile.candidates),
         RuleSpec("nitrile-oxide-retained-parent", parent_priority("senior-functional-exception"), (nitrile_oxide_signal,), nitrile_oxide.candidates),
-        RuleSpec("isocyanate-retained-parent", parent_priority("senior-functional-exception"), (acyclic,), isocyanate.candidates),
+        RuleSpec("isocyanate-retained-parent", parent_priority("senior-functional-exception"), (acyclic, nitrogen_oxygen_signal), isocyanate.candidates),
         RuleSpec("carbodiimide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), carbodiimide.candidates),
         RuleSpec("formamidine-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), formamidine.candidates),
         RuleSpec("charged-iminium-retained-parent", parent_priority("senior-functional-exception"), (nonring_positive_nitrogen,), charged_iminium.candidates),
         RuleSpec("guanidine-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), guanidine.candidates),
         RuleSpec("sulfonohydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), sulfonohydrazide.candidates),
         RuleSpec("acyl-hydrazide-retained-parent", parent_priority("senior-functional-exception"), (imino_skeleton_signal,), acyl_hydrazide.candidates),
-        RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal,), retained_acid_ester.candidates),
+        RuleSpec("retained-acid-ester-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, oxygen_signal), retained_acid_ester.candidates),
         RuleSpec(
             "retained-amide-parent",
             parent_priority("senior-functional-exception"),
@@ -21812,7 +21827,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec("oxo-carboxylate-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, terminal_carboxylate_signal), oxo_carboxylate.candidates),
         RuleSpec("terminal-carboxylate-parent", parent_priority("senior-functional-exception"), (terminal_carboxylate_signal,), terminal_carboxylate.candidates),
-        RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1),), boronic_pinacol_ester.candidates),
+        RuleSpec("boronic-pinacol-ester-parent", parent_priority("senior-functional-exception"), (min_ring_count(1), boron_signal, oxygen_signal), boronic_pinacol_ester.candidates),
         RuleSpec(
             "carbamate-retained-parent",
             parent_priority("senior-functional-exception"),
@@ -21822,7 +21837,7 @@ def parent_rules(Chem) -> tuple:
         RuleSpec(
             "cyclic-n-carbamate-carboxylate-retained-parent",
             parent_priority("senior-functional-exception"),
-            (min_ring_count(1), functional_skeleton_signal),
+            (min_ring_count(1), functional_skeleton_signal, nitrogen_oxygen_signal),
             cyclic_n_carbamate_carboxylate.candidates,
         ),
         RuleSpec("sulfonamide-retained-parent", parent_priority("senior-functional-exception"), (functional_skeleton_signal, sulfur_nitrogen_oxygen_signal), sulfonamide.candidates),
@@ -21835,7 +21850,7 @@ def parent_rules(Chem) -> tuple:
             (functional_skeleton_signal, nitrogen_oxygen_signal),
             urea.candidates,
         ),
-        RuleSpec("sydnone-urea-amidate-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom, functional_skeleton_signal), sydnone_urea_amidate.candidates),
+        RuleSpec("sydnone-urea-amidate-retained-parent", parent_priority("senior-functional-exception"), (charged_ring_atom, functional_skeleton_signal, nitrogen_oxygen_signal), sydnone_urea_amidate.candidates),
         RuleSpec(
             "glutarimide-retained-parent",
             parent_priority("senior-functional-exception"),

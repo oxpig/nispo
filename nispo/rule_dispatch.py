@@ -253,6 +253,13 @@ def oxygen_signal(ctx) -> bool:
 oxygen_signal._nispo_requires_fact = "has_oxygen"
 
 
+def nitrogen_signal(ctx) -> bool:
+    return ctx.facts.has_nitrogen
+
+
+nitrogen_signal._nispo_requires_fact = "has_nitrogen"
+
+
 def nitrogen_oxygen_signal(ctx) -> bool:
     return ctx.facts.has_nitrogen and ctx.facts.has_oxygen
 

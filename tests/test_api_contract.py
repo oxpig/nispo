@@ -4821,6 +4821,24 @@ def test_component_spiro_prefers_stable_polycyclic_component_numbering():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_gated_spiro_selector_recovers_compact_dispiro_parent():
+    input_smiles = "O=C1C2(CC2)CCC12CC2"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+def test_gated_spiro_selector_preserves_simple_oxaspiro_control():
+    input_smiles = "NC1CCOC2(CCC2)C1"
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 def test_pseudoasymmetric_bicyclo_bridgeheads_render_trans_relative_stereo():
     input_smiles = "C1CC[C@H]2CCCC[C@@H]2C1"
     generated_name = smiles_to_iupac(input_smiles)

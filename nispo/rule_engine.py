@@ -248,6 +248,29 @@ _RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES = (
         "high-signal-generated-topology-fused-parent",
     }
 )
+_SPIRO_SELECTOR_RULE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "generic-bicyclic-parent",
+        "high-signal-generated-topology-fused-parent",
+        "hydro-fused-retained-parent",
+        "kekulized-generic-polycyclic-parent",
+        "lambda-sulfanone-spiro-substituent",
+        "neutral-amine-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-topology-replacement-fused-parent",
+        "single-ring-parent",
+        "sulfonamide-parent",
+        "sulfonimidamide-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
 _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES = frozenset(
     {
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
@@ -405,6 +428,9 @@ class NamingEngine:
         self._ranked_polycycle_selector_rules = tuple(
             rule for rule in self._rules if rule.family in _RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES
         )
+        self._spiro_selector_rules = tuple(
+            rule for rule in self._rules if rule.family in _SPIRO_SELECTOR_RULE_FAMILIES
+        )
         self._fast_poly_route_miss_retained_defer_ring_rules = tuple(
             rule
             for rule in self._fast_poly_route_miss_fallback_rules
@@ -456,6 +482,7 @@ class NamingEngine:
             )
             if ranked_polycycle_name:
                 return ranked_polycycle_name
+        isotope_hydrogen_retained_name = ""
         if not use_bridgehead_polycycle_selector:
             multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
                 mol,
@@ -501,8 +528,17 @@ class NamingEngine:
                 self._explicit_isotope_hydrogen_retained_rules,
                 telemetry=telemetry,
             )
-            if isotope_hydrogen_retained_name:
-                return isotope_hydrogen_retained_name
+        if isotope_hydrogen_retained_name:
+            return isotope_hydrogen_retained_name
+        if _should_use_spiro_selector(mol, ctx):
+            spiro_selector_name = _select_stable_spiro_prepared_candidate(
+                mol,
+                ctx,
+                _prepare_candidates(mol, self._Chem, ctx, self._spiro_selector_rules),
+                telemetry=telemetry,
+            )
+            if spiro_selector_name:
+                return spiro_selector_name
         routed_polycyclic_name = ""
         if (
             not use_bridgehead_polycycle_selector
@@ -1266,6 +1302,10 @@ def _should_use_nonspiro_polycycle_selector(mol, ctx: MoleculeContext) -> bool:
     return _largest_ring_system_cycle_rank(ctx) >= 2
 
 
+def _should_use_spiro_selector(mol, ctx: MoleculeContext) -> bool:
+    return rdMolDescriptors.CalcNumSpiroAtoms(mol) > 0
+
+
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3:
@@ -1598,6 +1638,47 @@ def _select_best_prepared_candidate(
 ) -> str:
     best_item = _select_best_prepared_candidate_item(prepared)
     return _record_and_return_prepared_candidate(best_item, telemetry=telemetry)
+
+
+def _select_stable_spiro_prepared_candidate(
+    mol,
+    ctx: MoleculeContext,
+    prepared: list[_PreparedCandidate],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    best_item = _select_best_prepared_candidate_item(prepared)
+    if best_item is None or not _stable_spiro_selector_item(mol, ctx, best_item):
+        return ""
+    return _record_and_return_prepared_candidate(best_item, telemetry=telemetry)
+
+
+def _stable_spiro_selector_item(mol, ctx: MoleculeContext, item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    family = candidate.family
+    if family == "kekulized-generic-polycyclic-parent":
+        return mol.GetRingInfo().NumRings() >= 3 and candidate.render_rank == 1
+    if family in {
+        "hydro-fused-retained-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+        "sulfonimidamide-parent",
+        "lambda-sulfanone-spiro-substituent",
+        "sulfonamide-parent",
+        "neutral-amine-parent",
+    }:
+        return True
+    if family in {"generated-spiro-fused-parent", "generated-fused-parent"}:
+        return (
+            mol.GetRingInfo().NumRings() >= 3
+            and candidate.parent_terminal_hetero_substituent_count > 0
+            and candidate.render_rank is not None
+            and candidate.render_rank <= 3
+        )
+    return False
 
 
 def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> _PreparedCandidate | None:

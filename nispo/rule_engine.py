@@ -101,6 +101,7 @@ _FAST_POLY_BRIDGE_ROUTE_RULE_FAMILIES = frozenset(
 )
 _FAST_POLY_BRIDGE_RETAINED_HYDRO_RULE_FAMILIES = frozenset(
     {
+        "generated-hydro-fused-parent",
         "fused-retained-parent",
         "hydro-fused-retained-parent",
     }
@@ -266,6 +267,7 @@ _RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES = (
     - frozenset({"preferred-acyclic-skeleton-with-ring-substituents"})
 ) | frozenset(
     {
+        "generated-hydro-fused-parent",
         "high-signal-generated-topology-fused-parent",
     }
 )
@@ -880,8 +882,13 @@ def _temporary_complexity_ranked_polycycle_rescue_name(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
-    selected = _select_best_prepared_candidate_item(_prepare_candidates(mol, Chem, ctx, rules))
-    if not _temporary_complexity_ranked_polycycle_rescue_is_safe(selected):
+    prepared = [
+        item
+        for item in _prepare_candidates(mol, Chem, ctx, rules)
+        if _temporary_complexity_ranked_polycycle_rescue_is_safe(item)
+    ]
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is None:
         return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
@@ -896,8 +903,8 @@ def _temporary_complexity_ranked_polycycle_rescue_is_safe(
         return False
     if candidate_safety_reasons(candidate):
         return False
-    if candidate.family == "kekulized-generic-polycyclic-parent":
-        return bool(candidate.parent_atoms and candidate_has_complete_graph(candidate))
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
     return True
 
 
@@ -1021,7 +1028,10 @@ def _fast_retained_hydro_override_name(
     for _key, item in sorted(keyed_items, key=lambda keyed: keyed[0]):
         if item.candidate.family != "fused-retained-parent":
             continue
-        selected = _hydro_retained_alternative_for_retained_fused_choice(keyed_items, item)
+        selected = _generated_hydro_fused_alternative_for_retained_fused_choice(
+            keyed_items,
+            item,
+        ) or _hydro_retained_alternative_for_retained_fused_choice(keyed_items, item)
         if selected is not None:
             return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
     return ""
@@ -2148,6 +2158,13 @@ def _candidate_fact_ranked_item(
             or selected_item
         )
         selected_item = (
+            _kekulized_polycyclic_alternative_for_single_ring_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = (
             _isotope_preserving_alternative_for_selected_choice(
                 keyed_items,
                 selected_item,
@@ -2344,6 +2361,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _hydro_retained_alternative_for_retained_fused_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _generated_fused_alternative_for_hydro_retained_choice(
             keyed_items,
             selected_item,
         )
@@ -4256,6 +4280,63 @@ def _hydro_retained_alternative_for_generated_fused_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+def _generated_fused_alternative_for_hydro_retained_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "hydro-fused-retained-parent":
+        return None
+    if not _is_safe_complete_suffixless_parent_candidate(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 9 or selected_parent_count > 12:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if candidate.render_rank != 1:
+            continue
+        if not _is_safe_complete_suffixless_parent_candidate(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        if candidate_parent_count != selected_parent_count - 1:
+            continue
+        if candidate.parent_aromatic_atom_count != candidate_parent_count:
+            continue
+        if candidate.parent_hetero_atom_count < selected_candidate.parent_hetero_atom_count:
+            continue
+        selected_element_counts = dict(selected_candidate.parent_element_counts)
+        adjusted_selected_counts = dict(selected_element_counts)
+        adjusted_selected_counts["C"] = adjusted_selected_counts.get("C", 0) - 1
+        if adjusted_selected_counts.get("C", 0) <= 0:
+            continue
+        if dict(candidate.parent_element_counts) != adjusted_selected_counts:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 60:
+            continue
+        if candidate_key > selected_key:
+            continue
+        alternatives.append(((_candidate_fact_alternative_key(item, candidate_key)), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _acyclic_parent_alternative_for_beta_dicarbonyl_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
@@ -5957,7 +6038,7 @@ def _kekulized_polycyclic_alternative_for_single_ring_choice(
             continue
         if len(item.name) - len(selected.name) > 140:
             continue
-        if candidate_key[0] > selected_key[0] + 220:
+        if candidate_key[0] > selected_key[0] + 340:
             continue
         alternatives.append((candidate_key, item))
     if not alternatives:

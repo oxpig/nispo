@@ -1543,8 +1543,20 @@ def _prepare_candidates(
     output_max_length: int | None = None,
 ) -> list[_PreparedCandidate]:
     prepared: list[_PreparedCandidate] = []
-    rules = compile_rules_for_context(ctx, rules, telemetry=ctx.telemetry)
+    rules = rules if isinstance(rules, tuple) else tuple(rules)
     rule_candidate_cache_state = _rule_candidate_cache_state(mol) if ctx.telemetry is None else ()
+    prepared_cache_key = None
+    if ctx.telemetry is None:
+        prepared_cache_key = (
+            id(rules),
+            max_length,
+            output_max_length,
+            rule_candidate_cache_state,
+        )
+        cached_prepared = ctx.cache.prepared_candidates.get(prepared_cache_key)
+        if cached_prepared is not None:
+            return list(cached_prepared)
+    rules = compile_rules_for_context(ctx, rules, telemetry=ctx.telemetry)
     for rule in rules:
         if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
             break
@@ -1626,6 +1638,8 @@ def _prepare_candidates(
         finally:
             ctx.telemetry.active_rule_family = previous_rule_family
             ctx.telemetry.rule_seconds[rule.family] += time.perf_counter() - started
+    if prepared_cache_key is not None:
+        ctx.cache.prepared_candidates[prepared_cache_key] = tuple(prepared)
     return prepared
 
 

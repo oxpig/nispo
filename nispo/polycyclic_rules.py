@@ -933,13 +933,20 @@ def _opsin_bridge_unsaturation_mismatch_count(
         return 0
     if len(bracket) < 4:
         return 0
+    cache = mol_cache_dict(mol, "polycyclic_opsin_bridge_unsaturation_mismatch_count")
+    cache_key = (tuple(seq), tuple(bracket))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     parent_edges = _opsin_oriented_polybridge_edges(bracket)
     if not parent_edges:
+        cache[cache_key] = 0
         return 0
     mismatches = 0
     for edge in _multiple_bond_locant_edges(mol, seq):
         if edge not in parent_edges:
             mismatches += 1
+    cache[cache_key] = mismatches
     return mismatches
 
 
@@ -948,11 +955,19 @@ def _opsin_bridge_topology_mismatch_count(
     seq: Sequence[int],
     bracket: Sequence[int | str],
 ) -> int:
+    cache = mol_cache_dict(mol, "polycyclic_opsin_bridge_topology_mismatch_count")
+    cache_key = (tuple(seq), tuple(bracket))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     parent_edges = _opsin_oriented_polybridge_edges(bracket)
     if not parent_edges:
+        cache[cache_key] = 0
         return 0
     actual_edges = _locant_graph_edges(mol, seq)
-    return len(actual_edges - parent_edges) + len(parent_edges - actual_edges)
+    result = len(actual_edges - parent_edges) + len(parent_edges - actual_edges)
+    cache[cache_key] = result
+    return result
 
 
 def _reused_lower_secondary_bridge_endpoint_count(bracket: Sequence[int | str]) -> int:
@@ -1076,6 +1091,10 @@ def _opsin_oriented_polybridge_edges(bracket: Sequence[int | str]) -> frozenset[
     return _opsin_oriented_polybridge_edges_for_key(tuple(bracket))
 
 
+def _sorted_pair(left: int, right: int) -> tuple[int, int]:
+    return (left, right) if left <= right else (right, left)
+
+
 @lru_cache(maxsize=32768)
 def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> frozenset[tuple[int, int]]:
     parsed = _bridge_sort_key(bracket)
@@ -1093,16 +1112,16 @@ def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> 
     next_loc = end + 1
     previous = end
     for loc in range(next_loc, next_loc + second):
-        edges.add(tuple(sorted((previous, loc))))
+        edges.add(_sorted_pair(previous, loc))
         previous = loc
-    edges.add(tuple(sorted((previous, 1))))
+    edges.add(_sorted_pair(previous, 1))
     next_loc += second
 
     previous = 1
     for loc in range(next_loc, next_loc + third):
-        edges.add(tuple(sorted((previous, loc))))
+        edges.add(_sorted_pair(previous, loc))
         previous = loc
-    edges.add(tuple(sorted((previous, end))))
+    edges.add(_sorted_pair(previous, end))
     next_loc += third
 
     zero_bridges = []
@@ -1114,7 +1133,7 @@ def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> 
         larger, smaller = max(left, right), min(left, right)
         secondary_bridges.append((larger, smaller, length))
     for left, right in zero_bridges:
-        edges.add(tuple(sorted((left, right))))
+        edges.add(_sorted_pair(left, right))
 
     remaining = sorted(secondary_bridges, key=lambda item: (-item[0], -item[1], -item[2]))
     while remaining:
@@ -1126,10 +1145,10 @@ def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> 
                 continue
             previous = larger
             for loc in range(next_loc, next_loc + length):
-                edges.add(tuple(sorted((previous, loc))))
+                edges.add(_sorted_pair(previous, loc))
                 previous = loc
             next_loc += length
-            edges.add(tuple(sorted((previous, smaller))))
+            edges.add(_sorted_pair(previous, smaller))
             progressed = True
         if not progressed:
             return frozenset(edges)
@@ -1298,6 +1317,29 @@ def _secondary_bridge_completion(
 ) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
     if extra_edges is None:
         extra_edges = _secondary_bridge_extra_edges(tuple(_graph_edges(graph)), base_paths)
+    return _secondary_bridge_completion_for_key(
+        _graph_cache_key(graph),
+        tuple(sorted(atoms)),
+        tuple(tuple(path) for path in base_paths),
+        tuple(base_seq),
+        tuple(base_bracket),
+        rank,
+        tuple(tuple(edge) for edge in extra_edges),
+    )
+
+
+@lru_cache(maxsize=65536)
+def _secondary_bridge_completion_for_key(
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...],
+    atoms_key: tuple[int, ...],
+    base_paths: tuple[tuple[int, ...], ...],
+    base_seq: tuple[int, ...],
+    base_bracket: tuple[int | str, ...],
+    rank: int,
+    extra_edges: tuple[tuple[int, int], ...],
+) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
+    graph = _graph_from_cache_key(graph_key)
+    atoms = set(atoms_key)
     base_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
     used_edges: set[tuple[int, int]] = set()
     bridges = []
@@ -1307,7 +1349,7 @@ def _secondary_bridge_completion(
         if edge in used_edges:
             continue
         if left in base_positions and right in base_positions:
-            low, high = sorted((base_positions[left], base_positions[right]))
+            low, high = _sorted_pair(base_positions[left], base_positions[right])
             bridges.append((0, low, high, ()))
             used_edges.add(edge)
             continue
@@ -1327,9 +1369,9 @@ def _secondary_bridge_completion(
         if start not in base_positions or end not in base_positions:
             flat_completion_failed = True
             break
-        bridge_edges = {tuple(sorted((a, b))) for a, b in zip(path, path[1:])}
+        bridge_edges = {_sorted_pair(a, b) for a, b in zip(path, path[1:])}
         used_edges.update(bridge_edges)
-        low, high = sorted((base_positions[start], base_positions[end]))
+        low, high = _sorted_pair(base_positions[start], base_positions[end])
         internals = tuple(path[1:-1])
         bridges.append((len(internals), low, high, internals))
 
@@ -1357,6 +1399,13 @@ def _secondary_bridge_completion(
     )
 
 
+@lru_cache(maxsize=8192)
+def _graph_from_cache_key(
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...],
+) -> dict[int, frozenset[int]]:
+    return {idx: frozenset(neighbors) for idx, neighbors in graph_key}
+
+
 def _dependent_secondary_bridge_completion(
     graph: dict[int, set[int]],
     atoms: set[int],
@@ -1375,7 +1424,7 @@ def _dependent_secondary_bridge_completion(
     understands them, so expose the same graph fact during completion.
     """
 
-    extra_edge_set = {tuple(sorted(edge)) for edge in extra_edges}
+    extra_edge_set = {_sorted_pair(edge[0], edge[1]) for edge in extra_edges}
     placed_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
     seq = list(base_seq)
     used_edges: set[tuple[int, int]] = set()
@@ -1396,7 +1445,7 @@ def _dependent_secondary_bridge_completion(
             for left, right in zero_edges:
                 if len(bridges) >= max_bridge_count:
                     return None
-                low, high = sorted((placed_positions[left], placed_positions[right]))
+                low, high = _sorted_pair(placed_positions[left], placed_positions[right])
                 bridges.append((0, low, high, ()))
                 used_edges.add((left, right))
             continue
@@ -1409,7 +1458,7 @@ def _dependent_secondary_bridge_completion(
         )
         if not path:
             return None
-        bridge_edges = {tuple(sorted((a, b))) for a, b in zip(path, path[1:])}
+        bridge_edges = {_sorted_pair(a, b) for a, b in zip(path, path[1:])}
         if bridge_edges & used_edges:
             return None
         start, end = path[0], path[-1]
@@ -1423,7 +1472,7 @@ def _dependent_secondary_bridge_completion(
         seq.extend(internals)
         for offset, idx in enumerate(internals):
             placed_positions[idx] = first_new_locant + offset
-        low, high = sorted((placed_positions[start], placed_positions[end]))
+        low, high = _sorted_pair(placed_positions[start], placed_positions[end])
         bridges.append((len(internals), low, high, internals))
 
     result_seq = tuple(seq)
@@ -1452,13 +1501,18 @@ def _dependent_secondary_bridge_path(
     placed = set(placed_positions)
     candidates = []
     seen = set()
+    sorted_neighbors: dict[int, tuple[int, ...]] = {}
     max_path_count = 64
     for start in sorted(placed):
         stack = [(start, (start,), 1 << start)]
         while stack and len(candidates) < max_path_count:
             current, path, visited_mask = stack.pop()
-            for nbr in sorted(graph[current], reverse=True):
-                edge = tuple(sorted((current, nbr)))
+            neighbors = sorted_neighbors.get(current)
+            if neighbors is None:
+                neighbors = tuple(sorted(graph[current], reverse=True))
+                sorted_neighbors[current] = neighbors
+            for nbr in neighbors:
+                edge = _sorted_pair(current, nbr)
                 if edge not in available_edges:
                     continue
                 nbr_mask = 1 << nbr
@@ -1471,12 +1525,7 @@ def _dependent_secondary_bridge_path(
                     internals = next_path[1:-1]
                     if any(idx in placed for idx in internals):
                         continue
-                    edge_key = tuple(
-                        sorted(
-                            tuple(sorted((a, b)))
-                            for a, b in zip(next_path, next_path[1:])
-                        )
-                    )
+                    edge_key = tuple(sorted(_sorted_pair(a, b) for a, b in zip(next_path, next_path[1:])))
                     if edge_key in seen:
                         continue
                     seen.add(edge_key)
@@ -1509,7 +1558,7 @@ def _secondary_bridge_extra_edges(
     base_edges = set()
     for path in base_paths:
         for left, right in zip(path, path[1:]):
-            base_edges.add(tuple(sorted((left, right))))
+            base_edges.add(_sorted_pair(left, right))
     return tuple(edge for edge in graph_edges if edge not in base_edges)
 
 
@@ -1625,7 +1674,7 @@ def _secondary_bridge_paths(
                 neighbors = tuple(sorted(graph[current]))
                 sorted_neighbors[current] = neighbors
             for nbr in neighbors:
-                edge = tuple(sorted((current, nbr)))
+                edge = _sorted_pair(current, nbr)
                 nbr_mask = 1 << nbr
                 if edge not in available or visited_mask & nbr_mask:
                     continue

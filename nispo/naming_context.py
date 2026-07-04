@@ -98,6 +98,9 @@ class ContextCache:
     rule_candidates: dict[tuple[int, tuple[tuple[bool, str], ...]], tuple[object, ...]] = field(
         default_factory=dict
     )
+    prepared_candidates: dict[tuple[int, int, int | None, tuple[tuple[bool, str], ...]], tuple[object, ...]] = field(
+        default_factory=dict
+    )
     topology_flags: dict[str, bool] = field(default_factory=dict)
 
     def shared_for_fallback(self) -> "ContextCache":
@@ -110,6 +113,7 @@ class ContextCache:
             template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,
             rule_candidates=self.rule_candidates,
+            prepared_candidates=self.prepared_candidates,
             topology_flags=self.topology_flags,
         )
 

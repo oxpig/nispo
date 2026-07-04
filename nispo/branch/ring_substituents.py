@@ -1159,6 +1159,8 @@ def _ring_substituent_unsaturated_suffix(
     atom = mol.GetAtomWithIdx(attachment_idx)
     if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
         return ""
+    if suffix.endswith("ylidene"):
+        return suffix
     if suffix.endswith("yl"):
         return suffix + "idene"
     return ""

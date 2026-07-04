@@ -188,6 +188,37 @@ def test_cyano_aryl_alkylidene_ring_branches_roundtrip_with_opsin(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "C1=COC(=C2C=CC=CO2)C=C1",
+        "C1=CSC(=C2C=CC=CS2)C=C1",
+    ],
+)
+def test_exocyclic_ring_ylidene_substituents_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        "C[C@@H](CO)N=c1c(N(C2CCCCC2)C2CCCCC2)c1N(C1CCCCC1)C1CCCCC1",
+        r"NS(=O)(=O)c1ccc(/N=C2\SC(=Cc3ccc(F)cc3)C(=O)N2c2ccccc2)cc1",
+        r"NS(=O)(=O)c1ccc(/N=C2\SC(=Cc3cccc4ccccc34)C(=O)N2C2CCCCC2)cc1",
+    ],
+)
+def test_exocyclic_ring_ylidene_preserves_matched_controls(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "C=[N+]([O-])c1ccc(C(=O)O)cc1",
         "C=[N+]([O-])c1ccccc1C",
     ],

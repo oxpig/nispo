@@ -476,7 +476,7 @@ class NamingEngine:
             ctx,
         )
         if use_ranked_polycycle_selector:
-            ranked_polycycle_name = _select_best_prepared_candidate(
+            ranked_polycycle_name = _select_route_miss_prepared_candidate(
                 _prepare_candidates(mol, self._Chem, ctx, self._ranked_polycycle_selector_rules),
                 telemetry=telemetry,
             )
@@ -569,12 +569,12 @@ class NamingEngine:
                     telemetry=telemetry,
                 )
             elif mol.GetRingInfo().NumRings() <= 3 and _largest_ring_system_cycle_rank(ctx) <= 1:
-                route_miss_name = _select_best_prepared_candidate(
+                route_miss_name = _select_route_miss_prepared_candidate(
                     _prepare_candidates(mol, self._Chem, ctx, self._fast_poly_route_miss_fallback_rules),
                     telemetry=telemetry,
                 )
             else:
-                route_miss_name = _select_best_prepared_candidate(
+                route_miss_name = _select_route_miss_prepared_candidate(
                     _prepare_candidates(
                         mol,
                         self._Chem,
@@ -744,10 +744,11 @@ def _fast_poly_pre_route_senior_name(
 ) -> str:
     if not _can_fast_stage_poly_pre_route_senior(ctx):
         return ""
-    return _select_best_prepared_candidate(
-        _prepare_candidates(mol, Chem, ctx, rules),
-        telemetry=telemetry,
-    )
+    prepared = _prepare_candidates(mol, Chem, ctx, rules)
+    selected = _select_best_prepared_candidate_item(prepared)
+    if _should_defer_fast_senior_fragile_external_unsaturated_acyclic(selected):
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _fast_poly_low_hetero_senior_name(
@@ -764,7 +765,22 @@ def _fast_poly_low_hetero_senior_name(
     selected = _select_best_prepared_candidate_item(prepared)
     if selected is not None and _hydrazine_parent_can_consider_systematic_alternative(selected):
         return ""
+    if _should_defer_fast_senior_fragile_external_unsaturated_acyclic(selected):
+        return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _should_defer_fast_senior_fragile_external_unsaturated_acyclic(
+    selected: _PreparedCandidate | None,
+) -> bool:
+    if selected is None:
+        return False
+    candidate = selected.candidate
+    return (
+        candidate.family == "sulfur-oxo-acyclic-skeleton-with-ring-substituents"
+        and candidate.parent_atoms
+        and candidate.parent_external_unsaturated_bond_count >= 2
+    )
 
 
 def _explicit_isotope_hydrogen_retained_name(
@@ -925,6 +941,8 @@ def _retained_deferred_poly_route_miss_name(
         )
         if bridge_name:
             return bridge_name
+    if _should_defer_fast_senior_fragile_external_unsaturated_acyclic(selected):
+        return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
@@ -1651,6 +1669,17 @@ def _select_stable_spiro_prepared_candidate(
     if best_item is None or not _stable_spiro_selector_item(mol, ctx, best_item):
         return ""
     return _record_and_return_prepared_candidate(best_item, telemetry=telemetry)
+
+
+def _select_route_miss_prepared_candidate(
+    prepared: list[_PreparedCandidate],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    selected = _select_best_prepared_candidate_item(prepared)
+    if _should_defer_fast_senior_fragile_external_unsaturated_acyclic(selected):
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _stable_spiro_selector_item(mol, ctx: MoleculeContext, item: _PreparedCandidate) -> bool:
@@ -6597,6 +6626,8 @@ def _candidate_fact_ranked_switch_is_safe(
 
     current_candidate = current.candidate
     proposed_candidate = proposed.candidate
+    if _should_defer_fast_senior_fragile_external_unsaturated_acyclic(proposed):
+        return False
     if (
         current_candidate.source_family == "acyclic-carbohydrate-retained"
         and proposed_candidate.family == "acyclic-parent"
@@ -12817,6 +12848,8 @@ def _has_one_prefix_carbocycle_parent_with_external_stereo(candidate: NameCandid
         return False
     if not candidate.stereo or not candidate.stereo.atom_descriptors:
         return False
+    if _is_compact_external_nitrogen_unsaturated_single_ring_parent(candidate):
+        return False
     parent_atoms = set(candidate.parent_atoms)
     parent_stereo_count = sum(
         1 for atom_idx, _descriptor in candidate.stereo.atom_descriptors if atom_idx in parent_atoms
@@ -12840,6 +12873,8 @@ def _has_contextual_external_stereo_acyclic_parent_alternative(
         return False
     if not candidate.stereo or not candidate.stereo.atom_descriptors:
         return False
+    if _is_compact_external_nitrogen_unsaturated_single_ring_parent(candidate):
+        return False
     parent_atoms = set(candidate.parent_atoms)
     if any(atom_idx in parent_atoms for atom_idx, _descriptor in candidate.stereo.atom_descriptors):
         return False
@@ -12859,6 +12894,19 @@ def _has_contextual_external_stereo_acyclic_parent_alternative(
             continue
         return True
     return False
+
+
+def _is_compact_external_nitrogen_unsaturated_single_ring_parent(candidate: NameCandidate) -> bool:
+    if candidate.family != "single-ring-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    return (
+        len(candidate.parent_atoms) <= 3
+        and candidate.parent_external_unsaturated_bond_count > 0
+        and candidate.parent_external_nitrogen_substituent_count >= 2
+        and (candidate.render_rank or 0) <= 2
+    )
 
 
 _LOCANTED_STEREO_GRAPH_RING_PARENT_FAMILIES = {

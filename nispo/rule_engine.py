@@ -1943,6 +1943,9 @@ def _candidate_fact_ranked_item(
     )
     if selected_item is not None:
         return selected_item
+    selected_item = _fused_parent_alternative_for_selected_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
     selected_item = _systematic_alternative_for_hydrazine_parent_choice(keyed_items, current)
     if selected_item is not None:
         return selected_item
@@ -3596,6 +3599,247 @@ def _generated_spiro_skeletal_replacement_matches_component_spiro_facts(
     if len(candidate.stereo_locants) < len(selected.stereo_locants):
         return False
     return True
+
+
+def _candidate_has_isotope_evidence(candidate: NameCandidate) -> bool:
+    return bool(
+        candidate.molecule_isotope_atom_count
+        or candidate.parent_isotope_atom_count
+        or candidate.candidate_isotope_atom_count
+        or candidate.parent_external_isotope_hydrogen_count
+    )
+
+
+def _is_clean_generated_fused_template_candidate(candidate: NameCandidate) -> bool:
+    if candidate.family != "generated-fused-parent":
+        return False
+    if candidate.source_family != "generated-fused":
+        return False
+    if candidate.source_file != "generated_fused_template_index.json":
+        return False
+    if candidate.priority != 28:
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if candidate.suffixes or candidate.charge is not None:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if _candidate_has_isotope_evidence(candidate):
+        return False
+    return True
+
+
+def _fused_parent_alternative_for_selected_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    family = selected.candidate.family
+    if family == "single-ring-parent":
+        return _generated_fused_alternative_for_single_ring_choice(keyed_items, selected)
+    if family == "generated-fused-parent":
+        return _generated_fused_alternative_for_generated_fused_choice(keyed_items, selected)
+    return None
+
+
+def _generated_fused_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) not in {5, 6}:
+        return None
+    if selected_candidate.render_rank not in {1, 2, 3}:
+        return None
+    if selected_candidate.parent_external_oxygen_substituent_count:
+        return None
+    if selected_candidate.suffixes or selected_candidate.charge is not None:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if _candidate_has_isotope_evidence(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    selected_signal = (
+        selected_candidate.parent_terminal_hetero_substituent_count
+        + selected_candidate.parent_external_nitrogen_substituent_count
+    )
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if not _is_clean_generated_fused_template_candidate(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 3:
+            continue
+        parent_count = len(candidate.parent_atoms)
+        if parent_count < 9 or parent_count > 13:
+            continue
+        if candidate.parent_aromatic_atom_count != parent_count:
+            continue
+        if candidate.parent_hetero_atom_count < 2:
+            continue
+        if candidate.parent_hetero_atom_count < selected_candidate.parent_hetero_atom_count:
+            continue
+        candidate_signal = (
+            candidate.parent_terminal_hetero_substituent_count
+            + candidate.parent_external_nitrogen_substituent_count
+        )
+        if selected_candidate.parent_hetero_atom_count == 0:
+            if candidate_signal < 2:
+                continue
+        elif candidate_signal < min(2, selected_signal):
+            continue
+        if len(item.name) > 160 or len(item.name) - len(selected.name) > 45:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    render_rank,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generated_fused_alternative_for_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _is_clean_generated_fused_template_candidate(selected_candidate):
+        return None
+    if selected_candidate.render_rank != 1:
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    selected_is_internalized_candidate = (
+        9 <= selected_parent_count <= 10
+        and selected_candidate.parent_aromatic_atom_count == selected_parent_count
+    )
+    selected_is_spiro_hydro_candidate = (
+        (selected_candidate.template_name or "").startswith("spiro[")
+        and selected_parent_count == 14
+        and len(selected_candidate.ring_system_atoms) == 14
+        and selected_candidate.parent_aromatic_atom_count == 6
+        and selected_candidate.parent_hetero_atom_count == 0
+    )
+    if not selected_is_internalized_candidate and not selected_is_spiro_hydro_candidate:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if selected_is_internalized_candidate and _is_clean_generated_fused_template_candidate(candidate):
+            render_rank = candidate.render_rank
+            if render_rank is None:
+                continue
+            candidate_parent_count = len(candidate.parent_atoms)
+            if candidate.parent_aromatic_atom_count != candidate_parent_count:
+                continue
+            terminal_internalized = (
+                render_rank <= 3
+                and candidate_parent_count in {selected_parent_count, selected_parent_count - 1}
+                and candidate_parent_count >= 8
+                and selected_candidate.parent_terminal_hetero_substituent_count >= 1
+                and candidate.parent_terminal_hetero_substituent_count
+                < selected_candidate.parent_terminal_hetero_substituent_count
+                and candidate.parent_hetero_atom_count >= selected_candidate.parent_hetero_atom_count
+            )
+            hetero_enriched_same_parent = (
+                render_rank <= 2
+                and candidate_parent_count == selected_parent_count
+                and candidate.parent_hetero_atom_count >= selected_candidate.parent_hetero_atom_count + 2
+                and candidate.parent_terminal_hetero_substituent_count
+                >= selected_candidate.parent_terminal_hetero_substituent_count
+                and candidate.parent_external_nitrogen_substituent_count
+                <= selected_candidate.parent_external_nitrogen_substituent_count + 1
+            )
+            if not (terminal_internalized or hetero_enriched_same_parent):
+                continue
+            if len(item.name) > 170 or len(item.name) - len(selected.name) > 35:
+                continue
+            if item.stability_penalty > selected.stability_penalty + 160:
+                continue
+            if candidate_key[0] > selected_key[0] + 260:
+                continue
+            alternatives.append(
+                (
+                    (
+                        candidate_key[0],
+                        render_rank,
+                        len(item.name),
+                        candidate_key,
+                    ),
+                    item,
+                )
+            )
+            continue
+        if selected_is_spiro_hydro_candidate:
+            if candidate.family != "hydro-fused-retained-parent":
+                continue
+            if candidate.source_family != "opsin-retained-ring-cml":
+                continue
+            if candidate.source_file != "opsin_retained_mono_fused_ring_smiles.csv":
+                continue
+            if candidate.priority != 18:
+                continue
+            if candidate.render_rank is not None:
+                continue
+            if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+                continue
+            if len(candidate.parent_atoms) != 10:
+                continue
+            if candidate.suffixes or candidate.charge is not None:
+                continue
+            if candidate_safety_reasons(candidate):
+                continue
+            if _candidate_has_isotope_evidence(candidate):
+                continue
+            if len(item.name) > 180 or len(item.name) - len(selected.name) > 8:
+                continue
+            if item.stability_penalty > selected.stability_penalty + 180:
+                continue
+            if candidate_key[0] > selected_key[0] + 260:
+                continue
+            alternatives.append(
+                (
+                    (
+                        candidate_key[0],
+                        len(item.name),
+                        candidate_key,
+                    ),
+                    item,
+                )
+            )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
 _HYDRAZINE_SYSTEMATIC_ALTERNATIVE_FAMILIES = frozenset(

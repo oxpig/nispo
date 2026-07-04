@@ -512,17 +512,18 @@ class NamingEngine:
                 )
                 if heavy_polycycle_name:
                     return heavy_polycycle_name
-            if ctx is None:
-                ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
-            ranked_rescue_name = _temporary_complexity_ranked_polycycle_rescue_name(
-                mol,
-                self._Chem,
-                ctx,
-                self._temporary_complexity_ranked_rescue_rules,
-                telemetry=telemetry,
-            )
-            if ranked_rescue_name:
-                return ranked_rescue_name
+            if _temporary_complexity_ranked_polycycle_rescue_allowed(mol):
+                if ctx is None:
+                    ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+                ranked_rescue_name = _temporary_complexity_ranked_polycycle_rescue_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._temporary_complexity_ranked_rescue_rules,
+                    telemetry=telemetry,
+                )
+                if ranked_rescue_name:
+                    return ranked_rescue_name
             _record_direct_route(telemetry, "temporary_complexity_bailout")
             return ""
 
@@ -1299,6 +1300,37 @@ def _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol) -> bool:
         if atomic_num != 6:
             hetero_heavy_atoms += 1
     return chiral_atoms == 3 and 9 <= hetero_heavy_atoms <= 12
+
+
+def _temporary_complexity_ranked_polycycle_rescue_allowed(mol) -> bool:
+    """Gate ranked rescue to high-yield large fused/bridged polycycles."""
+
+    heavy_atoms = mol.GetNumHeavyAtoms()
+    ring_count = mol.GetRingInfo().NumRings()
+    if heavy_atoms < 40 or ring_count < 5 or ring_count > 9:
+        return False
+    largest_ring_system = _largest_ring_system_ring_count(mol)
+    if largest_ring_system < 5:
+        return False
+    if rdMolDescriptors.CalcNumSpiroAtoms(mol) != 0:
+        return False
+    if rdMolDescriptors.CalcNumBridgeheadAtoms(mol) < 2:
+        return False
+    hetero_heavy_atoms = 0
+    chiral_atoms = 0
+    for atom in mol.GetAtoms():
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num <= 1:
+            continue
+        if atom.GetIsotope():
+            return False
+        if int(atom.GetChiralTag()) != 0:
+            chiral_atoms += 1
+        if atomic_num != 6:
+            hetero_heavy_atoms += 1
+    if chiral_atoms > 5:
+        return False
+    return hetero_heavy_atoms <= 12 or (largest_ring_system >= 8 and hetero_heavy_atoms <= 14)
 
 
 def _has_empty_fallback_high_signal(ctx: MoleculeContext) -> bool:

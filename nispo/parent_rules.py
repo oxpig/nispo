@@ -22,6 +22,7 @@ from .candidate_facts import (
     HydrogenEvidence,
     OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
+    OPSIN_FRAGILE_GENERATED_SPIRO_UNSATURATION,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_UNSATURATION,
@@ -140,6 +141,12 @@ _SKELETAL_REPLACEMENT_RENDER_SET_SIZE = 12
 _RETAINED_TOPOLOGY_REPLACEMENT_FACT_SCAN_SIZE = 32
 _RETAINED_TOPOLOGY_REPLACEMENT_RENDER_SET_SIZE = 2
 _MAX_RETAINED_TOPOLOGY_REPLACEMENT_CANDIDATES = 16
+_FRAGILE_GENERATED_SPIRO_UNSATURATION_TEMPLATE_SMILES = frozenset(
+    {
+        "C1=CC2=C(C1)C1(CC=C2)CC1",
+        "C1=CC2=C(C=CC3(CC3)C2)C1",
+    }
+)
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
 _PENTITOL_RETAINED_NAMES = {
     ("R", "s", "S"): "ribitol",
@@ -20583,7 +20590,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 continue
             if _should_defer_spiro_context_parent_to_senior_azolone(ctx, fact.match):
                 continue
-            safety = _skeletal_replacement_charge_safety(mol, fact)
+            safety = _skeletal_replacement_charge_safety(mol, fact, self._Chem)
             yielded_names.add(name)
             yielded += 1
             yield NameCandidate(
@@ -20625,14 +20632,31 @@ class _SkeletalReplacementCandidateFacts:
 def _skeletal_replacement_charge_safety(
     mol,
     fact: "_SkeletalReplacementCandidateFacts",
+    Chem,
 ) -> CandidateSafety | None:
-    if not _skeletal_replacement_fact_has_positive_replacement_charge(mol, fact):
+    fragility_reasons = []
+    if (
+        _skeletal_replacement_fact_has_positive_replacement_charge(mol, fact)
+        and (fact.bond_order_mismatches > 0 or (len(fact.alignment_key) >= 2 and fact.alignment_key[1] > 0))
+    ):
+        fragility_reasons.append(OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION)
+    if _skeletal_replacement_fact_has_fragile_generated_spiro_unsaturation(fact, Chem):
+        fragility_reasons.append(OPSIN_FRAGILE_GENERATED_SPIRO_UNSATURATION)
+    if not fragility_reasons:
         return None
-    if fact.bond_order_mismatches <= 0 and (len(fact.alignment_key) < 2 or fact.alignment_key[1] <= 0):
-        return None
-    return CandidateSafety(
-        opsin_fragility_reasons=(OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,)
-    )
+    return CandidateSafety(opsin_fragility_reasons=tuple(fragility_reasons))
+
+
+def _skeletal_replacement_fact_has_fragile_generated_spiro_unsaturation(
+    fact: "_SkeletalReplacementCandidateFacts",
+    Chem,
+) -> bool:
+    template = fact.template
+    if template.get("source_file") != "generated_fused_template_index.json":
+        return False
+    template_mol = template_record_mol(template)
+    template_smiles = Chem.MolToSmiles(template_mol, canonical=True)
+    return template_smiles in _FRAGILE_GENERATED_SPIRO_UNSATURATION_TEMPLATE_SMILES
 
 
 def _skeletal_replacement_fact_has_positive_replacement_charge(

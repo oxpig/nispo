@@ -14,6 +14,7 @@ from .candidate_facts import (
     HydrogenEvidence,
     OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,
     OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,
+    OPSIN_FRAGILE_GENERATED_SPIRO_UNSATURATION,
     OPSIN_FRAGILE_GROUP14_HETERO_CARBON_LIGAND,
     OPSIN_FRAGILE_OXYIMINO_CARBONYL_PARENT,
     OPSIN_FRAGILE_POLYCYCLIC_BRIDGE_TOPOLOGY,
@@ -537,11 +538,13 @@ class NamingEngine:
                     telemetry=telemetry,
                 )
             else:
-                route_miss_name = _first_valid_candidate_name(
-                    mol,
-                    self._Chem,
-                    ctx,
-                    self._fast_poly_route_miss_fallback_rules,
+                route_miss_name = _select_best_prepared_candidate(
+                    _prepare_candidates(
+                        mol,
+                        self._Chem,
+                        ctx,
+                        self._fast_poly_route_miss_fallback_rules,
+                    ),
                     telemetry=telemetry,
                 )
             if route_miss_name:
@@ -1022,9 +1025,9 @@ def _fast_poly_bridge_name_with_retained_defer_bypass(
 
 
 def _should_skip_complex_empty_fallback(mol, ctx: MoleculeContext) -> bool:
-    """Avoid full fallback replay for complex tail molecules after normal routes fail."""
+    """Return whether an empty molecule should bypass the final fallback replay."""
 
-    return _is_complex_polycycle_fallback_bounded(mol, ctx)
+    return False
 
 
 def _is_complex_polycycle_fallback_bounded(mol, ctx: MoleculeContext) -> bool:
@@ -2308,11 +2311,22 @@ def _guarded_unsaturated_acyclic_alternative_blocks(
     )
     if not selected_is_aromatic_carbocycle:
         return False
+    parent_elements = {element for element, _count in candidate.parent_element_counts}
+    if "C" not in parent_elements and parent_elements & {"F", "Cl", "Br", "I"}:
+        return True
     if (
         selected_candidate.parent_external_oxygen_substituent_count
         and length_delta > 15
         and candidate.parent_internal_unsaturated_bond_count <= 2
         and parent_count <= 12
+    ):
+        return True
+    if (
+        length_delta <= 0
+        and candidate.parent_internal_unsaturated_bond_count == 1
+        and parent_count <= selected_parent_count
+        and _candidate_stereo_atom_descriptor_count(candidate) >= 3
+        and _candidate_stereo_atom_descriptor_count(selected_candidate) >= 3
     ):
         return True
     if (
@@ -2322,7 +2336,6 @@ def _guarded_unsaturated_acyclic_alternative_blocks(
         and parent_count >= 18
     ):
         return True
-    parent_elements = {element for element, _count in candidate.parent_element_counts}
     if (
         length_delta > 20
         and candidate.parent_internal_unsaturated_bond_count <= 2
@@ -2332,6 +2345,13 @@ def _guarded_unsaturated_acyclic_alternative_blocks(
     ):
         return True
     return False
+
+
+def _candidate_stereo_atom_descriptor_count(candidate: NameCandidate) -> int:
+    stereo = candidate.stereo
+    if stereo is None:
+        return 0
+    return len(stereo.atom_descriptors)
 
 
 def _deterministic_key_winner_is_high_confidence(item: _PreparedCandidate) -> bool:
@@ -9590,6 +9610,8 @@ def _candidate_selection_stability_penalty(name: str, candidate: NameCandidate) 
         penalty += 80
     if OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION in candidate_safety_reasons(candidate):
         penalty += 40
+    if OPSIN_FRAGILE_GENERATED_SPIRO_UNSATURATION in candidate_safety_reasons(candidate):
+        penalty += 120
     penalty += _unsupported_charge_rendering_penalty(candidate)
     penalty += _unstable_component_spiro_alias_penalty(name, candidate)
     penalty += _unlocanted_multicenter_stereo_penalty(name, candidate)

@@ -2232,6 +2232,7 @@ def _polycyclic_external_prefixes_by_parent(
 
 
 def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:
+    parent = _prepend_polycyclic_parent_isotope_hydrogen_prefixes(mol, seq, parent)
     grouped: dict[tuple[str, int], list[int]] = defaultdict(list)
     for locant, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
@@ -2245,6 +2246,42 @@ def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: 
         count_text = str(len(locants)) if len(locants) > 1 else ""
         suffixes.append(f"{_join_locants(locants)}-{isotope}{symbol}{count_text}")
     return parent + "-" + "-".join(suffixes)
+
+
+_POLYCYCLIC_ISOTOPE_HYDROGEN_PREFIX = {
+    2: "deuterio",
+    3: "tritio",
+}
+
+
+def _prepend_polycyclic_parent_isotope_hydrogen_prefixes(
+    mol,
+    seq: Sequence[int],
+    parent: str,
+) -> str:
+    if any(prefix in parent for prefix in _POLYCYCLIC_ISOTOPE_HYDROGEN_PREFIX.values()):
+        return parent
+    locant_by_atom = {idx: locant for locant, idx in enumerate(seq, start=1)}
+    grouped: dict[int, list[int]] = defaultdict(list)
+    for atom in mol.GetAtoms():
+        isotope = atom.GetIsotope()
+        if atom.GetAtomicNum() != 1 or isotope not in _POLYCYCLIC_ISOTOPE_HYDROGEN_PREFIX:
+            continue
+        heavy_neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1]
+        if len(heavy_neighbors) != 1:
+            continue
+        locant = locant_by_atom.get(heavy_neighbors[0])
+        if locant is not None:
+            grouped[isotope].append(locant)
+    if not grouped:
+        return parent
+    prefixes = []
+    for isotope, locants in sorted(grouped.items()):
+        ordered = sorted(locants)
+        multiplier = MULT.get(len(ordered), "")
+        isotope_text = _POLYCYCLIC_ISOTOPE_HYDROGEN_PREFIX[isotope]
+        prefixes.append(f"{_join_locants(ordered)}-{multiplier}{isotope_text}")
+    return _join_prefix_parent("-".join(prefixes), parent)
 
 
 def _name_polycyclic_substituent(

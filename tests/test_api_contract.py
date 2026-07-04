@@ -719,6 +719,16 @@ def test_unsaturated_acyclic_alternative_for_single_ring_roundtrips_with_opsin(i
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
+def test_multi_stereo_aziridine_ester_single_ring_choice_roundtrips_with_opsin():
+    input_smiles = "CCOC(=O)[C@H]1[C@H](C2COC2)[N@@]1C(c1ccccc1)c1ccccc1"
+
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
 @pytest.mark.parametrize(
     "input_smiles",
     [

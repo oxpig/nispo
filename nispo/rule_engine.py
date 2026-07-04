@@ -12000,7 +12000,11 @@ def _has_contextual_higher_isotope_coverage_parent_alternative(
     candidate = item.candidate
     if candidate.molecule_isotope_atom_count <= 0:
         return False
-    if not candidate.parent_atoms:
+    if not candidate.parent_atoms and _candidate_name_mentions_isotope(item.name):
+        return False
+    if candidate.parent_atoms and candidate_has_complete_graph(candidate):
+        pass
+    elif not _is_graph_incomplete_isotope_shortcut(candidate):
         return False
     if candidate.candidate_isotope_atom_count != 0:
         return False
@@ -12035,6 +12039,33 @@ def _has_contextual_higher_isotope_coverage_parent_alternative(
             continue
         return True
     return False
+
+
+def _candidate_name_mentions_isotope(name: str) -> bool:
+    return bool(re.search(r"(?:^|[^A-Za-z0-9])(?:2H|3H|13C|14C|15N|18O|32P|33P|34S|35S|36Cl|37Cl|125I|131I)", name))
+
+
+def _is_graph_incomplete_isotope_shortcut(candidate: NameCandidate) -> bool:
+    if candidate.parent_atoms:
+        return False
+    if candidate_has_complete_graph(candidate):
+        return False
+    if candidate.prefixes or candidate.suffixes or candidate.charge is not None:
+        return False
+    return candidate.family in {
+        "amino-acid-retained-parent",
+        "carbamate-retained-parent",
+        "glutarimide-retained-parent",
+        "neutral-amine-parent",
+        "oxo-carboxylate-retained-parent",
+        "phosphate-ester-retained-parent",
+        "phosphite-ester-parent",
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+        "retained-ester-parent",
+        "sulfonamide-retained-parent",
+        "terminal-carboxylate-parent",
+    }
 
 
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:

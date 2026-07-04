@@ -924,12 +924,35 @@ def _component_spiro_route_needs_skeletal_replacement_alternative(
     candidate = selected.candidate
     if candidate.family != "component-spiro-parent":
         return False
-    if candidate.charge is not None or candidate.suffixes:
+    if candidate.charge is not None:
         return False
     if candidate_safety_reasons(candidate):
         return False
     if candidate.parent_atoms and candidate_has_complete_graph(candidate):
-        return candidate.render_rank is not None and candidate.render_rank >= 300
+        if candidate.render_rank is not None and candidate.render_rank >= 300:
+            return True
+        if (
+            candidate.parent_abs_formal_charge_sum
+            or candidate.parent_formal_charge_atom_count
+            or candidate.molecule_abs_formal_charge_sum
+            or candidate.molecule_formal_charge_atom_count
+        ):
+            return False
+        if candidate.render_rank != 0:
+            return False
+        if len(candidate.parent_atoms) not in {13, 14}:
+            return False
+        return candidate.parent_element_counts in {
+            (("C", 12), ("N", 1)),
+            (("C", 13), ("N", 1)),
+            (("C", 12), ("O", 1)),
+            (("C", 13), ("O", 1)),
+            (("C", 11), ("N", 1), ("O", 1)),
+            (("C", 10), ("N", 2), ("O", 1)),
+            (("C", 11), ("N", 2)),
+            (("C", 12), ("N", 2)),
+            (("C", 12), ("N", 1), ("S", 1)),
+        }
     return True
 
 

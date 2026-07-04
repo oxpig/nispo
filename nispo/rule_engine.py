@@ -105,6 +105,14 @@ _FAST_POLY_BRIDGE_RETAINED_HYDRO_RULE_FAMILIES = frozenset(
         "hydro-fused-retained-parent",
     }
 )
+_HEAVY_POLYCYCLE_GENERATED_FUSED_RESCUE_RULE_FAMILIES = frozenset(
+    {
+        "generated-fused-parent",
+        "high-signal-generated-topology-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }
+)
+_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH = 200
 _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
     {
         "azanium-parent",
@@ -421,6 +429,11 @@ class NamingEngine:
         self._fast_poly_bridge_retained_hydro_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_BRIDGE_RETAINED_HYDRO_RULE_FAMILIES
         )
+        self._heavy_polycycle_generated_fused_rescue_rules = tuple(
+            rule
+            for rule in self._rules
+            if rule.family in _HEAVY_POLYCYCLE_GENERATED_FUSED_RESCUE_RULE_FAMILIES
+        )
         self._fast_poly_pre_route_senior_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES
         )
@@ -479,6 +492,17 @@ class NamingEngine:
                 return _finalize_direct_name(mol, self._Chem, polyatomic_name)
         temporary_complexity_bailout = _temporary_complexity_bailout_name(mol)
         if temporary_complexity_bailout and not _temporary_complexity_fast_route_rescue_allowed(mol):
+            if _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol):
+                ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+                heavy_polycycle_name = _fast_heavy_polycycle_generated_fused_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._heavy_polycycle_generated_fused_rescue_rules,
+                    telemetry=telemetry,
+                )
+                if heavy_polycycle_name:
+                    return heavy_polycycle_name
             _record_direct_route(telemetry, "temporary_complexity_bailout")
             return ""
 
@@ -805,6 +829,26 @@ def _explicit_isotope_hydrogen_retained_name(
     selected = _select_best_prepared_candidate_item(prepared)
     if selected is None or not _candidate_name_mentions_isotope(selected.name):
         return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _fast_heavy_polycycle_generated_fused_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    prepared = _prepare_candidates(
+        mol,
+        Chem,
+        ctx,
+        rules,
+        max_length=_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH,
+        output_max_length=_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH,
+    )
+    selected = _select_best_prepared_candidate_item(prepared)
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
@@ -1168,6 +1212,22 @@ def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
             and chiral_atoms <= 4
         )
     return True
+
+
+def _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol) -> bool:
+    if mol.GetNumHeavyAtoms() < 40 or mol.GetRingInfo().NumRings() < 8:
+        return False
+    chiral_atoms = 0
+    hetero_heavy_atoms = 0
+    for atom in mol.GetAtoms():
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num <= 1:
+            continue
+        if int(atom.GetChiralTag()) != 0:
+            chiral_atoms += 1
+        if atomic_num != 6:
+            hetero_heavy_atoms += 1
+    return chiral_atoms == 3 and 9 <= hetero_heavy_atoms <= 12
 
 
 def _has_empty_fallback_high_signal(ctx: MoleculeContext) -> bool:

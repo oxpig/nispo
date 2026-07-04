@@ -113,6 +113,11 @@ _HEAVY_POLYCYCLE_GENERATED_FUSED_RESCUE_RULE_FAMILIES = frozenset(
     }
 )
 _HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH = 200
+_TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES = frozenset(
+    {
+        "kekulized-generic-polycyclic-parent",
+    }
+)
 _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
     {
         "azanium-parent",
@@ -452,6 +457,9 @@ class NamingEngine:
         self._ranked_polycycle_selector_rules = tuple(
             rule for rule in self._rules if rule.family in _RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES
         )
+        self._temporary_complexity_ranked_rescue_rules = tuple(
+            rule for rule in self._rules if rule.family in _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES
+        )
         self._spiro_selector_rules = tuple(
             rule for rule in self._rules if rule.family in _SPIRO_SELECTOR_RULE_FAMILIES
         )
@@ -492,6 +500,7 @@ class NamingEngine:
                 return _finalize_direct_name(mol, self._Chem, polyatomic_name)
         temporary_complexity_bailout = _temporary_complexity_bailout_name(mol)
         if temporary_complexity_bailout and not _temporary_complexity_fast_route_rescue_allowed(mol):
+            ctx: MoleculeContext | None = None
             if _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol):
                 ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
                 heavy_polycycle_name = _fast_heavy_polycycle_generated_fused_name(
@@ -503,6 +512,17 @@ class NamingEngine:
                 )
                 if heavy_polycycle_name:
                     return heavy_polycycle_name
+            if ctx is None:
+                ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+            ranked_rescue_name = _temporary_complexity_ranked_polycycle_rescue_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._temporary_complexity_ranked_rescue_rules,
+                telemetry=telemetry,
+            )
+            if ranked_rescue_name:
+                return ranked_rescue_name
             _record_direct_route(telemetry, "temporary_complexity_bailout")
             return ""
 
@@ -849,6 +869,35 @@ def _fast_heavy_polycycle_generated_fused_name(
         output_max_length=_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH,
         telemetry=telemetry,
     )
+
+
+def _temporary_complexity_ranked_polycycle_rescue_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    selected = _select_best_prepared_candidate_item(_prepare_candidates(mol, Chem, ctx, rules))
+    if not _temporary_complexity_ranked_polycycle_rescue_is_safe(selected):
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _temporary_complexity_ranked_polycycle_rescue_is_safe(
+    selected: _PreparedCandidate | None,
+) -> bool:
+    if selected is None:
+        return False
+    candidate = selected.candidate
+    if candidate.family not in _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if candidate.family == "kekulized-generic-polycyclic-parent":
+        return bool(candidate.parent_atoms and candidate_has_complete_graph(candidate))
+    return True
 
 
 def _fast_polycyclic_route_name(

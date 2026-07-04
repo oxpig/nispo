@@ -6,6 +6,8 @@ from functools import lru_cache
 import re
 import time
 
+from rdkit.Chem import rdMolDescriptors
+
 from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
@@ -230,6 +232,13 @@ _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES = frozenset(
         "sydnone-urea-amidate-retained-parent",
     }
 )
+_BRIDGEHEAD_POLYCYCLE_SELECTOR_RULE_FAMILIES = _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES | frozenset(
+    {
+        "functional-generic-bicyclic-parent",
+        "generic-bicyclic-parent",
+        "preferred-generic-bicyclic-parent",
+    }
+)
 _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES = frozenset(
     {
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
@@ -384,6 +393,9 @@ class NamingEngine:
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
+        self._bridgehead_polycycle_selector_rules = tuple(
+            rule for rule in self._rules if rule.family in _BRIDGEHEAD_POLYCYCLE_SELECTOR_RULE_FAMILIES
+        )
         self._fast_poly_route_miss_retained_defer_ring_rules = tuple(
             rule
             for rule in self._fast_poly_route_miss_fallback_rules
@@ -423,54 +435,67 @@ class NamingEngine:
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         if telemetry is not None:
             _record_route_plan(telemetry, ctx.route_plan)
-        multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
-            mol,
-            self._Chem,
-            ctx,
-            self._fast_multi_monocycle_senior_rules,
-            telemetry=telemetry,
-        )
-        if multi_monocycle_senior_name:
-            return multi_monocycle_senior_name
-        fast_monocycle_name = _fast_monocycle_system_name(
-            mol,
-            self._Chem,
-            ctx,
-            self._fast_monocycle_system_rules,
-            unsaturated_acyclic_rules=self._fast_monocycle_unsaturated_acyclic_rules,
-            telemetry=telemetry,
-        )
-        if fast_monocycle_name:
-            return fast_monocycle_name
-        pre_route_senior_name = _fast_poly_pre_route_senior_name(
-            mol,
-            self._Chem,
-            ctx,
-            self._fast_poly_pre_route_senior_rules,
-            telemetry=telemetry,
-        )
-        if pre_route_senior_name:
-            return pre_route_senior_name
-        low_hetero_senior_name = _fast_poly_low_hetero_senior_name(
-            mol,
-            self._Chem,
-            ctx,
-            self._fast_poly_low_hetero_senior_rules,
-            telemetry=telemetry,
-        )
-        if low_hetero_senior_name:
-            return low_hetero_senior_name
-        isotope_hydrogen_retained_name = _explicit_isotope_hydrogen_retained_name(
-            mol,
-            self._Chem,
-            ctx,
-            self._explicit_isotope_hydrogen_retained_rules,
-            telemetry=telemetry,
-        )
-        if isotope_hydrogen_retained_name:
-            return isotope_hydrogen_retained_name
+        use_bridgehead_polycycle_selector = _should_use_bridgehead_polycycle_selector(mol, ctx)
+        if use_bridgehead_polycycle_selector:
+            bridgehead_polycycle_name = _select_best_prepared_candidate(
+                _prepare_candidates(mol, self._Chem, ctx, self._bridgehead_polycycle_selector_rules),
+                telemetry=telemetry,
+            )
+            if bridgehead_polycycle_name:
+                return bridgehead_polycycle_name
+        if not use_bridgehead_polycycle_selector:
+            multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._fast_multi_monocycle_senior_rules,
+                telemetry=telemetry,
+            )
+            if multi_monocycle_senior_name:
+                return multi_monocycle_senior_name
+            fast_monocycle_name = _fast_monocycle_system_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._fast_monocycle_system_rules,
+                unsaturated_acyclic_rules=self._fast_monocycle_unsaturated_acyclic_rules,
+                telemetry=telemetry,
+            )
+            if fast_monocycle_name:
+                return fast_monocycle_name
+            pre_route_senior_name = _fast_poly_pre_route_senior_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._fast_poly_pre_route_senior_rules,
+                telemetry=telemetry,
+            )
+            if pre_route_senior_name:
+                return pre_route_senior_name
+            low_hetero_senior_name = _fast_poly_low_hetero_senior_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._fast_poly_low_hetero_senior_rules,
+                telemetry=telemetry,
+            )
+            if low_hetero_senior_name:
+                return low_hetero_senior_name
+            isotope_hydrogen_retained_name = _explicit_isotope_hydrogen_retained_name(
+                mol,
+                self._Chem,
+                ctx,
+                self._explicit_isotope_hydrogen_retained_rules,
+                telemetry=telemetry,
+            )
+            if isotope_hydrogen_retained_name:
+                return isotope_hydrogen_retained_name
         routed_polycyclic_name = ""
-        if mol.GetRingInfo().NumRings() >= 2 and _largest_ring_system_cycle_rank(ctx) >= 2:
+        if (
+            not use_bridgehead_polycycle_selector
+            and mol.GetRingInfo().NumRings() >= 2
+            and _largest_ring_system_cycle_rank(ctx) >= 2
+        ):
             routed_polycyclic_name = _fast_polycyclic_route_name(
                 mol,
                 self._Chem,
@@ -483,7 +508,7 @@ class NamingEngine:
             )
         if routed_polycyclic_name:
             return routed_polycyclic_name
-        if mol.GetRingInfo().NumRings() >= 3:
+        if not use_bridgehead_polycycle_selector and mol.GetRingInfo().NumRings() >= 3:
             if mol_cache_get(mol, FAST_POLY_RETAINED_DEFER_CACHE_KEY):
                 route_miss_name = _retained_deferred_poly_route_miss_name(
                     mol,
@@ -684,10 +709,11 @@ def _fast_poly_low_hetero_senior_name(
 ) -> str:
     if not _can_fast_stage_low_hetero_poly_senior(ctx):
         return ""
-    return _select_best_prepared_candidate(
-        _prepare_candidates(mol, Chem, ctx, rules),
-        telemetry=telemetry,
-    )
+    prepared = _prepare_candidates(mol, Chem, ctx, rules)
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is not None and _hydrazine_parent_can_consider_systematic_alternative(selected):
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _explicit_isotope_hydrogen_retained_name(
@@ -779,11 +805,13 @@ def _component_spiro_route_needs_skeletal_replacement_alternative(
     candidate = selected.candidate
     if candidate.family != "component-spiro-parent":
         return False
-    if candidate.parent_atoms and candidate_has_complete_graph(candidate):
-        return False
     if candidate.charge is not None or candidate.suffixes:
         return False
-    return not candidate_safety_reasons(candidate)
+    if candidate_safety_reasons(candidate):
+        return False
+    if candidate.parent_atoms and candidate_has_complete_graph(candidate):
+        return candidate.render_rank is not None and candidate.render_rank >= 300
+    return True
 
 
 def _fast_retained_hydro_override_name(
@@ -1205,6 +1233,14 @@ def _largest_ring_system_cycle_rank(ctx: MoleculeContext) -> int:
     return max((topology.cycle_rank for topology in ctx.ring_topologies), default=0)
 
 
+def _should_use_bridgehead_polycycle_selector(mol, ctx: MoleculeContext) -> bool:
+    if mol.GetRingInfo().NumRings() < 2:
+        return False
+    if not ctx.facts.has_polycyclic_ring_system:
+        return False
+    return rdMolDescriptors.CalcNumBridgeheadAtoms(mol) > 0
+
+
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:
     ring_count = ctx.mol.GetRingInfo().NumRings()
     if ring_count < 3:
@@ -1617,6 +1653,15 @@ def _candidate_fact_ranked_item(
     if selected_item is not None:
         return selected_item
     selected_item = _unsaturated_acyclic_alternative_for_single_ring_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
+    selected_item = _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice(
+        keyed_items,
+        current,
+    )
+    if selected_item is not None:
+        return selected_item
+    selected_item = _systematic_alternative_for_hydrazine_parent_choice(keyed_items, current)
     if selected_item is not None:
         return selected_item
     if _deterministic_key_winner_is_high_confidence(current):
@@ -3069,8 +3114,13 @@ def _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice
     selected_candidate = selected.candidate
     if selected_candidate.family != "component-spiro-parent":
         return None
-    if selected_candidate.parent_atoms and candidate_has_complete_graph(selected_candidate):
-        return None
+    selected_has_complete_parent = bool(
+        selected_candidate.parent_atoms and candidate_has_complete_graph(selected_candidate)
+    )
+    if selected_has_complete_parent:
+        selected_render_rank = selected_candidate.render_rank
+        if selected_render_rank is None or selected_render_rank < 300:
+            return None
     if selected_candidate.charge is not None or selected_candidate.suffixes:
         return None
     if candidate_safety_reasons(selected_candidate):
@@ -3105,6 +3155,14 @@ def _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice
             continue
         if candidate_safety_reasons(candidate):
             continue
+        if selected_has_complete_parent:
+            if not _generated_spiro_skeletal_replacement_matches_component_spiro_facts(
+                selected_candidate,
+                candidate,
+            ):
+                continue
+            if len(item.name) > len(selected.name) + 5:
+                continue
         if len(item.name) > 220 or len(item.name) - len(selected.name) > 120:
             continue
         if item.stability_penalty > selected.stability_penalty + 190:
@@ -3126,6 +3184,120 @@ def _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generated_spiro_skeletal_replacement_matches_component_spiro_facts(
+    selected: NameCandidate,
+    candidate: NameCandidate,
+) -> bool:
+    parent_count = len(candidate.parent_atoms)
+    if len(candidate.parent_atoms) != len(selected.parent_atoms):
+        return False
+    element_counts = dict(candidate.parent_element_counts)
+    if (
+        parent_count >= 17
+        and element_counts.get("N", 0) >= 5
+        and "s-indacen" in (candidate.template_name or "")
+    ):
+        return False
+    if candidate.parent_element_counts != selected.parent_element_counts:
+        return False
+    if candidate.parent_aromatic_atom_count != selected.parent_aromatic_atom_count:
+        return False
+    if candidate.parent_hetero_atom_count != selected.parent_hetero_atom_count:
+        return False
+    if candidate.parent_internal_unsaturated_bond_count != selected.parent_internal_unsaturated_bond_count:
+        return False
+    if candidate.parent_external_unsaturated_bond_count != selected.parent_external_unsaturated_bond_count:
+        return False
+    if candidate.parent_terminal_hetero_substituent_count != selected.parent_terminal_hetero_substituent_count:
+        return False
+    if candidate.parent_external_nitrogen_substituent_count != selected.parent_external_nitrogen_substituent_count:
+        return False
+    if candidate.parent_external_oxygen_substituent_count != selected.parent_external_oxygen_substituent_count:
+        return False
+    if len(candidate.stereo_locants) < len(selected.stereo_locants):
+        return False
+    return True
+
+
+_HYDRAZINE_SYSTEMATIC_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
+
+
+def _hydrazine_parent_can_consider_systematic_alternative(item: _PreparedCandidate) -> bool:
+    candidate = item.candidate
+    if candidate.family != "hydrazine-parent":
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    if len(candidate.parent_atoms) < 6:
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
+def _systematic_alternative_for_hydrazine_parent_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if not _hydrazine_parent_can_consider_systematic_alternative(selected):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _HYDRAZINE_SYSTEMATIC_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if not _candidate_has_hydrazine_like_nitrogen_evidence(candidate):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 180 or len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 160:
+            continue
+        if candidate_key[0] > selected_key[0] + 180:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    -len(candidate.parent_atoms),
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _candidate_has_hydrazine_like_nitrogen_evidence(candidate: NameCandidate) -> bool:
+    element_counts = dict(candidate.parent_element_counts)
+    if element_counts.get("N", 0) >= 2:
+        return True
+    return candidate.parent_external_nitrogen_substituent_count >= 1
 
 
 def _is_low_confidence_generated_spiro_skeletal_replacement(candidate: NameCandidate) -> bool:

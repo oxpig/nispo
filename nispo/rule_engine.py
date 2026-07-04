@@ -2179,6 +2179,21 @@ def _candidate_fact_ranked_item(
             )
             or selected_item
         )
+        selected_item = (
+            _high_confidence_generated_fused_template_alternative(
+                keyed_items,
+                selected_item,
+                template_names=_HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_TEMPLATES,
+            )
+            or selected_item
+        )
+        selected_item = (
+            _terminal_azole_chalcogen_suffix_alternative_for_high_confidence_generated_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
         return selected_item
     metrics = _candidate_fact_ranker_row_metrics([item for _key, item in keyed_items])
     try:
@@ -2219,6 +2234,10 @@ def _candidate_fact_ranked_item(
         )
     ):
         selected_item = best_item
+    selected_item = (
+        _isotope_preserving_alternative_for_selected_choice(keyed_items, selected_item)
+        or selected_item
+    )
     selected_item = (
         _single_ring_alternative_for_low_confidence_generated_partial_hydro_choice(
             keyed_items,
@@ -6629,19 +6648,139 @@ _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS = {
             }
         ),
     },
+    "imidazo[4,5-c]pyridine": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 3,
+        "allowed_selected_families": frozenset(
+            {
+                "acyclic-skeleton-with-ring-substituents",
+                "chain-dominant-acyclic-skeleton-with-ring-substituents",
+                "single-ring-parent",
+            }
+        ),
+    },
+    "imidazo[4,5-d]pyrimidine": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 4,
+        "allowed_selected_families": frozenset(
+            {
+                "acyclic-skeleton-with-ring-substituents",
+                "fused-retained-parent",
+            }
+        ),
+    },
+    "imidazo[4,5-b]pyridine": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 3,
+        "allowed_selected_families": frozenset(
+            {
+                "component-spiro-parent",
+                "single-ring-parent",
+            }
+        ),
+    },
+    "benzo[1,2-c]pyridazine": {
+        "parent_atom_count": 10,
+        "parent_hetero_atom_count": 2,
+        "allowed_selected_families": frozenset(
+            {
+                "fused-retained-parent",
+                "single-ring-parent",
+            }
+        ),
+    },
+    "pyrido[3,4-d]pyrazole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 3,
+        "allowed_selected_families": frozenset(
+            {
+                "acyclic-skeleton-with-ring-substituents",
+                "single-ring-parent",
+            }
+        ),
+    },
+    "pyrimido[4,5-b]pyrrole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 3,
+        "allowed_selected_families": frozenset(
+            {
+                "single-ring-parent",
+                "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+            }
+        ),
+    },
+    "pyrimido[5,4-d]pyrazole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 4,
+        "allowed_selected_families": frozenset(
+            {
+                "single-ring-parent",
+                "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+            }
+        ),
+    },
+    "benzo[1,2-c]pyrazole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+        "allowed_selected_families": frozenset(
+            {
+                "single-ring-parent",
+                "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+            }
+        ),
+    },
 }
+_HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_TEMPLATES = frozenset(
+    {
+        "benzo[1,2-c]pyrazole",
+        "benzo[1,2-c]pyridazine",
+        "imidazo[4,5-c]pyridine",
+        "pyrido[3,4-d]pyrazole",
+        "pyrimido[4,5-b]pyrrole",
+        "pyrimido[5,4-d]pyrazole",
+    }
+)
+_GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SELECTED_FAMILIES = frozenset(
+    family
+    for spec in _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS.values()
+    for family in spec["allowed_selected_families"]
+)
+_HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_SELECTED_FAMILIES = frozenset(
+    family
+    for template_name in _HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_TEMPLATES
+    for family in _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS[template_name][
+        "allowed_selected_families"
+    ]
+)
 
 
 def _high_confidence_generated_fused_template_alternative(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
+    *,
+    template_names: frozenset[str] | None = None,
 ) -> _PreparedCandidate | None:
     selected_candidate = selected.candidate
+    if selected_candidate.source_file == "naturalProducts.xml":
+        return None
+    if _is_guarded_retained_benzocyclobutene_parent(selected_candidate):
+        return None
+    allowed_selected_families = (
+        _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SELECTED_FAMILIES
+        if template_names is None
+        else _HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_SELECTED_FAMILIES
+    )
+    if selected_candidate.family not in allowed_selected_families:
+        return None
     alternatives: list[tuple[tuple, _PreparedCandidate]] = []
     for candidate_key, item in keyed_items:
         if item is selected or item.name == selected.name:
             continue
         candidate = item.candidate
+        if candidate.family != "generated-fused-parent":
+            continue
+        if template_names is not None and candidate.template_name not in template_names:
+            continue
         spec = _GENERATED_FUSED_TEMPLATE_ALTERNATIVE_SPECS.get(candidate.template_name)
         if spec is None:
             continue
@@ -6649,6 +6788,14 @@ def _high_confidence_generated_fused_template_alternative(
             continue
         if selected_candidate.family == "generated-fused-parent" and (
             selected_candidate.template_name == candidate.template_name
+        ):
+            continue
+        if (
+            selected_candidate.molecule_isotope_atom_count
+            and selected_candidate.candidate_isotope_atom_count
+            >= selected_candidate.molecule_isotope_atom_count
+            and candidate.candidate_isotope_atom_count
+            < selected_candidate.molecule_isotope_atom_count
         ):
             continue
         if selected_candidate.source_file == "naturalProducts.xml":
@@ -19023,6 +19170,23 @@ def _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _terminal_azole_chalcogen_suffix_alternative_for_high_confidence_generated_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if selected.candidate.family != "generated-fused-parent":
+        return None
+    alternative = _terminal_azole_chalcogen_suffix_alternative_for_non_suffix_choice(
+        keyed_items,
+        selected,
+    )
+    if alternative is None:
+        return None
+    if alternative.candidate.parent_external_substituted_hetero_atom_count:
+        return None
+    return alternative
 
 
 def _hydrogenated_sulfur_oxide_single_ring_alternative_for_non_hydrogen_choice(

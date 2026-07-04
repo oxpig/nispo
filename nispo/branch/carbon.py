@@ -95,6 +95,8 @@ def _with_root_carbon_isotope(mol, idx: int, name: str) -> str:
     atom = mol.GetAtomWithIdx(idx)
     isotope = atom.GetIsotope()
     if atom.GetSymbol() == "C" and isotope:
+        if f"{isotope}C" in name:
+            return name
         return f"{name}-{isotope}C"
     return name
 
@@ -404,7 +406,7 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
         for atom_idx in atoms
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
-        and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
+        and mol.GetAtomWithIdx(atom_idx).GetIsotope() in {0, 13, 14}
         and not _is_nitrile_carbon(mol, atom_idx)
         and not _is_isocyano_carbon(mol, atom_idx)
     }
@@ -459,7 +461,7 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
         for atom_idx in atoms
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
-        and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
+        and mol.GetAtomWithIdx(atom_idx).GetIsotope() in {0, 13, 14}
         and not _is_nitrile_carbon(mol, atom_idx)
         and not _is_isocyano_carbon(mol, atom_idx)
     }
@@ -574,7 +576,12 @@ def _locanted_substituent_path_name(
     prefixes = []
     for pos, atom_idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(atom_idx)
-        if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        isotope = atom.GetIsotope()
+        if (
+            atom.GetFormalCharge() != 0
+            or atom.IsInRing()
+            or (isotope and (atom.GetSymbol() != "C" or isotope not in {13, 14}))
+        ):
             return ""
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -600,7 +607,34 @@ def _locanted_substituent_path_name(
         return ""
     prefix_text = _format_prefixes(prefixes)
     name = "-".join(part for part in (prefix_text, parent) if part)
+    name = _append_branch_path_carbon_isotope_suffixes(mol, name, path)
+    if not name:
+        return ""
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
+
+
+def _append_branch_path_carbon_isotope_suffixes(mol, name: str, path: Sequence[int]) -> str:
+    if not name:
+        return name
+    labeled: dict[int, list[str]] = {}
+    for pos, atom_idx in enumerate(path, start=1):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        isotope = atom.GetIsotope()
+        if not isotope:
+            continue
+        if atom.GetSymbol() != "C" or isotope not in {13, 14}:
+            return ""
+        labeled.setdefault(isotope, []).append(str(pos))
+    if not labeled:
+        return name
+    suffixes = []
+    for isotope, locants in sorted(labeled.items()):
+        if f"{isotope}C" in name:
+            continue
+        ordered = sorted(set(locants), key=lambda value: int(value))
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        suffixes.append(f"{','.join(ordered)}-{isotope}C{count_text}")
+    return name + "-" + "-".join(suffixes) if suffixes else name
 
 
 def _path_unsaturation_locants(mol, path: Sequence[int]) -> tuple[list[int], list[int]] | None:
@@ -706,6 +740,8 @@ def _substituent_path_locant_key(
     for pos, atom_idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(atom_idx)
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            locants.append(pos)
+        if atom.GetIsotope():
             locants.append(pos)
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -1065,7 +1101,13 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
     current = idx
     while len(chain) < 24:
         atom = mol.GetAtomWithIdx(current)
-        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        isotope = atom.GetIsotope()
+        if (
+            atom.GetSymbol() != "C"
+            or atom.GetFormalCharge() != 0
+            or atom.IsInRing()
+            or isotope not in {0, 13, 14}
+        ):
             return ""
         if _path_has_isotopic_hydrogen(mol, (current,)):
             return ""
@@ -1096,7 +1138,8 @@ def _terminal_functionalized_alkyl_prefix(mol, idx: int, parent_idx: int) -> str
             root = ROOTS.get(len(chain))
             if not root:
                 return ""
-            return _functionalized_alkyl_name(root, group_terms, terminal_locant=locant)
+            name = _functionalized_alkyl_name(root, group_terms, terminal_locant=locant)
+            return _append_branch_path_carbon_isotope_suffixes(mol, name, chain)
         if len(next_carbons) != 1:
             return ""
         previous, current = current, next_carbons[0]

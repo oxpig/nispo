@@ -477,7 +477,8 @@ class NamingEngine:
             if polyatomic_name:
                 _record_direct_route(telemetry, "common_polyatomic")
                 return _finalize_direct_name(mol, self._Chem, polyatomic_name)
-        if _temporary_complexity_bailout_name(mol):
+        temporary_complexity_bailout = _temporary_complexity_bailout_name(mol)
+        if temporary_complexity_bailout and not _temporary_complexity_fast_route_rescue_allowed(mol):
             _record_direct_route(telemetry, "temporary_complexity_bailout")
             return ""
 
@@ -608,6 +609,9 @@ class NamingEngine:
                 if retained_hydro_name:
                     return retained_hydro_name
                 return route_miss_name
+        if temporary_complexity_bailout:
+            _record_direct_route(telemetry, "temporary_complexity_fast_route_miss")
+            return ""
         best_name = _select_best_prepared_candidate(
             _prepare_candidates(mol, self._Chem, ctx, self._rules),
             telemetry=telemetry,
@@ -798,7 +802,10 @@ def _explicit_isotope_hydrogen_retained_name(
     prepared = _prepare_candidates(mol, Chem, ctx, rules)
     if not prepared:
         return ""
-    return _select_best_prepared_candidate(prepared, telemetry=telemetry)
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is None or not _candidate_name_mentions_isotope(selected.name):
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _fast_polycyclic_route_name(
@@ -1119,6 +1126,36 @@ def _temporary_complexity_bailout_name(mol) -> bool:
         or (heavy_atoms >= 40 and ring_count >= 8)
         or (heavy_atoms >= 45 and nonring_heavy_atoms >= 18 and ring_count >= 3)
     )
+
+
+def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
+    """Allow bounded bailout classes to try staged routes before returning empty."""
+
+    heavy_atoms = mol.GetNumHeavyAtoms()
+    ring_count = mol.GetRingInfo().NumRings()
+    if heavy_atoms >= 40 and ring_count >= 8:
+        return False
+    has_charge = False
+    has_phosphorus = False
+    has_isotope = False
+    nonring_heavy_atoms = 0
+    for atom in mol.GetAtoms():
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num <= 1:
+            continue
+        if not atom.IsInRing():
+            nonring_heavy_atoms += 1
+        if atom.GetFormalCharge():
+            has_charge = True
+        if atomic_num == 15:
+            has_phosphorus = True
+        if atom.GetIsotope():
+            has_isotope = True
+    if has_charge or has_phosphorus or has_isotope:
+        return True
+    if heavy_atoms >= 45 and nonring_heavy_atoms >= 18 and ring_count >= 3:
+        return False
+    return True
 
 
 def _has_empty_fallback_high_signal(ctx: MoleculeContext) -> bool:
@@ -1898,7 +1935,43 @@ def _candidate_fact_ranked_item(
     if selected_item is not None:
         return selected_item
     if _deterministic_key_winner_is_high_confidence(current):
-        return current
+        selected_item = (
+            _complete_azanium_alternative_for_charged_parent_choice(
+                keyed_items,
+                current,
+            )
+            or current
+        )
+        selected_item = (
+            _acyclic_parent_alternative_for_charged_retained_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = (
+            _retained_charged_fused_alternative_for_generated_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = (
+            _isotope_preserving_alternative_for_selected_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = _stereo_coverage_alternative_for_selected_choice(keyed_items, selected_item) or selected_item
+        selected_item = (
+            _retained_amide_alternative_for_acyclic_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        return selected_item
     metrics = _candidate_fact_ranker_row_metrics([item for _key, item in keyed_items])
     try:
         current_facts = _candidate_fact_ranker_facts(current, metrics)
@@ -2219,6 +2292,27 @@ def _candidate_fact_ranked_item(
         or selected_item
     )
     selected_item = (
+        _complete_azanium_alternative_for_charged_parent_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _acyclic_parent_alternative_for_charged_retained_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _retained_charged_fused_alternative_for_generated_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
         _charged_retained_fused_alternative_for_replacement_choice(
             keyed_items,
             selected_item,
@@ -2365,6 +2459,27 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _spiro25_retained_topology_alternative_for_decomposed_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _stereo_coverage_alternative_for_selected_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _isotope_preserving_alternative_for_selected_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _retained_amide_alternative_for_acyclic_choice(
             keyed_items,
             selected_item,
         )
@@ -3892,6 +4007,22 @@ _CHARGED_RETAINED_FUSED_COMPETITOR_FAMILIES = frozenset(
         "single-ring-parent",
     }
 )
+_COMPLETE_AZANIUM_COMPETITOR_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "beta-dicarbonyl-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "kekulized-generic-polycyclic-parent",
+        "neutral-amine-parent",
+        "phosphate-ester-retained-parent",
+        "phosphorus-acid-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
 
 
 def _explicit_charged_parent_alternative_for_neutral_charged_choice(
@@ -3960,6 +4091,216 @@ def _explicit_charged_parent_alternative_for_neutral_charged_choice(
                     case_priority,
                     candidate_rank,
                     candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _complete_azanium_alternative_for_charged_parent_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family == "azanium-parent":
+        return None
+    if selected_candidate.family not in _COMPLETE_AZANIUM_COMPETITOR_FAMILIES:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum < 1:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "azanium-parent":
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.parent_abs_formal_charge_sum != candidate.molecule_abs_formal_charge_sum:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if selected_candidate.parent_atoms and len(candidate.parent_atoms) < len(selected_candidate.parent_atoms):
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.suffixes or candidate.charge is not None:
+            continue
+        if len(item.name) > 180:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 180:
+            continue
+        if candidate_key[0] > selected_key[0] + 180:
+            continue
+        if (
+            selected_candidate.family == "acyclic-parent"
+            and candidate_key[0] > selected_key[0] + 120
+            and len(item.name) > len(selected.name) + 20
+        ):
+            continue
+        if (
+            selected_candidate.family == "acyclic-parent"
+            and not selected_candidate.ring_system_atoms
+            and _candidate_parent_element_count(selected_candidate, "N") == 1
+            and _candidate_parent_element_count(selected_candidate, "O") >= 4
+            and _candidate_parent_element_count(selected_candidate, "P") == 0
+            and len(selected_candidate.parent_atoms) >= 12
+        ):
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_parent_alternative_for_charged_retained_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "charged-retained-parent":
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum < 1:
+        return None
+    if selected_candidate.ring_system_atoms or selected_candidate.parent_aromatic_atom_count:
+        return None
+    if _candidate_parent_element_count(selected_candidate, "S") < 1:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.suffixes or selected_candidate.charge is not None:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    selected_atoms = frozenset(selected_candidate.parent_atoms)
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-parent":
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if not candidate.parent_atoms or frozenset(candidate.parent_atoms) != selected_atoms:
+            continue
+        if not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.parent_abs_formal_charge_sum != candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.ring_system_atoms or candidate.parent_aromatic_atom_count:
+            continue
+        if _candidate_parent_element_count(candidate, "S") < 1:
+            continue
+        if candidate.suffixes or candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 180 or len(item.name) - len(selected.name) > 40:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 160:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _retained_charged_fused_alternative_for_generated_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "generated-fused-parent":
+        return None
+    if selected_candidate.source_family != "generated-fused":
+        return None
+    selected_charge = _explicit_candidate_formal_charge(selected_candidate)
+    if not selected_charge:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) < 8:
+        return None
+    if selected_candidate.parent_hetero_atom_count > 2:
+        return None
+    if selected_candidate.suffixes or candidate_safety_reasons(selected_candidate):
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    selected_atoms = frozenset(selected_candidate.parent_atoms)
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if _explicit_candidate_formal_charge(candidate) != selected_charge:
+            continue
+        if not candidate.parent_atoms or frozenset(candidate.parent_atoms) != selected_atoms:
+            continue
+        if not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.suffixes or candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is None or render_rank > 4:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 200:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    render_rank,
+                    len(item.name) - item.selection_bonus,
                     len(item.name),
                     candidate_key,
                 ),
@@ -6703,6 +7044,112 @@ _RANKER_SENIOR_FUNCTIONAL_SHORTCUT_FAMILIES = (
         }
     )
 )
+
+
+_STEREO_COVERAGE_PARENT_FAMILIES = (
+    _RANKER_ACYCLIC_SKELETON_WITH_RING_SUBSTITUENT_FAMILIES
+    | _RANKER_SUFFIXLESS_GRAPH_PARENT_FAMILIES
+    | frozenset(
+        {
+            "acyclic-parent",
+            "component-dispiro-parent",
+            "functional-generic-bicyclic-parent",
+            "natural-product-topology-parent",
+            "poly-component-spiro-parent",
+            "preferred-acyclic-parent",
+            "retained-amide-parent",
+            "single-ring-parent",
+            "spiro-functional-chain-substituent",
+        }
+    )
+)
+
+
+_STEREO_COVERAGE_SELECTED_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "beta-dicarbonyl-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "hydrazine-parent",
+        "neutral-amine-parent",
+        "phosphate-ester-retained-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "retained-acid-ester-parent",
+        "retained-amide-parent",
+        "retained-ester-parent",
+        "sulfonamide-retained-parent",
+        "terminal-carboxylate-parent",
+    }
+)
+
+
+def _stereo_coverage_alternative_for_selected_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _STEREO_COVERAGE_SELECTED_FAMILIES:
+        return None
+    if _is_high_confidence_amino_acid_retained_parent(selected_candidate):
+        return None
+    if selected_candidate.source_family == "acyclic-carbohydrate-retained":
+        return None
+    if selected_candidate.stereo is None or selected_candidate.stereo.bond_descriptors:
+        return None
+    stereo_total, selected_covered = _candidate_atom_stereo_coverage(selected_candidate)
+    if stereo_total <= 0 or selected_covered >= stereo_total:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+    selected_name = _prepared_output_name(selected)
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _STEREO_COVERAGE_PARENT_FAMILIES:
+            continue
+        if candidate.stereo_prefix:
+            continue
+        if candidate.stereo is None or candidate.stereo.bond_descriptors:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        total, covered = _candidate_atom_stereo_coverage(candidate)
+        if total != stereo_total or covered < stereo_total:
+            continue
+        if covered <= selected_covered:
+            continue
+        if len(candidate.parent_atoms) < min(len(selected_candidate.parent_atoms), 6):
+            continue
+        proposed_name = _prepared_output_name(item)
+        if len(proposed_name) > 220 or len(proposed_name) - len(selected_name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 90:
+            continue
+        if candidate_key[0] > selected_key[0] + 220:
+            continue
+        alternatives.append(((-covered, len(proposed_name), candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _candidate_atom_stereo_coverage(candidate: NameCandidate) -> tuple[int, int]:
+    stereo = candidate.stereo
+    if stereo is None or not stereo.atom_descriptors:
+        return 0, 0
+    locanted_atoms = {atom_idx for atom_idx, _locant in candidate.stereo_locants}
+    total = len(stereo.atom_descriptors)
+    covered = sum(1 for atom_idx, _descriptor in stereo.atom_descriptors if atom_idx in locanted_atoms)
+    return total, covered
 
 
 def _candidate_fact_ranked_switch_is_safe(
@@ -12095,13 +12542,14 @@ def _has_contextual_higher_isotope_coverage_parent_alternative(
     candidate = item.candidate
     if candidate.molecule_isotope_atom_count <= 0:
         return False
-    if not candidate.parent_atoms and _candidate_name_mentions_isotope(item.name):
+    candidate_mentions_isotope = _candidate_name_mentions_isotope(item.name)
+    if not candidate.parent_atoms and candidate_mentions_isotope:
         return False
     if candidate.parent_atoms and candidate_has_complete_graph(candidate):
         pass
     elif not _is_graph_incomplete_isotope_shortcut(candidate):
         return False
-    if candidate.candidate_isotope_atom_count != 0:
+    if candidate.candidate_isotope_atom_count != 0 and candidate_mentions_isotope:
         return False
     if len(item.name) > 80:
         return False
@@ -12126,6 +12574,8 @@ def _has_contextual_higher_isotope_coverage_parent_alternative(
             continue
         if other_candidate.candidate_isotope_atom_count < candidate.molecule_isotope_atom_count:
             continue
+        if not _candidate_name_mentions_isotope(other.name):
+            continue
         if other.stability_penalty > item.stability_penalty + 320:
             continue
         if len(other.name) > 220 or len(other.name) - len(item.name) > 140:
@@ -12136,8 +12586,89 @@ def _has_contextual_higher_isotope_coverage_parent_alternative(
     return False
 
 
+def _isotope_preserving_alternative_for_selected_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    candidate = selected.candidate
+    if candidate.molecule_isotope_atom_count <= 0:
+        return None
+    if _candidate_name_mentions_isotope(selected.name):
+        return None
+    alternatives: list[tuple[int, tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        other_candidate = item.candidate
+        if other_candidate.molecule_isotope_atom_count != candidate.molecule_isotope_atom_count:
+            continue
+        if not _candidate_name_mentions_isotope(item.name):
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 140:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 360:
+            continue
+        alternatives.append((len(item.name), candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda entry: (entry[0], entry[1]))[2]
+
+
+_ACYCLIC_RING_SUBSTITUENT_PARENT_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
+
+
+def _retained_amide_alternative_for_acyclic_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _ACYCLIC_RING_SUBSTITUENT_PARENT_FAMILIES:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "retained-amide-parent":
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 80:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 260:
+            continue
+        alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _candidate_name_mentions_isotope(name: str) -> bool:
-    return bool(re.search(r"(?:^|[^A-Za-z0-9])(?:2H|3H|13C|14C|15N|18O|32P|33P|34S|35S|36Cl|37Cl|125I|131I)", name))
+    return bool(
+        re.search(
+            r"(?:^|[^A-Za-z0-9])(?:2H|3H|13C|14C|15N|18O|32P|33P|34S|35S|36Cl|37Cl|125I|131I)",
+            name,
+        )
+        or "deuterio" in name
+        or "tritio" in name
+    )
 
 
 def _is_graph_incomplete_isotope_shortcut(candidate: NameCandidate) -> bool:
@@ -12148,8 +12679,10 @@ def _is_graph_incomplete_isotope_shortcut(candidate: NameCandidate) -> bool:
     if candidate.prefixes or candidate.suffixes or candidate.charge is not None:
         return False
     return candidate.family in {
+        "acyclic-parent",
         "amino-acid-retained-parent",
         "carbamate-retained-parent",
+        "exact-functional-retained-parent",
         "glutarimide-retained-parent",
         "neutral-amine-parent",
         "oxo-carboxylate-retained-parent",
@@ -18625,6 +19158,19 @@ def _candidate_selection_bonus(name: str, candidate: NameCandidate) -> int:
     if candidate.family in {"single-ring-parent", "positive-single-ring-parent"}:
         bonus += _charged_single_ring_parent_bonus(candidate)
         bonus += _single_ring_suffix_parent_bonus(candidate)
+    elif candidate.family in {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "generated-hydro-fused-parent",
+        "generated-partial-hydro-fused-parent",
+        "generated-spiro-partial-hydro-parent",
+        "high-signal-generated-topology-fused-parent",
+        "hydro-fused-retained-parent",
+        "partial-hydro-fused-retained-parent",
+        "retained-topology-replacement-fused-parent",
+        "skeletal-replacement-fused-parent",
+    }:
+        bonus += _fused_functional_suffix_parent_bonus(candidate)
     if candidate.family not in {
         "fused-retained-parent",
         "generated-fused-parent",
@@ -18691,9 +19237,23 @@ def _single_ring_suffix_parent_bonus(candidate: NameCandidate) -> int:
     ):
         return 48
     if "ring_functional_suffix" in kinds:
+        if any("fused-parent:functional-suffix" in suffix.source for suffix in candidate.suffixes):
+            return 40
         return 18
     if kinds.intersection({"ring_imino_suffix", "ring_carbonyl_suffix"}):
         return 12
+    return 0
+
+
+def _fused_functional_suffix_parent_bonus(candidate: NameCandidate) -> int:
+    if not candidate.suffixes or not candidate_has_complete_graph(candidate):
+        return 0
+    if any(
+        suffix.kind == "ring_functional_suffix"
+        and "fused-parent:functional-suffix" in suffix.source
+        for suffix in candidate.suffixes
+    ):
+        return 40
     return 0
 
 

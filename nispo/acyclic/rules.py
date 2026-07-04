@@ -2008,20 +2008,24 @@ def _append_path_carbon_isotope_suffixes(
     *,
     parent: str = "",
 ) -> str:
-    if not name or any(f"{isotope}C" in name for isotope in (13, 14)):
+    if not name:
         return name
     total_carbons = sum(1 for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
     labeled: dict[int, list[str]] = {}
-    for atom in mol.GetAtoms():
+    for atom_idx, locant in locants_by_atom.items():
+        atom = mol.GetAtomWithIdx(atom_idx)
         if atom.GetSymbol() != "C" or not atom.GetIsotope():
             continue
-        locant = locants_by_atom.get(atom.GetIdx())
         if not locant:
             return name
         labeled.setdefault(atom.GetIsotope(), []).append(locant)
     if not labeled:
         return name
-    if len(labeled) == 1 and len(next(iter(labeled.values()))) == total_carbons:
+    if (
+        len(labeled) == 1
+        and len(next(iter(labeled.values()))) == total_carbons
+        and not any(f"{isotope}C" in name for isotope in labeled)
+    ):
         return name
     suffixes = []
     parent_prefixes = []
@@ -2029,7 +2033,9 @@ def _append_path_carbon_isotope_suffixes(
         ordered = sorted(set(locants), key=lambda value: (int(value) if value.isdigit() else 9999, value))
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
         if isotope in {13, 14}:
-            suffixes.append(f"{','.join(ordered)}-{isotope}C{count_text}")
+            suffix = f"{','.join(ordered)}-{isotope}C{count_text}"
+            if suffix not in name:
+                suffixes.append(suffix)
         elif parent:
             parent_prefixes.append(f"({','.join(ordered)}-{isotope}C{count_text})")
         else:

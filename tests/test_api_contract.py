@@ -115,6 +115,8 @@ def test_positive_replacement_heterocycle_parent_roundtrips_with_opsin():
         "NCCCC[12C@H](N)C(=O)O",
         "NCCCC[C@H]([15NH2])C(=O)O",
         "NCCCC[13C@H](N)C(=O)O",
+        "N[13CH2]Cc1ccc(O)c(O)c1",
+        "N[14CH2]Cc1ccc(O)c(O)c1",
     ],
 )
 def test_explicit_isotope_labels_roundtrip_with_opsin(input_smiles):

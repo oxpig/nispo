@@ -2225,9 +2225,8 @@ class AzaniumParentRule:
         name = _azanium_name_for_ligands(names)
         if name:
             parent_atoms = (
-                set(range(mol.GetNumAtoms()))
-                if _complete_cycloalkyl_azanium_scope(mol, self._Chem, nidx, neighbors)
-                or _complete_alkoxycarbonyl_azanium_scope(mol, self._Chem, nidx, neighbors)
+                covered
+                if _complete_azanium_scope(mol, self._Chem, nidx, neighbors)
                 else set()
             )
             yield NameCandidate(
@@ -2238,6 +2237,43 @@ class AzaniumParentRule:
                 sort_key=(len(name), name),
                 estimated_length=len(name),
             )
+
+
+def _complete_azanium_scope(mol, Chem, nitrogen_idx: int, neighbors: Sequence[int]) -> bool:
+    if _complete_cycloalkyl_azanium_scope(mol, Chem, nitrogen_idx, neighbors):
+        return True
+    if _complete_alkoxycarbonyl_azanium_scope(mol, Chem, nitrogen_idx, neighbors):
+        return True
+    return _structurally_anchored_azanium_ligand_scope(mol, Chem, nitrogen_idx, neighbors)
+
+
+def _structurally_anchored_azanium_ligand_scope(
+    mol,
+    Chem,
+    nitrogen_idx: int,
+    neighbors: Sequence[int],
+) -> bool:
+    """Mark azanium graph-complete when a ligand has a ring or hetero anchor.
+
+    Pure acyclic hydrocarbon and acyclic O-only carbonyl/carboxyl ligands are
+    better handled by the azonia acyclic renderer; azanium ligand names for
+    those can collapse unsaturation or chain placement in OPSIN.  Ring and
+    non-oxygen hetero-functional ligands are different: the azanium parent is
+    often the only concise charge-preserving parent candidate and the traversal
+    has already proven whole-molecule heavy-atom coverage.
+    """
+
+    has_anchor = False
+    for nbr_idx in neighbors:
+        component = _collect_component_atoms(mol, nbr_idx, nitrogen_idx)
+        if not component:
+            return False
+        atoms = [mol.GetAtomWithIdx(idx) for idx in component]
+        if any(atom.GetSymbol() not in {"C", "H", "O"} for atom in atoms):
+            has_anchor = True
+        if any(set(ring) <= component for ring in mol.GetRingInfo().AtomRings()):
+            has_anchor = True
+    return has_anchor
 
 
 def _complete_cycloalkyl_azanium_scope(mol, Chem, nitrogen_idx: int, neighbors: Sequence[int]) -> bool:
@@ -18155,7 +18191,7 @@ class FusedParentRule:
         for render_rank, fact in enumerate(facts, start=1):
             template = fact.template
             match = fact.match
-            name = _name_fused_core_match(mol, template, match)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match)
             if not name or name in yielded_names:
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
@@ -18189,6 +18225,7 @@ class FusedParentRule:
                 source_family=source_family,
                 source_file=str(template.get("source_file", "")),
                 parent_substituted_hetero_atom_count=_parent_substituted_hetero_atom_count(mol, match),
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 charge=charge,
                 stereo=_molecule_stereo_evidence(mol, self._Chem),
                 safety=safety,
@@ -18318,7 +18355,7 @@ class RetainedRingScaffoldParentRule:
         yielded_names: set[str] = set()
         yielded = 0
         for render_rank, fact in enumerate(finalists, start=1):
-            name = _name_fused_core_match(mol, fact.template, fact.match)
+            name, suffix_kind = _name_fused_core_match_record(mol, fact.template, fact.match)
             if not name or name in yielded_names:
                 continue
             if _unsafe_retained_ring_scaffold_candidate(name):
@@ -18343,6 +18380,7 @@ class RetainedRingScaffoldParentRule:
                 template_name=fact.compiled.record.name,
                 source_family=source_family,
                 source_file=fact.compiled.record.source_file,
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
@@ -19201,7 +19239,7 @@ class GeneratedFusedParentRule(FusedParentRule):
         for render_rank, fact in enumerate(facts, start=1):
             template = fact.template
             match = fact.match
-            name = _name_fused_core_match(mol, template, match)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match)
             if not name or name in yielded_names:
                 continue
             if _unsafe_benz_a_anthracene_candidate(name):
@@ -19232,6 +19270,7 @@ class GeneratedFusedParentRule(FusedParentRule):
                 template_name=template_name,
                 source_family=str(template.get("source_family", "")),
                 source_file=str(template.get("source_file", "")),
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 charge=_polycyclic_parent_charge_evidence(mol, match),
                 estimated_length=len(name),
                 render_rank=render_rank,
@@ -19444,7 +19483,7 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
         for render_rank, fact in enumerate(facts, start=1):
             template = fact.template
             match = fact.match
-            name = _name_fused_core_match(mol, template, match)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match)
             if not name or name in yielded_names:
                 continue
             template_name = template_record_name(template)
@@ -19472,6 +19511,7 @@ class HighSignalGeneratedTopologyFusedParentRule(GeneratedFusedParentRule):
                 template_name=template_name,
                 source_family=str(template.get("source_family", "")),
                 source_file=str(template.get("source_file", "")),
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 charge=_polycyclic_parent_charge_evidence(mol, match),
                 estimated_length=len(name),
                 render_rank=render_rank,
@@ -19750,6 +19790,12 @@ def _single_ring_suffix_candidates(mol, record) -> tuple[SuffixCandidate, ...]:
             opsin_fragility_reasons=(OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,),
         )
     return (SuffixCandidate(text="", kind=record.suffix_kind, source=source, safety=safety),)
+
+
+def _fused_suffix_candidates(suffix_kind: str) -> tuple[SuffixCandidate, ...]:
+    if suffix_kind != "ring_functional_suffix":
+        return ()
+    return (SuffixCandidate(text="", kind=suffix_kind, source="fused-parent:functional-suffix"),)
 
 
 def _single_ring_hydrogen_evidence(record) -> HydrogenEvidence | None:
@@ -20372,7 +20418,7 @@ class HydroFusedParentRule:
             parent_name = _hydro_parent_name(mol, template, match)
             if not parent_name:
                 continue
-            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match, parent_name=parent_name)
             if name and _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
                 continue
             if name:
@@ -20387,6 +20433,7 @@ class HydroFusedParentRule:
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),
                     source_file=str(template.get("source_file", "")),
+                    suffixes=_fused_suffix_candidates(suffix_kind),
                     charge=_polycyclic_parent_charge_evidence(mol, match),
                     estimated_length=len(name),
                 )
@@ -20450,7 +20497,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             match = fact.match
             parent_name = fact.parent_name
             hydro_key = fact.hydro_key
-            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match, parent_name=parent_name)
             if not name:
                 continue
             if _should_defer_spiro_context_parent_to_senior_azolone(ctx, match):
@@ -20471,6 +20518,7 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),
                     source_file=str(template.get("source_file", "")),
+                    suffixes=_fused_suffix_candidates(suffix_kind),
                     charge=_polycyclic_parent_charge_evidence(mol, match),
                     estimated_length=len(name),
                     render_rank=render_rank,
@@ -20537,7 +20585,7 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
             require_one_ring_system=True,
         ):
             for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
-                name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+                name, suffix_kind = _name_fused_core_match_record(mol, template, match, parent_name=parent_name)
                 if not name:
                     continue
                 if _should_defer_spiro_core_parent_to_senior_azolone(mol, match):
@@ -20560,6 +20608,7 @@ class GeneratedSpiroPartialHydroParentRule(GeneratedPartialHydroFusedParentRule)
                         template_name=template_record_name(template),
                         source_family=str(template.get("source_family", "")),
                         source_file=str(template.get("source_file", "")),
+                        suffixes=_fused_suffix_candidates(suffix_kind),
                         estimated_length=len(name),
                     )
                 )
@@ -20831,7 +20880,12 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
         yielded_names: set[str] = set()
         yielded = 0
         for render_rank, fact in enumerate(render_set, start=1):
-            name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            name, suffix_kind = _name_fused_core_match_record(
+                mol,
+                fact.template,
+                fact.match,
+                parent_name=fact.parent_name,
+            )
             name = _opsin_parseable_retained_parent_name(name)
             if not name or name in yielded_names:
                 continue
@@ -20859,6 +20913,7 @@ class SkeletalReplacementFusedParentRule(FusedParentRule):
                 template_name=template_record_name(fact.template),
                 source_family=str(fact.template.get("source_family", "")),
                 source_file=str(fact.template.get("source_file", "")),
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 charge=_polycyclic_parent_charge_evidence(mol, fact.match),
                 safety=safety,
                 estimated_length=len(name),
@@ -21051,7 +21106,12 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
         yielded_names: set[str] = set()
         yielded = 0
         for render_rank, fact in enumerate(render_set, start=1):
-            name = _name_fused_core_match(mol, fact.template, fact.match, parent_name=fact.parent_name)
+            name, suffix_kind = _name_fused_core_match_record(
+                mol,
+                fact.template,
+                fact.match,
+                parent_name=fact.parent_name,
+            )
             name = _opsin_parseable_retained_parent_name(name)
             if not name or name in yielded_names:
                 continue
@@ -21079,6 +21139,7 @@ class RetainedTopologyReplacementFusedParentRule(FusedParentRule):
                 template_name=template_record_name(fact.template),
                 source_family=str(fact.template.get("source_family", "")),
                 source_file=str(fact.template.get("source_file", "")),
+                suffixes=_fused_suffix_candidates(suffix_kind),
                 estimated_length=len(name),
                 render_rank=render_rank,
             )
@@ -21170,7 +21231,7 @@ class OxidoFusedParentRule:
             parent_name = _adjust_fused_parent_for_charge(mol, template, reverse)
             if parent_name == template_record_name(template):
                 continue
-            name = _name_fused_core_match(mol, template, match, parent_name=parent_name)
+            name, suffix_kind = _name_fused_core_match_record(mol, template, match, parent_name=parent_name)
             if name:
                 yield NameCandidate(
                     name=name,
@@ -21183,6 +21244,7 @@ class OxidoFusedParentRule:
                     template_name=template_record_name(template),
                     source_family=str(template.get("source_family", "")),
                     source_file=str(template.get("source_file", "")),
+                    suffixes=_fused_suffix_candidates(suffix_kind),
                     charge=_polycyclic_parent_charge_evidence(mol, match),
                     estimated_length=len(name),
                 )
@@ -22508,6 +22570,7 @@ from .parent.rule_helpers import (
     _has_n_oxide_on_match,
     _matched_fused_indicated_hydrogen_locants,
     _name_fused_core_match,
+    _name_fused_core_match_record,
     _name_natural_product_topology_match,
     _opsin_parseable_retained_parent_name,
     _fused_oxo_suffix_name,

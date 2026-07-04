@@ -1293,6 +1293,12 @@ def _has_n_oxide_on_match(mol, match: Sequence[int]) -> bool:
 def _name_fused_core_match(
     mol, template: dict, match: Sequence[int], parent_name: str | None = None
 ) -> str:
+    return _name_fused_core_match_record(mol, template, match, parent_name=parent_name)[0]
+
+
+def _name_fused_core_match_record(
+    mol, template: dict, match: Sequence[int], parent_name: str | None = None
+) -> tuple[str, str]:
     cache = mol_cache_dict(mol, "fused_core_match_name_cache")
     cache_key = (
         id(template),
@@ -1302,22 +1308,23 @@ def _name_fused_core_match(
         mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
     )
     if cache_key in cache:
-        return cache[cache_key]
+        cached = cache[cache_key]
+        return cached if isinstance(cached, tuple) else (cached, "")
     core_set = set(match)
     if ring_system_extends_core(mol, core_set):
-        cache[cache_key] = ""
-        return ""
+        cache[cache_key] = ("", "")
+        return "", ""
     if _match_has_unlocanted_external_substitution(mol, template, match, core_set=core_set):
-        cache[cache_key] = ""
-        return ""
+        cache[cache_key] = ("", "")
+        return "", ""
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
     parent_name = _opsin_parseable_retained_parent_name(parent_name)
     radical_parent_name = _fused_single_external_element_radical_name(mol, template, match, reverse, parent_name)
     if radical_parent_name:
-        cache[cache_key] = radical_parent_name
-        return radical_parent_name
+        cache[cache_key] = (radical_parent_name, "")
+        return radical_parent_name, ""
     prefixes = []
     prefix_records = []
     template_mol = template_record_mol(template)
@@ -1331,8 +1338,8 @@ def _name_fused_core_match(
             if nbr.GetAtomicNum() == 1 and nbr.GetIsotope() in _ISOTOPE_HYDROGEN_PREFIX:
                 continue
             if not locant:
-                cache[cache_key] = ""
-                return ""
+                cache[cache_key] = ("", "")
+                return "", ""
             prefix = simple_external_prefix(mol, nidx, mol_idx) or branch_prefix(
                 mol,
                 nidx,
@@ -1340,33 +1347,33 @@ def _name_fused_core_match(
                 assume_simple_external_prefix_miss=True,
             )
             if not prefix:
-                cache[cache_key] = ""
-                return ""
+                cache[cache_key] = ("", "")
+                return "", ""
             prefix_records.append((locant, prefix, template_mol.GetAtomWithIdx(template_idx).GetSymbol()))
     if prefix_records:
         locant_map = _benzimidazole_n1_benzenoid_prefix_locant_map(template, prefix_records)
         prefixes = [(locant_map.get(locant, locant), prefix) for locant, prefix, _symbol in prefix_records]
     if not prefixes:
         result = _join_prefix_parent("", parent_name)
-        cache[cache_key] = result
-        return result
+        cache[cache_key] = (result, "")
+        return result, ""
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
     purin_amine_name = _fused_purin_6_amine_name(prefixes, parent_name)
     if purin_amine_name:
-        cache[cache_key] = purin_amine_name
-        return purin_amine_name
+        cache[cache_key] = (purin_amine_name, "")
+        return purin_amine_name, ""
     purin_thioxo_name = _fused_purin_indicated_thioxo_name(prefixes, parent_name)
     if purin_thioxo_name:
-        cache[cache_key] = purin_thioxo_name
-        return purin_thioxo_name
+        cache[cache_key] = (purin_thioxo_name, "ring_thione_suffix")
+        return purin_thioxo_name, "ring_thione_suffix"
     suffix_name = (
         _fused_functional_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_functional_suffix(prefixes)
         else ""
     )
     if suffix_name:
-        cache[cache_key] = suffix_name
-        return suffix_name
+        cache[cache_key] = (suffix_name, "ring_functional_suffix")
+        return suffix_name, "ring_functional_suffix"
     parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
     suffix_name = (
         _fused_thione_suffix_name(prefixes, parent_name, indicated_h_locs)
@@ -1374,31 +1381,31 @@ def _name_fused_core_match(
         else ""
     )
     if suffix_name:
-        cache[cache_key] = suffix_name
-        return suffix_name
+        cache[cache_key] = (suffix_name, "ring_thione_suffix")
+        return suffix_name, "ring_thione_suffix"
     suffix_name = (
         _fused_oxo_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_oxo_suffix(prefixes)
         else ""
     )
     if suffix_name:
-        cache[cache_key] = suffix_name
-        return suffix_name
+        cache[cache_key] = (suffix_name, "ring_oxo_suffix")
+        return suffix_name, "ring_oxo_suffix"
     suffix_name = (
         _fused_imine_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_imine_suffix(prefixes)
         else ""
     )
     if suffix_name:
-        cache[cache_key] = suffix_name
-        return suffix_name
+        cache[cache_key] = (suffix_name, "ring_imino_suffix")
+        return suffix_name, "ring_imino_suffix"
     prefix_text = _format_prefixes(prefixes)
     if not prefix_text:
-        cache[cache_key] = ""
-        return ""
+        cache[cache_key] = ("", "")
+        return "", ""
     result = _join_prefix_parent(prefix_text, parent_name)
-    cache[cache_key] = result
-    return result
+    cache[cache_key] = (result, "")
+    return result, ""
 
 
 def _benzimidazole_n1_benzenoid_prefix_locant_map(

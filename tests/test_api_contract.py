@@ -4775,6 +4775,21 @@ def test_large_kekulized_bridge_polycycle_orientation_roundtrips(input_smiles):
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "OC12c3ccccc3C(c3ccccc31)C1c3ccccc3C2c2ccccc21",
+        "c1ccc2c(c1)C1c3ccccc3C2C2c3ccccc3C1c1ccccc12",
+    ],
+)
+def test_dependent_kekulized_bridge_polycycles_roundtrip_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "O=C1Oc2ccccc2-c2ccc(cc2)-c2ccccc2OC(=O)c2ccc1cc2C(=O)[O-]",
         "O=C(O)c1ccc2c3ccc4c5c(ccc(c6ccc(C(=O)O)c1c26)c53)C(=O)OC4=O",
     ],

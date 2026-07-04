@@ -1301,6 +1301,7 @@ def _secondary_bridge_completion(
     base_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
     used_edges: set[tuple[int, int]] = set()
     bridges = []
+    flat_completion_failed = False
     for left, right in extra_edges:
         edge = (left, right)
         if edge in used_edges:
@@ -1310,30 +1311,195 @@ def _secondary_bridge_completion(
             bridges.append((0, low, high, ()))
             used_edges.add(edge)
             continue
-        paths = _secondary_bridge_paths(graph, base_positions.keys(), extra_edges, used_edges, left, right)
+        paths = _secondary_bridge_paths(
+            graph,
+            base_positions.keys(),
+            extra_edges,
+            used_edges,
+            left,
+            right,
+        )
         if len(paths) != 1:
-            return None
+            flat_completion_failed = True
+            break
         path = paths[0]
         start, end = path[0], path[-1]
         if start not in base_positions or end not in base_positions:
-            return None
+            flat_completion_failed = True
+            break
         bridge_edges = {tuple(sorted((a, b))) for a, b in zip(path, path[1:])}
         used_edges.update(bridge_edges)
         low, high = sorted((base_positions[start], base_positions[end]))
         internals = tuple(path[1:-1])
         bridges.append((len(internals), low, high, internals))
 
-    if used_edges != set(extra_edges):
+    if not flat_completion_failed and used_edges == set(extra_edges):
+        seq = tuple(base_seq) + tuple(idx for bridge in bridges for idx in bridge[3])
+        if len(seq) != len(atoms) or set(seq) != atoms:
+            return None
+        bracket = list(base_bracket)
+        for length, low, high, _internals in sorted(
+            bridges,
+            key=lambda item: (-item[0], item[1], item[2]),
+        ):
+            bracket.append(f"{length}^{low},{high}")
+        if len(bracket) != rank + 1:
+            return None
+        return seq, tuple(bracket)
+
+    return _dependent_secondary_bridge_completion(
+        graph,
+        atoms,
+        base_seq,
+        base_bracket,
+        rank,
+        extra_edges,
+    )
+
+
+def _dependent_secondary_bridge_completion(
+    graph: dict[int, set[int]],
+    atoms: set[int],
+    base_seq: Sequence[int],
+    base_bracket: Sequence[int],
+    rank: int,
+    extra_edges: Sequence[tuple[int, int]],
+) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
+    """Complete polybridges whose later bridges depend on earlier bridges.
+
+    Dense fused aromatic systems often leave a residual fused ring after the
+    three von Baeyer base paths are chosen.  That residual is not a single path:
+    it is decomposable only after one bridge introduces new locants that later
+    zero/nonzero bridges can use as endpoints.  OPSIN's polybridge parser
+    accepts these dependent secondary bridges, and the edge model below already
+    understands them, so expose the same graph fact during completion.
+    """
+
+    extra_edge_set = {tuple(sorted(edge)) for edge in extra_edges}
+    placed_positions = {idx: loc for loc, idx in enumerate(base_seq, start=1)}
+    seq = list(base_seq)
+    used_edges: set[tuple[int, int]] = set()
+    bridges: list[tuple[int, int, int, tuple[int, ...]]] = []
+    max_bridge_count = rank + 1 - len(base_bracket)
+    if max_bridge_count <= 0:
         return None
-    seq = tuple(base_seq) + tuple(idx for bridge in bridges for idx in bridge[3])
-    if len(seq) != len(atoms) or set(seq) != atoms:
+
+    while used_edges != extra_edge_set:
+        if len(bridges) >= max_bridge_count:
+            return None
+        zero_edges = sorted(
+            edge
+            for edge in extra_edge_set - used_edges
+            if edge[0] in placed_positions and edge[1] in placed_positions
+        )
+        if zero_edges:
+            for left, right in zero_edges:
+                if len(bridges) >= max_bridge_count:
+                    return None
+                low, high = sorted((placed_positions[left], placed_positions[right]))
+                bridges.append((0, low, high, ()))
+                used_edges.add((left, right))
+            continue
+
+        path = _dependent_secondary_bridge_path(
+            graph,
+            placed_positions,
+            extra_edge_set,
+            used_edges,
+        )
+        if not path:
+            return None
+        bridge_edges = {tuple(sorted((a, b))) for a, b in zip(path, path[1:])}
+        if bridge_edges & used_edges:
+            return None
+        start, end = path[0], path[-1]
+        internals = tuple(path[1:-1])
+        if not internals:
+            return None
+        if any(idx in placed_positions for idx in internals):
+            return None
+        used_edges.update(bridge_edges)
+        first_new_locant = len(seq) + 1
+        seq.extend(internals)
+        for offset, idx in enumerate(internals):
+            placed_positions[idx] = first_new_locant + offset
+        low, high = sorted((placed_positions[start], placed_positions[end]))
+        bridges.append((len(internals), low, high, internals))
+
+    result_seq = tuple(seq)
+    if len(result_seq) != len(atoms) or set(result_seq) != atoms:
         return None
     bracket = list(base_bracket)
-    for length, low, high, _internals in sorted(bridges, key=lambda item: (-item[0], item[1], item[2])):
+    for length, low, high, _internals in sorted(
+        bridges,
+        key=lambda item: (-item[0], item[1], item[2]),
+    ):
         bracket.append(f"{length}^{low},{high}")
     if len(bracket) != rank + 1:
         return None
-    return seq, tuple(bracket)
+    return result_seq, tuple(bracket)
+
+
+def _dependent_secondary_bridge_path(
+    graph: dict[int, set[int]],
+    placed_positions: dict[int, int],
+    extra_edges: set[tuple[int, int]],
+    used_edges: set[tuple[int, int]],
+) -> tuple[int, ...]:
+    available_edges = extra_edges - used_edges
+    if not available_edges:
+        return ()
+    placed = set(placed_positions)
+    candidates = []
+    seen = set()
+    max_path_count = 64
+    for start in sorted(placed):
+        stack = [(start, (start,), 1 << start)]
+        while stack and len(candidates) < max_path_count:
+            current, path, visited_mask = stack.pop()
+            for nbr in sorted(graph[current], reverse=True):
+                edge = tuple(sorted((current, nbr)))
+                if edge not in available_edges:
+                    continue
+                nbr_mask = 1 << nbr
+                if visited_mask & nbr_mask:
+                    continue
+                next_path = path + (nbr,)
+                if nbr in placed:
+                    if nbr == start or len(next_path) < 3:
+                        continue
+                    internals = next_path[1:-1]
+                    if any(idx in placed for idx in internals):
+                        continue
+                    edge_key = tuple(
+                        sorted(
+                            tuple(sorted((a, b)))
+                            for a, b in zip(next_path, next_path[1:])
+                        )
+                    )
+                    if edge_key in seen:
+                        continue
+                    seen.add(edge_key)
+                    start_loc = placed_positions[next_path[0]]
+                    end_loc = placed_positions[next_path[-1]]
+                    candidates.append(
+                        (
+                            (
+                                len(internals),
+                                min(start_loc, end_loc),
+                                max(start_loc, end_loc),
+                                tuple(internals),
+                                next_path,
+                            ),
+                            next_path,
+                        )
+                    )
+                    continue
+                stack.append((nbr, next_path, visited_mask | nbr_mask))
+    if not candidates:
+        return ()
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
 
 
 def _secondary_bridge_extra_edges(

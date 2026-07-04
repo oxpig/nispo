@@ -1949,6 +1949,12 @@ def _candidate_fact_ranked_item(
     selected_item = _systematic_alternative_for_hydrazine_parent_choice(keyed_items, current)
     if selected_item is not None:
         return selected_item
+    selected_item = _systematic_alternative_for_dithiocarbonate_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
+    selected_item = _safe_family_alternative_for_selected_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
     if _deterministic_key_winner_is_high_confidence(current):
         selected_item = (
             _complete_azanium_alternative_for_charged_parent_choice(
@@ -3852,6 +3858,14 @@ _HYDRAZINE_SYSTEMATIC_ALTERNATIVE_FAMILIES = frozenset(
         "single-ring-parent",
     }
 )
+_DITHIOCARBONATE_SYSTEMATIC_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+    }
+)
 
 
 def _hydrazine_parent_can_consider_systematic_alternative(item: _PreparedCandidate) -> bool:
@@ -3919,6 +3933,192 @@ def _candidate_has_hydrazine_like_nitrogen_evidence(candidate: NameCandidate) ->
     if element_counts.get("N", 0) >= 2:
         return True
     return candidate.parent_external_nitrogen_substituent_count >= 1
+
+
+def _systematic_alternative_for_dithiocarbonate_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "dithiocarbonate-retained-parent":
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _DITHIOCARBONATE_SYSTEMATIC_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.charge is not None or candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 160:
+            continue
+        alternatives.append(
+            (
+                (
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _safe_family_alternative_for_selected_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family == "component-spiro-parent":
+        return _strict_skeletal_replacement_alternative_for_component_spiro_choice(
+            keyed_items,
+            selected,
+        )
+    if selected_candidate.family == "retained-topology-replacement-fused-parent":
+        return _generic_bicyclic_alternative_for_retained_topology_choice(keyed_items, selected)
+    if selected_candidate.family == "generated-fused-parent":
+        return _hydro_retained_alternative_for_generated_fused_choice(keyed_items, selected)
+    if selected_candidate.family == "beta-dicarbonyl-parent":
+        return _acyclic_parent_alternative_for_beta_dicarbonyl_choice(keyed_items, selected)
+    return None
+
+
+def _strict_skeletal_replacement_alternative_for_component_spiro_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _is_safe_complete_suffixless_parent_candidate(selected_candidate):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "skeletal-replacement-fused-parent":
+            continue
+        if not _is_safe_complete_suffixless_parent_candidate(candidate):
+            continue
+        if len(candidate.parent_atoms) != len(selected_candidate.parent_atoms):
+            continue
+        if candidate.parent_element_counts != selected_candidate.parent_element_counts:
+            continue
+        if candidate.parent_aromatic_atom_count != selected_candidate.parent_aromatic_atom_count:
+            continue
+        if candidate.parent_hetero_atom_count != selected_candidate.parent_hetero_atom_count:
+            continue
+        if len(item.name) - len(selected.name) < -25:
+            continue
+        alternatives.append(((_candidate_fact_alternative_key(item, candidate_key)), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _generic_bicyclic_alternative_for_retained_topology_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if not _is_safe_complete_suffixless_parent_candidate(selected.candidate):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "generic-bicyclic-parent":
+            continue
+        if not _is_safe_complete_suffixless_parent_candidate(candidate):
+            continue
+        if len(item.name) > 160:
+            continue
+        alternatives.append(((_candidate_fact_alternative_key(item, candidate_key)), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _hydro_retained_alternative_for_generated_fused_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _is_safe_complete_suffixless_parent_candidate(selected_candidate):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "hydro-fused-retained-parent":
+            continue
+        if not _is_safe_complete_suffixless_parent_candidate(candidate):
+            continue
+        if len(candidate.parent_atoms) > len(selected_candidate.parent_atoms):
+            continue
+        if candidate.parent_element_counts != selected_candidate.parent_element_counts:
+            continue
+        alternatives.append(((_candidate_fact_alternative_key(item, candidate_key)), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_parent_alternative_for_beta_dicarbonyl_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    if not _is_safe_complete_suffixless_parent_candidate(selected.candidate):
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-parent":
+            continue
+        if not _is_safe_complete_suffixless_parent_candidate(candidate):
+            continue
+        alternatives.append(((_candidate_fact_alternative_key(item, candidate_key)), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _is_safe_complete_suffixless_parent_candidate(candidate: NameCandidate) -> bool:
+    return bool(
+        candidate.parent_atoms
+        and candidate_has_complete_graph(candidate)
+        and candidate.charge is None
+        and not candidate.suffixes
+        and not candidate_safety_reasons(candidate)
+    )
+
+
+def _candidate_fact_alternative_key(
+    item: _PreparedCandidate,
+    candidate_key: tuple,
+) -> tuple:
+    return (
+        len(item.name) - item.selection_bonus,
+        len(item.name),
+        candidate_key,
+    )
 
 
 def _is_low_confidence_generated_spiro_skeletal_replacement(candidate: NameCandidate) -> bool:

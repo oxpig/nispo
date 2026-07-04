@@ -88,9 +88,9 @@ def _smiles_to_iupac_batch_with_telemetry(
     """
 
     smiles_values = list(smiles_list)
-    telemetry = CandidateTelemetry(branch_miss_shape_detail=branch_miss_shape_detail)
     if not branch_miss_shape_detail and not _full_benchmark_telemetry_enabled():
-        return smiles_to_iupac_batch(smiles_values), telemetry_to_dict(telemetry)
+        return smiles_to_iupac_batch(smiles_values), {}
+    telemetry = CandidateTelemetry(branch_miss_shape_detail=branch_miss_shape_detail)
     if Chem is None:
         return ["" for _ in smiles_values], telemetry_to_dict(telemetry)
     engine = _engine()

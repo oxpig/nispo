@@ -441,6 +441,7 @@ def _secondary_bridge_tricyclic_candidate_records(
     allow_relaxed_base_paths = multiple_bond_count <= 8
     use_saturated_bridge_selection = multiple_bond_count == 0
     atom_mask = _atom_bitmask(atoms)
+    atoms_key = tuple(sorted(atoms))
     graph_key = _graph_cache_key(graph)
     graph_edges = tuple(_graph_edges(graph))
     for left, right in combinations(branch_atoms, 2):
@@ -451,6 +452,7 @@ def _secondary_bridge_tricyclic_candidate_records(
             right,
             allow_relaxed=allow_relaxed_base_paths,
             atom_mask=atom_mask,
+            atoms_key=atoms_key,
             graph_key=graph_key,
         ):
             extra_edges = _secondary_bridge_extra_edges(graph_edges, base_paths)
@@ -463,6 +465,8 @@ def _secondary_bridge_tricyclic_candidate_records(
                     base_bracket,
                     3,
                     extra_edges=extra_edges,
+                    graph_key=graph_key,
+                    atoms_key=atoms_key,
                 )
                 if completed is None:
                     continue
@@ -792,6 +796,7 @@ def _secondary_bridge_polycyclic_candidate_records(
         multiple_bond_count,
     )
     atom_mask = _atom_bitmask(atoms)
+    atoms_key = tuple(sorted(atoms))
     graph_key = _graph_cache_key(graph)
     graph_edges = tuple(_graph_edges(graph))
     base_path_max_paths = 8 if route_fast and allow_relaxed_base_paths else None
@@ -812,6 +817,7 @@ def _secondary_bridge_polycyclic_candidate_records(
             allow_relaxed=allow_relaxed_base_paths,
             atom_mask=atom_mask,
             max_paths=base_path_max_paths,
+            atoms_key=atoms_key,
             graph_key=graph_key,
         ):
             extra_edges = _secondary_bridge_extra_edges(graph_edges, base_paths)
@@ -824,6 +830,8 @@ def _secondary_bridge_polycyclic_candidate_records(
                     base_bracket,
                     rank,
                     extra_edges=extra_edges,
+                    graph_key=graph_key,
+                    atoms_key=atoms_key,
                 )
                 if completed is None:
                     continue
@@ -1314,17 +1322,33 @@ def _secondary_bridge_completion(
     rank: int,
     *,
     extra_edges: Sequence[tuple[int, int]] | None = None,
+    graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
+    atoms_key: tuple[int, ...] | None = None,
 ) -> tuple[tuple[int, ...], tuple[int | str, ...]] | None:
     if extra_edges is None:
         extra_edges = _secondary_bridge_extra_edges(tuple(_graph_edges(graph)), base_paths)
+    if graph_key is None:
+        graph_key = _graph_cache_key(graph)
+    if atoms_key is None:
+        atoms_key = tuple(sorted(atoms))
+    base_paths_key = (
+        base_paths
+        if isinstance(base_paths, tuple)
+        else tuple(tuple(path) for path in base_paths)
+    )
+    extra_edges_key = (
+        extra_edges
+        if isinstance(extra_edges, tuple)
+        else tuple(tuple(edge) for edge in extra_edges)
+    )
     return _secondary_bridge_completion_for_key(
-        _graph_cache_key(graph),
-        tuple(sorted(atoms)),
-        tuple(tuple(path) for path in base_paths),
+        graph_key,
+        atoms_key,
+        base_paths_key,
         tuple(base_seq),
         tuple(base_bracket),
         rank,
-        tuple(tuple(edge) for edge in extra_edges),
+        extra_edges_key,
     )
 
 
@@ -1571,11 +1595,12 @@ def _secondary_bridge_base_path_sets(
     allow_relaxed: bool,
     atom_mask: int | None = None,
     max_paths: int | None = None,
+    atoms_key: tuple[int, ...] | None = None,
     graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
 ) -> tuple[tuple[tuple[int, ...], ...], ...]:
     return _secondary_bridge_base_path_sets_for_key(
         _graph_cache_key(graph) if graph_key is None else graph_key,
-        tuple(sorted(atoms)),
+        tuple(sorted(atoms)) if atoms_key is None else atoms_key,
         a,
         b,
         allow_relaxed,
@@ -1601,7 +1626,14 @@ def _secondary_bridge_base_path_sets_for_key(
         if allow_relaxed
         else _simple_path_infos_for_key(graph_key, a, b, 12)
     )
-    exact = _bridge_paths_with_count_from_infos(path_infos[:12], atoms, a, b, 3)
+    exact = _bridge_paths_with_count_from_infos(
+        path_infos[:12],
+        atoms,
+        a,
+        b,
+        3,
+        atom_mask=atom_mask,
+    )
     if exact:
         return (tuple(exact),)
     if not allow_relaxed:
@@ -1746,8 +1778,17 @@ def _bridge_paths(
     b: int,
     *,
     graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
+    atom_mask: int | None = None,
 ) -> list[tuple[int, ...]]:
-    return _bridge_paths_with_count(graph, atoms, a, b, 3, graph_key=graph_key)
+    return _bridge_paths_with_count(
+        graph,
+        atoms,
+        a,
+        b,
+        3,
+        graph_key=graph_key,
+        atom_mask=atom_mask,
+    )
 
 
 def _bridgehead_pair_candidates(
@@ -1779,6 +1820,7 @@ def _bridge_paths_with_count(
     path_count: int,
     *,
     graph_key: tuple[tuple[int, tuple[int, ...]], ...] | None = None,
+    atom_mask: int | None = None,
 ) -> list[tuple[int, ...]]:
     return _bridge_paths_with_count_from_infos(
         _simple_path_infos_for_key(_graph_cache_key(graph) if graph_key is None else graph_key, a, b, 12),
@@ -1786,6 +1828,7 @@ def _bridge_paths_with_count(
         a,
         b,
         path_count,
+        atom_mask=atom_mask,
     )
 
 
@@ -1826,10 +1869,12 @@ def _bridge_paths_with_count_from_infos(
     a: int,
     b: int,
     path_count: int,
+    *,
+    atom_mask: int | None = None,
 ) -> list[tuple[int, ...]]:
     if len(path_infos) < path_count:
         return []
-    atom_mask = _atom_bitmask(atoms)
+    atom_mask = _atom_bitmask(atoms) if atom_mask is None else atom_mask
     endpoints_mask = (1 << a) | (1 << b)
     valid = []
     for selected in combinations(path_infos, path_count):

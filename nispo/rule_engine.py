@@ -1203,11 +1203,28 @@ def _first_valid_prepared_candidate(
     max_length: int = _DEFAULT_MAX_NAME_LENGTH,
     output_max_length: int | None = None,
 ) -> _PreparedCandidate | None:
+    rules = rules if isinstance(rules, tuple) else tuple(rules)
+    rule_candidate_cache_state = _rule_candidate_cache_state(mol) if ctx.telemetry is None else ()
+    if ctx.telemetry is None:
+        prepared_cache_key = (
+            id(rules),
+            max_length,
+            output_max_length,
+            rule_candidate_cache_state,
+        )
+        cached_prepared = ctx.cache.prepared_candidates.get(prepared_cache_key)
+        if cached_prepared is not None:
+            return cached_prepared[0] if cached_prepared else None
     rules = compile_rules_for_context(ctx, rules)
     for rule in rules:
         if not rule.applies(ctx):
             continue
-        for candidate in rule.candidates(ctx):
+        candidates = (
+            _cached_rule_candidates(ctx, rule, rule_candidate_cache_state)
+            if ctx.telemetry is None
+            else rule.candidates(ctx)
+        )
+        for candidate in candidates:
             if not candidate.name:
                 continue
             output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)

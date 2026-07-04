@@ -60,6 +60,14 @@ _NONSTEREO_EMPTY_FALLBACK_MAX_LENGTH = 320
 _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY = 60
 _FRAGMENT_SUBSTITUENT_FALLBACK_PROP = "_nispo_allow_fragment_substituent_fallback"
 _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP = "_nispo_enable_retained_partial_hydro_fallback"
+_EMPTY_FALLBACK_SKIPPED_PRIMARY_ROUTES = frozenset(
+    {
+        "acyclic_senior_functional",
+        "acyclic_simple",
+        "multi_monocycle",
+        "simple_monocycle",
+    }
+)
 _ACYCLIC_ISOTHIOCYANATE_IMINO_THIONE_SOURCE = "acyclic-isothiocyanate-imino-thione"
 _SINGLE_RING_RETAINED_CARBOHYDRATE_SUBSTITUENT_SOURCE = "single-ring:retained-carbohydrate-substituent"
 _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES = frozenset(
@@ -647,18 +655,6 @@ class NamingEngine:
                     _prepare_candidates(
                         mol,
                         self._Chem,
-                        fallback_ctx,
-                        self._rules,
-                        max_length=fallback_evaluation_length,
-                        output_max_length=fallback_max_length,
-                    ),
-                    telemetry=telemetry,
-                )
-            if not fallback_name:
-                fallback_name = _select_best_prepared_candidate(
-                    _prepare_candidates(
-                        mol,
-                        self._Chem,
                         ctx,
                         self._rules,
                         max_length=fallback_evaluation_length,
@@ -1084,7 +1080,20 @@ def _fast_poly_bridge_name_with_retained_defer_bypass(
 def _should_skip_complex_empty_fallback(mol, ctx: MoleculeContext) -> bool:
     """Return whether an empty molecule should bypass the final fallback replay."""
 
-    return False
+    return (
+        ctx.route_plan.primary_route in _EMPTY_FALLBACK_SKIPPED_PRIMARY_ROUTES
+        and not _has_empty_fallback_high_signal(ctx)
+    )
+
+
+def _has_empty_fallback_high_signal(ctx: MoleculeContext) -> bool:
+    return bool(
+        ctx.profile.has_functional_skeleton_signal
+        or ctx.profile.has_imino_skeleton_signal
+        or ctx.facts.has_sulfur
+        or ctx.facts.has_phosphorus
+        or ctx.facts.has_formal_charge
+    )
 
 
 def _is_complex_polycycle_fallback_bounded(mol, ctx: MoleculeContext) -> bool:

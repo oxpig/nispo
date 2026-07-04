@@ -351,6 +351,9 @@ class NameCandidate:
     parent_external_acyl_nitrogen_substituent_count: int = 0
     parent_external_oxygen_substituent_count: int = 0
     parent_external_isotope_hydrogen_count: int = 0
+    molecule_isotope_atom_count: int = 0
+    parent_isotope_atom_count: int = 0
+    candidate_isotope_atom_count: int = 0
     parent_external_relative_stereo_branch_count: int = 0
     parent_indicated_hydrogen_locants: tuple[str, ...] = ()
     molecule_formal_charge_atom_count: int = 0
@@ -9291,6 +9294,34 @@ def _parent_atom_evidence(mol, parent_atoms: frozenset[int]) -> tuple[
     return evidence
 
 
+def _molecule_isotope_atom_indices(mol) -> frozenset[int]:
+    cached = mol_cache_get(mol, "molecule_isotope_atom_indices")
+    if cached is not None:
+        return cached
+    isotope_atoms = frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetIsotope())
+    return mol_cache_set(mol, "molecule_isotope_atom_indices", isotope_atoms)
+
+
+def _candidate_isotope_atom_indices(mol, candidate: NameCandidate) -> frozenset[int]:
+    molecule_isotope_atoms = _molecule_isotope_atom_indices(mol)
+    if not molecule_isotope_atoms:
+        return frozenset()
+    covered_atoms: set[int] = set(candidate.parent_atoms)
+    for prefix in candidate.prefixes:
+        covered_atoms.update(prefix.atoms)
+    for suffix in candidate.suffixes:
+        covered_atoms.update(suffix.atoms)
+    for atom_idx in tuple(covered_atoms):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetAtomicNum() == 1:
+            continue
+        for neighbor in atom.GetNeighbors():
+            neighbor_idx = neighbor.GetIdx()
+            if neighbor_idx in molecule_isotope_atoms and neighbor.GetAtomicNum() == 1:
+                covered_atoms.add(neighbor_idx)
+    return frozenset(idx for idx in covered_atoms if idx in molecule_isotope_atoms)
+
+
 def _with_molecule_graph_fragility_evidence(mol, Chem, candidate: NameCandidate) -> NameCandidate:
     updated = candidate
     if _candidate_has_external_bond_stereo_parent(mol, Chem, candidate):
@@ -9341,8 +9372,23 @@ def _candidate_has_external_bond_stereo_parent(mol, Chem, candidate: NameCandida
 
 
 def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
+    molecule_isotope_atom_count = len(_molecule_isotope_atom_indices(mol))
+    candidate_isotope_atom_count = (
+        len(_candidate_isotope_atom_indices(mol, candidate)) if molecule_isotope_atom_count else 0
+    )
     if not candidate.parent_atoms:
-        return candidate
+        if (
+            candidate.molecule_isotope_atom_count == molecule_isotope_atom_count
+            and candidate.parent_isotope_atom_count == 0
+            and candidate.candidate_isotope_atom_count == candidate_isotope_atom_count
+        ):
+            return candidate
+        return replace(
+            candidate,
+            molecule_isotope_atom_count=molecule_isotope_atom_count,
+            parent_isotope_atom_count=0,
+            candidate_isotope_atom_count=candidate_isotope_atom_count,
+        )
     parent_atoms = frozenset(candidate.parent_atoms)
     (
         parent_element_counts,
@@ -9352,6 +9398,7 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         internal_unsaturated_bond_count,
         external_isotope_hydrogen_count,
     ) = _parent_atom_evidence(mol, parent_atoms)
+    parent_isotope_atom_count = len(_molecule_isotope_atom_indices(mol).intersection(parent_atoms))
     molecule_formal_charge_atom_count, molecule_abs_formal_charge_sum = _molecule_charge_counts(mol)
     if (
         candidate.parent_element_counts == parent_element_counts
@@ -9362,6 +9409,9 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         and candidate.parent_external_unsaturated_bond_count == external_unsaturated_bond_count
         and candidate.parent_internal_unsaturated_bond_count == internal_unsaturated_bond_count
         and candidate.parent_external_isotope_hydrogen_count == external_isotope_hydrogen_count
+        and candidate.molecule_isotope_atom_count == molecule_isotope_atom_count
+        and candidate.parent_isotope_atom_count == parent_isotope_atom_count
+        and candidate.candidate_isotope_atom_count == candidate_isotope_atom_count
     ):
         return candidate
     return replace(
@@ -9374,6 +9424,9 @@ def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
         parent_external_unsaturated_bond_count=external_unsaturated_bond_count,
         parent_internal_unsaturated_bond_count=internal_unsaturated_bond_count,
         parent_external_isotope_hydrogen_count=external_isotope_hydrogen_count,
+        molecule_isotope_atom_count=molecule_isotope_atom_count,
+        parent_isotope_atom_count=parent_isotope_atom_count,
+        candidate_isotope_atom_count=candidate_isotope_atom_count,
     )
 
 
@@ -11940,6 +11993,50 @@ def _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(
     return False
 
 
+def _has_contextual_higher_isotope_coverage_parent_alternative(
+    item: _PreparedCandidate,
+    prepared: list[_PreparedCandidate],
+) -> bool:
+    candidate = item.candidate
+    if candidate.molecule_isotope_atom_count <= 0:
+        return False
+    if not candidate.parent_atoms:
+        return False
+    if candidate.candidate_isotope_atom_count != 0:
+        return False
+    if len(item.name) > 80:
+        return False
+    if (
+        candidate.family == "single-ring-parent"
+        and candidate.parent_hetero_atom_count >= 2
+        and candidate.parent_aromatic_atom_count >= 5
+    ):
+        return False
+    if candidate.family in {
+        "high-signal-generated-topology-fused-parent",
+        "retained-topology-replacement-fused-parent",
+    }:
+        return False
+    for other in prepared:
+        if other is item or other.name == item.name:
+            continue
+        other_candidate = other.candidate
+        if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+            continue
+        if candidate_safety_reasons(other_candidate):
+            continue
+        if other_candidate.candidate_isotope_atom_count < candidate.molecule_isotope_atom_count:
+            continue
+        if other.stability_penalty > item.stability_penalty + 320:
+            continue
+        if len(other.name) > 220 or len(other.name) - len(item.name) > 140:
+            continue
+        if other_candidate.render_rank is not None and other_candidate.render_rank > 5:
+            continue
+        return True
+    return False
+
+
 def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: list[_PreparedCandidate]) -> int:
     """Defer orientation-fragile aliases only when alternatives exist."""
 
@@ -12232,6 +12329,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
     retained_carbohydrate_substituent_expanded_single_ring = (
         _has_contextual_retained_carbohydrate_substituent_single_ring_sibling(item, prepared)
     )
+    higher_isotope_coverage_parent = _has_contextual_higher_isotope_coverage_parent_alternative(item, prepared)
     aza_alias_penalty = _unstable_aza_polycycle_alias_penalty(name)
     spiro_penalty = _unstable_component_spiro_alias_penalty(name, item.candidate)
     if _is_contextual_senior_hetero_single_ring_parent(item, prepared):
@@ -12366,6 +12464,7 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         or single_ring_stereo_prefix_parent
         or external_stereo_acyclic_parent
         or retained_carbohydrate_substituent_expanded_single_ring
+        or higher_isotope_coverage_parent
         or aza_alias_penalty
         or spiro_penalty
     ):
@@ -12722,6 +12821,8 @@ def _candidate_selection_contextual_penalty(item: _PreparedCandidate, prepared: 
         penalty += 80
     if retained_carbohydrate_substituent_expanded_single_ring:
         penalty -= 240
+    if higher_isotope_coverage_parent:
+        penalty += 220
     return penalty
 
 

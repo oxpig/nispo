@@ -1832,6 +1832,7 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
             mol,
             name,
             {atom_idx: str(locant) for locant, atom_idx in enumerate(path, start=1)},
+            parent=parent,
         )
     return name
 
@@ -1975,7 +1976,7 @@ def _terminal_carboxy_suffix_parent_name(
     terminal_root = _terminal_suffix_root_atom(mol, path, terminal_loc, terminal_prefix)
     if terminal_root is not None:
         locants_by_atom[terminal_root] = "1"
-    return _append_path_carbon_isotope_suffixes(mol, name, locants_by_atom)
+    return _append_path_carbon_isotope_suffixes(mol, name, locants_by_atom, parent=parent)
 
 
 def _terminal_suffix_root_atom(
@@ -2004,13 +2005,15 @@ def _append_path_carbon_isotope_suffixes(
     mol,
     name: str,
     locants_by_atom: dict[int, str],
+    *,
+    parent: str = "",
 ) -> str:
     if not name or any(f"{isotope}C" in name for isotope in (13, 14)):
         return name
     total_carbons = sum(1 for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
     labeled: dict[int, list[str]] = {}
     for atom in mol.GetAtoms():
-        if atom.GetSymbol() != "C" or atom.GetIsotope() not in {13, 14}:
+        if atom.GetSymbol() != "C" or not atom.GetIsotope():
             continue
         locant = locants_by_atom.get(atom.GetIdx())
         if not locant:
@@ -2021,11 +2024,25 @@ def _append_path_carbon_isotope_suffixes(
     if len(labeled) == 1 and len(next(iter(labeled.values()))) == total_carbons:
         return name
     suffixes = []
+    parent_prefixes = []
     for isotope, locants in sorted(labeled.items()):
         ordered = sorted(set(locants), key=lambda value: (int(value) if value.isdigit() else 9999, value))
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
-        suffixes.append(f"{','.join(ordered)}-{isotope}C{count_text}")
-    return name + "-" + "-".join(suffixes)
+        if isotope in {13, 14}:
+            suffixes.append(f"{','.join(ordered)}-{isotope}C{count_text}")
+        elif parent:
+            parent_prefixes.append(f"({','.join(ordered)}-{isotope}C{count_text})")
+        else:
+            return name
+    if parent_prefixes:
+        name = _insert_parent_isotope_prefixes(name, parent, parent_prefixes)
+    return name + "-" + "-".join(suffixes) if suffixes else name
+
+
+def _insert_parent_isotope_prefixes(name: str, parent: str, prefixes: Sequence[str]) -> str:
+    if not parent or not prefixes or not name.endswith(parent):
+        return name
+    return name[: -len(parent)] + "".join(prefixes) + parent
 
 
 def _diterminal_carboxy_suffix_parent_name(

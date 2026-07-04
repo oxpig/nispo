@@ -2552,6 +2552,15 @@ def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -
         grouped.setdefault((atom.GetSymbol(), isotope), []).append(locant)
     if not grouped:
         return parent
+    if not all(symbol == "C" and isotope in {13, 14} for symbol, isotope in grouped):
+        pieces = []
+        for (symbol, isotope), locants in sorted(
+            grouped.items(),
+            key=lambda item: (min(item[1]), item[0][0], item[0][1]),
+        ):
+            count_text = str(len(locants)) if len(locants) > 1 else ""
+            pieces.append(f"{','.join(str(locant) for locant in locants)}-{isotope}{symbol}{count_text}")
+        return f"({','.join(pieces)}){parent}"
     suffixes = []
     for (symbol, isotope), locants in sorted(grouped.items()):
         count_text = str(len(locants)) if len(locants) > 1 else ""

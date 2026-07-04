@@ -13585,7 +13585,7 @@ def _append_amino_acid_isotope_suffixes(
         isotope = atom.GetIsotope()
         if symbol == "C":
             total_carbons += 1
-            if isotope in {13, 14}:
+            if isotope:
                 locant = carbon_locants.get(atom.GetIdx())
                 if not locant:
                     return name
@@ -13607,6 +13607,8 @@ def _append_amino_acid_isotope_suffixes(
             return name
         ordered = sorted(set(locants), key=lambda value: (int(value) if value.isdigit() else 9999, value))
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        if isotope not in {13, 14}:
+            return _insert_amino_acid_isotope_prefix(name, f"({','.join(ordered)}-{isotope}C{count_text})")
         return f"{name}-{','.join(ordered)}-{isotope}C{count_text}"
     if labeled_nitrogens:
         if len(labeled_nitrogens) != 1:
@@ -13619,6 +13621,13 @@ def _append_amino_acid_isotope_suffixes(
         count_text = str(len(ordered)) if len(ordered) > 1 else ""
         return f"{name}-{','.join(ordered)}-{isotope}N{count_text}"
     return name
+
+
+def _insert_amino_acid_isotope_prefix(name: str, isotope_prefix: str) -> str:
+    match = re.match(r"^\([^)]+\)-", name)
+    if match is None:
+        return isotope_prefix + name
+    return name[: match.end()] + isotope_prefix + name[match.end() :]
 
 
 def _amino_acid_n_substituent_is_opsin_fragile(mol, Chem, sub_idx: int, nitrogen_idx: int) -> bool:
@@ -13691,11 +13700,15 @@ def _amino_acid_alpha_stereo_prefix(mol, Chem, alpha_idx: int) -> str:
     atom = mol.GetAtomWithIdx(alpha_idx)
     if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
         return ""
+    stereo_mol = Chem.Mol(mol)
+    for stereo_atom in stereo_mol.GetAtoms():
+        stereo_atom.SetIsotope(0)
     try:
-        Chem.AssignStereochemistry(mol, force=True, cleanIt=False)
+        Chem.AssignStereochemistry(stereo_mol, force=True, cleanIt=True)
     except Exception:
         return ""
-    code = atom.GetProp("_CIPCode") if atom.HasProp("_CIPCode") else ""
+    stereo_atom = stereo_mol.GetAtomWithIdx(alpha_idx)
+    code = stereo_atom.GetProp("_CIPCode") if stereo_atom.HasProp("_CIPCode") else ""
     return f"({code})-" if code in {"R", "S"} else ""
 
 

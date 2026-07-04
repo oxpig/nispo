@@ -2037,6 +2037,13 @@ def _candidate_fact_ranked_item(
             or selected_item
         )
         selected_item = (
+            _nitrogen_retained_fused_alternative_for_single_ring_choice(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = (
             _isotope_preserving_alternative_for_selected_choice(
                 keyed_items,
                 selected_item,
@@ -2457,6 +2464,13 @@ def _candidate_fact_ranked_item(
     )
     selected_item = (
         _retained_quinoxalin_dicarbonyl_alternative_for_templateless_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    selected_item = (
+        _nitrogen_retained_fused_alternative_for_single_ring_choice(
             keyed_items,
             selected_item,
         )
@@ -9854,6 +9868,82 @@ def _is_oxathiazolone_single_ring_candidate(candidate: NameCandidate) -> bool:
     )
 
 
+def _nitrogen_retained_fused_alternative_for_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) not in {5, 6}:
+        return None
+    if selected_candidate.charge is not None:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is not None and selected_render_rank > 3:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if not candidate.template_name:
+            continue
+        if candidate.source_family != "static-retained":
+            continue
+        if candidate.charge is not None or candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.candidate_isotope_atom_count != candidate.molecule_isotope_atom_count:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_elements = dict(candidate.parent_element_counts)
+        if parent_elements.get("N", 0) < 2:
+            continue
+        if any(symbol not in {"C", "N"} for symbol in parent_elements):
+            continue
+        parent_delta = len(candidate.parent_atoms) - len(selected_candidate.parent_atoms)
+        if parent_delta < 3:
+            continue
+        if len(candidate.locants) > len(selected_candidate.locants):
+            continue
+        if candidate.parent_abs_formal_charge_sum or candidate.template_abs_formal_charge_sum:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is not None and selected_render_rank is not None and render_rank > selected_render_rank + 2:
+            continue
+        if render_rank is not None and render_rank > 4:
+            continue
+        if len(item.name) > 115:
+            continue
+        if len(item.name) - len(selected.name) > 15:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(((len(item.name) - item.selection_bonus, render_rank or 999, candidate_key), item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
 def _generated_purine_candidate_has_terminal_hetero_substituent(candidate: NameCandidate) -> bool:
     return (
         candidate.family == "generated-fused-parent"
@@ -13108,7 +13198,11 @@ def _isotope_preserving_alternative_for_selected_choice(
     candidate = selected.candidate
     if candidate.molecule_isotope_atom_count <= 0:
         return None
-    if _candidate_name_mentions_isotope(selected.name):
+    selected_mentions_isotope = _candidate_name_mentions_isotope(selected.name)
+    selected_has_complete_coverage = (
+        candidate.candidate_isotope_atom_count >= candidate.molecule_isotope_atom_count
+    )
+    if selected_mentions_isotope and selected_has_complete_coverage:
         return None
     alternatives: list[tuple[int, tuple, _PreparedCandidate]] = []
     for candidate_key, item in keyed_items:
@@ -13119,6 +13213,20 @@ def _isotope_preserving_alternative_for_selected_choice(
             continue
         if not _candidate_name_mentions_isotope(item.name):
             continue
+        if selected_mentions_isotope:
+            if other_candidate.family not in {
+                "exact-biochemical-retained-parent",
+                "whole-molecule-retained-parent",
+            }:
+                continue
+            if other_candidate.source_family == "opsin-exact-unlocanted":
+                continue
+            if other_candidate.molecule_isotope_atom_count > 10:
+                continue
+            if other_candidate.candidate_isotope_atom_count < candidate.molecule_isotope_atom_count:
+                continue
+            if not other_candidate.parent_atoms or not candidate_has_complete_graph(other_candidate):
+                continue
         if candidate_safety_reasons(other_candidate):
             continue
         if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:

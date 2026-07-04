@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Sequence
 from functools import lru_cache
 from itertools import combinations, permutations, product
@@ -25,6 +25,10 @@ _POLYCYCLIC_VIEW_SYNC_PROPS = (
 )
 _POLYCYCLIC_VIEW_VALUE_CACHE_KEYS = ("assigned_atom_stereochemistry_raw",)
 _CACHE_MISS = object()
+_GRAPH_CACHE_KEY_CACHE_LIMIT = 32768
+_GRAPH_CACHE_KEY_CACHE: OrderedDict[
+    int, tuple[object, tuple[tuple[int, tuple[int, ...]], ...]]
+] = OrderedDict()
 
 
 def _polycyclic_record_cache_key(mol, family: str, limit: int | None = None) -> tuple:
@@ -1853,7 +1857,17 @@ def _simple_path_infos_for_key(
 
 
 def _graph_cache_key(graph: dict[int, set[int]]) -> tuple[tuple[int, tuple[int, ...]], ...]:
-    return tuple((idx, tuple(sorted(neighbors))) for idx, neighbors in sorted(graph.items()))
+    cache_key = id(graph)
+    cached = _GRAPH_CACHE_KEY_CACHE.get(cache_key)
+    if cached is not None and cached[0] is graph:
+        _GRAPH_CACHE_KEY_CACHE.move_to_end(cache_key)
+        return cached[1]
+    result = tuple((idx, tuple(sorted(neighbors))) for idx, neighbors in sorted(graph.items()))
+    _GRAPH_CACHE_KEY_CACHE[cache_key] = (graph, result)
+    _GRAPH_CACHE_KEY_CACHE.move_to_end(cache_key)
+    while len(_GRAPH_CACHE_KEY_CACHE) > _GRAPH_CACHE_KEY_CACHE_LIMIT:
+        _GRAPH_CACHE_KEY_CACHE.popitem(last=False)
+    return result
 
 
 def _atom_bitmask(atoms) -> int:

@@ -95,9 +95,9 @@ class ContextCache:
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
     compiled_rules: dict[object, tuple[tuple[object, ...], tuple[object, ...]]] = field(default_factory=dict)
     substituent_like_acyclic_defer: dict[str, bool] = field(default_factory=dict)
-    polycyclic_records: dict[tuple[str, int | None], tuple[tuple[str, tuple[int, ...]], ...]] = field(
-        default_factory=dict
-    )
+    polycyclic_records: dict[
+        tuple[str, int | None, tuple[bool, str, bool, str, bool]], tuple[tuple[str, tuple[int, ...]], ...]
+    ] = field(default_factory=dict)
     substruct_matches: dict[tuple[int, bool], tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     template_matches: dict[int, tuple[tuple[int, ...], ...]] = field(default_factory=dict)
     fused_template_matches: dict[
@@ -134,6 +134,7 @@ class ContextCache:
             rule_candidates=self.rule_candidates,
             prepared_candidate_items=self.prepared_candidate_items,
             prepared_candidates=self.prepared_candidates,
+            polycyclic_records=self.polycyclic_records,
             topology_flags=self.topology_flags,
         )
 
@@ -348,7 +349,7 @@ class MoleculeContext:
 
     def polycyclic_parent_records(self, family: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
         limit = _polycyclic_parent_record_limit(self.mol, family)
-        cache_key = (family, limit)
+        cache_key = (family, limit, _fragment_fallback_state_key(self.mol))
         cached = self.cache.polycyclic_records.get(cache_key)
         if cached is not None:
             return cached

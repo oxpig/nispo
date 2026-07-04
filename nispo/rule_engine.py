@@ -1138,11 +1138,17 @@ def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
     has_charge = False
     has_phosphorus = False
     has_isotope = False
+    hetero_heavy_atoms = 0
+    chiral_atoms = 0
     nonring_heavy_atoms = 0
     for atom in mol.GetAtoms():
         atomic_num = atom.GetAtomicNum()
         if atomic_num <= 1:
             continue
+        if int(atom.GetChiralTag()) != 0:
+            chiral_atoms += 1
+        if atomic_num != 6:
+            hetero_heavy_atoms += 1
         if not atom.IsInRing():
             nonring_heavy_atoms += 1
         if atom.GetFormalCharge():
@@ -1154,7 +1160,13 @@ def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
     if has_charge or has_phosphorus or has_isotope:
         return True
     if heavy_atoms >= 45 and nonring_heavy_atoms >= 18 and ring_count >= 3:
-        return False
+        return (
+            heavy_atoms < 50
+            and 4 <= ring_count <= 5
+            and nonring_heavy_atoms <= 24
+            and 10 <= hetero_heavy_atoms <= 12
+            and chiral_atoms <= 4
+        )
     return True
 
 

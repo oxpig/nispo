@@ -840,16 +840,15 @@ def _fast_heavy_polycycle_generated_fused_name(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
-    prepared = _prepare_candidates(
+    return _first_valid_candidate_name(
         mol,
         Chem,
         ctx,
         rules,
         max_length=_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH,
         output_max_length=_HEAVY_POLYCYCLE_GENERATED_FUSED_MAX_LENGTH,
+        telemetry=telemetry,
     )
-    selected = _select_best_prepared_candidate_item(prepared)
-    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
 
 
 def _fast_polycyclic_route_name(

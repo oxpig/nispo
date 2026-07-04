@@ -16267,6 +16267,14 @@ def _ring_graph_is_connected(neighbors: dict[int, set[int]]) -> bool:
     return len(seen) == len(neighbors)
 
 
+def _ring_dominates_acyclic_skeleton_candidate(ctx) -> bool:
+    facts = ctx.facts
+    return (
+        facts.ring_count >= 3
+        and facts.ring_heavy_atom_count >= 2 * facts.nonring_heavy_atom_count
+    )
+
+
 class AcyclicSkeletonWithRingSubstituentsRule:
     family = "acyclic-skeleton-with-ring-substituents"
     priority = parent_priority("acyclic-with-ring-substituents")
@@ -16275,6 +16283,8 @@ class AcyclicSkeletonWithRingSubstituentsRule:
     def candidates(self, ctx):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() == 0:
+            return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
@@ -16363,6 +16373,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             or ctx.facts.nonring_heavy_atom_count < 8
         ):
             return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
+            return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
@@ -16400,6 +16412,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
             return
         if not ctx.facts.may_have_chain_dominant_acyclic_parent:
             return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
+            return
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if _should_defer_spiro_substituent_parent_to_senior_azolone(ctx, parent_atoms):
             return
@@ -16432,6 +16446,8 @@ class SulfurOxoAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
         if not 4 <= len(parent_atoms) <= 18:
+            return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
             return
         if not _has_nonring_sulfur_oxo_acyclic_parent_center(mol, parent_atoms):
             return
@@ -16609,6 +16625,8 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
         profile = ctx.profile
         if profile.ring_count == 0 or not profile.has_charged_ring_atom:
             return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
+            return
         parent_atoms = _nonring_heavy_atom_indices(ctx.mol)
         if _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(ctx, parent_atoms):
             return
@@ -16648,6 +16666,8 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
             or ctx.facts.nonring_heavy_atom_count < 8
         ):
             return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
+            return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
@@ -16684,6 +16704,8 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
             or not profile.may_prefer_acyclic_skeleton
             or ctx.facts.nonring_heavy_atom_count < 2
         ):
+            return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
@@ -16724,6 +16746,8 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
             or not _has_carbonyl_group(ctx.mol, ctx.Chem)
             or ctx.facts.nonring_heavy_atom_count < 8
         ):
+            return
+        if _ring_dominates_acyclic_skeleton_candidate(ctx):
             return
         if _should_defer_acyclic_skeleton_to_exocyclic_ring_parent(ctx):
             return
@@ -16784,8 +16808,8 @@ def _chain_dominates_single_ring(mol, name: str) -> bool:
     if "diazaeth" in name:
         return False
     has_polycyclic_substituent = any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
-    ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
-    nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
+    nonring_atoms = _nonring_heavy_atom_indices(mol)
+    ring_atoms = _heavy_atom_indices(mol) - nonring_atoms
     if not ring_atoms:
         return False
     cyclic_substituent = any(
@@ -21412,7 +21436,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     templates = ctx.candidate_templates(_fast_poly_retained_defer_templates(Chem))
-    for template, match in _iter_fused_template_matches(
+    for template, match in _cached_iter_fused_template_matches(
         ctx,
         templates,
         Chem,
@@ -21423,7 +21447,7 @@ def _has_fast_poly_retained_defer_candidate(ctx, Chem) -> bool:
         return mol_cache_set(mol, "fast_poly_retained_defer_candidate", True)
     if _should_try_fast_poly_generated_defer_candidate(ctx):
         generated_templates = ctx.narrow_generated_fused_templates
-        for template, match in _iter_fused_template_matches(
+        for template, match in _cached_iter_fused_template_matches(
             ctx,
             generated_templates,
             Chem,
@@ -21560,7 +21584,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
     if cached is not None:
         return cached
     for templates in _iter_retained_fused_parent_template_sets(ctx, Chem):
-        for template, match in _iter_fused_template_matches(
+        for template, match in _cached_iter_fused_template_matches(
             ctx,
             templates,
             Chem,

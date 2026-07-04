@@ -165,56 +165,56 @@ def nonring_positive_sulfur(ctx) -> bool:
     return ctx.profile.has_nonring_positive_sulfur
 
 
-nonring_positive_sulfur._nispo_requires_all_facts = ("has_sulfur", "has_formal_charge")
+nonring_positive_sulfur._nispo_requires_fact = "has_nonring_positive_sulfur"
 
 
 def nonring_positive_nitrogen(ctx) -> bool:
     return ctx.profile.has_nonring_positive_nitrogen
 
 
-nonring_positive_nitrogen._nispo_requires_all_facts = ("has_nitrogen", "has_formal_charge")
+nonring_positive_nitrogen._nispo_requires_fact = "has_nonring_positive_nitrogen"
 
 
 def nonring_positive_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_positive_phosphorus
 
 
-nonring_positive_phosphorus._nispo_requires_all_facts = ("has_phosphorus", "has_formal_charge")
+nonring_positive_phosphorus._nispo_requires_fact = "has_nonring_positive_phosphorus"
 
 
 def nonring_neutral_nitrogen(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_nitrogen
 
 
-nonring_neutral_nitrogen._nispo_requires_fact = "has_nitrogen"
+nonring_neutral_nitrogen._nispo_requires_fact = "has_nonring_neutral_nitrogen"
 
 
 def nonring_neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_phosphorus
 
 
-nonring_neutral_phosphorus._nispo_requires_fact = "has_phosphorus"
+nonring_neutral_phosphorus._nispo_requires_fact = "has_nonring_neutral_phosphorus"
 
 
 def neutral_phosphorus(ctx) -> bool:
     return ctx.profile.has_neutral_phosphorus
 
 
-neutral_phosphorus._nispo_requires_fact = "has_phosphorus"
+neutral_phosphorus._nispo_requires_fact = "has_neutral_phosphorus"
 
 
 def nonring_neutral_pnictogen(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_pnictogen
 
 
-nonring_neutral_pnictogen._nispo_requires_any_facts = ("has_nitrogen", "has_phosphorus")
+nonring_neutral_pnictogen._nispo_requires_fact = "has_nonring_neutral_pnictogen"
 
 
 def nonring_neutral_group14(ctx) -> bool:
     return ctx.profile.has_nonring_neutral_group14
 
 
-nonring_neutral_group14._nispo_requires_fact = "has_group14"
+nonring_neutral_group14._nispo_requires_fact = "has_nonring_neutral_group14"
 
 
 def charged_ring_atom(ctx) -> bool:
@@ -448,6 +448,9 @@ def dithiocarbonate_signal(ctx) -> bool:
         ):
             return True
     return False
+
+
+dithiocarbonate_signal._nispo_requires_all_facts = ("has_sulfur", "has_nonring_multiple_bond")
 
 
 def _heavy_degree_excluding(atom, excluded_idx: int) -> int:

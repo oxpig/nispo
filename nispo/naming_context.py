@@ -39,8 +39,8 @@ _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
 _GENERATED_FUSED_GRAPH_SUPPLEMENT_LIMIT = 16
 _FAST_ROUTE_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 1
 _LARGE_UNCHARGED_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 1
-_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 12
-_KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT = 12
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT = 3
+_KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT = 3
 _HALOGEN_ATOMIC_NUMBERS = frozenset({9, 17, 35, 53, 85})
 
 
@@ -82,6 +82,14 @@ def _polycyclic_parent_record_limit(mol, family: str) -> int | None:
 
 @dataclass(slots=True)
 class ContextCache:
+    features: dict | None = None
+    ring_systems: tuple[frozenset[int], ...] | None = None
+    ring_topologies: tuple[RingSystemTopology, ...] | None = None
+    profile: StructuralProfile | None = None
+    facts: MoleculeFacts | None = None
+    route_plan: RoutePlan | None = None
+    generated_fused_templates: tuple[dict, ...] | None = None
+    narrow_generated_fused_templates: tuple[dict, ...] | None = None
     template_candidates: dict[tuple[int, bool], tuple[dict, ...]] = field(default_factory=dict)
     compiled_template_candidates: dict[tuple[int, bool], tuple[object, ...]] = field(default_factory=dict)
     acyclic_names: dict[bool, AcyclicNameRecord] = field(default_factory=dict)
@@ -98,6 +106,9 @@ class ContextCache:
     rule_candidates: dict[tuple[int, tuple[tuple[bool, str], ...]], tuple[object, ...]] = field(
         default_factory=dict
     )
+    prepared_candidate_items: dict[tuple[int, str, int, int | None], object | None] = field(
+        default_factory=dict
+    )
     prepared_candidates: dict[tuple[int, int, int | None, tuple[tuple[bool, str], ...]], tuple[object, ...]] = field(
         default_factory=dict
     )
@@ -105,6 +116,14 @@ class ContextCache:
 
     def shared_for_fallback(self) -> "ContextCache":
         return ContextCache(
+            features=self.features,
+            ring_systems=self.ring_systems,
+            ring_topologies=self.ring_topologies,
+            profile=self.profile,
+            facts=self.facts,
+            route_plan=self.route_plan,
+            generated_fused_templates=self.generated_fused_templates,
+            narrow_generated_fused_templates=self.narrow_generated_fused_templates,
             template_candidates=self.template_candidates,
             compiled_template_candidates=self.compiled_template_candidates,
             acyclic_names=self.acyclic_names,
@@ -113,6 +132,7 @@ class ContextCache:
             template_matches=self.template_matches,
             fused_template_matches=self.fused_template_matches,
             rule_candidates=self.rule_candidates,
+            prepared_candidate_items=self.prepared_candidate_items,
             prepared_candidates=self.prepared_candidates,
             topology_flags=self.topology_flags,
         )
@@ -149,7 +169,9 @@ class MoleculeContext:
     @property
     def features(self) -> dict:
         if self._features is None:
-            self._features = molecule_features(self.mol, self.Chem)
+            if self.cache.features is None:
+                self.cache.features = molecule_features(self.mol, self.Chem)
+            self._features = self.cache.features
         return self._features
 
     def candidate_templates(self, templates: tuple[dict, ...], *, exact_atom_count: bool = False) -> tuple[dict, ...]:
@@ -211,36 +233,46 @@ class MoleculeContext:
     @property
     def profile(self) -> StructuralProfile:
         if self._profile is None:
-            self._profile = structural_profile(self.mol, self.Chem)
+            if self.cache.profile is None:
+                self.cache.profile = structural_profile(self.mol, self.Chem)
+            self._profile = self.cache.profile
         return self._profile
 
     @property
     def facts(self) -> MoleculeFacts:
         if self._facts is None:
-            self._facts = build_molecule_facts(
-                self.mol,
-                features=self.features,
-                ring_topologies=self.ring_topologies,
-                profile=self.profile,
-            )
+            if self.cache.facts is None:
+                self.cache.facts = build_molecule_facts(
+                    self.mol,
+                    features=self.features,
+                    ring_topologies=self.ring_topologies,
+                    profile=self.profile,
+                )
+            self._facts = self.cache.facts
         return self._facts
 
     @property
     def route_plan(self) -> RoutePlan:
         if self._route_plan is None:
-            self._route_plan = plan_routes(self.facts)
+            if self.cache.route_plan is None:
+                self.cache.route_plan = plan_routes(self.facts)
+            self._route_plan = self.cache.route_plan
         return self._route_plan
 
     @property
     def ring_systems(self) -> tuple[frozenset[int], ...]:
         if self._ring_systems is None:
-            self._ring_systems = ring_systems_for_mol(self.mol, self.Chem)
+            if self.cache.ring_systems is None:
+                self.cache.ring_systems = ring_systems_for_mol(self.mol, self.Chem)
+            self._ring_systems = self.cache.ring_systems
         return self._ring_systems
 
     @property
     def ring_topologies(self) -> tuple[RingSystemTopology, ...]:
         if self._ring_topologies is None:
-            self._ring_topologies = ring_system_topologies(self.mol, self.Chem)
+            if self.cache.ring_topologies is None:
+                self.cache.ring_topologies = ring_system_topologies(self.mol, self.Chem)
+            self._ring_topologies = self.cache.ring_topologies
         return self._ring_topologies
 
     @property
@@ -340,30 +372,35 @@ class MoleculeContext:
     @property
     def generated_fused_templates(self) -> tuple[dict, ...]:
         if self._generated_fused_templates is None:
-            self._generated_fused_templates = self.narrow_generated_fused_templates
-            if not self._generated_fused_templates:
-                self._generated_fused_templates = candidate_generated_fused_templates(
-                    self.mol,
-                    self.Chem,
-                    features=self.features,
-                    graph_filter=False,
-                )
+            if self.cache.generated_fused_templates is None:
+                generated = self.narrow_generated_fused_templates
+                if not generated:
+                    generated = candidate_generated_fused_templates(
+                        self.mol,
+                        self.Chem,
+                        features=self.features,
+                        graph_filter=False,
+                    )
+                self.cache.generated_fused_templates = generated
+            self._generated_fused_templates = self.cache.generated_fused_templates
         return self._generated_fused_templates
 
     @property
     def narrow_generated_fused_templates(self) -> tuple[dict, ...]:
         if self._narrow_generated_fused_templates is None:
-            narrow = candidate_generated_fused_templates(
-                self.mol,
-                self.Chem,
-                features=self.features,
-            )
-            self._narrow_generated_fused_templates = _supplement_generated_fused_templates_by_ring_graph(
-                self.mol,
-                self.Chem,
-                self.features,
-                narrow,
-            )
+            if self.cache.narrow_generated_fused_templates is None:
+                narrow = candidate_generated_fused_templates(
+                    self.mol,
+                    self.Chem,
+                    features=self.features,
+                )
+                self.cache.narrow_generated_fused_templates = _supplement_generated_fused_templates_by_ring_graph(
+                    self.mol,
+                    self.Chem,
+                    self.features,
+                    narrow,
+                )
+            self._narrow_generated_fused_templates = self.cache.narrow_generated_fused_templates
         return self._narrow_generated_fused_templates
 
 

@@ -17,6 +17,7 @@ from .template_index import (
     molecule_features,
     ring_system_feature_key,
     ring_system_with_graph_signatures,
+    template_features_for_mol,
 )
 
 
@@ -148,7 +149,7 @@ def hydrocarbon_replacement_parent_templates(Chem) -> tuple[dict, ...]:
     selected = []
     seen: set[tuple[str, str]] = set()
     for template in templates:
-        features = molecule_features(template_record_mol(template), Chem)
+        features = template_features_for_mol(template_record_mol(template), Chem)
         if features["ring_count"] < 2 or set(features["elements"]) != {"C"}:
             continue
         key = (template_record_name(template), Chem.MolToSmiles(template_record_mol(template), canonical=True))
@@ -185,7 +186,7 @@ def hydrocarbon_replacement_parent_templates_for_graph(
     selected = []
     seen: set[tuple[str, str]] = set()
     for template in templates + retained:
-        features = molecule_features(template_record_mol(template), Chem)
+        features = template_features_for_mol(template_record_mol(template), Chem)
         if features["ring_count"] != ring_count or set(features["elements"]) != {"C"}:
             continue
         if not any(
@@ -233,7 +234,7 @@ def retained_topology_replacement_parent_templates_for_graph(
             continue
         if set(template.get("flags", ())) & {"radical", "organometallic", "general-parent-unsupported"}:
             continue
-        features = molecule_features(template_record_mol(template), Chem)
+        features = template_features_for_mol(template_record_mol(template), Chem)
         if features["ring_count"] != ring_count:
             continue
         if features["atom_count"] != atom_count:

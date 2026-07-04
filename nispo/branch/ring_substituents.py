@@ -2047,21 +2047,22 @@ def _fragment_named_ring_substituent_prefix(mol, attachment_idx: int, parent_idx
         frag_mol.SetProp("_nispo_fragment_substituent_view", "1")
         frag_mol.SetProp("_nispo_fragment_substituent_depth", str(depth + 1))
         ctx = MoleculeContext(frag_mol, Chem)
+        rules = _fragment_substituent_rules(_engine())
         selected = _first_valid_prepared_candidate(
             frag_mol,
             Chem,
             ctx,
-            _engine()._rules,
+            rules,
             max_length=360,
             output_max_length=360,
         )
         prepared = ()
-        if selected is None or _fragment_substituent_candidate_needs_retained_selection(selected):
+        if selected is not None and _fragment_substituent_candidate_needs_retained_selection(selected):
             prepared = _prepare_candidates(
                 frag_mol,
                 Chem,
                 ctx,
-                _engine()._rules,
+                _retained_fragment_shortening_rules(_engine()),
                 max_length=360,
                 output_max_length=360,
             )
@@ -2095,6 +2096,44 @@ _RETAINED_FRAGMENT_SUBSTITUENT_FAMILIES = frozenset(
         "skeletal-replacement-fused-parent",
     }
 )
+_FRAGMENT_SUBSTITUENT_PARENT_FAMILIES = _RETAINED_FRAGMENT_SUBSTITUENT_FAMILIES | frozenset(
+    {
+        "component-spiro-parent",
+        "acyclic-parent",
+        "acyclic-skeleton-with-ring-substituents",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "charged-ring-acyclic-skeleton-with-ring-substituents",
+        "conjugated-carbonyl-acyclic-skeleton-with-ring-substituents",
+        "exact-biochemical-retained-parent",
+        "exact-functional-retained-parent",
+        "exact-retained-parent",
+        "functional-acyclic-skeleton-with-ring-substituents",
+        "generic-bicyclic-parent",
+        "generic-spiro-parent",
+        "generated-exact-parent",
+        "imino-functional-acyclic-skeleton-with-ring-substituents",
+        "kekulized-generic-polycyclic-parent",
+        "natural-product-topology-parent",
+        "positive-single-ring-parent",
+        "preferred-acyclic-skeleton-with-ring-substituents",
+        "single-ring-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+        "whole-molecule-retained-parent",
+    }
+)
+
+
+@lru_cache(maxsize=1)
+def _fragment_substituent_rules(engine):
+    return tuple(rule for rule in engine._rules if rule.family in _FRAGMENT_SUBSTITUENT_PARENT_FAMILIES)
+
+
+_RETAINED_FRAGMENT_SHORTENING_FAMILIES = frozenset({"skeletal-replacement-fused-parent"})
+
+
+@lru_cache(maxsize=1)
+def _retained_fragment_shortening_rules(engine):
+    return tuple(rule for rule in engine._rules if rule.family in _RETAINED_FRAGMENT_SHORTENING_FAMILIES)
 
 
 def _fragment_substituent_candidate_needs_retained_selection(selected) -> bool:

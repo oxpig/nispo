@@ -477,6 +477,9 @@ class NamingEngine:
             if polyatomic_name:
                 _record_direct_route(telemetry, "common_polyatomic")
                 return _finalize_direct_name(mol, self._Chem, polyatomic_name)
+        if _temporary_complexity_bailout_name(mol):
+            _record_direct_route(telemetry, "temporary_complexity_bailout")
+            return ""
 
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         if telemetry is not None:
@@ -1086,6 +1089,38 @@ def _should_skip_complex_empty_fallback(mol, ctx: MoleculeContext) -> bool:
     )
 
 
+def _temporary_complexity_bailout_name(mol) -> bool:
+    """Temporarily skip expensive weak complex classes during speed-first work."""
+
+    heavy_atoms = mol.GetNumHeavyAtoms()
+    ring_count = mol.GetRingInfo().NumRings()
+    if heavy_atoms < 35 or ring_count < 2:
+        return False
+    has_isotope = False
+    has_charge = False
+    has_phosphorus = False
+    nonring_heavy_atoms = 0
+    for atom in mol.GetAtoms():
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num <= 1:
+            continue
+        if not atom.IsInRing():
+            nonring_heavy_atoms += 1
+        if atom.GetIsotope():
+            has_isotope = True
+        if atom.GetFormalCharge():
+            has_charge = True
+        if atomic_num == 15:
+            has_phosphorus = True
+    return (
+        has_isotope
+        or (has_charge and ring_count >= 2)
+        or (has_phosphorus and ring_count >= 1)
+        or (heavy_atoms >= 40 and ring_count >= 8)
+        or (heavy_atoms >= 45 and nonring_heavy_atoms >= 18 and ring_count >= 3)
+    )
+
+
 def _has_empty_fallback_high_signal(ctx: MoleculeContext) -> bool:
     return bool(
         ctx.profile.has_functional_skeleton_signal
@@ -1225,31 +1260,18 @@ def _first_valid_prepared_candidate(
             else rule.candidates(ctx)
         )
         for candidate in candidates:
-            if not candidate.name:
-                continue
-            output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-            if not output_name:
-                continue
-            if output_max_length is not None and len(output_name) > output_max_length:
-                continue
-            candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
-            candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
-            candidate = _with_parent_element_counts(mol, candidate)
-            selection_name = _candidate_selection_surface_name(
+            item = _prepared_candidate_item(
                 mol,
                 Chem,
+                ctx,
                 candidate,
-                output_name,
-                max_length=max_length,
-            )
-            return _PreparedCandidate(
-                name=selection_name,
-                candidate=candidate,
                 producer_family=rule.family,
-                stability_penalty=_candidate_selection_stability_penalty(selection_name, candidate),
-                selection_bonus=_candidate_selection_bonus(selection_name, candidate),
-                output_name=output_name,
+                max_length=max_length,
+                output_max_length=output_max_length,
+                use_cache=True,
             )
+            if item is not None:
+                return item
     return None
 
 
@@ -1585,33 +1607,18 @@ def _prepare_candidates(
             continue
         if ctx.telemetry is None:
             for candidate in _cached_rule_candidates(ctx, rule, rule_candidate_cache_state):
-                if not candidate.name:
-                    continue
-                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
-                if not output_name:
-                    continue
-                if output_max_length is not None and len(output_name) > output_max_length:
-                    continue
-                candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
-                candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
-                candidate = _with_parent_element_counts(mol, candidate)
-                selection_name = _candidate_selection_surface_name(
+                item = _prepared_candidate_item(
                     mol,
                     Chem,
+                    ctx,
                     candidate,
-                    output_name,
+                    producer_family=rule.family,
                     max_length=max_length,
+                    output_max_length=output_max_length,
+                    use_cache=bool(ctx.cache.prepared_candidate_items),
                 )
-                prepared.append(
-                    _PreparedCandidate(
-                        name=selection_name,
-                        candidate=candidate,
-                        producer_family=rule.family,
-                        stability_penalty=_candidate_selection_stability_penalty(selection_name, candidate),
-                        selection_bonus=_candidate_selection_bonus(selection_name, candidate),
-                        output_name=output_name,
-                    )
-                )
+                if item is not None:
+                    prepared.append(item)
             continue
         ctx.telemetry.rule_applies[rule.family] += 1
         started = time.perf_counter()
@@ -1658,6 +1665,54 @@ def _prepare_candidates(
     if prepared_cache_key is not None:
         ctx.cache.prepared_candidates[prepared_cache_key] = tuple(prepared)
     return prepared
+
+
+def _prepared_candidate_item(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    candidate: NameCandidate,
+    *,
+    producer_family: str,
+    max_length: int,
+    output_max_length: int | None,
+    use_cache: bool = False,
+) -> _PreparedCandidate | None:
+    """Finalize and enrich a candidate once per context/rule family."""
+
+    if not candidate.name:
+        return None
+    cache_key = None
+    if use_cache and ctx.telemetry is None:
+        cache_key = (id(candidate), producer_family, max_length, output_max_length)
+        if cache_key in ctx.cache.prepared_candidate_items:
+            return ctx.cache.prepared_candidate_items[cache_key]
+    output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+    if not output_name or (output_max_length is not None and len(output_name) > output_max_length):
+        if cache_key is not None:
+            ctx.cache.prepared_candidate_items[cache_key] = None
+        return None
+    prepared_candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
+    prepared_candidate = _with_molecule_graph_fragility_evidence(mol, Chem, prepared_candidate)
+    prepared_candidate = _with_parent_element_counts(mol, prepared_candidate)
+    selection_name = _candidate_selection_surface_name(
+        mol,
+        Chem,
+        prepared_candidate,
+        output_name,
+        max_length=max_length,
+    )
+    item = _PreparedCandidate(
+        name=selection_name,
+        candidate=prepared_candidate,
+        producer_family=producer_family,
+        stability_penalty=_candidate_selection_stability_penalty(selection_name, prepared_candidate),
+        selection_bonus=_candidate_selection_bonus(selection_name, prepared_candidate),
+        output_name=output_name,
+    )
+    if cache_key is not None:
+        ctx.cache.prepared_candidate_items[cache_key] = item
+    return item
 
 
 def _cached_rule_candidates(

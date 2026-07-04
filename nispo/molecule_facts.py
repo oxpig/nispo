@@ -67,6 +67,14 @@ class MoleculeFacts:
     has_dithiocarbamate_signal: bool
     has_conjugated_carbonyl_diene_signal: bool
     has_nonring_multiple_bond: bool
+    has_nonring_positive_sulfur: bool
+    has_nonring_positive_nitrogen: bool
+    has_nonring_positive_phosphorus: bool
+    has_nonring_neutral_nitrogen: bool
+    has_nonring_neutral_phosphorus: bool
+    has_neutral_phosphorus: bool
+    has_nonring_neutral_pnictogen: bool
+    has_nonring_neutral_group14: bool
     has_nitrogen: bool
     has_oxygen: bool
     has_sulfur: bool
@@ -167,6 +175,14 @@ def build_molecule_facts(
         has_dithiocarbamate_signal=bool(profile.has_dithiocarbamate_signal),
         has_conjugated_carbonyl_diene_signal=bool(profile.has_conjugated_carbonyl_diene_signal),
         has_nonring_multiple_bond=bool(profile.has_nonring_multiple_bond),
+        has_nonring_positive_sulfur=bool(profile.has_nonring_positive_sulfur),
+        has_nonring_positive_nitrogen=bool(profile.has_nonring_positive_nitrogen),
+        has_nonring_positive_phosphorus=bool(profile.has_nonring_positive_phosphorus),
+        has_nonring_neutral_nitrogen=bool(profile.has_nonring_neutral_nitrogen),
+        has_nonring_neutral_phosphorus=bool(profile.has_nonring_neutral_phosphorus),
+        has_neutral_phosphorus=bool(profile.has_neutral_phosphorus),
+        has_nonring_neutral_pnictogen=bool(profile.has_nonring_neutral_pnictogen),
+        has_nonring_neutral_group14=bool(profile.has_nonring_neutral_group14),
         has_nitrogen=bool(profile.has_nitrogen),
         has_oxygen=bool(profile.has_oxygen),
         has_sulfur=bool(profile.has_sulfur),

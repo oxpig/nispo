@@ -5532,6 +5532,38 @@ def test_compact_nitrile_carbamate_control_roundtrips_with_opsin():
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        r"CC(C)(C)OC(=O)N[C@H]1CCC[C@@H]1CO",
+        r"CCOC(=O)C(C(=O)OCC)=C(C)C",
+        r"COC(=O)C(C)SC(=S)OCC",
+    ],
+)
+def test_retained_functional_complete_parent_metadata_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
+        r"COC(=O)CNC(=O)C(N)CC(=O)O",
+        r"CNC(=O)[C@H]1CC[C@@H](NC(=O)OC(C)(C)C)CC1",
+        r"CCN=C=N/C(C)=C/C(=O)OC",
+    ],
+)
+def test_retained_functional_completion_guards_preserve_senior_contexts(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         r"CC(C)(C)OC(=O)NCCCCC1C[N@@]1Cc1ccccc1",
         r"COc1cc(CCC(=O)C(=Cc2ccc(F)cc2)C(=O)CCc2ccc(O)c(OC)c2)ccc1O",
         r"NS(=O)(=O)c1ccc([C@@H]2C[C@H]2c2nsc(=O)[nH]2)cc1",

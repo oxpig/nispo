@@ -8169,7 +8169,20 @@ class CarbamateRetainedParentRule:
             ):
                 continue
             name = f"{oxygen_substituent} {nitrogen_prefix}carbamat"
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            yield NameCandidate(
+                name,
+                self.family,
+                self.priority,
+                sort_key=(len(name), name),
+                parent_atoms=_complete_carbamate_parent_atoms(
+                    mol,
+                    self._Chem,
+                    carbonyl_idx,
+                    oxygen_idx,
+                    nitrogen_idx,
+                ),
+                estimated_length=len(name),
+            )
 
 
 class CyclicNCarbamateCarboxylateRetainedParentRule:
@@ -8241,15 +8254,10 @@ class RetainedAcidEsterParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name, source_family in _retained_acid_ester_records(mol, self._Chem):
+        for name, source_family, parent_atoms in _retained_acid_ester_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
-            parent_atoms = (
-                _heavy_atom_indices(mol)
-                if source_family == "retained-acid-ester:dicarboxylate-acyl-owner"
-                else frozenset()
-            )
             yield NameCandidate(
                 name,
                 self.family,
@@ -8586,11 +8594,18 @@ class GlutarimideRetainedParentRule:
             return
         seen = set()
         for ring in mol.GetRingInfo().AtomRings():
-            for name in _glutarimide_ring_parent_names(mol, self._Chem, ring):
+            for name, parent_atoms in _glutarimide_ring_parent_records(mol, self._Chem, ring):
                 if name in seen:
                     continue
                 seen.add(name)
-                yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+                yield NameCandidate(
+                    name,
+                    self.family,
+                    self.priority,
+                    sort_key=(len(name), name),
+                    parent_atoms=parent_atoms,
+                    estimated_length=len(name),
+                )
 
 
 class AminoAcidRetainedParentRule:
@@ -8638,6 +8653,26 @@ def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
         if ok and len(double_o) == 1 and len(single_o) == 1 and len(single_n) == 1:
             motifs.append((cidx, single_o[0], single_n[0]))
     return motifs
+
+
+def _complete_carbamate_parent_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    oxygen_idx: int,
+    nitrogen_idx: int,
+) -> frozenset[int]:
+    carbonyl_oxygen_idx = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    oxygen_owner_idx = _single_heavy_neighbor_excluding(mol, oxygen_idx, carbonyl_idx)
+    if carbonyl_oxygen_idx is None or oxygen_owner_idx is None:
+        return frozenset()
+    covered = {carbonyl_idx, carbonyl_oxygen_idx, oxygen_idx, nitrogen_idx}
+    covered.update(_collect_component_atoms(mol, oxygen_owner_idx, oxygen_idx))
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx != carbonyl_idx and nbr.GetAtomicNum() > 1:
+            covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    return frozenset(covered) if covered == _heavy_atom_indices(mol) else frozenset()
 
 
 def _azanium_ligand_name(mol, Chem, nitrogen_idx: int, ligand_idx: int) -> str:
@@ -8824,17 +8859,36 @@ def _cyclic_n_branch_to_carboxylate_parent(branch: str) -> str:
 
 
 def _glutarimide_ring_parent_names(mol, Chem, ring: Sequence[int]) -> list[str]:
+    return [name for name, _parent_atoms in _glutarimide_ring_parent_records(mol, Chem, ring)]
+
+
+def _glutarimide_ring_parent_records(mol, Chem, ring: Sequence[int]) -> list[tuple[str, frozenset[int]]]:
     if len(ring) != 6:
         return []
     ordered = ordered_ring(mol, ring)
     if not ordered:
         return []
-    names = []
+    records = []
     for seq in _glutarimide_numberings(mol, Chem, ordered):
         name = _glutarimide_name_from_numbering(mol, Chem, seq)
         if name:
-            names.append(name)
-    return sorted(set(names), key=lambda item: (len(item), item))
+            records.append((name, _complete_glutarimide_parent_atoms(mol, Chem, seq)))
+    return sorted(set(records), key=lambda item: (len(item[0]), item[0], len(item[1])))
+
+
+def _complete_glutarimide_parent_atoms(mol, Chem, seq: Sequence[int]) -> frozenset[int]:
+    ring_set = set(seq)
+    covered = set(seq)
+    for loc, idx in enumerate(seq, start=1):
+        for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set:
+                continue
+            if loc in {2, 6} and _is_exocyclic_double_oxygen(mol, Chem, idx, nidx):
+                covered.add(nidx)
+                continue
+            covered.update(_collect_component_atoms(mol, nidx, idx))
+    return frozenset(covered) if covered == _heavy_atom_indices(mol) else frozenset()
 
 
 def _glutarimide_numberings(mol, Chem, ordered: Sequence[int]) -> list[tuple[int, ...]]:
@@ -12559,28 +12613,101 @@ def _carbonyl_double_oxygen(mol, Chem, carbonyl_idx: int) -> int | None:
 
 
 def _retained_acid_ester_names(mol, Chem) -> list[str]:
-    return [name for name, _source_family in _retained_acid_ester_records(mol, Chem)]
+    return [name for name, _source_family, _parent_atoms in _retained_acid_ester_records(mol, Chem)]
 
 
-def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
-    names = _acyl_diphosphate_records(mol, Chem)
+def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
+    records = _acyl_diphosphate_parent_records(mol, Chem)
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
         if owner:
+            parent_atoms = _complete_retained_acid_ester_parent_atoms(
+                mol,
+                Chem,
+                carbonyl_idx,
+                ester_oxygen_idx,
+                acyl_idx,
+            )
             generic_source = _retained_acid_ester_source_family(mol, Chem, carbonyl_idx, acyl_idx, "generic")
             generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
-            names.extend((name, generic_source) for name in generic)
+            records.extend((name, generic_source, parent_atoms) for name in generic)
             dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
             if dicarboxylate:
-                names.append((dicarboxylate, "retained-acid-ester:dicarboxylate"))
+                records.append((dicarboxylate, "retained-acid-ester:dicarboxylate", parent_atoms))
             acrylate = _acrylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
             if acrylate:
-                names.append((acrylate, "retained-acid-ester:acrylate"))
+                records.append((acrylate, "retained-acid-ester:acrylate", parent_atoms))
             continue
         dicarboxylate = _acyl_owner_dicarboxylate_ester_name(mol, Chem, carbonyl_idx, ester_oxygen_idx, acyl_idx)
         if dicarboxylate:
-            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate-acyl-owner"))
-    return names
+            records.append((dicarboxylate, "retained-acid-ester:dicarboxylate-acyl-owner", _heavy_atom_indices(mol)))
+    return records
+
+
+def _complete_retained_acid_ester_parent_atoms(
+    mol,
+    Chem,
+    carbonyl_idx: int,
+    ester_oxygen_idx: int,
+    acyl_idx: int,
+) -> frozenset[int]:
+    if _unsafe_retained_acid_ester_completion_context(mol, Chem, carbonyl_idx, acyl_idx):
+        return frozenset()
+    carbonyl_oxygen_idx = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    owner_idx = _single_heavy_neighbor_excluding(mol, ester_oxygen_idx, carbonyl_idx)
+    if carbonyl_oxygen_idx is None or owner_idx is None:
+        return frozenset()
+    if _carbonyl_double_oxygen(mol, Chem, owner_idx) is not None:
+        return frozenset()
+    covered = {carbonyl_idx, carbonyl_oxygen_idx, ester_oxygen_idx}
+    covered.update(_collect_component_atoms(mol, owner_idx, ester_oxygen_idx))
+    covered.update(_collect_component_atoms(mol, acyl_idx, carbonyl_idx))
+    return frozenset(covered) if covered == _heavy_atom_indices(mol) else frozenset()
+
+
+def _unsafe_retained_acid_ester_completion_context(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> bool:
+    if any(atom.GetSymbol() == "P" for atom in mol.GetAtoms()):
+        return True
+    if any(atom.GetFormalCharge() > 0 for atom in mol.GetAtoms()):
+        return True
+    if _carbodiimide_motif_records(mol, Chem):
+        return True
+    return _acyl_component_has_peptide_like_carboxamide_context(mol, Chem, carbonyl_idx, acyl_idx)
+
+
+def _acyl_component_has_peptide_like_carboxamide_context(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> bool:
+    acyl_atoms = _collect_component_atoms(mol, acyl_idx, carbonyl_idx)
+    if not acyl_atoms:
+        return False
+    if not _component_has_terminal_carboxyl_group(mol, Chem, acyl_atoms):
+        return False
+    return any(
+        amide_carbonyl in acyl_atoms and amide_nitrogen in acyl_atoms and amide_acyl in acyl_atoms
+        for amide_carbonyl, amide_nitrogen, amide_acyl in _amide_acyl_motifs(mol, Chem)
+    )
+
+
+def _component_has_terminal_carboxyl_group(mol, Chem, atom_indices: set[int] | frozenset[int]) -> bool:
+    atom_set = set(atom_indices)
+    for carbonyl_idx in atom_set:
+        atom = mol.GetAtomWithIdx(carbonyl_idx)
+        if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
+            continue
+        carbon_neighbors = [
+            nbr.GetIdx()
+            for nbr in atom.GetNeighbors()
+            if nbr.GetIdx() in atom_set
+            and nbr.GetSymbol() == "C"
+            and mol.GetBondBetweenAtoms(carbonyl_idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
+        ]
+        if len(carbon_neighbors) == 1 and _terminal_carboxyl_group_kind(
+            mol,
+            Chem,
+            carbonyl_idx,
+            carbon_neighbors[0],
+        ):
+            return True
+    return False
 
 
 def _acyl_diphosphate_records(mol, Chem) -> list[tuple[str, str]]:
@@ -12870,8 +12997,8 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
             records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms))
         if has_ring_carboxamide_parent:
             records.extend(
-                (name, source_family, frozenset())
-                for name, source_family in _ring_carboxamide_parent_records(
+                (name, source_family, parent_atoms)
+                for name, source_family, parent_atoms in _ring_carboxamide_parent_records(
                     mol,
                     Chem,
                     carbonyl_idx,
@@ -13062,7 +13189,7 @@ def _ring_carboxamide_parent_names(
 ) -> list[str]:
     return [
         name
-        for name, _source_family in _ring_carboxamide_parent_records(
+        for name, _source_family, _parent_atoms in _ring_carboxamide_parent_records(
             mol,
             Chem,
             carbonyl_idx,
@@ -13080,7 +13207,7 @@ def _ring_carboxamide_parent_records(
     nitrogen_idx: int,
     acyl_idx: int,
     n_prefix: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, frozenset[int]]]:
     if not mol.GetAtomWithIdx(acyl_idx).IsInRing():
         return []
     records = []
@@ -13105,8 +13232,93 @@ def _ring_carboxamide_parent_records(
                 n_prefix,
             )
             if name:
-                records.append((name, _ring_carboxamide_source_family(mol, ring)))
+                records.append(
+                    (
+                        name,
+                        _ring_carboxamide_source_family(mol, ring),
+                        _complete_ring_carboxamide_parent_atoms(
+                            mol,
+                            Chem,
+                            seq,
+                            carbonyl_idx,
+                            nitrogen_idx,
+                        ),
+                    )
+                )
     return records
+
+
+def _complete_ring_carboxamide_parent_atoms(
+    mol,
+    Chem,
+    seq: Sequence[int],
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+) -> frozenset[int]:
+    if _unsafe_ring_carboxamide_completion_context(mol, Chem, seq, carbonyl_idx, nitrogen_idx):
+        return frozenset()
+    carbonyl_oxygen_idx = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+    if carbonyl_oxygen_idx is None:
+        return frozenset()
+    ring_set = set(seq)
+    covered = set(seq)
+    covered.update({carbonyl_idx, carbonyl_oxygen_idx, nitrogen_idx})
+    for ring_idx in seq:
+        for nbr in mol.GetAtomWithIdx(ring_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nidx == carbonyl_idx:
+                continue
+            covered.update(_collect_component_atoms(mol, nidx, ring_idx))
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx != carbonyl_idx and nbr.GetAtomicNum() > 1:
+            covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
+    return frozenset(covered) if covered == _heavy_atom_indices(mol) else frozenset()
+
+
+def _unsafe_ring_carboxamide_completion_context(
+    mol,
+    Chem,
+    seq: Sequence[int],
+    carbonyl_idx: int,
+    nitrogen_idx: int,
+) -> bool:
+    if any(mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for idx in seq):
+        return True
+    ring_set = set(seq)
+    for ring_idx in seq:
+        for nbr in mol.GetAtomWithIdx(ring_idx).GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx in ring_set or nidx == carbonyl_idx:
+                continue
+            if _component_contains_sulfonyl_group(mol, Chem, _collect_component_atoms(mol, nidx, ring_idx)):
+                return True
+    for nbr in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors():
+        nidx = nbr.GetIdx()
+        if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
+            continue
+        if _component_contains_sulfonyl_group(mol, Chem, _collect_component_atoms(mol, nidx, nitrogen_idx)):
+            return True
+    return False
+
+
+def _component_contains_sulfonyl_group(mol, Chem, atom_indices: set[int] | frozenset[int]) -> bool:
+    atom_set = set(atom_indices)
+    for atom_idx in atom_set:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetSymbol() != "S" or atom.GetFormalCharge() != 0:
+            continue
+        double_oxygen_count = 0
+        for nbr in atom.GetNeighbors():
+            nidx = nbr.GetIdx()
+            if nidx not in atom_set or nbr.GetSymbol() != "O":
+                continue
+            bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
+            if bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE:
+                double_oxygen_count += 1
+        if double_oxygen_count >= 2:
+            return True
+    return False
 
 
 def _ring_carbohydrazide_parent_records(

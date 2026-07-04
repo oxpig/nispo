@@ -239,6 +239,14 @@ _BRIDGEHEAD_POLYCYCLE_SELECTOR_RULE_FAMILIES = _FAST_POLY_ROUTE_MISS_FALLBACK_RU
         "preferred-generic-bicyclic-parent",
     }
 )
+_RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES = (
+    _BRIDGEHEAD_POLYCYCLE_SELECTOR_RULE_FAMILIES
+    - frozenset({"preferred-acyclic-skeleton-with-ring-substituents"})
+) | frozenset(
+    {
+        "high-signal-generated-topology-fused-parent",
+    }
+)
 _FAST_POLY_RETAINED_DEFER_BRIDGE_RETRY_FAMILIES = frozenset(
     {
         "chain-dominant-acyclic-skeleton-with-ring-substituents",
@@ -393,8 +401,8 @@ class NamingEngine:
         self._fast_poly_route_miss_fallback_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_POLY_ROUTE_MISS_FALLBACK_RULE_FAMILIES
         )
-        self._bridgehead_polycycle_selector_rules = tuple(
-            rule for rule in self._rules if rule.family in _BRIDGEHEAD_POLYCYCLE_SELECTOR_RULE_FAMILIES
+        self._ranked_polycycle_selector_rules = tuple(
+            rule for rule in self._rules if rule.family in _RANKED_POLYCYCLE_SELECTOR_RULE_FAMILIES
         )
         self._fast_poly_route_miss_retained_defer_ring_rules = tuple(
             rule
@@ -436,13 +444,17 @@ class NamingEngine:
         if telemetry is not None:
             _record_route_plan(telemetry, ctx.route_plan)
         use_bridgehead_polycycle_selector = _should_use_bridgehead_polycycle_selector(mol, ctx)
-        if use_bridgehead_polycycle_selector:
-            bridgehead_polycycle_name = _select_best_prepared_candidate(
-                _prepare_candidates(mol, self._Chem, ctx, self._bridgehead_polycycle_selector_rules),
+        use_ranked_polycycle_selector = use_bridgehead_polycycle_selector or _should_use_nonspiro_polycycle_selector(
+            mol,
+            ctx,
+        )
+        if use_ranked_polycycle_selector:
+            ranked_polycycle_name = _select_best_prepared_candidate(
+                _prepare_candidates(mol, self._Chem, ctx, self._ranked_polycycle_selector_rules),
                 telemetry=telemetry,
             )
-            if bridgehead_polycycle_name:
-                return bridgehead_polycycle_name
+            if ranked_polycycle_name:
+                return ranked_polycycle_name
         if not use_bridgehead_polycycle_selector:
             multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
                 mol,
@@ -1239,6 +1251,16 @@ def _should_use_bridgehead_polycycle_selector(mol, ctx: MoleculeContext) -> bool
     if not ctx.facts.has_polycyclic_ring_system:
         return False
     return rdMolDescriptors.CalcNumBridgeheadAtoms(mol) > 0
+
+
+def _should_use_nonspiro_polycycle_selector(mol, ctx: MoleculeContext) -> bool:
+    if mol.GetRingInfo().NumRings() < 3:
+        return False
+    if ctx.has_component_spiro_topology:
+        return False
+    if not ctx.facts.has_polycyclic_ring_system:
+        return False
+    return _largest_ring_system_cycle_rank(ctx) >= 2
 
 
 def _can_fast_stage_poly_pre_route_senior(ctx: MoleculeContext) -> bool:

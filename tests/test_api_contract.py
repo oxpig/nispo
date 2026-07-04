@@ -4861,6 +4861,25 @@ def test_high_signal_generated_topology_fused_parents_roundtrip_with_opsin(input
 @pytest.mark.parametrize(
     "input_smiles",
     [
+        "O=C1N=c2ccc(-n3cnc4ccccc43)cc2=N1",
+        r"C(=C/c1ccc2nc[nH]c2c1)\c1ccccc1",
+        "Clc1ccccc1CSc1ncnc2[nH]cnc12",
+        "N[C@H](C(=O)O)C(SSC[C@H](N)C(=O)O)C(=O)OCC1c2ccccc2-c2ccccc21",
+        "O=C1N=c2ncncc2=CC1CN1CCNCC1",
+        "O=c1c(-c2ccc(O)cc2)[14cH]oc2cc(O)cc(O)c12",
+    ],
+)
+def test_ranked_polycycle_selector_route_roundtrips_with_opsin(input_smiles):
+    generated_name = smiles_to_iupac(input_smiles)
+    assert generated_name
+
+    parsed_smiles = _opsin_parse_name(generated_name)
+    assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
+
+
+@pytest.mark.parametrize(
+    "input_smiles",
+    [
         "CCOc1ccc(N2C[C@H]3CC(C)(C)[C@@H]2CNC3=O)cc1",
         "COC(=O)N1CC2C=CC1C(c1ccccc1)C2",
         "O=C([O-])C(=O)c1ccc([N+](=O)[O-])cc1C1CCN=C2NCCCN21",

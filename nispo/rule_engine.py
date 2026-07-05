@@ -2206,6 +2206,16 @@ def _candidate_fact_ranked_item(
             or selected_item
         )
         selected_item = (
+            _generated_hydro_fused_alternative_for_retained_fused_choice(
+                keyed_items,
+                selected_item,
+                include_partial_hydro=True,
+                reject_isotopes=True,
+                blocked_template_names=_HIGH_CONFIDENCE_RETAINED_FUSED_HYDRO_BLOCKED_TEMPLATES,
+            )
+            or selected_item
+        )
+        selected_item = (
             _terminal_azole_chalcogen_suffix_alternative_for_high_confidence_generated_choice(
                 keyed_items,
                 selected_item,
@@ -7421,9 +7431,20 @@ def _clean_bicyclic_alternative_for_decomposition_choice(
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+_HIGH_CONFIDENCE_RETAINED_FUSED_HYDRO_BLOCKED_TEMPLATES = frozenset(
+    {
+        "benzo[1,2-c]pyrazole",
+    }
+)
+
+
 def _generated_hydro_fused_alternative_for_retained_fused_choice(
     keyed_items: list[tuple[tuple, _PreparedCandidate]],
     selected: _PreparedCandidate,
+    *,
+    include_partial_hydro: bool = False,
+    reject_isotopes: bool = False,
+    blocked_template_names: frozenset[str] = frozenset(),
 ) -> _PreparedCandidate | None:
     selected_candidate = selected.candidate
     if selected_candidate.family != "fused-retained-parent":
@@ -7440,27 +7461,52 @@ def _generated_hydro_fused_alternative_for_retained_fused_choice(
     selected_rank = selected_candidate.render_rank
     if selected_rank is not None and selected_rank > 3:
         return None
+    if reject_isotopes and (
+        selected_candidate.molecule_isotope_atom_count
+        or selected_candidate.candidate_isotope_atom_count
+    ):
+        return None
     selected_key = next((key for key, item in keyed_items if item is selected), None)
     if selected_key is None:
         return None
 
+    allowed_families = {"generated-hydro-fused-parent"}
+    if include_partial_hydro:
+        allowed_families.add("generated-partial-hydro-fused-parent")
     alternatives: list[tuple[tuple, _PreparedCandidate]] = []
     for candidate_key, item in keyed_items:
         if item is selected or item.name == selected.name:
             continue
         candidate = item.candidate
-        if candidate.family != "generated-hydro-fused-parent":
+        if candidate.family not in allowed_families:
             continue
         if candidate.source_family != "generated-fused":
             continue
         if candidate.source_file != "generated_fused_template_index.json":
             continue
+        if candidate.template_name in blocked_template_names:
+            continue
+        if candidate.priority != 28:
+            continue
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if reject_isotopes and (
+            candidate.molecule_isotope_atom_count
+            or candidate.candidate_isotope_atom_count
+        ):
             continue
         candidate_parent_count = len(candidate.parent_atoms)
         if candidate_parent_count < 8 or candidate_parent_count > 14:
             continue
-        if abs(candidate_parent_count - selected_parent_count) > 3:
+        if candidate.family == "generated-partial-hydro-fused-parent":
+            render_rank = candidate.render_rank
+            if render_rank is None or render_rank > 3:
+                continue
+            if candidate_parent_count < selected_parent_count - 1:
+                continue
+            if candidate_parent_count > selected_parent_count + 2:
+                continue
+        elif abs(candidate_parent_count - selected_parent_count) > 3:
             continue
         if candidate.parent_external_unsaturated_bond_count < 1:
             continue

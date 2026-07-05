@@ -1317,14 +1317,12 @@ def _temporary_complexity_ranked_polycycle_rescue_allowed(mol) -> bool:
 
     heavy_atoms = mol.GetNumHeavyAtoms()
     ring_count = mol.GetRingInfo().NumRings()
-    if heavy_atoms < 40 or ring_count < 5 or ring_count > 9:
+    if heavy_atoms < 40:
         return False
     largest_ring_system = _largest_ring_system_ring_count(mol)
-    if largest_ring_system < 5:
-        return False
-    if rdMolDescriptors.CalcNumSpiroAtoms(mol) != 0:
-        return False
-    if rdMolDescriptors.CalcNumBridgeheadAtoms(mol) < 2:
+    spiro_atoms = rdMolDescriptors.CalcNumSpiroAtoms(mol)
+    bridgehead_atoms = rdMolDescriptors.CalcNumBridgeheadAtoms(mol)
+    if spiro_atoms != 0 or bridgehead_atoms < 2:
         return False
     hetero_heavy_atoms = 0
     chiral_atoms = 0
@@ -1338,6 +1336,26 @@ def _temporary_complexity_ranked_polycycle_rescue_allowed(mol) -> bool:
             chiral_atoms += 1
         if atomic_num != 6:
             hetero_heavy_atoms += 1
+    if (
+        bridgehead_atoms >= 4
+        and ring_count >= 4
+        and largest_ring_system >= 3
+        and hetero_heavy_atoms <= 17
+        and chiral_atoms <= 6
+    ):
+        return True
+    if (
+        bridgehead_atoms >= 2
+        and 6 <= ring_count <= 8
+        and largest_ring_system >= 5
+        and hetero_heavy_atoms <= 16
+        and chiral_atoms <= 6
+    ):
+        return True
+    if ring_count < 5 or ring_count > 9:
+        return False
+    if largest_ring_system < 5:
+        return False
     if chiral_atoms > 5:
         return False
     return hetero_heavy_atoms <= 12 or (largest_ring_system >= 8 and hetero_heavy_atoms <= 14)

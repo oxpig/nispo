@@ -2206,6 +2206,13 @@ def _candidate_fact_ranked_item(
             or selected_item
         )
         selected_item = (
+            _high_confidence_single_ring_generated_fused_template_alternative(
+                keyed_items,
+                selected_item,
+            )
+            or selected_item
+        )
+        selected_item = (
             _generated_hydro_fused_alternative_for_retained_fused_choice(
                 keyed_items,
                 selected_item,
@@ -6780,6 +6787,52 @@ _HIGH_CONFIDENCE_FAST_PATH_GENERATED_FUSED_SELECTED_FAMILIES = frozenset(
         "allowed_selected_families"
     ]
 )
+_HIGH_CONFIDENCE_SINGLE_RING_GENERATED_FUSED_TEMPLATE_SPECS = {
+    "benzo[1,2-c]isoxazole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+    },
+    "imidazo[4,5-a]benzene": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+    },
+    "imidazo[4,5-c]quinoline": {
+        "parent_atom_count": 13,
+        "parent_hetero_atom_count": 3,
+    },
+    "imidazo[4,5-d]pyrimidine": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 4,
+    },
+    "isoquino[4,3-d]pyrazole": {
+        "parent_atom_count": 13,
+        "parent_hetero_atom_count": 3,
+    },
+    "pyrido[1,2-b]pyrazole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+    },
+    "pyrido[3,4-b]pyrrole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+    },
+    "pyrido[4,3-b]pyrrole": {
+        "parent_atom_count": 9,
+        "parent_hetero_atom_count": 2,
+    },
+    "pyrido[4,3-f]indazole": {
+        "parent_atom_count": 13,
+        "parent_hetero_atom_count": 3,
+    },
+    "pyrimido[4,5-b]pyridine": {
+        "parent_atom_count": 10,
+        "parent_hetero_atom_count": 3,
+    },
+    "pyrimido[4,5-e]indazole": {
+        "parent_atom_count": 13,
+        "parent_hetero_atom_count": 4,
+    },
+}
 
 
 def _high_confidence_generated_fused_template_alternative(
@@ -6831,6 +6884,72 @@ def _high_confidence_generated_fused_template_alternative(
         if not _is_high_confidence_generated_fused_template_alternative(candidate, spec):
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _high_confidence_single_ring_generated_fused_template_alternative(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_file:
+        return None
+    if selected_candidate.source_family:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    if selected_parent_count < 3 or selected_parent_count > 6:
+        return None
+    if selected_candidate.molecule_isotope_atom_count or selected_candidate.candidate_isotope_atom_count:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if selected_candidate.charge is not None or selected_candidate.suffixes:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_rank = selected_candidate.render_rank
+    if selected_rank is not None and selected_rank > 3:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        spec = _HIGH_CONFIDENCE_SINGLE_RING_GENERATED_FUSED_TEMPLATE_SPECS.get(
+            candidate.template_name
+        )
+        if spec is None:
+            continue
+        if not _is_high_confidence_generated_fused_template_alternative(candidate, spec):
+            continue
+        if candidate.molecule_isotope_atom_count or candidate.candidate_isotope_atom_count:
+            continue
+        if len(item.name) > 280:
+            continue
+        if len(item.name) - len(selected.name) > 170:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

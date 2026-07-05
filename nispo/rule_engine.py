@@ -119,6 +119,14 @@ _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES = frozenset(
         "kekulized-generic-polycyclic-parent",
     }
 )
+_TEMPORARY_COMPLEXITY_BOUNDED_RESCUE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "generic-bicyclic-parent",
+        "kekulized-generic-polycyclic-parent",
+        "single-ring-parent",
+    }
+)
 _FAST_POLY_PRE_ROUTE_SENIOR_FAMILIES = frozenset(
     {
         "azanium-parent",
@@ -462,6 +470,9 @@ class NamingEngine:
         self._temporary_complexity_ranked_rescue_rules = tuple(
             rule for rule in self._rules if rule.family in _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES
         )
+        self._temporary_complexity_bounded_rescue_rules = tuple(
+            rule for rule in self._rules if rule.family in _TEMPORARY_COMPLEXITY_BOUNDED_RESCUE_FAMILIES
+        )
         self._spiro_selector_rules = tuple(
             rule for rule in self._rules if rule.family in _SPIRO_SELECTOR_RULE_FAMILIES
         )
@@ -526,6 +537,18 @@ class NamingEngine:
                 )
                 if ranked_rescue_name:
                     return ranked_rescue_name
+            if _temporary_complexity_bounded_rescue_allowed(mol):
+                if ctx is None:
+                    ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+                bounded_rescue_name = _temporary_complexity_bounded_rescue_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._temporary_complexity_bounded_rescue_rules,
+                    telemetry=telemetry,
+                )
+                if bounded_rescue_name:
+                    return bounded_rescue_name
             _record_direct_route(telemetry, "temporary_complexity_bailout")
             return ""
 
@@ -657,6 +680,16 @@ class NamingEngine:
                     return retained_hydro_name
                 return route_miss_name
         if temporary_complexity_bailout:
+            if _temporary_complexity_bounded_rescue_allowed(mol):
+                bounded_rescue_name = _temporary_complexity_bounded_rescue_name(
+                    mol,
+                    self._Chem,
+                    ctx,
+                    self._temporary_complexity_bounded_rescue_rules,
+                    telemetry=telemetry,
+                )
+                if bounded_rescue_name:
+                    return bounded_rescue_name
             _record_direct_route(telemetry, "temporary_complexity_fast_route_miss")
             return ""
         best_name = _select_best_prepared_candidate(
@@ -900,6 +933,38 @@ def _temporary_complexity_ranked_polycycle_rescue_is_safe(
         return False
     candidate = selected.candidate
     if candidate.family not in _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES:
+        return False
+    if candidate_safety_reasons(candidate):
+        return False
+    if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+        return False
+    return True
+
+
+def _temporary_complexity_bounded_rescue_name(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    prepared = [
+        item
+        for item in _prepare_candidates(mol, Chem, ctx, rules)
+        if _temporary_complexity_bounded_rescue_is_safe(item)
+    ]
+    selected = _select_best_prepared_candidate_item(prepared)
+    if selected is None:
+        return ""
+    return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _temporary_complexity_bounded_rescue_is_safe(selected: _PreparedCandidate | None) -> bool:
+    if selected is None:
+        return False
+    candidate = selected.candidate
+    if candidate.family not in _TEMPORARY_COMPLEXITY_BOUNDED_RESCUE_FAMILIES:
         return False
     if candidate_safety_reasons(candidate):
         return False
@@ -1294,6 +1359,40 @@ def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
             and chiral_atoms <= 4
         )
     return True
+
+
+def _temporary_complexity_bounded_rescue_allowed(mol) -> bool:
+    """Allow a narrow full-selector rescue for high-yield large side-chain polycycles."""
+
+    heavy_atoms = mol.GetNumHeavyAtoms()
+    if heavy_atoms < 45 or heavy_atoms >= 50:
+        return False
+    ring_count = mol.GetRingInfo().NumRings()
+    largest_ring_system = _largest_ring_system_ring_count(mol)
+    if (ring_count, largest_ring_system) not in {(4, 1), (5, 2)}:
+        return False
+
+    nonring_heavy_atoms = 0
+    for atom in mol.GetAtoms():
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num <= 1:
+            continue
+        if atom.GetIsotope() or atom.GetFormalCharge() or atomic_num == 15:
+            return False
+        if not atom.IsInRing():
+            nonring_heavy_atoms += 1
+    if ring_count == 4 and largest_ring_system == 1:
+        return (
+            (heavy_atoms == 46 and 22 <= nonring_heavy_atoms <= 26)
+            or (heavy_atoms == 47 and 24 <= nonring_heavy_atoms <= 27)
+            or (heavy_atoms == 49 and nonring_heavy_atoms == 28)
+        )
+    return (
+        (heavy_atoms == 45 and nonring_heavy_atoms in {21, 25})
+        or (heavy_atoms == 46 and nonring_heavy_atoms == 22)
+        or (heavy_atoms == 48 and nonring_heavy_atoms in {24, 28})
+        or (heavy_atoms == 49 and nonring_heavy_atoms == 25)
+    )
 
 
 def _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol) -> bool:
@@ -2159,6 +2258,12 @@ def _candidate_fact_ranked_item(
     if selected_item is not None:
         return selected_item
     selected_item = _high_confidence_acyclic_parent_alternative_for_beta_dicarbonyl_choice(
+        keyed_items,
+        current,
+    )
+    if selected_item is not None:
+        return selected_item
+    selected_item = _acyclic_skeleton_alternative_for_stable_single_ring_choice(
         keyed_items,
         current,
     )
@@ -5954,6 +6059,145 @@ def _acyclic_skeleton_alternative_for_high_rank_hetero_single_ring_choice(
         if candidate_key[0] > selected_key[0] + 260:
             continue
         alternatives.append((candidate_key, item))
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _acyclic_skeleton_alternative_for_stable_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) != 6:
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is None or selected_render_rank < 1 or selected_render_rank > 3:
+        return None
+    if selected_candidate.suffixes:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum or selected_candidate.parent_abs_formal_charge_sum:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.charged_atoms:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if _candidate_has_isotope_evidence(selected_candidate):
+        return None
+    selected_functionalized_aryl = (
+        selected_render_rank == 2
+        and selected_candidate.parent_aromatic_atom_count == 6
+        and (
+            selected_candidate.parent_terminal_hetero_substituent_count
+            + selected_candidate.parent_external_nitrogen_substituent_count
+            + selected_candidate.parent_external_oxygen_substituent_count
+        )
+        >= 1
+    )
+    if selected_functionalized_aryl:
+        return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "acyclic-skeleton-with-ring-substituents":
+            continue
+        if candidate.template_name or candidate.source_family or candidate.source_file:
+            continue
+        if candidate.priority != 60 or candidate.render_rank is not None:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        candidate_parent_count = len(candidate.parent_atoms)
+        candidate_sulfur_count = _candidate_parent_element_count(candidate, "S")
+        candidate_halogen_count = (
+            _candidate_parent_element_count(candidate, "F")
+            + _candidate_parent_element_count(candidate, "Cl")
+            + _candidate_parent_element_count(candidate, "Br")
+            + _candidate_parent_element_count(candidate, "I")
+        )
+        candidate_stereo_atom_count = _candidate_stereo_atom_descriptor_count(candidate)
+        if candidate_stereo_atom_count >= 6:
+            continue
+        if (
+            candidate_stereo_atom_count >= 3
+            and candidate_parent_count >= 25
+            and selected_candidate.parent_hetero_atom_count
+        ):
+            continue
+        if (
+            selected_candidate.parent_external_oxygen_substituent_count
+            and candidate.parent_external_unsaturated_bond_count >= 2
+        ):
+            continue
+        if (
+            selected_candidate.parent_external_nitrogen_substituent_count
+            and candidate_sulfur_count
+            and _candidate_parent_element_count(candidate, "O") >= 5
+            and _candidate_parent_element_count(candidate, "N") >= 2
+            and candidate.parent_external_unsaturated_bond_count >= 3
+        ):
+            continue
+        if candidate_sulfur_count and candidate_halogen_count == 1:
+            continue
+        if (
+            candidate_sulfur_count
+            and selected_candidate.parent_aromatic_atom_count == 6
+            and selected_candidate.parent_hetero_atom_count
+            and candidate_parent_count >= 4
+        ):
+            continue
+        if (
+            selected_candidate.parent_aromatic_atom_count == 6
+            and candidate_parent_count >= 18
+            and _candidate_parent_element_count(candidate, "N") >= 3
+            and _candidate_parent_element_count(candidate, "O") <= 4
+        ):
+            continue
+        if selected_candidate.parent_aromatic_atom_count == 6 and candidate_parent_count > 18:
+            continue
+        if candidate.parent_hetero_atom_count:
+            continue
+        if candidate.molecule_abs_formal_charge_sum or candidate.parent_abs_formal_charge_sum:
+            continue
+        if candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.charged_atoms:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if _candidate_has_isotope_evidence(candidate):
+            continue
+        if len(item.name) > 130:
+            continue
+        if len(item.name) - len(selected.name) > 120:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

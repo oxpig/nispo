@@ -1388,8 +1388,8 @@ def _temporary_complexity_bounded_rescue_allowed(mol) -> bool:
             or (heavy_atoms == 49 and nonring_heavy_atoms == 28)
         )
     return (
-        (heavy_atoms == 45 and nonring_heavy_atoms in {21, 25})
-        or (heavy_atoms == 46 and nonring_heavy_atoms == 22)
+        (heavy_atoms == 45 and nonring_heavy_atoms in {19, 20, 21, 25})
+        or (heavy_atoms == 46 and nonring_heavy_atoms in {19, 21, 22})
         or (heavy_atoms == 48 and nonring_heavy_atoms in {24, 28})
         or (heavy_atoms == 49 and nonring_heavy_atoms == 25)
     )

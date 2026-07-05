@@ -1660,6 +1660,15 @@ def _temporary_complexity_broad_bounded_high_yield_profile(
     ):
         return True
     if (
+        heavy_atoms >= 46
+        and ring_count == 9
+        and largest_ring_system == 5
+        and 5 <= nonring_heavy_atoms <= 9
+        and 10 <= hetero_heavy_atoms <= 11
+        and chiral_atoms == 6
+    ):
+        return True
+    if (
         ring_count == 5
         and largest_ring_system == 1
         and 20 <= nonring_heavy_atoms <= 29

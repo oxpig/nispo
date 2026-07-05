@@ -2967,6 +2967,13 @@ def _candidate_fact_ranked_item(
         )
         or selected_item
     )
+    selected_item = (
+        _retained_fused_alternative_for_stable_single_ring_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
     return (
         _hydrogenated_sulfur_oxide_single_ring_alternative_for_non_hydrogen_choice(
             keyed_items,
@@ -6198,6 +6205,80 @@ def _acyclic_skeleton_alternative_for_stable_single_ring_choice(
                 item,
             )
         )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _retained_fused_alternative_for_stable_single_ring_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family != "single-ring-parent":
+        return None
+    if selected_candidate.template_name or selected_candidate.source_family or selected_candidate.source_file:
+        return None
+    if not selected_candidate.parent_atoms or not candidate_has_complete_graph(selected_candidate):
+        return None
+    if len(selected_candidate.parent_atoms) not in {5, 6}:
+        return None
+    if selected_candidate.priority != 61:
+        return None
+    if selected_candidate.charge is not None:
+        return None
+    if selected_candidate.molecule_abs_formal_charge_sum:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    selected_render_rank = selected_candidate.render_rank
+    if selected_render_rank is not None and selected_render_rank > 3:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "fused-retained-parent":
+            continue
+        if not candidate.template_name:
+            continue
+        if candidate.charge is not None:
+            continue
+        if candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.candidate_isotope_atom_count != candidate.molecule_isotope_atom_count:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_elements = dict(candidate.parent_element_counts)
+        if frozenset(parent_elements.items()) not in {
+            frozenset({"C": 7, "N": 2}.items()),
+            frozenset({"C": 6, "N": 3}.items()),
+        }:
+            continue
+        parent_delta = len(candidate.parent_atoms) - len(selected_candidate.parent_atoms)
+        if parent_delta < 3:
+            continue
+        if len(candidate.locants) > len(selected_candidate.locants):
+            continue
+        if candidate.parent_abs_formal_charge_sum or candidate.template_abs_formal_charge_sum:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is not None and selected_render_rank is not None and render_rank > selected_render_rank + 2:
+            continue
+        if render_rank is not None and render_rank > 4:
+            continue
+        if len(item.name) > 140:
+            continue
+        if len(item.name) - len(selected.name) > 15:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        alternatives.append(((len(item.name) - item.selection_bonus, render_rank or 999, candidate_key), item))
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]

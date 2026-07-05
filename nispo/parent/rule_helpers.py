@@ -1831,8 +1831,13 @@ def _fresh_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
     cached = mol_cache_get(mol, "fresh_all_atom_stereochemistry")
     if cached is not None:
         return cached
+    cached = mol_cache_get(mol, "all_atom_stereochemistry")
+    if cached is not None:
+        return mol_cache_set(mol, "fresh_all_atom_stereochemistry", cached)
     if not any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
-        return mol_cache_set(mol, "fresh_all_atom_stereochemistry", {})
+        result = {}
+        mol_cache_set(mol, "all_atom_stereochemistry", result)
+        return mol_cache_set(mol, "fresh_all_atom_stereochemistry", result)
     work = Chem.Mol(mol)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
     result = {
@@ -1844,6 +1849,7 @@ def _fresh_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
         )
         if descriptor in {"R", "S", "r", "s"}
     }
+    mol_cache_set(mol, "all_atom_stereochemistry", result)
     return mol_cache_set(mol, "fresh_all_atom_stereochemistry", result)
 
 

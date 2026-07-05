@@ -122,8 +122,18 @@ _TEMPORARY_COMPLEXITY_RANKED_RESCUE_FAMILIES = frozenset(
 _TEMPORARY_COMPLEXITY_BOUNDED_RESCUE_FAMILIES = frozenset(
     {
         "acyclic-skeleton-with-ring-substituents",
+        "component-spiro-parent",
         "generic-bicyclic-parent",
         "kekulized-generic-polycyclic-parent",
+        "single-ring-parent",
+        "skeletal-replacement-fused-parent",
+        "spiro-functional-chain-substituent",
+    }
+)
+_TEMPORARY_COMPLEXITY_BOUNDED_FULL_RANK_FIRST_FAMILIES = frozenset(
+    {
+        "generated-partial-hydro-fused-parent",
+        "skeletal-replacement-fused-parent",
         "single-ring-parent",
     }
 )
@@ -915,6 +925,15 @@ def _temporary_complexity_ranked_polycycle_rescue_name(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
+    if telemetry is None:
+        selected = _first_safe_temporary_complexity_ranked_polycycle_rescue_item(
+            mol,
+            Chem,
+            ctx,
+            rules,
+        )
+        return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
     prepared = [
         item
         for item in _prepare_candidates(mol, Chem, ctx, rules)
@@ -924,6 +943,36 @@ def _temporary_complexity_ranked_polycycle_rescue_name(
     if selected is None:
         return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _first_safe_temporary_complexity_ranked_polycycle_rescue_item(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+) -> _PreparedCandidate | None:
+    """Stream the bailout rescue; nearly all successful rows select first safe."""
+
+    rule_candidate_cache_state = _rule_candidate_cache_state(mol)
+    for rule in compile_rules_for_context(ctx, rules):
+        if not rule.applies(ctx):
+            continue
+        for candidate in _cached_rule_candidates(ctx, rule, rule_candidate_cache_state):
+            item = _prepared_candidate_item(
+                mol,
+                Chem,
+                ctx,
+                candidate,
+                producer_family=rule.family,
+                max_length=_DEFAULT_MAX_NAME_LENGTH,
+                output_max_length=None,
+                use_cache=True,
+            )
+            if item is None:
+                continue
+            if _temporary_complexity_ranked_polycycle_rescue_is_safe(item):
+                return item
+    return None
 
 
 def _temporary_complexity_ranked_polycycle_rescue_is_safe(
@@ -949,6 +998,79 @@ def _temporary_complexity_bounded_rescue_name(
     *,
     telemetry: CandidateTelemetry | None = None,
 ) -> str:
+    if not _temporary_complexity_bounded_retained_defer_bypass_allowed(mol):
+        return _temporary_complexity_bounded_rescue_name_impl(
+            mol,
+            Chem,
+            ctx,
+            rules,
+            telemetry=telemetry,
+        )
+    had_bypass_prop = mol.HasProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)
+    previous_bypass_prop = mol.GetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP) if had_bypass_prop else ""
+    mol.SetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP, "1")
+    try:
+        return _temporary_complexity_bounded_rescue_name_impl(
+            mol,
+            Chem,
+            ctx,
+            rules,
+            telemetry=telemetry,
+        )
+    finally:
+        if had_bypass_prop:
+            mol.SetProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP, previous_bypass_prop)
+        else:
+            mol.ClearProp(FAST_POLY_RETAINED_DEFER_BYPASS_PROP)
+
+
+def _temporary_complexity_bounded_retained_defer_bypass_allowed(mol) -> bool:
+    (
+        _heavy_atoms,
+        ring_count,
+        largest_ring_system,
+        nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+        _has_charge,
+        _has_phosphorus,
+        _has_isotope,
+    ) = _temporary_complexity_profile(mol)
+    if ring_count not in {4, 8}:
+        return False
+    if ring_count == 4:
+        return (
+            largest_ring_system == 2
+            and nonring_heavy_atoms >= 24
+            and hetero_heavy_atoms >= 12
+            and (chiral_atoms <= 1 or chiral_atoms >= 5)
+        )
+    return (
+        largest_ring_system == 2
+        and nonring_heavy_atoms <= 10
+        and hetero_heavy_atoms >= 14
+        and chiral_atoms == 0
+    )
+
+
+def _temporary_complexity_bounded_rescue_name_impl(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+    *,
+    telemetry: CandidateTelemetry | None = None,
+) -> str:
+    if telemetry is None:
+        selected = _first_safe_temporary_complexity_bounded_rescue_item(
+            mol,
+            Chem,
+            ctx,
+            rules,
+        )
+        if selected is not None and not _temporary_complexity_bounded_rescue_needs_full_rank(selected):
+            return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
     prepared = [
         item
         for item in _prepare_candidates(mol, Chem, ctx, rules)
@@ -958,6 +1080,48 @@ def _temporary_complexity_bounded_rescue_name(
     if selected is None:
         return ""
     return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+
+def _first_safe_temporary_complexity_bounded_rescue_item(
+    mol,
+    Chem,
+    ctx: MoleculeContext,
+    rules: Iterable[RuleSpec],
+) -> _PreparedCandidate | None:
+    """Stream the bounded bailout rescue through priority-ordered rule families."""
+
+    rule_candidate_cache_state = _rule_candidate_cache_state(mol)
+    for rule in compile_rules_for_context(ctx, rules):
+        if not rule.applies(ctx):
+            continue
+        for candidate in _cached_rule_candidates(ctx, rule, rule_candidate_cache_state):
+            item = _prepared_candidate_item(
+                mol,
+                Chem,
+                ctx,
+                candidate,
+                producer_family=rule.family,
+                max_length=_DEFAULT_MAX_NAME_LENGTH,
+                output_max_length=None,
+                use_cache=True,
+            )
+            if item is None:
+                continue
+            if _temporary_complexity_bounded_rescue_is_safe(item):
+                return item
+    return None
+
+
+def _temporary_complexity_bounded_rescue_needs_full_rank(selected: _PreparedCandidate) -> bool:
+    candidate = selected.candidate
+    if candidate.family in _TEMPORARY_COMPLEXITY_BOUNDED_FULL_RANK_FIRST_FAMILIES:
+        return True
+    if (
+        candidate.molecule_isotope_atom_count
+        and candidate.candidate_isotope_atom_count < candidate.molecule_isotope_atom_count
+    ):
+        return True
+    return False
 
 
 def _temporary_complexity_bounded_rescue_is_safe(selected: _PreparedCandidate | None) -> bool:
@@ -1287,29 +1451,68 @@ def _should_skip_complex_empty_fallback(mol, ctx: MoleculeContext) -> bool:
     )
 
 
-def _temporary_complexity_bailout_name(mol) -> bool:
-    """Temporarily skip expensive weak complex classes during speed-first work."""
-
+def _temporary_complexity_profile(mol) -> tuple[int, int, int, int, int, int, bool, bool, bool]:
+    cached = mol_cache_get(mol, "temporary_complexity_profile")
+    if cached is not None:
+        return cached
     heavy_atoms = mol.GetNumHeavyAtoms()
     ring_count = mol.GetRingInfo().NumRings()
-    if heavy_atoms < 35 or ring_count < 2:
-        return False
-    has_isotope = False
+    largest_ring_system = _largest_ring_system_ring_count(mol) if ring_count else 0
+    nonring_heavy_atoms = 0
+    hetero_heavy_atoms = 0
+    chiral_atoms = 0
     has_charge = False
     has_phosphorus = False
-    nonring_heavy_atoms = 0
+    has_isotope = False
     for atom in mol.GetAtoms():
         atomic_num = atom.GetAtomicNum()
         if atomic_num <= 1:
             continue
         if not atom.IsInRing():
             nonring_heavy_atoms += 1
-        if atom.GetIsotope():
-            has_isotope = True
+        if atomic_num != 6:
+            hetero_heavy_atoms += 1
+        if int(atom.GetChiralTag()) != 0:
+            chiral_atoms += 1
         if atom.GetFormalCharge():
             has_charge = True
         if atomic_num == 15:
             has_phosphorus = True
+        if atom.GetIsotope():
+            has_isotope = True
+    return mol_cache_set(
+        mol,
+        "temporary_complexity_profile",
+        (
+            heavy_atoms,
+            ring_count,
+            largest_ring_system,
+            nonring_heavy_atoms,
+            hetero_heavy_atoms,
+            chiral_atoms,
+            has_charge,
+            has_phosphorus,
+            has_isotope,
+        ),
+    )
+
+
+def _temporary_complexity_bailout_name(mol) -> bool:
+    """Temporarily skip expensive weak complex classes during speed-first work."""
+
+    (
+        heavy_atoms,
+        ring_count,
+        _largest_ring_system,
+        nonring_heavy_atoms,
+        _hetero_heavy_atoms,
+        _chiral_atoms,
+        has_charge,
+        has_phosphorus,
+        has_isotope,
+    ) = _temporary_complexity_profile(mol)
+    if heavy_atoms < 35 or ring_count < 2:
+        return False
     return (
         has_isotope
         or (has_charge and ring_count >= 2)
@@ -1322,32 +1525,19 @@ def _temporary_complexity_bailout_name(mol) -> bool:
 def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
     """Allow bounded bailout classes to try staged routes before returning empty."""
 
-    heavy_atoms = mol.GetNumHeavyAtoms()
-    ring_count = mol.GetRingInfo().NumRings()
+    (
+        heavy_atoms,
+        ring_count,
+        _largest_ring_system,
+        nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+        has_charge,
+        has_phosphorus,
+        has_isotope,
+    ) = _temporary_complexity_profile(mol)
     if heavy_atoms >= 40 and ring_count >= 8:
         return False
-    has_charge = False
-    has_phosphorus = False
-    has_isotope = False
-    hetero_heavy_atoms = 0
-    chiral_atoms = 0
-    nonring_heavy_atoms = 0
-    for atom in mol.GetAtoms():
-        atomic_num = atom.GetAtomicNum()
-        if atomic_num <= 1:
-            continue
-        if int(atom.GetChiralTag()) != 0:
-            chiral_atoms += 1
-        if atomic_num != 6:
-            hetero_heavy_atoms += 1
-        if not atom.IsInRing():
-            nonring_heavy_atoms += 1
-        if atom.GetFormalCharge():
-            has_charge = True
-        if atomic_num == 15:
-            has_phosphorus = True
-        if atom.GetIsotope():
-            has_isotope = True
     if has_charge or has_phosphorus or has_isotope:
         return True
     if heavy_atoms >= 45 and nonring_heavy_atoms >= 18 and ring_count >= 3:
@@ -1364,23 +1554,24 @@ def _temporary_complexity_fast_route_rescue_allowed(mol) -> bool:
 def _temporary_complexity_bounded_rescue_allowed(mol) -> bool:
     """Allow a narrow full-selector rescue for high-yield large side-chain polycycles."""
 
-    heavy_atoms = mol.GetNumHeavyAtoms()
+    (
+        heavy_atoms,
+        ring_count,
+        largest_ring_system,
+        nonring_heavy_atoms,
+        _hetero_heavy_atoms,
+        _chiral_atoms,
+        has_charge,
+        has_phosphorus,
+        has_isotope,
+    ) = _temporary_complexity_profile(mol)
     if heavy_atoms < 45 or heavy_atoms >= 50:
-        return False
-    ring_count = mol.GetRingInfo().NumRings()
-    largest_ring_system = _largest_ring_system_ring_count(mol)
+        return _temporary_complexity_broad_bounded_rescue_allowed(mol)
     if (ring_count, largest_ring_system) not in {(4, 1), (5, 2)}:
-        return False
+        return _temporary_complexity_broad_bounded_rescue_allowed(mol)
 
-    nonring_heavy_atoms = 0
-    for atom in mol.GetAtoms():
-        atomic_num = atom.GetAtomicNum()
-        if atomic_num <= 1:
-            continue
-        if atom.GetIsotope() or atom.GetFormalCharge() or atomic_num == 15:
-            return False
-        if not atom.IsInRing():
-            nonring_heavy_atoms += 1
+    if has_isotope or has_charge or has_phosphorus:
+        return False
     if ring_count == 4 and largest_ring_system == 1:
         return (
             (heavy_atoms == 46 and 22 <= nonring_heavy_atoms <= 26)
@@ -1395,46 +1586,163 @@ def _temporary_complexity_bounded_rescue_allowed(mol) -> bool:
     )
 
 
-def _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol) -> bool:
-    if mol.GetNumHeavyAtoms() < 40 or mol.GetRingInfo().NumRings() < 8:
+def _temporary_complexity_broad_bounded_rescue_allowed(mol) -> bool:
+    """Recover graph-complete candidates for neutral large polycycles stopped by bailout."""
+
+    (
+        heavy_atoms,
+        ring_count,
+        largest_ring_system,
+        nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+        has_charge,
+        has_phosphorus,
+        has_isotope,
+    ) = _temporary_complexity_profile(mol)
+    if heavy_atoms < 40 or heavy_atoms > 50:
         return False
-    chiral_atoms = 0
-    hetero_heavy_atoms = 0
-    for atom in mol.GetAtoms():
-        atomic_num = atom.GetAtomicNum()
-        if atomic_num <= 1:
-            continue
-        if int(atom.GetChiralTag()) != 0:
-            chiral_atoms += 1
-        if atomic_num != 6:
-            hetero_heavy_atoms += 1
+    if ring_count < 4 or ring_count > 9:
+        return False
+    if largest_ring_system < 1 or largest_ring_system > 5:
+        return False
+    if has_isotope or has_charge or has_phosphorus:
+        return False
+    if hetero_heavy_atoms > 18 or chiral_atoms > 6:
+        return False
+    if ring_count >= 8 and largest_ring_system <= 2 and nonring_heavy_atoms > 30:
+        return False
+    return _temporary_complexity_broad_bounded_high_yield_profile(
+        heavy_atoms,
+        ring_count,
+        largest_ring_system,
+        nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+    )
+
+
+def _temporary_complexity_broad_bounded_high_yield_profile(
+    heavy_atoms: int,
+    ring_count: int,
+    largest_ring_system: int,
+    nonring_heavy_atoms: int,
+    hetero_heavy_atoms: int,
+    chiral_atoms: int,
+) -> bool:
+    if (
+        ring_count == 8
+        and largest_ring_system == 2
+        and 6 <= hetero_heavy_atoms <= 14
+    ):
+        return True
+    if (
+        ring_count == 8
+        and largest_ring_system == 3
+        and 3 <= hetero_heavy_atoms <= 14
+    ):
+        return True
+    if (
+        ring_count == 9
+        and largest_ring_system == 2
+    ):
+        return True
+    if (
+        ring_count == 9
+        and largest_ring_system == 3
+        and nonring_heavy_atoms < 5
+    ):
+        return True
+    if (
+        ring_count == 9
+        and largest_ring_system == 5
+        and 10 <= nonring_heavy_atoms <= 14
+    ):
+        return True
+    if (
+        ring_count == 5
+        and largest_ring_system == 1
+        and 20 <= nonring_heavy_atoms <= 29
+    ):
+        return True
+    if (
+        ring_count == 5
+        and largest_ring_system == 4
+        and 20 <= nonring_heavy_atoms <= 29
+    ):
+        return True
+    if (
+        ring_count == 6
+        and largest_ring_system == 2
+        and 20 <= nonring_heavy_atoms <= 24
+    ):
+        return True
+    if (
+        ring_count == 6
+        and largest_ring_system == 4
+        and 20 <= nonring_heavy_atoms <= 24
+    ):
+        return True
+    if (
+        ring_count == 4
+        and largest_ring_system == 2
+        and 25 <= nonring_heavy_atoms <= 34
+    ):
+        return True
+    if (
+        heavy_atoms == 50
+        and ring_count == 5
+        and largest_ring_system == 2
+    ):
+        return True
+    return (
+        4 <= ring_count <= 6
+        and largest_ring_system <= 4
+        and nonring_heavy_atoms >= 17
+        and 12 <= hetero_heavy_atoms <= 16
+        and 1 <= chiral_atoms <= 3
+    )
+
+
+def _temporary_heavy_polycycle_generated_fused_rescue_allowed(mol) -> bool:
+    (
+        heavy_atoms,
+        ring_count,
+        _largest_ring_system,
+        _nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+        _has_charge,
+        _has_phosphorus,
+        _has_isotope,
+    ) = _temporary_complexity_profile(mol)
+    if heavy_atoms < 40 or ring_count < 8:
+        return False
     return chiral_atoms == 3 and 9 <= hetero_heavy_atoms <= 12
 
 
 def _temporary_complexity_ranked_polycycle_rescue_allowed(mol) -> bool:
     """Gate ranked rescue to high-yield large fused/bridged polycycles."""
 
-    heavy_atoms = mol.GetNumHeavyAtoms()
-    ring_count = mol.GetRingInfo().NumRings()
+    (
+        heavy_atoms,
+        ring_count,
+        largest_ring_system,
+        _nonring_heavy_atoms,
+        hetero_heavy_atoms,
+        chiral_atoms,
+        _has_charge,
+        _has_phosphorus,
+        has_isotope,
+    ) = _temporary_complexity_profile(mol)
     if heavy_atoms < 40:
         return False
-    largest_ring_system = _largest_ring_system_ring_count(mol)
+    if has_isotope:
+        return False
     spiro_atoms = rdMolDescriptors.CalcNumSpiroAtoms(mol)
     bridgehead_atoms = rdMolDescriptors.CalcNumBridgeheadAtoms(mol)
     if spiro_atoms != 0 or bridgehead_atoms < 2:
         return False
-    hetero_heavy_atoms = 0
-    chiral_atoms = 0
-    for atom in mol.GetAtoms():
-        atomic_num = atom.GetAtomicNum()
-        if atomic_num <= 1:
-            continue
-        if atom.GetIsotope():
-            return False
-        if int(atom.GetChiralTag()) != 0:
-            chiral_atoms += 1
-        if atomic_num != 6:
-            hetero_heavy_atoms += 1
     if (
         bridgehead_atoms >= 4
         and ring_count >= 4
@@ -2167,7 +2475,23 @@ def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> 
         if best_key is None or candidate_key < best_key:
             best_item = item
             best_key = candidate_key
-    return _candidate_fact_ranked_item(keyed_items, best_item)
+    selected_item = _candidate_fact_ranked_item(keyed_items, best_item)
+    if selected_item is None:
+        return None
+    selected_item = (
+        _incomplete_component_spiro_skeletal_replacement_alternative(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
+    return (
+        _complete_isotope_single_ring_alternative_for_acyclic_choice(
+            keyed_items,
+            selected_item,
+        )
+        or selected_item
+    )
 
 
 def _prepared_candidate_selection_key(
@@ -2285,6 +2609,12 @@ def _candidate_fact_ranked_item(
     if selected_item is not None:
         return selected_item
     selected_item = _fused_parent_alternative_for_selected_choice(keyed_items, current)
+    if selected_item is not None:
+        return selected_item
+    selected_item = _complete_fused_graph_alternative_for_fragmented_parent_choice(
+        keyed_items,
+        current,
+    )
     if selected_item is not None:
         return selected_item
     selected_item = _systematic_alternative_for_hydrazine_parent_choice(keyed_items, current)
@@ -2428,6 +2758,13 @@ def _candidate_fact_ranked_item(
         selected_item = best_item
     selected_item = (
         _isotope_preserving_alternative_for_selected_choice(keyed_items, selected_item)
+        or selected_item
+    )
+    selected_item = (
+        _complete_fused_graph_alternative_for_fragmented_parent_choice(
+            keyed_items,
+            selected_item,
+        )
         or selected_item
     )
     selected_item = (
@@ -4149,6 +4486,88 @@ def _generated_spiro_skeletal_replacement_alternative_for_component_spiro_choice
     return min(alternatives, key=lambda keyed: keyed[0])[1]
 
 
+_NEUTRAL_INCOMPLETE_COMPONENT_SPIRO_REPLACEMENT_ELEMENTS = frozenset(
+    {
+        (("C", 12), ("N", 2)),
+        (("C", 11), ("N", 2)),
+        (("C", 9), ("N", 3), ("O", 1)),
+    }
+)
+
+
+def _incomplete_component_spiro_skeletal_replacement_alternative(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if not _needs_incomplete_component_spiro_replacement(selected_candidate):
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "skeletal-replacement-fused-parent":
+            continue
+        if candidate.source_family != "generated-fused":
+            continue
+        if candidate.source_file != "generated_fused_template_index.json":
+            continue
+        if not (candidate.template_name or "").startswith("spiro["):
+            continue
+        if candidate.render_rank is None or candidate.render_rank > 11:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if len(candidate.parent_atoms) not in {13, 14}:
+            continue
+        if candidate.parent_element_counts not in _NEUTRAL_INCOMPLETE_COMPONENT_SPIRO_REPLACEMENT_ELEMENTS:
+            continue
+        if candidate.molecule_abs_formal_charge_sum or candidate.molecule_formal_charge_atom_count:
+            continue
+        if candidate.molecule_isotope_atom_count:
+            continue
+        if _is_low_confidence_generated_spiro_skeletal_replacement(candidate):
+            continue
+        if candidate.suffixes or candidate.charge is not None:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 220 or len(item.name) - len(selected.name) > 25:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 160:
+            continue
+        alternatives.append(
+            (
+                (
+                    len(item.name) - item.selection_bonus,
+                    candidate.render_rank,
+                    item.stability_penalty,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+def _needs_incomplete_component_spiro_replacement(candidate: NameCandidate) -> bool:
+    if candidate.family != "component-spiro-parent":
+        return False
+    if candidate.parent_atoms and candidate_has_complete_graph(candidate):
+        return False
+    if candidate.charge is not None or candidate.suffixes:
+        return False
+    if candidate.molecule_abs_formal_charge_sum or candidate.molecule_formal_charge_atom_count:
+        return False
+    if candidate.molecule_isotope_atom_count:
+        return False
+    return not candidate_safety_reasons(candidate)
+
+
 def _generated_spiro_skeletal_replacement_matches_component_spiro_facts(
     selected: NameCandidate,
     candidate: NameCandidate,
@@ -4420,6 +4839,142 @@ def _generated_fused_alternative_for_generated_fused_choice(
                     item,
                 )
             )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda keyed: keyed[0])[1]
+
+
+_FRAGMENTED_PARENT_COMPLETE_FUSED_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "acyclic-skeleton-with-ring-substituents",
+        "azanium-parent",
+        "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        "sulfonamide-retained-parent",
+        "sulfur-oxo-acyclic-skeleton-with-ring-substituents",
+    }
+)
+_COMPLETE_FUSED_GRAPH_ALTERNATIVE_FAMILIES = frozenset(
+    {
+        "fused-retained-parent",
+        "generated-fused-parent",
+        "high-signal-generated-topology-fused-parent",
+        "hydro-fused-retained-parent",
+    }
+)
+
+
+def _candidate_parent_hetero_count(candidate: NameCandidate) -> int:
+    return sum(
+        count
+        for symbol, count in candidate.parent_element_counts
+        if symbol not in {"C", "H"}
+    )
+
+
+def _complete_fused_graph_alternative_for_fragmented_parent_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    if selected_candidate.family not in _FRAGMENTED_PARENT_COMPLETE_FUSED_ALTERNATIVE_FAMILIES:
+        return None
+    if selected_candidate.suffixes:
+        return None
+    if selected_candidate.charge is not None and selected_candidate.charge.formal_charge not in {0, 1}:
+        return None
+    if candidate_safety_reasons(selected_candidate):
+        return None
+    if _candidate_has_isotope_evidence(selected_candidate):
+        return None
+    if (
+        selected_candidate.family
+        in {
+            "acyclic-skeleton-with-ring-substituents",
+            "chain-dominant-acyclic-skeleton-with-ring-substituents",
+        }
+        and _candidate_has_stereo_evidence(selected_candidate)
+    ):
+        return None
+    selected_parent_count = len(selected_candidate.parent_atoms)
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
+
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family not in _COMPLETE_FUSED_GRAPH_ALTERNATIVE_FAMILIES:
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        parent_count = len(candidate.parent_atoms)
+        if parent_count < 9 or parent_count > 13:
+            continue
+        if len(candidate.ring_system_atoms) and len(candidate.ring_system_atoms) != parent_count:
+            continue
+        candidate_hetero_count = candidate.parent_hetero_atom_count or _candidate_parent_hetero_count(candidate)
+        if candidate_hetero_count < 2:
+            continue
+        if candidate.parent_abs_formal_charge_sum:
+            continue
+        if candidate.molecule_abs_formal_charge_sum != selected_candidate.molecule_abs_formal_charge_sum:
+            continue
+        if candidate.suffixes:
+            continue
+        if candidate.charge is not None and candidate.charge.formal_charge not in {0, 1}:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if _candidate_has_isotope_evidence(candidate):
+            continue
+        render_rank = candidate.render_rank
+        if candidate.family in {"generated-fused-parent", "high-signal-generated-topology-fused-parent"}:
+            if candidate.source_family != "generated-fused":
+                continue
+            if candidate.source_file != "generated_fused_template_index.json":
+                continue
+            if render_rank is None or render_rank > 2:
+                continue
+        elif candidate.family == "fused-retained-parent":
+            if candidate.source_family != "static-retained":
+                continue
+            if candidate.source_file != "high_impact_fused_parent_templates.json":
+                continue
+            if render_rank is None or render_rank > 2:
+                continue
+        elif candidate.family == "hydro-fused-retained-parent":
+            if candidate.source_family != "static-retained":
+                continue
+            if candidate.source_file != "high_impact_fused_parent_templates.json":
+                continue
+            if render_rank is not None and render_rank > 2:
+                continue
+        if selected_parent_count and parent_count < selected_parent_count - 1:
+            continue
+        if selected_candidate.family == "azanium-parent" and candidate_hetero_count < 4:
+            continue
+        if len(item.name) > _DEFAULT_MAX_NAME_LENGTH:
+            continue
+        if len(item.name) - len(selected.name) > 35:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 120:
+            continue
+        if candidate_key[0] > selected_key[0] + 100:
+            continue
+        alternatives.append(
+            (
+                (
+                    candidate_key[0],
+                    render_rank if render_rank is not None else 99,
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate_key,
+                ),
+                item,
+            )
+        )
     if not alternatives:
         return None
     return min(alternatives, key=lambda keyed: keyed[0])[1]
@@ -6234,6 +6789,9 @@ def _retained_fused_alternative_for_stable_single_ring_choice(
     selected_render_rank = selected_candidate.render_rank
     if selected_render_rank is not None and selected_render_rank > 3:
         return None
+    selected_key = next((key for key, item in keyed_items if item is selected), None)
+    if selected_key is None:
+        return None
 
     alternatives: list[tuple[tuple, _PreparedCandidate]] = []
     for candidate_key, item in keyed_items:
@@ -6253,10 +6811,9 @@ def _retained_fused_alternative_for_stable_single_ring_choice(
         if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
             continue
         parent_elements = dict(candidate.parent_element_counts)
-        if frozenset(parent_elements.items()) not in {
-            frozenset({"C": 7, "N": 2}.items()),
-            frozenset({"C": 6, "N": 3}.items()),
-        }:
+        if parent_elements.get("N", 0) < 2:
+            continue
+        if any(symbol not in {"C", "N"} for symbol in parent_elements):
             continue
         parent_delta = len(candidate.parent_atoms) - len(selected_candidate.parent_atoms)
         if parent_delta < 3:
@@ -6277,6 +6834,8 @@ def _retained_fused_alternative_for_stable_single_ring_choice(
         if len(item.name) - len(selected.name) > 15:
             continue
         if item.stability_penalty > selected.stability_penalty + 220:
+            continue
+        if candidate_key[0] > selected_key[0] + 260:
             continue
         alternatives.append(((len(item.name) - item.selection_bonus, render_rank or 999, candidate_key), item))
     if not alternatives:
@@ -15038,6 +15597,62 @@ def _isotope_preserving_alternative_for_selected_choice(
     if not alternatives:
         return None
     return min(alternatives, key=lambda entry: (entry[0], entry[1]))[2]
+
+
+def _complete_isotope_single_ring_alternative_for_acyclic_choice(
+    keyed_items: list[tuple[tuple, _PreparedCandidate]],
+    selected: _PreparedCandidate,
+) -> _PreparedCandidate | None:
+    selected_candidate = selected.candidate
+    isotope_count = selected_candidate.molecule_isotope_atom_count
+    if isotope_count <= 0:
+        return None
+    if selected_candidate.family not in _ACYCLIC_RING_SUBSTITUENT_PARENT_FAMILIES:
+        return None
+    if selected_candidate.candidate_isotope_atom_count != 0:
+        return None
+    alternatives: list[tuple[tuple, _PreparedCandidate]] = []
+    for candidate_key, item in keyed_items:
+        if item is selected or item.name == selected.name:
+            continue
+        candidate = item.candidate
+        if candidate.family != "single-ring-parent":
+            continue
+        if candidate.molecule_isotope_atom_count != isotope_count:
+            continue
+        if candidate.candidate_isotope_atom_count < isotope_count:
+            continue
+        if not _candidate_name_mentions_isotope(item.name):
+            continue
+        if not candidate.parent_atoms or not candidate_has_complete_graph(candidate):
+            continue
+        if candidate.suffixes:
+            continue
+        if candidate_safety_reasons(candidate):
+            continue
+        if len(item.name) > 120:
+            continue
+        if len(item.name) - len(selected.name) > 55:
+            continue
+        if item.stability_penalty > selected.stability_penalty + 360:
+            continue
+        render_rank = candidate.render_rank
+        if render_rank is not None and render_rank > 2:
+            continue
+        alternatives.append(
+            (
+                (
+                    len(item.name) - item.selection_bonus,
+                    len(item.name),
+                    candidate.priority,
+                    candidate_key,
+                ),
+                item,
+            )
+        )
+    if not alternatives:
+        return None
+    return min(alternatives, key=lambda entry: entry[0])[1]
 
 
 _ACYCLIC_RING_SUBSTITUENT_PARENT_FAMILIES = frozenset(

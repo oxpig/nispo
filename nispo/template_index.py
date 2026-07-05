@@ -287,28 +287,37 @@ def molecule_features(mol, Chem) -> dict:
         (system["ring_count"] for system in ring_system_features),
         default=0,
     )
+    atoms = tuple(mol.GetAtoms())
+    atom_count = mol.GetNumAtoms()
+    heavy_atom_count = 0
+    explicit_hydrogen_count = 0
+    explicit_isotope_hydrogen_count = 0
+    heavy_symbols = []
+    for atom in atoms:
+        atomic_num = atom.GetAtomicNum()
+        if atomic_num > 1:
+            heavy_atom_count += 1
+            heavy_symbols.append(atom.GetSymbol())
+        elif atomic_num == 1:
+            explicit_hydrogen_count += 1
+            if atom.GetIsotope() in {2, 3}:
+                explicit_isotope_hydrogen_count += 1
     features = {
-        "atom_count": mol.GetNumAtoms(),
-        "heavy_atom_count": sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1),
-        "explicit_hydrogen_count": sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 1),
-        "explicit_isotope_hydrogen_count": sum(
-            1
-            for atom in mol.GetAtoms()
-            if atom.GetAtomicNum() == 1 and atom.GetIsotope() in {2, 3}
-        ),
+        "atom_count": atom_count,
+        "heavy_atom_count": heavy_atom_count,
+        "explicit_hydrogen_count": explicit_hydrogen_count,
+        "explicit_isotope_hydrogen_count": explicit_isotope_hydrogen_count,
         "ring_count": view.ring_count,
         "max_ring_system_size": max_system_size,
         "max_ring_system_ring_count": max_system_ring_count,
         "elements": view.elements,
-        "heavy_elements": Counter(
-            atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1
-        ),
+        "heavy_elements": Counter(heavy_symbols),
         "charged_atom_value_counts": Counter(charge for charge in view.formal_charges if charge),
         "ring_systems": tuple(ring_system_features),
         "all_atoms_in_one_ring_system": bool(ring_systems)
-        and any(len(system) == mol.GetNumAtoms() for system in ring_systems),
+        and any(len(system) == atom_count for system in ring_systems),
         "all_heavy_atoms_in_one_ring_system": bool(ring_systems)
-        and any(len(system) == sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1) for system in ring_systems),
+        and any(len(system) == heavy_atom_count for system in ring_systems),
     }
     return mol_cache_set(mol, "molecule_features", features)
 

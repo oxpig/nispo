@@ -256,6 +256,9 @@ def _cached_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
     cached = mol_cache_get(mol, "all_atom_stereochemistry")
     if cached is not None:
         return cached
+    cached = mol_cache_get(mol, "fresh_all_atom_stereochemistry")
+    if cached is not None:
+        return mol_cache_set(mol, "all_atom_stereochemistry", cached)
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
     result = {
         int(atom_idx): str(descriptor)
@@ -266,6 +269,7 @@ def _cached_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
         )
         if descriptor in {"R", "S", "r", "s"}
     }
+    mol_cache_set(mol, "fresh_all_atom_stereochemistry", result)
     return mol_cache_set(mol, "all_atom_stereochemistry", result)
 
 
@@ -11062,7 +11066,7 @@ def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
         if count == 1:
             pieces.append(_parenthesized_if_complex(owner))
             continue
-        if _simple_unparenthesized_n_substituent(owner):
+        if _simple_repeated_ester_owner_uses_bare_multiplier(owner):
             multiplier = MULT.get(count, "")
             pieces.append(multiplier + owner if multiplier else "")
             continue
@@ -11071,6 +11075,35 @@ def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
     if any(not piece for piece in pieces):
         return ""
     return " ".join(pieces)
+
+
+def _simple_repeated_ester_owner_uses_bare_multiplier(owner: str) -> bool:
+    return owner in _BARE_REPEATED_ESTER_OWNER_MULTIPLIER_NAMES
+
+
+_BARE_REPEATED_ESTER_OWNER_MULTIPLIER_NAMES = {
+    "methyl",
+    "ethyl",
+    "propyl",
+    "isopropyl",
+    "butyl",
+    "isobutyl",
+    "tert-butyl",
+    "t-butyl",
+    "pentyl",
+    "hexyl",
+    "heptyl",
+    "octyl",
+    "nonyl",
+    "undecyl",
+    "dodecyl",
+    "phenyl",
+    "benzyl",
+    "cyclopropyl",
+    "cyclobutyl",
+    "cyclopentyl",
+    "cyclohexyl",
+}
 
 
 def _phosphorothioic_triamide_names(mol, Chem) -> list[str]:
@@ -14348,7 +14381,51 @@ def _generic_acyl_functional_parent_path_name(
         return ""
     if stereo:
         core = f"({stereo})-{core}"
-    return core
+    return _append_acyl_path_carbon_isotope_suffixes(mol, core, carbonyl_idx, path)
+
+
+def _append_acyl_path_carbon_isotope_suffixes(
+    mol,
+    name: str,
+    carbonyl_idx: int,
+    path: Sequence[int],
+) -> str:
+    if not name or re.search(r"\d+C", name):
+        return name
+    locants = {carbonyl_idx: "1"}
+    locants.update({atom_idx: str(pos) for pos, atom_idx in enumerate(path, start=2)})
+    labeled: dict[int, list[str]] = {}
+    for atom in mol.GetAtoms():
+        isotope = atom.GetIsotope()
+        if not isotope or atom.GetSymbol() != "C":
+            continue
+        locant = locants.get(atom.GetIdx())
+        if locant is None:
+            return name
+        labeled.setdefault(isotope, []).append(locant)
+    if not labeled:
+        return name
+    suffixes = []
+    prefixes = []
+    for isotope, isotope_locants in sorted(labeled.items()):
+        ordered = sorted(set(isotope_locants), key=lambda value: int(value))
+        count_text = str(len(ordered)) if len(ordered) > 1 else ""
+        isotope_text = f"{','.join(ordered)}-{isotope}C{count_text}"
+        if isotope in {13, 14}:
+            suffixes.append(isotope_text)
+        else:
+            prefixes.append(f"({isotope_text})")
+    if prefixes:
+        name = _insert_acyl_isotope_prefixes(name, prefixes)
+    return name + "-" + "-".join(suffixes) if suffixes else name
+
+
+def _insert_acyl_isotope_prefixes(name: str, prefixes: Sequence[str]) -> str:
+    prefix_text = "".join(prefixes)
+    match = re.match(r"^\([^)]+\)-", name)
+    if match is None:
+        return prefix_text + name
+    return name[: match.end()] + prefix_text + name[match.end() :]
 
 
 def _generic_acyl_functional_parent_text(mol, Chem, root: str, path: Sequence[int], suffix: str) -> str:
@@ -21659,7 +21736,7 @@ def _has_retained_fused_parent_candidate(ctx, Chem) -> bool:
 
 
 def _iter_retained_fused_parent_template_sets(ctx, Chem, *, generated_templates=None):
-    yield ctx.candidate_templates(_curated_fused_templates(Chem))
+    yield ctx.candidate_templates(_retained_fused_parent_templates(Chem))
     yield ctx.generated_fused_templates if generated_templates is None else generated_templates
 
 

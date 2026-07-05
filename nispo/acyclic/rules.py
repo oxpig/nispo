@@ -1871,7 +1871,19 @@ def _oxido_suffix_parent_name(
 def _mono_oxido_suffix_parent(parent: str, locant: str, has_prefixes: bool) -> str:
     if locant == "1" and not has_prefixes and parent in {"methan", "ethan"}:
         return parent + "olate"
+    parent = _locanted_terminal_unsaturation_suffix_parent(parent)
     return f"{parent}-{locant}-olate"
+
+
+def _locanted_terminal_unsaturation_suffix_parent(parent: str) -> str:
+    if "-" in parent:
+        return parent
+    for root in ROOTS.values():
+        if parent == f"{root}en":
+            return f"{root}-1-en"
+        if parent == f"{root}yn":
+            return f"{root}-1-yn"
+    return parent
 
 
 def _hydroxy_suffix_parent_name(

@@ -12,7 +12,7 @@ In other words, NISPO generates a name, OPSIN parses that name back into a struc
 
 ## Status
 
-This repository snapshot is **NISPO version 0.1.3**.
+This repository snapshot is **NISPO version 0.1.5**.
 
 Version 0.1 was developed using the MolJSON benchmark set of molecules and
 achieved approximately **99% OPSIN round-trip accuracy** on that subset.
@@ -35,6 +35,12 @@ molecules, 95.17% for ring-containing molecules, 93.98% for fused systems,
 stereo-labelled molecules.
 
 ## Usage
+
+Install from PyPI:
+
+```bash
+pip install nispo==0.1.5
+```
 
 ```python
 from nispo import smiles_to_iupac, smiles_to_iupac_batch

@@ -1,9 +1,15 @@
 [project]
 name = "nispo"
-version = "0.1.4"
+version = "0.1.5"
 description = "SMILES to IUPAC naming tool optimized by OPSIN roundtrip benchmarks."
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+  "rdkit>=2023.9",
+]
+
+[project.urls]
+Repository = "https://github.com/oxpig/nispo"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -14,9 +20,25 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["nispo", "nispo.*"]
+namespaces = false
 
 [tool.setuptools.package-data]
-nispo = ["resources/opsin_tokens/*.xml", "resources/*.json", "resources/*.json.gz", "resources/*.csv"]
+nispo = [
+  "resources/opsin_tokens/*.xml",
+  "resources/generated_fused_template_element_graph_index.json",
+  "resources/generated_fused_template_graph_index.json",
+  "resources/generated_fused_template_index.json",
+  "resources/generated_fused_template_index_records.json.gz",
+  "resources/generated_fused_templates.json",
+  "resources/generated_spiro_scaffold_templates.json",
+  "resources/high_impact_fused_parent_templates.json",
+  "resources/opsin_polyacene_helicene_templates.json",
+  "resources/opsin_polycyclic_arene_templates.json",
+  "resources/opsin_retained_mono_fused_ring_smiles.csv",
+  "resources/opsin_retained_mono_fused_ring_templates.json",
+  "resources/opsin_test_scaffold_templates.json",
+]
 
 [tool.setuptools.exclude-package-data]
 "nispo" = [

@@ -1,40 +1,44 @@
 # NISPO: Nomenclature Inference for Structures, Powered by OPSIN
 
-NISPO is a Python tool for generating IUPAC-style names from molecular SMILES strings.
+NISPO is a Python package for generating OPSIN-roundtripping names from
+molecular SMILES strings.
 
-The goal of NISPO is to produce names that successfully round-trip through OPSIN:
+NISPO is designed around this round trip:
 
 ```text
 SMILES -> NISPO name -> OPSIN -> SMILES
 ```
 
-In other words, NISPO generates a name, OPSIN parses that name back into a structure, and RDKit is used to check whether the original and parsed structures are equivalent.
+NISPO-generated names are not IUPAC systematic names as described in the
+IUPAC Blue Book. They are IUPAC-style names that may include retained terms
+supported by OPSIN. Do not use NISPO where reliable systematic IUPAC
+nomenclature is required. This open-source project is provided without
+warranty or liability.
 
-## Status
+## Quick Start
 
-This repository snapshot is **NISPO version 0.1.5**.
+Install NISPO from PyPI:
 
-Version 0.1 was developed using the MolJSON benchmark set of molecules and
-achieved approximately **99% OPSIN round-trip accuracy** on that subset.
+```bash
+pip install nispo==0.1.5
+```
 
-Version 0.1.3 was assessed on a SureChEMBL subset filtered to molecules with
-50 or fewer heavy atoms, a single fragment, and no unusual elements. On
-2,682,641 molecules, NISPO achieved **95.26% OPSIN round-trip accuracy**
-(2,555,499 / 2,682,641), with 88,413 mismatches, 21,277 empty names, and
-17,452 OPSIN parse failures. The run processed 616.6 molecules/s with 8
-workers.
+Convert a SMILES string:
 
-Against the best `!`-separated SureChEMBL name variant for each molecule,
-the generated NISPO names had mean raw edit distance 79.5 (median 76), mean
-simplified alphanumeric casefold edit distance 55.9 (median 53), simplified
-exact string match rate 0.39%, and mean simplified similarity 0.351.
+```python
+from nispo import smiles_to_iupac, smiles_to_iupac_batch
 
-Round-trip accuracy by broad structural group was 96.93% for acyclic
-molecules, 95.17% for ring-containing molecules, 93.98% for fused systems,
-88.30% for spiro systems, 77.39% for bridged systems, and 88.52% for
-stereo-labelled molecules.
+print(smiles_to_iupac("CCO"))
+# ethanol
 
-## Installation
+print(smiles_to_iupac_batch(["CCO", "not-a-smiles"]))
+# ["ethanol", ""]
+```
+
+Unsupported molecules, invalid inputs, or internal naming failures return an
+empty string (`""`). Batch calls always return one output for each input.
+
+## Installation From GitHub
 
 Install the 0.1.5 release directly from GitHub:
 
@@ -59,21 +63,27 @@ pip install .
 
 NISPO requires Python 3.10 or newer. RDKit is declared as a package dependency
 and will be installed automatically by pip where a compatible wheel is
-available.
+available. OPSIN was used to develop and evaluate NISPO, but OPSIN is not
+required at runtime.
 
-After the 0.1.5 artifacts are uploaded to PyPI, the release can also be
-installed with:
+## Benchmark Status
 
-```bash
-pip install nispo==0.1.5
-```
+On our PubChem benchmark, NISPO reached 98.1% OPSIN round-trip accuracy. Full
+benchmark details will be provided with the paper.
 
-## Usage
+## Citation
 
-```python
-from nispo import smiles_to_iupac, smiles_to_iupac_batch
+If you use MolJSON in your work, please cite:
 
-print(smiles_to_iupac("CCO"))
+```bibtex
+@article{runcie2026moljson,
+  title = {Molecular Representations for Large Language Models},
+  author = {Runcie, Nicholas T. and Imrie, Fergus and Deane, Charlotte M.},
+  year = {2026},
+  journal = {arXiv preprint arXiv:2605.01822},
+  doi = {10.48550/arXiv.2605.01822},
+  url = {http://arxiv.org/abs/2605.01822},
+}
 ```
 
 ## AI Disclosure

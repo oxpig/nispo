@@ -34,13 +34,36 @@ molecules, 95.17% for ring-containing molecules, 93.98% for fused systems,
 88.30% for spiro systems, 77.39% for bridged systems, and 88.52% for
 stereo-labelled molecules.
 
-## Usage
+## Installation
 
-Install from PyPI:
+Install the 0.1.5 release directly from GitHub:
+
+```bash
+pip install "nispo @ git+https://github.com/oxpig/nispo.git@v0.1.5"
+```
+
+Or install from a local clone:
+
+```bash
+git clone https://github.com/oxpig/nispo.git
+cd nispo
+git checkout v0.1.5
+pip install .
+```
+
+NISPO requires Python 3.10 or newer. RDKit is declared as a package dependency
+and will be installed automatically by pip where a compatible wheel is
+available.
+
+After the 0.1.5 artifacts are uploaded to PyPI, the release can also be
+installed with:
+
 
 ```bash
 pip install nispo==0.1.5
 ```
+
+## Usage
 
 ```python
 from nispo import smiles_to_iupac, smiles_to_iupac_batch

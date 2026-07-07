@@ -42,6 +42,12 @@ Install the 0.1.5 release directly from GitHub:
 pip install "nispo @ git+https://github.com/oxpig/nispo.git@0.1.5"
 ```
 
+For private-repository or SSH-authenticated installs, use:
+
+```bash
+pip install "nispo @ git+ssh://git@github.com/oxpig/nispo.git@0.1.5"
+```
+
 Or install from a local clone:
 
 ```bash

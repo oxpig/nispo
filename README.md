@@ -12,7 +12,7 @@ In other words, NISPO generates a name, OPSIN parses that name back into a struc
 
 ## Status
 
-This repository snapshot is **NISPO version 0.1.3**.
+This repository snapshot is **NISPO version 0.1.5**.
 
 Version 0.1 was developed using the MolJSON benchmark set of molecules and
 achieved approximately **99% OPSIN round-trip accuracy** on that subset.
@@ -33,6 +33,34 @@ Round-trip accuracy by broad structural group was 96.93% for acyclic
 molecules, 95.17% for ring-containing molecules, 93.98% for fused systems,
 88.30% for spiro systems, 77.39% for bridged systems, and 88.52% for
 stereo-labelled molecules.
+
+## Installation
+
+Install the 0.1.5 release directly from GitHub:
+
+```bash
+pip install "nispo @ git+https://github.com/oxpig/nispo.git@0.1.5"
+```
+
+Or install from a local clone:
+
+```bash
+git clone https://github.com/oxpig/nispo.git
+cd nispo
+git checkout 0.1.5
+pip install .
+```
+
+NISPO requires Python 3.10 or newer. RDKit is declared as a package dependency
+and will be installed automatically by pip where a compatible wheel is
+available.
+
+After the 0.1.5 artifacts are uploaded to PyPI, the release can also be
+installed with:
+
+```bash
+pip install nispo==0.1.5
+```
 
 ## Usage
 

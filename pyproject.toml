@@ -1,18 +1,33 @@
 [project]
 name = "nispo"
-version = "0.1.5"
+version = "0.1.6"
 description = "SMILES to IUPAC naming tool optimized by OPSIN roundtrip benchmarks."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [
+  { name = "Nicholas T. Runcie" },
+]
+maintainers = [
+  { name = "Oxford Protein Informatics Group" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Chemistry",
+]
 dependencies = [
   "rdkit>=2023.9",
 ]
 
 [project.urls]
 Repository = "https://github.com/oxpig/nispo"
+Issues = "https://github.com/oxpig/nispo/issues"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

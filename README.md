@@ -49,11 +49,11 @@ If you use NISPO in your work, please cite:
 
 ```bibtex
 @article{runcie2026nispo,
-  title   = {NISPO: Open-source IUPAC name generation tool},
+  title   = {{NISPO}: Open-source {IUPAC} name generation tool},
   author  = {Runcie, Nicholas T. and Imrie, Fergus and Deane, Charlotte M.},
-  journal = {},
-  year    = {},
-  doi     = {}
+  journal = {arXiv preprint arXiv:2607.26113},
+  year    = {2026},
+  doi     = {10.48550/arXiv.2607.26113}
 }
 ```
 

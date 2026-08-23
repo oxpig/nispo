@@ -8,7 +8,7 @@ from shutil import which
 import pytest
 from rdkit import Chem
 
-from nispo import smiles_to_iupac, smiles_to_iupac_batch
+from nispo import mol_to_iupac, smiles_to_iupac, smiles_to_iupac_batch
 import nispo.api as api
 from nispo.api import _engine, _smiles_to_iupac_batch_with_telemetry
 from nispo.naming_context import MoleculeContext
@@ -24,6 +24,37 @@ def test_public_api_single_and_batch_contract():
     assert len(outputs) == len(inputs)
     assert outputs[0]
     assert outputs[1:] == ["", ""]
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "CCO",
+        "c1ccccc1",
+        "C1CCCCC1",
+        "CC(=O)O",
+        "C[C@H](O)C(=O)O",
+        "C/C=C/C",
+        "O=C1NC(=O)CC1",
+        "[NH4+]",
+        "CC.[Cl-]",
+        "c1ccc2ccccc2c1",
+    ],
+)
+def test_mol_api_matches_smiles_api(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+
+    assert mol_to_iupac(mol) == smiles_to_iupac(smiles)
+
+
+def test_mol_api_handles_invalid_and_empty_inputs_without_mutating_caller():
+    mol = Chem.MolFromSmiles("CCO")
+
+    assert mol_to_iupac(mol) == smiles_to_iupac("CCO")
+    assert not hasattr(mol, "_nispo_python_cache")
+    assert mol_to_iupac(None) == ""
+    assert mol_to_iupac(Chem.Mol()) == ""
+    assert mol_to_iupac("not-a-molecule") == ""
 
 
 def test_batch_does_not_abort_on_unsupported_molecule():

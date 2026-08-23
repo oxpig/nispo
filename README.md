@@ -20,11 +20,16 @@ NISPO requires Python 3.10 or newer.
 
 ## Quick start
 
-Use `smiles_to_iupac` to convert a single SMILES string, or
-`smiles_to_iupac_batch` to convert multiple SMILES strings at once:
+Use `mol_to_iupac` to name an RDKit molecule, `smiles_to_iupac` to convert a
+single SMILES string, or `smiles_to_iupac_batch` to convert multiple SMILES
+strings at once:
 
 ```python
-from nispo import smiles_to_iupac, smiles_to_iupac_batch
+from rdkit import Chem
+from nispo import mol_to_iupac, smiles_to_iupac, smiles_to_iupac_batch
+
+mol_to_iupac(Chem.MolFromSmiles("CCO"))
+# 'ethanol'
 
 smiles_to_iupac("CCO")
 # 'ethanol'

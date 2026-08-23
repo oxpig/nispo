@@ -23,6 +23,23 @@ _BATCH_NAME_CACHE_MAX_SIZE = 0
 _BATCH_NAME_CACHE: dict[str, str] = {}
 
 
+def mol_to_iupac(mol) -> str:
+    """Convert one RDKit molecule to an OPSIN-roundtripping IUPAC-style name.
+
+    The input molecule is copied so naming does not attach NISPO's internal
+    caches to the caller's object.
+    """
+    if Chem is None or mol is None:
+        return ""
+    try:
+        mol_copy = Chem.Mol(mol)
+        if mol_copy.GetNumAtoms() == 0:
+            return ""
+        return _name_molecule(mol_copy)
+    except Exception:
+        return ""
+
+
 def smiles_to_iupac(smiles: str) -> str:
     """Convert one SMILES string to an OPSIN-roundtripping IUPAC-style name."""
     if Chem is None:

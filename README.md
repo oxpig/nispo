@@ -28,7 +28,8 @@ strings at once:
 from rdkit import Chem
 from nispo import mol_to_iupac, smiles_to_iupac, smiles_to_iupac_batch
 
-mol_to_iupac(Chem.MolFromSmiles("CCO"))
+mol = Chem.MolFromSmiles("CCO")
+mol_to_iupac(mol)
 # 'ethanol'
 
 smiles_to_iupac("CCO")

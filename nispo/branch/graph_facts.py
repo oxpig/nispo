@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from ..molecule_iteration import iter_bonds
 from ..molecule_cache import mol_cache_dict
 
 
@@ -70,7 +71,7 @@ def _branch_graph_facts_uncached(mol, idx: int, parent_idx: int) -> BranchGraphF
     ring_atoms = sum(1 for atom_idx in atoms if mol.GetAtomWithIdx(atom_idx).IsInRing())
     unsaturated = sum(
         1
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if bond.GetBeginAtomIdx() in atoms
         and bond.GetEndAtomIdx() in atoms
         and bond.GetBondTypeAsDouble() > 1.0

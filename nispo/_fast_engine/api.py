@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import os
+from collections.abc import Iterable
+from functools import lru_cache
+
+try:
+    from rdkit import Chem, RDLogger
+except Exception:  # pragma: no cover - benchmark environment provides RDKit.
+    Chem = None
+else:
+    RDLogger.DisableLog("rdApp.*")
+
+from .parent_rules import parent_rules
+from .rule_engine import NamingEngine
+from .telemetry import CandidateTelemetry, telemetry_to_dict
+
+# Retained for compatibility with older probes/tests that clear the symbol.
+# Global name caching stays disabled. The batch API only memoizes duplicate
+# inputs inside one call so output order/count stay unchanged while repeated
+# work in a submitted batch is avoided.
+_BATCH_NAME_CACHE_MAX_SIZE = 0
+_BATCH_NAME_CACHE: dict[str, str] = {}
+
+
+def mol_to_iupac(mol) -> str:
+    """Convert one RDKit molecule to an OPSIN-roundtripping IUPAC-style name.
+
+    The input molecule is copied so naming does not attach NISPO's internal
+    caches to the caller's object.
+    """
+    if Chem is None or mol is None:
+        return ""
+    try:
+        mol_copy = Chem.Mol(mol)
+        if mol_copy.GetNumAtoms() == 0:
+            return ""
+        return _name_molecule(mol_copy)
+    except Exception:
+        return ""
+
+
+def smiles_to_iupac(smiles: str) -> str:
+    """Convert one SMILES string to an OPSIN-roundtripping IUPAC-style name."""
+    if Chem is None:
+        return ""
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+    except Exception:
+        return ""
+    if mol is None or mol.GetNumAtoms() == 0:
+        return ""
+    try:
+        return _name_molecule(mol)
+    except Exception:
+        return ""
+
+
+def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
+    """Convert a batch of SMILES strings to IUPAC-style names.
+
+    One output is returned for each input. Molecules outside the current rule
+    coverage return an empty string so the benchmark can continue.
+    """
+    smiles_values = list(smiles_list)
+    if Chem is None:
+        return ["" for _ in smiles_values]
+    engine = _engine()
+    names: list[str] = []
+    batch_cache: dict[str, str] = {}
+    mol_from_smiles = Chem.MolFromSmiles
+    name_molecule = engine.name
+    cache_get = batch_cache.get
+    cache_set = batch_cache.__setitem__
+    append_name = names.append
+    for smiles in smiles_values:
+        cached = cache_get(smiles)
+        if cached is not None:
+            append_name(cached)
+            continue
+        try:
+            mol = mol_from_smiles(smiles)
+            if mol is None or mol.GetNumAtoms() == 0:
+                name = ""
+                cache_set(smiles, name)
+                append_name(name)
+                continue
+            name = name_molecule(mol)
+        except Exception:
+            name = ""
+        cache_set(smiles, name)
+        append_name(name)
+    return names
+
+
+def _smiles_to_iupac_batch_with_telemetry(
+    smiles_list: Iterable[str],
+    *,
+    branch_miss_shape_detail: bool = False,
+) -> tuple[list[str], dict]:
+    """Convert a batch and return serialized internal naming telemetry.
+
+    This helper is intentionally private: benchmark tooling can use it for
+    measurement while the public batch API remains unchanged.
+    """
+
+    smiles_values = list(smiles_list)
+    telemetry = CandidateTelemetry(branch_miss_shape_detail=branch_miss_shape_detail)
+    if not branch_miss_shape_detail and not _full_benchmark_telemetry_enabled():
+        return smiles_to_iupac_batch(smiles_values), telemetry_to_dict(telemetry)
+    if Chem is None:
+        return ["" for _ in smiles_values], telemetry_to_dict(telemetry)
+    engine = _engine()
+    names: list[str] = []
+    for smiles in smiles_values:
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None or mol.GetNumAtoms() == 0:
+                names.append("")
+                continue
+            names.append(engine.name(mol, telemetry=telemetry))
+        except Exception:
+            names.append("")
+    return names, telemetry_to_dict(telemetry)
+
+
+def _full_benchmark_telemetry_enabled() -> bool:
+    value = os.environ.get("NISPO_BENCH_FULL_TELEMETRY", "")
+    return value.strip().lower() in {"1", "true", "yes", "on", "full"}
+
+
+def _remember_batch_name(smiles: str, name: str) -> None:
+    return None
+
+
+def _cached_batch_name(smiles: str) -> str | None:
+    return None
+
+
+def _name_molecule(mol) -> str:
+    return _engine().name(mol)
+
+
+@lru_cache(maxsize=1)
+def _engine() -> NamingEngine:
+    return NamingEngine(Chem, parent_rules(Chem))

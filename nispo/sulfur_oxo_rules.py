@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 
+from .molecule_iteration import iter_atoms
 from .branch_rules import branch_prefix
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .rule_engine import NameCandidate
@@ -45,7 +46,7 @@ class SulfurOxoRetainedParentRule:
 def _sulfinamide_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         record = _sulfinamide_record(mol, Chem, sulfur.GetIdx())
@@ -95,7 +96,7 @@ def _sulfinamide_record(mol, Chem, sulfur_idx: int) -> dict | None:
 def _sulfoximine_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         record = _sulfoximine_record(mol, Chem, sulfur.GetIdx())
@@ -145,7 +146,7 @@ def _sulfoximine_record(mol, Chem, sulfur_idx: int) -> dict | None:
 def _sulfonylium_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 1 or sulfur.IsInRing():
             continue
         sidx = sulfur.GetIdx()
@@ -182,7 +183,7 @@ def _sulfonylium_names(mol, Chem) -> list[str]:
 def _sulfonyl_hydride_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         sidx = sulfur.GetIdx()
@@ -221,7 +222,7 @@ def _sulfonyl_hydride_names(mol, Chem) -> list[str]:
 def _thiosulfur_oxo_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for center in mol.GetAtoms():
+    for center in iter_atoms(mol):
         if center.GetSymbol() != "S" or center.GetFormalCharge() != 0 or center.IsInRing():
             continue
         record = _thiosulfur_oxo_record(mol, Chem, center.GetIdx())
@@ -438,5 +439,5 @@ def _heavy_atom_indices(mol) -> frozenset[int]:
     return mol_cache_set(
         mol,
         "heavy_atom_indices",
-        frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1),
+        frozenset(atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1),
     )

@@ -11,7 +11,8 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
-from ..constants import HALO, MULT
+from ..molecule_iteration import iter_atoms, iter_bonds
+from ..constants import HALO, MULT, ROOT_LENGTHS, ROOTS
 from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
 from ..formatting import format_prefixes as _format_prefixes
 from ..molecule_cache import mol_cache_dict
@@ -84,6 +85,28 @@ def _sulfur_imidoyl_s_group(name: str) -> str:
 def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if (atom.GetAtomicNum() == 16 and atom.GetFormalCharge() == 0
+            and not atom.GetIsotope() and atom.GetDegree() == 2
+            and parent_bond is not None and parent_bond.GetBondTypeAsDouble() == 1):
+        distal = [n for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
+        if (len(distal) == 1 and distal[0].GetAtomicNum() == 6
+                and not distal[0].GetIsotope() and distal[0].GetDegree() == 2
+                and mol.GetBondBetweenAtoms(idx, distal[0].GetIdx()).GetBondTypeAsDouble() == 1):
+            nitrogen = [n for n in distal[0].GetNeighbors()
+                        if n.GetAtomicNum() == 7 and n.GetDegree() == 1
+                        and not n.GetIsotope() and not n.GetFormalCharge()
+                        and mol.GetBondBetweenAtoms(distal[0].GetIdx(), n.GetIdx()).GetBondTypeAsDouble() == 3]
+            if len(nitrogen) == 1 and not distal[0].GetFormalCharge():
+                return 'thiocyanato'
+    if (atom.GetAtomicNum() == 16 and parent_bond is not None
+            and parent_bond.GetBondTypeAsDouble() == 1
+            and any(n.GetAtomicNum() == 6 and n.IsInRing() and n.GetIdx() != parent_idx
+                    for n in atom.GetNeighbors())):
+        from .sulfonyl_components import mapped_sulfonyl_prefix
+        atoms = frozenset(collect_subtree(mol, idx, parent_idx))
+        preferred = mapped_sulfonyl_prefix(mol, Chem, idx, parent_idx, atoms)
+        if preferred is not None and preferred[0] and preferred[1] == atoms:
+            return preferred[0]
     if atom.GetFormalCharge() < 0:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
         if not heavy and parent_bond is not None and parent_bond.GetBondType() == Chem.BondType.SINGLE:
@@ -96,10 +119,19 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
         return ""
     if atom.GetFormalCharge() != 0:
         return ""
+    hydrogen_rich = _hydrogen_rich_sulfur_prefix(mol, idx, parent_idx)
+    if hydrogen_rich:
+        return hydrogen_rich
     if parent_bond is not None and parent_bond.GetBondType() == Chem.BondType.DOUBLE:
         heavy = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
-        if not heavy:
+        if not heavy and atom.GetTotalValence() == 2 and not atom.GetTotalNumHs(includeNeighbors=True):
             return suffix_prefix_term("thione", "thioxo")
+        sulfoximine = _lambda6_sulfanylidene_prefix(mol, idx, parent_idx)
+        if sulfoximine:
+            return sulfoximine
+        # A double attachment cannot fall through to a singly attached
+        # sulfanyl/sulfinyl word: that loses its original bond and ligands.
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
     non_parent = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != parent_idx]
     lambda6 = _lambda6_tetrafluorosulfanyl_prefix(mol, idx, parent_idx, non_parent)
     if lambda6:
@@ -177,6 +209,14 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
     if not heavy:
         return "sulfanyl"
     if len(heavy) == 1:
+        if double_o == 0 and mol.GetAtomWithIdx(heavy[0]).GetAtomicNum() == 6:
+            # The P-66 terminal amide writer proves a compound carbon-chain
+            # ligand. Preserve its boundary when substituting sulfanyl.
+            from .subordinate_amide_chain import subordinate_amide_chain_prefix
+            from ..formatting import enclose_name_unit
+            ligand = subordinate_amide_chain_prefix(mol, Chem, heavy[0], idx)
+            if ligand is not None:
+                return enclose_name_unit(ligand[0]) + "sulfanyl"
         if mol.GetAtomWithIdx(heavy[0]).IsInRing():
             ring = _ring_substituent_prefix(mol, heavy[0], idx)
             if not ring:
@@ -184,28 +224,150 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             suffix = _sulfur_oxo_substituent_suffix(double_o)
             return _apply_sulfinyl_stereo(mol, idx, double_o, ring + suffix) if suffix else ""
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "N" and double_o == 2:
+            if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 7:
+                from ..sulfur_prefixes import characteristic_sulfur_prefix
+
+                scope = frozenset({idx, heavy[0], *double_oxygens})
+                sulfamoyl = characteristic_sulfur_prefix(mol, Chem, idx, parent_idx, scope)
+                if sulfamoyl:
+                    return sulfamoyl[0]
             amino = _nitrogen_prefix(mol, heavy[0], idx)
             if not amino:
                 return ""
-            return amino + "sulfonyl"
+            # Keep substituents on the distal amino nitrogen inside its group.
+            # Otherwise a sulfonamido contraction can move them onto the
+            # proximal nitrogen or the molecular parent during parsing.
+            return (f"({amino})" if amino != "amino" else amino) + "sulfonyl"
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "O" and double_o == 2:
             oxy = _oxygen_prefix(mol, heavy[0], idx)
             if not oxy:
                 return ""
             return oxy + "sulfonyl"
-        if mol.GetAtomWithIdx(parent_idx).IsInRing() and mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "S" and double_o == 0:
-            sulfur = _sulfur_prefix(mol, heavy[0], idx)
-            if not sulfur:
-                return ""
-            if sulfur.endswith("sulfanyl"):
-                return sulfur[: -len("sulfanyl")] + "disulfanyl"
-            return sulfur + "sulfanyl"
+        distal = mol.GetAtomWithIdx(heavy[0])
+        if double_o == 0 and distal.GetAtomicNum() == 16:
+            host = mol.GetAtomWithIdx(parent_idx)
+            if host.IsInRing() or (host.GetAtomicNum() == 6 and atom.GetTotalValence() == 2
+                    and distal.GetTotalValence() == distal.GetDegree() == 2
+                    and all(n.GetAtomicNum() != 16 or n.GetIdx() == idx for n in distal.GetNeighbors())):
+                sulfur = _sulfur_prefix(mol, heavy[0], idx)
+                if not sulfur:
+                    return ""
+                if sulfur.endswith("sulfanyl"):
+                    return sulfur[: -len("sulfanyl")] + "disulfanyl"
+                return sulfur + "sulfanyl"
         alk = branch_prefix(mol, heavy[0], idx) or substituent_from_root(mol, heavy[0], idx)
         if not alk:
             return ""
         suffix = _sulfur_oxo_substituent_suffix(double_o)
         return _apply_sulfinyl_stereo(mol, idx, double_o, alk + suffix) if suffix else ""
     return ""
+
+
+def _hydrogen_rich_sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
+    if mol.GetAtomWithIdx(idx).GetTotalNumHs(includeNeighbors=True):
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
+    return ""
+
+
+def _lambda_sulfur_hydride_prefix(mol, idx: int, parent_idx: int) -> str:
+    """P-14.1/P-21/P-29: retain S bonding number and attachment valence.
+
+    A lambda4/lambda6 sulfane loses one or two H atoms for the outer cut;
+    every other ligand consumes its own original bond order. The remaining
+    H budget must equal the original S atom, including explicit neighbours.
+    Ordinary divalent sulfur and established acid-derived words stay with
+    their dedicated writers.
+    """
+    sulfur = mol.GetAtomWithIdx(idx)
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    valence = int(sulfur.GetTotalValence())
+    if (
+        sulfur.GetSymbol() != "S" or sulfur.IsInRing() or sulfur.GetIsotope()
+        or sulfur.GetFormalCharge() or sulfur.GetNumRadicalElectrons()
+        or int(sulfur.GetChiralTag()) or valence not in {4, 6}
+        or bond is None or bond.GetBondTypeAsDouble() not in {1, 2}
+        or int(bond.GetStereo())
+    ):
+        return ""
+    ligands, demand = [], int(bond.GetBondTypeAsDouble())
+    for neighbor in sulfur.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == parent_idx:
+            continue
+        if neighbor.GetAtomicNum() == 1:
+            if neighbor.GetIsotope():
+                return ""
+            continue
+        edge = mol.GetBondBetweenAtoms(idx, nidx)
+        order = edge.GetBondTypeAsDouble()
+        if neighbor.GetIsotope() or neighbor.GetNumRadicalElectrons():
+            return ""
+        if order == 2:
+            if neighbor.GetFormalCharge():
+                return ""
+            if (neighbor.GetAtomicNum() in {8, 16} and neighbor.GetDegree() == 1
+                    and not neighbor.GetTotalNumHs(includeNeighbors=True)):
+                ligand = 'oxo' if neighbor.GetAtomicNum() == 8 else 'thioxo'
+            elif (neighbor.GetAtomicNum() == 7 and neighbor.GetTotalValence() == 3
+                    or neighbor.GetAtomicNum() == 16 and not neighbor.IsInRing()):
+                ligand = branch_prefix(mol, nidx, idx)
+            else:
+                return ""
+        elif order == 1:
+            ligand = branch_prefix(mol, nidx, idx)
+        else:
+            return ""
+        if not ligand:
+            return ""
+        ligands.append(ligand)
+        demand += int(order)
+    if valence - demand != sulfur.GetTotalNumHs(includeNeighbors=True):
+        return ""
+    text = _format_prefixes([('', ligand) for ligand in ligands], omit_locants=True,
+                            hierarchical_enclosures=True, separate_unlocanted=True)
+    ending = 'sulfanylidene' if bond.GetBondTypeAsDouble() == 2 else 'sulfanyl'
+    return (text + '-' if text else '') + f'lambda{valence}-' + ending
+
+
+def _lambda6_sulfanylidene_prefix(mol, sulfur_idx: int, parent_idx: int) -> str:
+    """Render a neutral S(VI)=N attachment with its two single-bond ligands."""
+    sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    parent = mol.GetAtomWithIdx(parent_idx)
+    bond = mol.GetBondBetweenAtoms(sulfur_idx, parent_idx)
+    if (
+        sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() or sulfur.IsInRing()
+        or sulfur.GetIsotope() or sulfur.GetTotalNumHs()
+        or parent.GetSymbol() != "N" or parent.GetFormalCharge()
+        or bond is None or bond.GetBondType() != Chem.BondType.DOUBLE
+    ):
+        return ""
+    oxo_count = 0
+    ligands = []
+    for neighbor in sulfur.GetNeighbors():
+        idx = neighbor.GetIdx()
+        if idx == parent_idx:
+            continue
+        bond = mol.GetBondBetweenAtoms(sulfur_idx, idx)
+        if neighbor.GetFormalCharge() or neighbor.GetIsotope():
+            return ""
+        if neighbor.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            if neighbor.GetDegree() != 1:
+                return ""
+            oxo_count += 1
+        elif neighbor.GetSymbol() in {"C", "N", "O"} and bond.GetBondType() == Chem.BondType.SINGLE:
+            ligand = branch_prefix(mol, idx, sulfur_idx)
+            if not ligand:
+                return ""
+            ligands.append(ligand)
+        else:
+            return ""
+    if oxo_count != 1 or len(ligands) != 2:
+        return ""
+    # Keep ligand boundaries explicit: methyl + amino is not methylamino.
+    text = "dimethyl" if ligands == ["methyl", "methyl"] else "".join(
+        f"({ligand})" for ligand in sorted(ligands)
+    )
+    return text + "(oxo)-lambda6-sulfanylidene"
 
 
 def _apply_sulfinyl_stereo(mol, sulfur_idx: int, double_o: int, prefix: str) -> str:
@@ -238,13 +400,13 @@ def _retained_sulfonyl_prefix(mol, ligand_idx: int, sulfur_idx: int) -> str:
     ligand = mol.GetAtomWithIdx(ligand_idx)
     if ligand.GetSymbol() == "C":
         if _is_methyl_ligand(mol, ligand_idx, sulfur_idx):
-            return "mesyl"
+            return "methanesulfonyl"
         if _is_trifluoromethyl_ligand(mol, ligand_idx, sulfur_idx):
-            return "triflyl"
+            return "trifluoromethanesulfonyl"
     if ligand.IsInRing():
         ring = _ring_substituent_prefix(mol, ligand_idx, sulfur_idx)
         if ring in {"p-tolyl", "4-methylphenyl"}:
-            return "tosyl"
+            return "4-methylbenzenesulfonyl"
     return ""
 
 
@@ -283,9 +445,20 @@ def _is_trifluoromethyl_ligand(mol, carbon_idx: int, parent_idx: int) -> bool:
 
 
 def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    sulfur = mol.GetAtomWithIdx(idx)
+    attachment = mol.GetBondBetweenAtoms(idx, parent_idx)
+    # Sulfinimidoyl owns exactly S(IV): one imino double bond and two
+    # single-bond attachments, with no residual sulfur hydrogen.  A further
+    # double ligand belongs to a different bonding-number construction and
+    # must not disappear when this shorter acid-derived word is considered.
+    if (sulfur.GetAtomicNum() != 16 or sulfur.GetFormalCharge()
+            or sulfur.GetNumRadicalElectrons() or sulfur.GetTotalValence() != 4
+            or sulfur.GetTotalNumHs(includeNeighbors=True)
+            or attachment is None or attachment.GetBondType() != Chem.BondType.SINGLE):
+        return ""
     imino = []
     single_groups = []
-    for nbr in mol.GetAtomWithIdx(idx).GetNeighbors():
+    for nbr in sulfur.GetNeighbors():
         nidx = nbr.GetIdx()
         if nidx == parent_idx:
             continue
@@ -294,6 +467,8 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
             imino.append(nidx)
         elif bond.GetBondType() == Chem.BondType.SINGLE:
             single_groups.append(nidx)
+        else:
+            return ""
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
     s_group = branch_prefix(mol, single_groups[0], idx) or substituent_from_root(mol, single_groups[0], idx)
@@ -335,6 +510,16 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
+    from ..phosphorus_acyl_prefixes import phosphorus_acyl_prefix
+    acyl = phosphorus_acyl_prefix(mol, Chem, idx, parent_idx)
+    if acyl is not None:
+        return acyl.name
+    explicit_anion = _anionic_phosphorus_ligand_prefix(mol, idx, parent_idx)
+    if explicit_anion:
+        return explicit_anion
+    mapped = _mapped_phosphorus_prefix(mol, idx, parent_idx)
+    if mapped:
+        return mapped
     double_oxygen_count = 0
     double_sulfur_count = 0
     hydroxy_count = 0
@@ -387,8 +572,7 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     if any(mol.GetAtomWithIdx(nidx).GetSymbol() == "N" for nidx in other_heavy):
         return ""
     if double_oxygen_count == 0 and hydroxy_count == 0 and oxido_count == 0:
-        name = _substituted_hydride_prefix(mol, other_heavy, idx, "phosphanyl")
-        return "phosphino" if name == "phosphanyl" else name
+        return _substituted_hydride_prefix(mol, other_heavy, idx, "phosphanyl")
     if (
         double_oxygen_count == 2
         and hydroxy_count == 0
@@ -402,6 +586,10 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
     if double_oxygen_count != 1:
         return ""
     if not other_heavy:
+        if (double_oxygen_count == 1 and hydroxy_count == 0 and oxido_count == 0
+                and atom.GetTotalNumHs() == 2 and atom.GetTotalValence() == 5
+                and not atom.IsInRing() and not atom.GetIsotope()):
+            return 'phosphinoyl'
         if hydroxy_count == 2 and oxido_count == 0:
             return "phosphono"
         if hydroxy_count == 0 and oxido_count == 2:
@@ -431,6 +619,108 @@ def _phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
         return ""
     ligand_text = _phosphoryl_ligand_text(ligand_names)
     return ligand_text + "phosphoryl" if ligand_text else ""
+
+
+def _mapped_phosphorus_prefix(mol, idx: int, parent_idx: int) -> str:
+    """Keep two proved neutral P(III/V) ligands inside one P component.
+
+    Ordinary carbon and organyloxy ligands use their mapped simple/compound
+    nature. Hydroxy and terminal halogen ligands are explicit characteristic
+    prefixes. Other valences, annotations and ligand grammars retain their
+    existing writers.
+    """
+    atom = mol.GetAtomWithIdx(idx)
+    bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if (atom.GetAtomicNum() != 15 or atom.IsInRing() or atom.GetFormalCharge()
+            or atom.GetIsotope() or atom.GetNumRadicalElectrons()
+            or atom.GetTotalValence() not in {3, 5} or atom.GetTotalNumHs()
+            or atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+            or bond is None or bond.GetBondTypeAsDouble() != 1):
+        return ''
+    from ..organyl_prefix_components import organyl_prefix_nature
+    from ..prefix_sequences import PrefixUnit, mononuclear_prefix_sequence
+    units = []
+    oxo = 0
+    for neighbor in atom.GetNeighbors():
+        nidx = neighbor.GetIdx()
+        if nidx == parent_idx:
+            continue
+        link = mol.GetBondBetweenAtoms(idx, nidx)
+        if (neighbor.GetFormalCharge() or neighbor.GetIsotope()
+                or neighbor.GetNumRadicalElectrons()):
+            return ''
+        if (neighbor.GetAtomicNum() == 8 and link.GetBondTypeAsDouble() == 2
+                and neighbor.GetDegree() == 1 and not neighbor.GetTotalNumHs()):
+            oxo += 1
+            continue
+        if link.GetBondTypeAsDouble() != 1:
+            return ''
+        if neighbor.GetAtomicNum() == 6:
+            name = branch_prefix(mol, nidx, idx)
+            nature = organyl_prefix_nature(mol, nidx, collect_subtree(mol, nidx, idx), name)
+        elif neighbor.GetAtomicNum() == 8:
+            distal = [n for n in neighbor.GetNeighbors() if n.GetIdx() != idx and n.GetAtomicNum() > 1]
+            if not distal and neighbor.GetTotalNumHs() == 1:
+                name, nature = 'hydroxy', 'simple'
+            elif len(distal) == 1 and distal[0].GetAtomicNum() == 6 and not neighbor.GetTotalNumHs():
+                root = distal[0].GetIdx()
+                organyl = branch_prefix(mol, root, nidx)
+                nature = organyl_prefix_nature(mol, root, collect_subtree(mol, root, nidx), organyl)
+                name = branch_prefix(mol, nidx, idx)
+            else:
+                return ''
+        elif neighbor.GetSymbol() in HALO and neighbor.GetDegree() == 1:
+            name, nature = HALO[neighbor.GetSymbol()], 'simple'
+        else:
+            return ''
+        if not name or nature is None:
+            return ''
+        units.append(PrefixUnit(name, nature))
+    valence = int(atom.GetTotalValence())
+    if oxo != (1 if valence == 5 else 0) or len(units) != 2:
+        return ''
+    text = mononuclear_prefix_sequence(units)
+    parent = 'phosphoryl' if valence == 5 else 'phosphanyl'
+    return '(' + text.text + parent + ')' if text is not None else ''
+
+
+def _anionic_phosphorus_ligand_prefix(mol, idx: int, parent_idx: int) -> str:
+    """Keep anionic O ligands and the actual P bonding number explicit."""
+    atom = mol.GetAtomWithIdx(idx)
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if (
+        atom.GetSymbol() != "P" or atom.GetFormalCharge() or atom.GetIsotope() or atom.IsInRing()
+        or parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE
+        or int(atom.GetTotalValence()) not in {3, 5}
+    ):
+        return ""
+    neighbors = [n for n in atom.GetNeighbors() if n.GetIdx() != parent_idx and n.GetAtomicNum() > 1]
+    if not any(n.GetSymbol() == "O" and n.GetFormalCharge() == -1 for n in neighbors):
+        return ""
+    ligands = []
+    for neighbor in neighbors:
+        nidx = neighbor.GetIdx()
+        bond = mol.GetBondBetweenAtoms(idx, nidx)
+        if neighbor.GetIsotope() or neighbor.GetFormalCharge() not in {0, -1}:
+            return ""
+        if bond.GetBondType() == Chem.BondType.SINGLE:
+            if neighbor.GetFormalCharge() and (
+                neighbor.GetSymbol() != "O" or neighbor.GetDegree() != 1 or neighbor.GetTotalNumHs()
+            ):
+                return ""
+            ligand = branch_prefix(mol, nidx, idx)
+        elif neighbor.GetSymbol() == "O" and not neighbor.GetFormalCharge() and neighbor.GetDegree() == 1 and bond.GetBondType() == Chem.BondType.DOUBLE:
+            ligand = "oxo"
+        else:
+            return ""
+        if not ligand:
+            return ""
+        ligands.append(ligand)
+    if ligands == ["oxidanidyl", "oxidanidyl"] and int(atom.GetTotalValence()) == 3:
+        return "(bis(oxidanidyl)phosphanyl)"
+    text = "".join(f"({ligand})" for ligand in sorted(ligands))
+    hydride = "-lambda5-phosphanyl" if int(atom.GetTotalValence()) == 5 else "phosphanyl"
+    return f"({text}{hydride})"
 
 
 def _phosphorus_thioyl_prefix(
@@ -637,7 +927,7 @@ def _subtree_has_assigned_stereo(mol, start_idx: int, blocked_idx: int) -> bool:
     for atom_idx in atoms:
         if mol.GetAtomWithIdx(atom_idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             return True
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetStereo() == Chem.BondStereo.STEREONONE:
             continue
         if bond.GetBeginAtomIdx() in atoms and bond.GetEndAtomIdx() in atoms:
@@ -1011,18 +1301,46 @@ def _carbamoyl_substituent_name(
             return ""
     if not has_double_o or amine is None:
         return ""
+    if mol.GetAtomWithIdx(amine).GetFormalCharge() != 0:
+        nitrogen = _nitrogen_prefix(mol, amine, cidx)
+        return f"({nitrogen})carbonyl" if nitrogen else ""
     if mol.GetAtomWithIdx(amine).IsInRing():
         ring = _ring_substituent_prefix(mol, amine, cidx)
         if not ring:
             return ""
+        # P-16.5 encloses the compound ring substituent as one unit before
+        # concatenating carbonyl. Identify substitution on the original
+        # ring system rather than inferring it from the rendered spelling.
+        from ..mapped_ring_parents import ring_systems
+        core = next((system for system in ring_systems(mol) if amine in system), None)
+        if core and any(
+            nbr.GetAtomicNum() > 1 and nbr.GetIdx() not in core and nbr.GetIdx() != cidx
+            for i in core for nbr in mol.GetAtomWithIdx(i).GetNeighbors()
+        ):
+            from ..formatting import enclose_name_unit
+            return enclose_name_unit(ring) + "carbonyl"
         if ring.startswith("("):
             return ring + "carbonyl"
         return f"{ring}carbonyl"
+    nitrogen = mol.GetAtomWithIdx(amine)
+    if (nitrogen.GetDegree() in {2, 3}
+            or nitrogen.GetDegree() == 1 and mol.GetAtomWithIdx(nidx).GetAtomicNum() in {7, 8}):
+        # P-65.1.6/P-65.2.1.5: construct the subordinate amide from its
+        # original C/O/N and disjoint mapped N-ligands, after the cut is known.
+        from ..carboxamide_prefixes import mapped_n_substituted_carbamoyl
+        preferred = mapped_n_substituted_carbamoyl(mol, Chem, cidx, nidx, amine)
+        if preferred is not None:
+            return preferred[0]
     groups = []
     for nbr in mol.GetAtomWithIdx(amine).GetNeighbors():
         nbr_idx = nbr.GetIdx()
         if nbr_idx == cidx:
             continue
+        if mol.GetBondBetweenAtoms(amine, nbr_idx).GetBondType() != Chem.BondType.SINGLE:
+            # The amino/carbamoyl grammar below substitutes individual N-H
+            # bonds. A cumulene such as N=C=O instead belongs to its complete
+            # isocyanato construction in the ordinary nitrogen writer.
+            return ""
         if _is_diazo_attachment(mol, nbr_idx, amine):
             name = "diazo"
         elif nbr.IsInRing():
@@ -1037,7 +1355,7 @@ def _carbamoyl_substituent_name(
             return ""
         groups.append(name)
     if not groups:
-        return "carbamyl"
+        return "carbamoyl"
     if len(groups) == 1:
         return f"(({groups[0]})amino)carbonyl"
     counts = Counter(groups)
@@ -1072,8 +1390,24 @@ def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
     )
     if cache_key in cache:
         return cache[cache_key]
+    if mol.GetAtomWithIdx(root_idx).GetSymbol() == "P":
+        direct = _anionic_phosphorus_ligand_prefix(mol, root_idx, blocked_idx)
+        if direct:
+            cache[cache_key] = direct
+            return direct
+    if mol.GetAtomWithIdx(root_idx).GetSymbol() == "S":
+        direct = _lambda6_sulfanylidene_prefix(mol, root_idx, blocked_idx)
+        if direct:
+            cache[cache_key] = direct
+            return direct
     if mol.GetAtomWithIdx(root_idx).GetSymbol() == "C":
         direct = _carbonyl_substituent_prefix(mol, root_idx, blocked_idx)
+        if direct:
+            cache[cache_key] = direct
+            return direct
+        from .carbon import geminal_alkoxy_alkyl_prefix
+
+        direct = geminal_alkoxy_alkyl_prefix(mol, root_idx, blocked_idx)
         if direct:
             cache[cache_key] = direct
             return direct
@@ -1101,25 +1435,41 @@ def substituent_from_root(mol, root_idx: int, blocked_idx: int) -> str:
 
 
 def _with_substituent_atom_stereo_prefix(mol, path: Sequence[int], name: str) -> str:
-    if not name or _has_atom_stereo_prefix(name):
-        return name
-    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
-    if not assigned:
-        return name
-    path_atoms = set(path)
-    relevant = [(idx, descriptor) for idx, descriptor in assigned if idx in path_atoms]
-    if not relevant:
+    """Decorate this rooted path; child descriptors belong to their children."""
+    if not name:
         return name
     locant_by_atom = {idx: loc for loc, idx in enumerate(path, start=1)}
-    pieces = []
-    for atom_idx, descriptor in relevant:
-        locant = locant_by_atom[atom_idx]
-        pieces.append(f"{locant}{descriptor}")
-    return f"({','.join(pieces)})-{name}"
+    assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx", include_pseudo=True)
+    pieces = {(locant_by_atom[idx], 'atom'): descriptor
+              for idx, descriptor in assigned
+              if idx in locant_by_atom and descriptor in {'R', 'S'}}
+    from ..stereochemistry import _indexed_bond_stereochemistry
+    for begin, end, descriptor in _indexed_bond_stereochemistry(mol, Chem):
+        if begin not in locant_by_atom or end not in locant_by_atom:
+            continue
+        first, second = locant_by_atom[begin], locant_by_atom[end]
+        if abs(first - second) == 1:
+            pieces[min(first, second), 'bond'] = descriptor
+    if not pieces:
+        return name
+    leading = re.match(r"^\((?P<fields>(?:\d+)?[RSrsEZ](?:,(?:\d+)?[RSrsEZ])*)\)-", name)
+    if leading:
+        for field in leading['fields'].split(','):
+            match = re.fullmatch(r'(\d+)([RSrsEZ])', field)
+            if match is None:
+                return name  # The existing unlocanted operation owns its scope.
+            key = (int(match[1]), 'bond' if match[2] in 'EZ' else 'atom')
+            pieces.setdefault(key, match[2])
+        name = name[leading.end():]
+    text = ','.join(str(locant) + descriptor
+                    for (locant, _kind), descriptor in sorted(pieces.items()))
+    return '(' + text + ')-' + name
 
 
 def _has_atom_stereo_prefix(name: str) -> bool:
-    return bool(re.search(r"\((?:\d+'?)?[RS](?:,(?:\d+'?)?[RS])*\)-", name))
+    return bool(re.search(
+        r"\((?=[^()]*[RS])(?:\d+[a-z]?'?)?[RSZE]"
+        r"(?:,(?:\d+[a-z]?'?)?[RSZE])*\)-", name))
 
 
 def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: int) -> str:
@@ -1141,11 +1491,55 @@ def _name_subtree_path(mol, path: Sequence[int], atoms: set[int], blocked_idx: i
             if not prefix:
                 return ""
             prefixes.append((str(pos), prefix))
+    if (len(path) == 3 and len(prefixes) == 1 and prefixes[0][0] == "3"
+            and prefixes[0][1].endswith("yl")
+            and tuple(mol.GetAtomWithIdx(i).GetAtomicNum() for i in path) == (6, 6, 8)
+            and all(not mol.GetAtomWithIdx(i).IsInRing()
+                    and not mol.GetAtomWithIdx(i).GetFormalCharge()
+                    and not mol.GetAtomWithIdx(i).GetIsotope()
+                    and not mol.GetAtomWithIdx(i).GetNumRadicalElectrons()
+                    and not mol.GetAtomWithIdx(i).GetChiralTag()
+                    and mol.GetAtomWithIdx(i).GetDegree() == 2
+                    and all(b.GetBondTypeAsDouble() == 1 for b in mol.GetAtomWithIdx(i).GetBonds())
+                    for i in path)):
+        children = [n.GetIdx() for n in mol.GetAtomWithIdx(path[-1]).GetNeighbors()
+                    if n.GetIdx() not in path_set]
+        if len(children) == 1 and mol.GetAtomWithIdx(children[0]).IsInRing():
+            from ..principal_carbonyl import configured_acyclic_methine_ring_hosts
+            child_scope = frozenset(collect_subtree(mol, children[0], path[-1]))
+            if (configured_acyclic_methine_ring_hosts(mol).intersection(child_scope)
+                    and not child_scope.intersection(path_set)
+                    and child_scope | path_set == set(atoms)):
+                from .hetero_atoms import _organyloxy_component
+                from ..prefix_presentation import enclose_complete_name_unit
+
+                oxy = _organyloxy_component(prefixes[0][1], attachment_locanted=True)
+                # P-29.4: the original two-carbon arm bears an organyloxy
+                # substituent; a single ether oxygen does not extend its chain.
+                return "2-" + enclose_complete_name_unit(oxy) + "ethyl"
     parent = parent_chain_name(mol, path, as_substituent=True)
     if not parent:
         return ""
+    attachment_bond = mol.GetBondBetweenAtoms(path[0], blocked_idx)
+    if attachment_bond is None:
+        return ""
+    attachment_order = attachment_bond.GetBondTypeAsDouble()
+    if attachment_order in {2.0, 3.0}:
+        # A rooted path describes the internal bonds of the substituent;
+        # its bond to the parent is additional unsaturation.
+        if not parent.endswith("yl"):
+            return ""
+        parent += "idene" if attachment_order == 2.0 else "idyne"
+    elif attachment_order != 1.0:
+        return ""
     repl = replacement_prefixes(mol, path)
     prefix_text = _format_prefixes(prefixes)
+    if not repl and parent[0].isalpha() and any(
+        name.endswith("ylidene") for _, name in prefixes
+    ):
+        # P-16.2.4.1: the ylidene prefix joins the letter-led chain root.
+        # Locants already placed inside that root keep their own hyphens.
+        return prefix_text + parent
     pieces = []
     if prefix_text:
         pieces.append(prefix_text)
@@ -1182,13 +1576,22 @@ def rooted_paths(mol, root_idx: int, atoms: set[int]) -> list[tuple[int, ...]]:
     else:
         path_atoms = {idx for idx in atoms if not mol.GetAtomWithIdx(idx).IsInRing()}
         path_atoms.add(root_idx)
-    leaves = [
-        idx
-        for idx in path_atoms
-        if idx != root_idx
-        and sum(1 for n in mol.GetAtomWithIdx(idx).GetNeighbors() if n.GetIdx() in path_atoms) <= 1
-        and can_be_in_parent_skeleton(mol, idx)
-    ]
+    leaves, blocked_ends = [], set()
+    for idx in path_atoms - {root_idx}:
+        neighbors = [n.GetIdx() for n in mol.GetAtomWithIdx(idx).GetNeighbors() if n.GetIdx() in path_atoms]
+        if len(neighbors) > 1:
+            continue
+        if can_be_in_parent_skeleton(mol, idx):
+            leaves.append(idx)
+        else:
+            blocked_ends.update(neighbors)
+    # A halogen or terminal oxo group belongs to the endpoint as a
+    # detachable prefix. It does not extend the skeletal path.
+    for idx in blocked_ends - {root_idx}:
+        if can_be_in_parent_skeleton(mol, idx) and sum(
+                n.GetIdx() in path_atoms and can_be_in_parent_skeleton(mol, n.GetIdx())
+                for n in mol.GetAtomWithIdx(idx).GetNeighbors()) == 1:
+            leaves.append(idx)
     if not leaves:
         leaves = [root_idx]
     paths = []
@@ -1299,21 +1702,27 @@ def _is_carboxylate_carbon(mol, idx: int) -> bool:
     return has_double_o and has_single_ominus
 
 
-def _acyl_halide_prefix(mol, idx: int) -> str:
+def _acyl_halide_prefix(mol, idx: int, parent_idx: int) -> str:
     atom = mol.GetAtomWithIdx(idx)
     if atom.GetSymbol() != "C":
+        return ""
+    children = [nbr for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
+    if len(children) != 2:
         return ""
     has_double_o = any(
         nbr.GetSymbol() == "O"
         and mol.GetBondBetweenAtoms(idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
-        for nbr in atom.GetNeighbors()
+        for nbr in children
     )
     if not has_double_o:
         return ""
     halogens = [
         nbr.GetSymbol()
-        for nbr in atom.GetNeighbors()
+        for nbr in children
         if nbr.GetSymbol() in HALO
+        and not nbr.GetFormalCharge() and not nbr.GetNumRadicalElectrons()
+        and nbr.GetTotalValence() == 1
+        and not nbr.GetTotalNumHs(includeNeighbors=True)
         and mol.GetBondBetweenAtoms(idx, nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
     ]
     if len(halogens) != 1:
@@ -1351,6 +1760,21 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     if _is_carboxylate_carbon(mol, idx) and _atom_has_multiple_bond_outside(mol, parent_idx, idx):
         return "1-oxido-1-oxo-methyl"
     distal = heavy[0]
+    if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 8 and mol.GetAtomWithIdx(distal).GetAtomicNum() == 6:
+        from .unsaturated_acyl import unsaturated_acyl_prefix
+        acyl = unsaturated_acyl_prefix(mol, Chem, idx, parent_idx)
+        if acyl is not None:
+            return acyl.text
+    from .preferred_acyl import (
+        carboxyalkanoyl_prefix, n_attached_aminoacyl_prefix, n_attached_heterocyclylacetyl_prefix,
+    )
+    preferred_acyl = (
+        n_attached_aminoacyl_prefix(mol, idx, parent_idx)
+        or n_attached_heterocyclylacetyl_prefix(mol, idx, parent_idx)
+        or carboxyalkanoyl_prefix(mol, Chem, idx, parent_idx)
+    )
+    if preferred_acyl:
+        return preferred_acyl
     aminoacyl = _retained_aminoacyl_prefix(mol, idx, distal, parent_idx=parent_idx)
     if aminoacyl:
         return aminoacyl
@@ -1376,6 +1800,11 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     if alkoxycarbonyl:
         return alkoxycarbonyl
     if mol.GetAtomWithIdx(distal).IsInRing():
+        if mol.GetAtomWithIdx(distal).GetAtomicNum() == 6:
+            from .preferred_acyl import ring_carbonyl_prefix
+            ring_acyl = ring_carbonyl_prefix(mol, idx, parent_idx)
+            if ring_acyl:
+                return ring_acyl
         name = _ring_substituent_prefix(mol, distal, idx)
     else:
         name = branch_prefix(mol, distal, idx) or substituent_from_root(mol, distal, idx)
@@ -1386,7 +1815,20 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
         if alpha_stereo:
             name = alpha_stereo + name
     retained = _retained_carbonyl_prefix(name)
-    return retained if retained else name + "carbonyl"
+    if retained and mol.GetAtomWithIdx(parent_idx).GetAtomicNum()==8:
+        from ..component_vocabulary import preferred_acyl_component
+        retained=preferred_acyl_component(retained)
+    if retained:
+        return retained
+    # The complete organyl is attached to carbonyl. An internal enclosure
+    # does not bind its other substituents to that organyl free valence.
+    branched_attachment = sum(n.GetAtomicNum() > 1 and n.GetIdx() != idx
+                             for n in mol.GetAtomWithIdx(distal).GetNeighbors()) > 1
+    if branched_attachment and any(mark in name for mark in "([{ -"):
+        from ..prefix_presentation import enclose_complete_name_unit
+
+        name = enclose_complete_name_unit(name)
+    return name + "carbonyl"
 
 
 _AMINOACYL_BY_SIDECHAIN = {
@@ -1399,6 +1841,7 @@ _AMINOACYL_BY_SIDECHAIN = {
     "t-butyl": "t-leucyl",
     "tert-butyl": "t-leucyl",
     "isobutyl": "leucyl",
+    "2-methylpropyl": "leucyl",
     "2-methyl-propyl": "leucyl",
     "sec-butyl": "isoleucyl",
     "1-methyl-propyl": "isoleucyl",
@@ -1416,7 +1859,9 @@ _AMINOACYL_BY_SIDECHAIN = {
     "carboxymethyl": "aspartyl",
     "2-carboxyethyl": "glutamyl",
     "carbamylmethyl": "asparaginyl",
+    "carbamoylmethyl": "asparaginyl",
     "2-carbamylethyl": "glutaminyl",
+    "2-carbamoylethyl": "glutaminyl",
     "4-azabutyl": "ornithyl",
     "4-aminobutyl": "lysyl",
     "5-amino-4,6-diaza5-hexen-1-yl": "arginyl",
@@ -1461,13 +1906,23 @@ def _retained_aminoacyl_prefix(
     sidechain = ""
     if sidechains:
         sidechain = branch_prefix(mol, sidechains[0], alpha_idx) or substituent_from_root(mol, sidechains[0], alpha_idx)
-    prefix = _AMINOACYL_BY_SIDECHAIN.get(sidechain, "")
+    from ..component_vocabulary import with_preferred_keys
+    prefix = with_preferred_keys(_AMINOACYL_BY_SIDECHAIN).get(sidechain, "")
     if not prefix:
+        return ""
+    if prefix == "t-leucyl":
+        # P-103.1.1.3: an amino acid outside the retained-name tables uses its
+        # ordinary systematic parent. The existing acyl path supplies that map.
         return ""
     stereo_prefix = _aminoacyl_stereo_prefix(mol, alpha_idx, prefix)
     if stereo_prefix is None:
         return ""
-    return upstream + stereo_prefix + prefix
+    emitted = upstream + stereo_prefix + prefix
+    if alpha.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED and alpha.HasProp("_CIPCode"):
+        descriptor = alpha.GetProp("_CIPCode")
+        if descriptor in {"R", "S"}:
+            mol_cache_dict(mol, "rendered_retained_aminoacyl_stereo")[(alpha_idx, emitted)] = descriptor
+    return emitted
 
 
 def _alpha_amino_acyl_prefix(
@@ -1529,7 +1984,10 @@ def _is_free_alpha_amino_group(mol, nitrogen_idx: int, alpha_idx: int) -> bool:
 def _aminoacyl_stereo_prefix(mol, alpha_idx: int, prefix: str) -> str | None:
     atom = mol.GetAtomWithIdx(alpha_idx)
     if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
-        return ""
+        # Retained aminoacyl words carry the natural alpha configuration.
+        # An unassigned stereogenic alpha carbon needs a systematic prefix
+        # that keeps it unassigned, rather than silently introducing L.
+        return "" if prefix == "glycyl" else None
     try:
         Chem.AssignStereochemistry(mol, force=True, cleanIt=False)
     except Exception:
@@ -1679,10 +2137,12 @@ _ACYCLIC_ACYL_PARENT_BY_ALKYL = {
 def _acyclic_acyl_prefix(name: str) -> str:
     """Convert an alkyl ligand on C=O into the corresponding acyl prefix."""
 
-    for alkyl, acyl in sorted(_ACYCLIC_ACYL_PARENT_BY_ALKYL.items(), key=lambda item: -len(item[0])):
-        if name == alkyl:
-            return acyl
-    return ""
+    retained = _ACYCLIC_ACYL_PARENT_BY_ALKYL.get(name)
+    if retained or not name.endswith("yl"):
+        return retained or ""
+    length = ROOT_LENGTHS.get(name[:-2])
+    stem = ROOTS.get(length + 1) if length is not None else None
+    return stem + "anoyl" if stem else ""
 
 
 def _shift_acyl_ligand_locants(prefix: str) -> str | None:
@@ -1740,7 +2200,7 @@ def _formyl_prefix_allowed(mol, carbonyl_idx: int, parent_idx: int) -> bool:
 
 
 def _assigned_stereocenter_count(mol) -> int:
-    return sum(1 for atom in mol.GetAtoms() if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED)
+    return sum(1 for atom in iter_atoms(mol) if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED)
 
 
 def _atom_has_multiple_bond_to_heteroatom_outside(mol, atom_idx: int, excluded_idx: int) -> bool:
@@ -1750,7 +2210,11 @@ def _atom_has_multiple_bond_to_heteroatom_outside(mol, atom_idx: int, excluded_i
         if nidx == excluded_idx or nbr.GetSymbol() == "C":
             continue
         bond = mol.GetBondBetweenAtoms(atom_idx, nidx)
-        if bond is not None and bond.GetBondTypeAsDouble() > 1.0:
+        # RDKit reports aromatic ring bonds as 1.5. They are annular bonds,
+        # not an exocyclic multiple-bonded characteristic group that should
+        # block the direct P-66.6.1.3 formyl prefix on a heteroaromatic host.
+        if (bond is not None and bond.GetBondTypeAsDouble() > 1.0
+                and not (bond.GetIsAromatic() and bond.IsInRing())):
             return True
     return False
 
@@ -1907,6 +2371,12 @@ def _alkoxycarbonyl_prefix(mol, oxygen_idx: int, carbonyl_idx: int, *, parent_id
             return ""
         oxy = "phenoxy" if ring == "phenyl" else f"({ring})oxy"
     else:
+        from .contracted_alkoxy import mapped_contracted_alkoxy
+        from ..formatting import enclose_name_unit
+
+        alkoxy = mapped_contracted_alkoxy(mol, Chem, oxygen_idx, carbonyl_idx)
+        if alkoxy is not None and any(c in alkoxy[0] for c in "-()[]{}"):
+            return alkoxy[0] + "carbonyl"
         alk = branch_prefix(mol, attached, oxygen_idx) or substituent_from_root(mol, attached, oxygen_idx)
         if not alk:
             return ""
@@ -1917,6 +2387,12 @@ def _alkoxycarbonyl_prefix(mol, oxygen_idx: int, carbonyl_idx: int, *, parent_id
         retained = _retained_alkoxycarbonyl_prefix(mol, alk, parent_idx=parent_idx, carbonyl_idx=carbonyl_idx)
         if retained:
             return retained
+        # P-63.2.2.2 permits substitution on methoxy. The helper proves the
+        # ring-CH2-O connection before contracting the complete unit.
+        from .hetero_atoms import _ring_methoxy_prefix
+        ring_methoxy = _ring_methoxy_prefix(mol, attached, oxygen_idx)
+        if ring_methoxy:
+            return enclose_name_unit(ring_methoxy) + "carbonyl"
         oxy = (
             f"({alk})oxy"
             if alk == "benzyl" and _atom_has_multiple_bond_outside(mol, parent_idx, carbonyl_idx)
@@ -1937,13 +2413,9 @@ def _retained_alkoxycarbonyl_prefix(
     ):
         return ""
     return {
-        "(fluoren-9-yl)methyl": "fmoc",
-        "(fluorene-9-yl)methyl": "fmoc",
-        "9-fluorenylmethyl": "fmoc",
-        "9-fluorenemethyl": "fmoc",
-        "t-butyl": "boc",
-        "tert-butyl": "boc",
-        "benzyl": "cbz",
+        "t-butyl": "tert-butoxycarbonyl",
+        "tert-butyl": "tert-butoxycarbonyl",
+        "benzyl": "benzyloxycarbonyl",
     }.get(alkyl, "")
 
 
@@ -1960,8 +2432,8 @@ def _has_nonaromatic_ring_amine_attachment(mol, atom_idx: int, carbonyl_idx: int
 
 
 def _has_assigned_stereo(mol) -> bool:
-    return any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()) or any(
-        bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()
+    return any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)) or any(
+        bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol)
     )
 
 
@@ -2055,10 +2527,25 @@ def _is_carbonyl_oxygen_idx(mol, idx: int) -> bool:
 
 def _is_nitro_nitrogen(mol, idx: int) -> bool:
     atom = mol.GetAtomWithIdx(idx)
-    if atom.GetSymbol() != "N":
+    if (atom.GetSymbol() != "N" or atom.GetFormalCharge() != 1
+            or atom.GetTotalNumHs(includeNeighbors=True)):
         return False
-    oxy = [n for n in atom.GetNeighbors() if n.GetSymbol() == "O"]
-    return atom.GetFormalCharge() > 0 and len(oxy) >= 2
+    neighbors = [n for n in atom.GetNeighbors() if n.GetAtomicNum() > 1]
+    if len(neighbors) != 3:
+        return False
+    fixed = []
+    for neighbor in neighbors:
+        if (neighbor.GetAtomicNum() != 8 or neighbor.GetDegree() != 1
+                or neighbor.GetTotalNumHs(includeNeighbors=True)):
+            continue
+        order = mol.GetBondBetweenAtoms(idx, neighbor.GetIdx()).GetBondTypeAsDouble()
+        if (neighbor.GetFormalCharge(), order) in {(0, 2.0), (-1, 1.0)}:
+            fixed.append((neighbor.GetIdx(), neighbor.GetFormalCharge(), order))
+    if sorted((charge, order) for _, charge, order in fixed) != [(-1, 1.0), (0, 2.0)]:
+        return False
+    fixed_atoms = {i for i, _, _ in fixed}
+    return all(mol.GetBondBetweenAtoms(idx, n.GetIdx()).GetBondTypeAsDouble() == 1
+               for n in neighbors if n.GetIdx() not in fixed_atoms)
 
 
 def _is_azido_attachment(mol, idx: int, parent_idx: int) -> bool:
@@ -2136,11 +2623,14 @@ def _is_diazonio_attachment(mol, idx: int, parent_idx: int) -> bool:
 
 def _is_nitroso_attachment(mol, idx: int, parent_idx: int) -> bool:
     atom = mol.GetAtomWithIdx(idx)
-    if atom.GetSymbol() != "N":
+    if (atom.GetSymbol() != "N" or atom.GetFormalCharge()
+            or atom.GetTotalNumHs(includeNeighbors=True)):
         return False
-    return any(
-        nbr.GetIdx() != parent_idx
-        and nbr.GetSymbol() == "O"
-        and mol.GetBondBetweenAtoms(idx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
-        for nbr in atom.GetNeighbors()
-    )
+    parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+        return False
+    distal = [n for n in atom.GetNeighbors() if n.GetIdx() != parent_idx and n.GetAtomicNum() > 1]
+    return (len(distal) == 1 and distal[0].GetAtomicNum() == 8
+            and distal[0].GetDegree() == 1 and not distal[0].GetFormalCharge()
+            and not distal[0].GetTotalNumHs(includeNeighbors=True)
+            and mol.GetBondBetweenAtoms(idx, distal[0].GetIdx()).GetBondType() == Chem.BondType.DOUBLE)

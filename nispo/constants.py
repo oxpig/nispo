@@ -1,67 +1,17 @@
 from __future__ import annotations
 
+from .number_terms import MAX_CARBON_CHAIN_LENGTH, basic_number_term
+
+# P-21.2.1: numerical term minus its final a, followed by ane/an/yl as
+# required by the caller. Retain the four nonsystematic short-chain roots.
 ROOTS = {
-    1: "meth",
-    2: "eth",
-    3: "prop",
-    4: "but",
-    5: "pent",
-    6: "hex",
-    7: "hept",
-    8: "oct",
-    9: "non",
-    10: "dec",
-    11: "undec",
-    12: "dodec",
-    13: "tridec",
-    14: "tetradec",
-    15: "pentadec",
-    16: "hexadec",
-    17: "heptadec",
-    18: "octadec",
-    19: "nonadec",
-    20: "icos",
-    21: "henicos",
-    22: "docos",
-    23: "tricos",
-    24: "tetracos",
-    25: "pentacos",
-    26: "hexacos",
-    27: "heptacos",
-    28: "octacos",
-    29: "nonacos",
-    30: "triacont",
-    31: "hentriacont",
-    32: "dotriacont",
-    33: "tritriacont",
-    34: "tetratriacont",
-    35: "pentatriacont",
-    36: "hexatriacont",
-    37: "heptatriacont",
-    38: "octatriacont",
-    39: "nonatriacont",
-    40: "tetracont",
-    41: "hentetracont",
-    42: "dotetracont",
-    43: "tritetracont",
-    44: "tetratetracont",
-    45: "pentatetracont",
-    46: "hexatetracont",
-    47: "heptatetracont",
-    48: "octatetracont",
-    49: "nonatetracont",
-    50: "pentacont",
-    51: "henpentacont",
-    52: "dopentacont",
-    53: "tripentacont",
-    54: "tetrapentacont",
-    55: "pentapentacont",
-    56: "hexapentacont",
-    57: "heptapentacont",
-    58: "octapentacont",
-    59: "nonapentacont",
-    60: "hexacont",
+    1: "meth", 2: "eth", 3: "prop", 4: "but",
+    **{n: basic_number_term(n)[:-1] for n in range(5, MAX_CARBON_CHAIN_LENGTH + 1)},
 }
+
+# Like the compiled name grammars, this inverse describes the fixed generated
+# vocabulary. Avoid reconstructing it for every substituent-recognition miss.
+ROOT_LENGTHS = {root: count for count, root in ROOTS.items()}
 
 MULT = {
     2: "di",

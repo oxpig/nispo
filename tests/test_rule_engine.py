@@ -54,53 +54,41 @@ def test_branch_prefix_miss_telemetry_records_graph_shape():
     assert "unsat=2" in keys[0]
 
 
-def test_structured_n_acyl_branch_prefixes_cover_common_legacy_shapes():
-    cases = [
-        ("c1cc(NC(=O)OC)ccc1", "methoxycarbonylamino", {3, 4, 5, 6, 7}),
-        ("c1cc(NC(=O)OCC)ccc1", "ethoxycarbonylamino", {3, 4, 5, 6, 7, 8}),
-        ("c1cc(NC(=O)C(F)(F)F)ccc1", "trifluoroacetamido", {3, 4, 5, 6, 7, 8, 9}),
-        (
-            "CC(=O)N1CC2CCC1[C@@H]2N",
-            "(7R)-7-amino-2-azabicyclo[2.2.1]heptane-2-ylcarbonyl",
-            {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-        ),
-        (
-            "CC(=O)N1C[C@H]2CC[C@@H]1[C@@H]2N",
-            "(1R,4R,7R)-7-amino-2-azabicyclo[2.2.1]heptane-2-ylcarbonyl",
-            {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-        ),
-        (
-            "CC(=O)NCC1=C(F)C=C(F)C=C1",
-            "((2,4-difluorobenzyl)amino)carbonyl",
-            {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-        ),
-    ]
-    for case in cases:
-        smiles, expected_text, expected_atoms = case
+def test_n_acyl_branch_families_preserve_public_graphs_and_inputs():
+    from nispo import (mol_to_iupac, mol_to_iupac_result, smiles_to_iupac_batch,
+                       smiles_to_iupac_batch_results)
+    from test_roundtrip_failure_families import _assert_roundtrips
+
+    inputs = (
+        "c1cc(NC(=O)OC)ccc1",
+        "c1cc(NC(=O)OCC)ccc1",
+        "c1cc(NC(=O)C(F)(F)F)ccc1",
+        "CC(=O)N1CC2CCC1[C@@H]2N",
+        "CC(=O)N1C[C@H]2CC[C@@H]1[C@@H]2N",
+        "CC(=O)NCC1=C(F)C=C(F)C=C1",
+    )
+    _assert_roundtrips(inputs)
+    names = smiles_to_iupac_batch(inputs)
+    assert [r.name for r in smiles_to_iupac_batch_results(inputs)] == names
+    assert smiles_to_iupac_batch(reversed(inputs)) == list(reversed(names))
+    for smiles, name in zip(inputs, names, strict=True):
         mol = Chem.MolFromSmiles(smiles)
-        ctx = BranchRenderContext(mol=mol, Chem=Chem)
-        idx, parent_idx = (1, 0) if expected_text.endswith("carbonyl") else (3, 2)
-
-        candidates = render_branch_candidates(ctx, idx, parent_idx)
-
-        assert len(candidates) == 1
-        assert candidates[0].text == expected_text
-        assert candidates[0].atoms == expected_atoms
+        before = Chem.MolToMolBlock(mol)
+        assert mol_to_iupac(mol) == mol_to_iupac_result(mol).name == name
+        assert Chem.MolToMolBlock(mol) == before
 
 
-def test_structured_ring_branch_prefixes_cover_common_legacy_shapes():
-    cases = [
-        ("CC1CCC(F)(F)CC1", 1, 0, "4,4-difluorocyclohexyl", {1, 2, 3, 4, 5, 6, 7, 8}),
-        ("CC1CC(F)(F)C1", 1, 0, "3,3-difluorocyclobutyl", {1, 2, 3, 4, 5, 6}),
-        ("Nc1nc(C)cs1", 3, 4, "2-aminothiazol-4-yl", {0, 1, 2, 3, 5, 6}),
-        ("CC1=CCOCC1", 1, 0, "1-oxacyclohex-3-ene-4-yl", {1, 2, 3, 4, 5, 6}),
-    ]
-    for smiles, idx, parent_idx, expected_text, expected_atoms in cases:
+def test_common_ring_graphs_survive_public_naming_and_atom_reordering():
+    """Exercise these ring families without freezing branch spelling."""
+    from nispo import smiles_to_iupac_batch
+    from test_roundtrip_failure_families import _assert_roundtrips
+
+    inputs = ("CC1CCC(F)(F)CC1", "CC1CC(F)(F)C1", "Nc1nc(C)cs1", "CC1=CCOCC1")
+    reordered = []
+    for smiles in inputs:
         mol = Chem.MolFromSmiles(smiles)
-        ctx = BranchRenderContext(mol=mol)
-
-        candidates = render_branch_candidates(ctx, idx, parent_idx)
-
-        assert len(candidates) == 1
-        assert candidates[0].text == expected_text
-        assert candidates[0].atoms == expected_atoms
+        assert mol is not None
+        reverse = Chem.RenumberAtoms(mol, list(reversed(range(mol.GetNumAtoms()))))
+        reordered.append(Chem.MolToSmiles(reverse, canonical=False, isomericSmiles=True))
+    _assert_roundtrips([*inputs, *reordered])
+    assert smiles_to_iupac_batch(inputs) == smiles_to_iupac_batch(reordered)

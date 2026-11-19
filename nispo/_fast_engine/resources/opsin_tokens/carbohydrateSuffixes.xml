@@ -1,0 +1,90 @@
+<!DOCTYPE tokenLists SYSTEM "tokenLists.dtd">
+<tokenLists>
+<!--Indicates a glycoside linkage, maybe be used in conjunction with further suffixes-->
+	<tokenList tagname="suffix" type="root" subType="terminal" symbol="ê">
+		<token value="glycoside">ide|id</token>
+	</tokenList>
+
+<!--cyclic carbohydrate acid suffixes-->
+	<tokenList tagname="suffix" type="root" subType="terminal" symbol="ë">
+		<token value="uronamide">uronamide|uronamid</token><!--Locanted implicitly to end of chain-->
+		<token value="uronate">uronate|uronat</token><!--Locanted implicitly to end of chain-->
+		<token value="uronic acid">uronic acid</token><!--Locanted implicitly to end of chain-->
+		<token value="uronic acid">uronicacid</token><!--Locanted implicitly to end of chain-->
+		<token value="urononitrile">urononitrile|urononitril</token><!--Locanted implicitly to end of chain-->
+		<token value="osonamide" locant="1">onamide|onamid</token>
+		<token value="osonate" locant="1">onate|onat</token>
+		<token value="osonic acid" locant="1">onic acid|onicacid</token>
+		<token value="osononitrile" locant="1">ononitrile|ononitril</token>
+	</tokenList>
+
+<!--default suffix, does not effect structure but required in names-->
+	<tokenList tagname="suffix" type="root" symbol="ð" ignoreWhenWritingXML="yes">
+		<token value="ose">ose|os</token>
+	</tokenList>
+
+<!--acyclic carbohydrate acid suffixes-->
+	<tokenList tagname="suffix" type="root" symbol="í">
+		<token value="arate">arate|arat|arate(2-)|arat(2-)</token>
+		<token value="aric acid">aric acid|aricacid</token>
+		<token value="onamide" locant="1">onamide|onamid</token>
+		<token value="onate" locant="1">onate|onat</token>
+		<token value="onic acid" locant="1">onic acid|onicacid</token>
+		<token value="ononitrile" locant="1">ononitrile|ononitril</token>
+		<token value="osonamide" locant="1">osonamide|osonamid</token>
+		<token value="osonate" locant="1">osonate|osonat</token>
+		<token value="osonic acid" locant="1">osonic acid|osonicacid</token>
+		<token value="osononitrile" locant="1">osononitrile|osononitril</token>
+		<token value="uronamide">uronamide|uronamid</token><!--Locanted implicitly to end of chain-->
+		<token value="uronate">uronate|uronat</token><!--Locanted implicitly to end of chain-->
+		<token value="uronic acid">uronic acid</token><!--Locanted implicitly to end of chain-->
+		<token value="uronic acid">uronicacid</token><!--Locanted implicitly to end of chain-->
+		<token value="urononitrile">urononitrile|urononitril</token><!--Locanted implicitly to end of chain-->
+	</tokenList>
+
+<!--An acid adding infix prior to another suffix e.g. lactone formation, osyl -->
+	<!--for cyclic carbohydrates-->
+	<tokenList tagname="suffix" type="root" symbol="ô">
+		<token value="osonic acid" locant="1">on</token><!--Only applicable to ketoses-->
+		<token value="uronic acid">uron</token><!--Locanted implicitly to end of chain-->
+	</tokenList>
+
+	<!--for acyclic carbohydrates-->
+	<tokenList tagname="suffix" type="root" symbol="ù">
+		<token value="aric acid">ar</token>
+		<token value="onic acid" locant="1">on</token>
+		<token value="osonic acid" locant="1">oson</token>
+		<token value="uronic acid">uron</token><!--Locanted implicitly to end of chain-->
+	</tokenList>
+
+<!--May be used as an infix before cyclisation or an acyclic suffix-->
+	<tokenList tagname="suffix" type="root" symbol="ñ">
+		<token value="dialdose">odiald</token>
+	</tokenList>
+
+<!--Removes aldose functionality, hence may not be cyclised-->
+	<tokenList tagname="suffix" type="root" symbol="ò">
+		<token value="itol">itol</token>
+	</tokenList>
+
+<!--forms ketoses, typically requires a locant-->
+	<tokenList tagname="suffix" type="root" symbol="î">
+		<token value="ulose">ul</token><!--This suffix is intentionally omitted from suffixApplicability as it should be entirely handled by processUloseSuffix-->
+	</tokenList>
+
+<!--as above but does not remove aldose functionality cf. D-arabino-hexos-2-ulose-->
+	<tokenList tagname="suffix" type="root" symbol="ï">
+		<token value="osulose">ul</token>
+	</tokenList>
+
+<!--cyclic carbohydrate glycosyl-->
+	<tokenList tagname="suffix" type="inline" symbol="v">
+		<token value="yl">yl</token>
+	</tokenList>
+
+<!--acyclic carbohydrate acid inline suffixes-->
+	<tokenList tagname="suffix" type="inline" symbol="ó">
+		<token value="onoyl" locant="1">onoyl</token>
+		<token value="uronoyl">uronoyl</token><!--Locanted implicitly to end of chain-->
+	</tokenList>
+</tokenLists>

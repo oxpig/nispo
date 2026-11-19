@@ -11,6 +11,14 @@ Generated fused-template JSON resources in `nispo/resources/` were produced from
 NISPO tooling that used OPSIN-accepted nomenclature/resource information during
 development.
 
+## Bundled NISPO fast engine
+
+The private `nispo/_fast_engine/` package derives from the Python naming writer
+and resources in NISPO 0.1.7. Copyright 2026 Oxford Protein
+Informatics Group. The writer is distributed under the BSD 3-Clause License;
+the full license is provided in `nispo/_fast_engine/LICENSE` and `LICENSE`.
+The included OPSIN-derived resources are covered by the notice below.
+
 ## OPSIN
 
 OPSIN is distributed under the MIT License.

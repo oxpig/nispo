@@ -1,0 +1,2931 @@
+{
+  "scope": "development-only",
+  "broader_panel_used": false,
+  "origin": "Published rule-directed Cartesian graph operations, never panel disagreements.",
+  "cases": [
+    {
+      "id": "conformance-1:001",
+      "workstream": 1,
+      "family": "polyether-threshold",
+      "smiles": "CCOCC",
+      "obligations": {
+        "heterounits": 1,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-threshold"
+      }
+    },
+    {
+      "id": "conformance-1:002",
+      "workstream": 1,
+      "family": "polyether-polyol",
+      "smiles": "OCCOCCO",
+      "obligations": {
+        "heterounits": 1,
+        "replacement_eligible": false,
+        "principal": "alcohol"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-polyol"
+      }
+    },
+    {
+      "id": "conformance-1:003",
+      "workstream": 1,
+      "family": "polyether-diacid",
+      "smiles": "O=C(O)COCC(=O)O",
+      "obligations": {
+        "heterounits": 1,
+        "replacement_eligible": false,
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-diacid"
+      }
+    },
+    {
+      "id": "conformance-1:004",
+      "workstream": 1,
+      "family": "polyether-threshold",
+      "smiles": "CCOCCOCC",
+      "obligations": {
+        "heterounits": 2,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-threshold"
+      }
+    },
+    {
+      "id": "conformance-1:005",
+      "workstream": 1,
+      "family": "polyether-polyol",
+      "smiles": "OCCOCCOCCO",
+      "obligations": {
+        "heterounits": 2,
+        "replacement_eligible": false,
+        "principal": "alcohol"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-polyol"
+      }
+    },
+    {
+      "id": "conformance-1:006",
+      "workstream": 1,
+      "family": "polyether-diacid",
+      "smiles": "O=C(O)COCCOCC(=O)O",
+      "obligations": {
+        "heterounits": 2,
+        "replacement_eligible": false,
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-diacid"
+      }
+    },
+    {
+      "id": "conformance-1:007",
+      "workstream": 1,
+      "family": "polyether-threshold",
+      "smiles": "CCOCCOCCOCC",
+      "obligations": {
+        "heterounits": 3,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-threshold"
+      }
+    },
+    {
+      "id": "conformance-1:008",
+      "workstream": 1,
+      "family": "polyether-polyol",
+      "smiles": "OCCOCCOCCOCCO",
+      "obligations": {
+        "heterounits": 3,
+        "replacement_eligible": false,
+        "principal": "alcohol"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-polyol"
+      }
+    },
+    {
+      "id": "conformance-1:009",
+      "workstream": 1,
+      "family": "polyether-diacid",
+      "smiles": "O=C(O)COCCOCCOCC(=O)O",
+      "obligations": {
+        "heterounits": 3,
+        "replacement_eligible": false,
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-diacid"
+      }
+    },
+    {
+      "id": "conformance-1:010",
+      "workstream": 1,
+      "family": "polyether-threshold",
+      "smiles": "CCOCCOCCOCCOCC",
+      "obligations": {
+        "heterounits": 4,
+        "replacement_eligible": true,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-threshold"
+      }
+    },
+    {
+      "id": "conformance-1:011",
+      "workstream": 1,
+      "family": "polyether-polyol",
+      "smiles": "OCCOCCOCCOCCOCCO",
+      "obligations": {
+        "heterounits": 4,
+        "replacement_eligible": true,
+        "principal": "alcohol"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-polyol"
+      }
+    },
+    {
+      "id": "conformance-1:012",
+      "workstream": 1,
+      "family": "polyether-diacid",
+      "smiles": "O=C(O)COCCOCCOCCOCC(=O)O",
+      "obligations": {
+        "heterounits": 4,
+        "replacement_eligible": true,
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-diacid"
+      }
+    },
+    {
+      "id": "conformance-1:013",
+      "workstream": 1,
+      "family": "polyether-threshold",
+      "smiles": "CCOCCOCCOCCOCCOCC",
+      "obligations": {
+        "heterounits": 5,
+        "replacement_eligible": true,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-threshold"
+      }
+    },
+    {
+      "id": "conformance-1:014",
+      "workstream": 1,
+      "family": "polyether-polyol",
+      "smiles": "OCCOCCOCCOCCOCCOCCO",
+      "obligations": {
+        "heterounits": 5,
+        "replacement_eligible": true,
+        "principal": "alcohol"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-polyol"
+      }
+    },
+    {
+      "id": "conformance-1:015",
+      "workstream": 1,
+      "family": "polyether-diacid",
+      "smiles": "O=C(O)COCCOCCOCCOCCOCC(=O)O",
+      "obligations": {
+        "heterounits": 5,
+        "replacement_eligible": true,
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyether-diacid"
+      }
+    },
+    {
+      "id": "conformance-1:016",
+      "workstream": 1,
+      "family": "disulfide-heterounits",
+      "smiles": "CCSSCCSSCC",
+      "obligations": {
+        "heterounits": 2,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared disulfide-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:017",
+      "workstream": 1,
+      "family": "disulfide-heterounits",
+      "smiles": "CCSSCCSSCCSSCC",
+      "obligations": {
+        "heterounits": 3,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared disulfide-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:018",
+      "workstream": 1,
+      "family": "disulfide-heterounits",
+      "smiles": "CCSSCCSSCCSSCCSSCC",
+      "obligations": {
+        "heterounits": 4,
+        "replacement_eligible": true,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared disulfide-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:019",
+      "workstream": 1,
+      "family": "disulfide-heterounits",
+      "smiles": "CCSSCCSSCCSSCCSSCCSSCC",
+      "obligations": {
+        "heterounits": 5,
+        "replacement_eligible": true,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared disulfide-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:020",
+      "workstream": 1,
+      "family": "dithioxanediyl-heterounits",
+      "smiles": "CCSOSCCSOSCC",
+      "obligations": {
+        "heterounits": 2,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared dithioxanediyl-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:021",
+      "workstream": 1,
+      "family": "dithioxanediyl-heterounits",
+      "smiles": "CCSOSCCSOSCCSOSCC",
+      "obligations": {
+        "heterounits": 3,
+        "replacement_eligible": false,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared dithioxanediyl-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:022",
+      "workstream": 1,
+      "family": "dithioxanediyl-heterounits",
+      "smiles": "CCSOSCCSOSCCSOSCCSOSCC",
+      "obligations": {
+        "heterounits": 4,
+        "replacement_eligible": true,
+        "principal": "none"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared dithioxanediyl-heterounits"
+      }
+    },
+    {
+      "id": "conformance-1:023",
+      "workstream": 1,
+      "family": "symmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCOc2ccc(C(=O)O)cc2)cc1",
+      "obligations": {
+        "multiplicative_eligible": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared symmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-1:024",
+      "workstream": 1,
+      "family": "asymmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCOc2ccc(C(=O)O)cc2F)cc1",
+      "obligations": {
+        "multiplicative_eligible": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared asymmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-1:025",
+      "workstream": 1,
+      "family": "symmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCCOc2ccc(C(=O)O)cc2)cc1",
+      "obligations": {
+        "multiplicative_eligible": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared symmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-1:026",
+      "workstream": 1,
+      "family": "asymmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCCOc2ccc(C(=O)O)cc2F)cc1",
+      "obligations": {
+        "multiplicative_eligible": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared asymmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-1:027",
+      "workstream": 1,
+      "family": "symmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCCCOc2ccc(C(=O)O)cc2)cc1",
+      "obligations": {
+        "multiplicative_eligible": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared symmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-1:028",
+      "workstream": 1,
+      "family": "asymmetric-parent-assemblies",
+      "smiles": "O=C(O)c1ccc(OCCCOc2ccc(C(=O)O)cc2F)cc1",
+      "obligations": {
+        "multiplicative_eligible": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared asymmetric-parent-assemblies"
+      }
+    },
+    {
+      "id": "conformance-2:001",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CC(=O)CC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:002",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CC(O)CN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:003",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCC(=O)CC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:004",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCC(O)CN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:005",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCCC(=O)CC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:006",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCCC(O)CN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:007",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CC(=O)CCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:008",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CC(O)CCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:009",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCC(=O)CCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:010",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCC(O)CCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:011",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCCC(=O)CCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:012",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCCC(O)CCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:013",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CC(=O)CCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:014",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CC(O)CCCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:015",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCC(=O)CCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:016",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCC(O)CCCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:017",
+      "workstream": 2,
+      "family": "acid-ketone-homologues",
+      "smiles": "CCCC(=O)CCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acid-ketone-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:018",
+      "workstream": 2,
+      "family": "alcohol-amine-homologues",
+      "smiles": "CCCC(O)CCCN",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared alcohol-amine-homologues"
+      }
+    },
+    {
+      "id": "conformance-2:019",
+      "workstream": 2,
+      "family": "amino-polyol-chains",
+      "smiles": "NCC(O)CCO",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-chains"
+      }
+    },
+    {
+      "id": "conformance-2:020",
+      "workstream": 2,
+      "family": "amino-polyol-rings",
+      "smiles": "NCC1CC(O)CC(O)C1",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-rings"
+      }
+    },
+    {
+      "id": "conformance-2:021",
+      "workstream": 2,
+      "family": "amino-polyol-chains",
+      "smiles": "NCC(O)CC(O)CCO",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-chains"
+      }
+    },
+    {
+      "id": "conformance-2:022",
+      "workstream": 2,
+      "family": "amino-polyol-rings",
+      "smiles": "NCCC1CC(O)CC(O)C1",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-rings"
+      }
+    },
+    {
+      "id": "conformance-2:023",
+      "workstream": 2,
+      "family": "amino-polyol-chains",
+      "smiles": "NCC(O)CC(O)CC(O)CCO",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-chains"
+      }
+    },
+    {
+      "id": "conformance-2:024",
+      "workstream": 2,
+      "family": "amino-polyol-rings",
+      "smiles": "NCCCC1CC(O)CC(O)C1",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-rings"
+      }
+    },
+    {
+      "id": "conformance-2:025",
+      "workstream": 2,
+      "family": "amino-polyol-chains",
+      "smiles": "NCC(O)CC(O)CC(O)CC(O)CCO",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 5
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-chains"
+      }
+    },
+    {
+      "id": "conformance-2:026",
+      "workstream": 2,
+      "family": "amino-polyol-rings",
+      "smiles": "NCCCCC1CC(O)CC(O)C1",
+      "obligations": {
+        "principal": "alcohol",
+        "principal_count": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared amino-polyol-rings"
+      }
+    },
+    {
+      "id": "conformance-3:001",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1C2CC12",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          3,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:002",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CC2CC12",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          3,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:003",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CC2CC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          3,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:004",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CCC2CC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          3,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:005",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CC2CCC12",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          4,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:006",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CC2CCC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          4,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:007",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CCC2CCC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          4,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:008",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CC2CCCC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          5,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:009",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CCC2CCCC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          5,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:010",
+      "workstream": 3,
+      "family": "declared-fused",
+      "smiles": "C1CCC2CCCCC2C1",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          6,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-fused"
+      }
+    },
+    {
+      "id": "conformance-3:011",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CC12CC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          3,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:012",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CC2(C1)CC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          3,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:013",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(C1)CC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          3,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:014",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(CC1)CC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          3,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:015",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CC2(C1)CCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          4,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:016",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(C1)CCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          4,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:017",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(CC1)CCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          4,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:018",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(C1)CCCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          5,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:019",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(CC1)CCCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          5,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:020",
+      "workstream": 3,
+      "family": "declared-spiro",
+      "smiles": "C1CCC2(CC1)CCCCC2",
+      "obligations": {
+        "topology": "spiro",
+        "sizes": [
+          6,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-spiro"
+      }
+    },
+    {
+      "id": "conformance-3:021",
+      "workstream": 3,
+      "family": "declared-assembly",
+      "smiles": "C1CC1C1CC1",
+      "obligations": {
+        "topology": "assembly",
+        "sizes": [
+          3,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-assembly"
+      }
+    },
+    {
+      "id": "conformance-3:022",
+      "workstream": 3,
+      "family": "declared-assembly",
+      "smiles": "C1CC(C2CCC2)C1",
+      "obligations": {
+        "topology": "assembly",
+        "sizes": [
+          4,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-assembly"
+      }
+    },
+    {
+      "id": "conformance-3:023",
+      "workstream": 3,
+      "family": "declared-assembly",
+      "smiles": "C1CCC(C2CCCC2)C1",
+      "obligations": {
+        "topology": "assembly",
+        "sizes": [
+          5,
+          5
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-assembly"
+      }
+    },
+    {
+      "id": "conformance-3:024",
+      "workstream": 3,
+      "family": "declared-assembly",
+      "smiles": "C1CCC(C2CCCCC2)CC1",
+      "obligations": {
+        "topology": "assembly",
+        "sizes": [
+          6,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-assembly"
+      }
+    },
+    {
+      "id": "conformance-3:025",
+      "workstream": 3,
+      "family": "declared-bridged",
+      "smiles": "C1C2CC1C2",
+      "obligations": {
+        "topology": "bridged",
+        "bridges": [
+          1,
+          1,
+          1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-bridged"
+      }
+    },
+    {
+      "id": "conformance-3:026",
+      "workstream": 3,
+      "family": "declared-bridged",
+      "smiles": "C1CC2CCC1C2",
+      "obligations": {
+        "topology": "bridged",
+        "bridges": [
+          2,
+          2,
+          1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-bridged"
+      }
+    },
+    {
+      "id": "conformance-3:027",
+      "workstream": 3,
+      "family": "declared-bridged",
+      "smiles": "C1CC2CCC(C1)C2",
+      "obligations": {
+        "topology": "bridged",
+        "bridges": [
+          3,
+          2,
+          1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-bridged"
+      }
+    },
+    {
+      "id": "conformance-3:028",
+      "workstream": 3,
+      "family": "declared-bridged",
+      "smiles": "C1CC2CCCC(C1)CC2",
+      "obligations": {
+        "topology": "bridged",
+        "bridges": [
+          3,
+          3,
+          2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared declared-bridged"
+      }
+    },
+    {
+      "id": "conformance-3:029",
+      "workstream": 3,
+      "family": "aromatic-edge-fusion",
+      "smiles": "c1ccc2c(c1)C2",
+      "obligations": {
+        "topology": "fused",
+        "sizes": [
+          3,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared aromatic-edge-fusion"
+      }
+    },
+    {
+      "id": "conformance-3:030",
+      "workstream": 3,
+      "family": "aromatic-ring-assembly",
+      "smiles": "c1ccc(-c2ccccc2)cc1",
+      "obligations": {
+        "topology": "assembly",
+        "sizes": [
+          6,
+          6
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared aromatic-ring-assembly"
+      }
+    },
+    {
+      "id": "conformance-4:001",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "COC=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 1,
+        "alcohol_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:002",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCOC=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 1,
+        "alcohol_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:003",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCOC=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 1,
+        "alcohol_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:004",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "COC(C)=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 2,
+        "alcohol_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:005",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCOC(C)=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 2,
+        "alcohol_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:006",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCOC(C)=O",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 2,
+        "alcohol_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:007",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCC(=O)OC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 3,
+        "alcohol_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:008",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCOC(=O)CC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 3,
+        "alcohol_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:009",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCOC(=O)CC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 3,
+        "alcohol_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:010",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCC(=O)OC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 4,
+        "alcohol_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:011",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCC(=O)OCC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 4,
+        "alcohol_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:012",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCOC(=O)CCC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 4,
+        "alcohol_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:013",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCCC(=O)OC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 5,
+        "alcohol_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:014",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCCC(=O)OCC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 5,
+        "alcohol_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:015",
+      "workstream": 4,
+      "family": "ester-homologues",
+      "smiles": "CCCCC(=O)OCCC",
+      "obligations": {
+        "principal": "ester",
+        "acid_carbons": 5,
+        "alcohol_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:016",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "O=CF",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:017",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "O=CCl",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:018",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "O=CBr",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 1
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:019",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CC(=O)F",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:020",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:021",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CC(=O)Br",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:022",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCC(=O)F",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:023",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:024",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCC(=O)Br",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:025",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCC(=O)F",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:026",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:027",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCC(=O)Br",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:028",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCCC(=O)F",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 5
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:029",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCCC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 5
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:030",
+      "workstream": 4,
+      "family": "acyl-halide-homologues",
+      "smiles": "CCCCC(=O)Br",
+      "obligations": {
+        "principal": "acid-halide",
+        "acid_carbons": 5
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:031",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "O=COC=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          1,
+          1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:032",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CC(=O)OC=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          1,
+          2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:033",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCC(=O)OC=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          1,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:034",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCCC(=O)OC=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          1,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:035",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CC(=O)OC(C)=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          2,
+          2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:036",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCC(=O)OC(C)=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          2,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:037",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCCC(=O)OC(C)=O",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          2,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:038",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCC(=O)OC(=O)CC",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          3,
+          3
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:039",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCCC(=O)OC(=O)CC",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          3,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:040",
+      "workstream": 4,
+      "family": "anhydride-homologues",
+      "smiles": "CCCC(=O)OC(=O)CCC",
+      "obligations": {
+        "principal": "anhydride",
+        "acid_carbons": [
+          4,
+          4
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared anhydride-homologues"
+      }
+    },
+    {
+      "id": "conformance-4:041",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CC(=O)OCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:042",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCC(=O)OCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:043",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCCC(=O)OCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:044",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CC(=O)OCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:045",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCC(=O)OCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:046",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCCC(=O)OCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:047",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CC(=O)OCCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 2
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:048",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCC(=O)OCCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:049",
+      "workstream": 4,
+      "family": "ester-prefix-with-senior-acid",
+      "smiles": "CCCC(=O)OCCCC(=O)O",
+      "obligations": {
+        "principal": "acid",
+        "acyl_carbons": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-prefix-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:050",
+      "workstream": 4,
+      "family": "acyl-halide-with-senior-acid",
+      "smiles": "O=C(O)CC(=O)Cl",
+      "obligations": {
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:051",
+      "workstream": 4,
+      "family": "ester-with-nitrile",
+      "smiles": "CCOC(=O)CC#N",
+      "obligations": {
+        "principal": "ester",
+        "bounded_class_route": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-with-nitrile"
+      }
+    },
+    {
+      "id": "conformance-4:052",
+      "workstream": 4,
+      "family": "acyl-halide-with-ketone",
+      "smiles": "CC(=O)CC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-ketone"
+      }
+    },
+    {
+      "id": "conformance-4:053",
+      "workstream": 4,
+      "family": "acyl-halide-with-senior-acid",
+      "smiles": "O=C(O)CCC(=O)Cl",
+      "obligations": {
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:054",
+      "workstream": 4,
+      "family": "ester-with-nitrile",
+      "smiles": "CCOC(=O)CCC#N",
+      "obligations": {
+        "principal": "ester",
+        "bounded_class_route": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-with-nitrile"
+      }
+    },
+    {
+      "id": "conformance-4:055",
+      "workstream": 4,
+      "family": "acyl-halide-with-ketone",
+      "smiles": "CCC(=O)CC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-ketone"
+      }
+    },
+    {
+      "id": "conformance-4:056",
+      "workstream": 4,
+      "family": "acyl-halide-with-senior-acid",
+      "smiles": "O=C(O)CCCC(=O)Cl",
+      "obligations": {
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:057",
+      "workstream": 4,
+      "family": "ester-with-nitrile",
+      "smiles": "CCOC(=O)CCCC#N",
+      "obligations": {
+        "principal": "ester",
+        "bounded_class_route": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-with-nitrile"
+      }
+    },
+    {
+      "id": "conformance-4:058",
+      "workstream": 4,
+      "family": "acyl-halide-with-ketone",
+      "smiles": "CCCC(=O)CC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-ketone"
+      }
+    },
+    {
+      "id": "conformance-4:059",
+      "workstream": 4,
+      "family": "acyl-halide-with-senior-acid",
+      "smiles": "O=C(O)CCCCC(=O)Cl",
+      "obligations": {
+        "principal": "acid"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-senior-acid"
+      }
+    },
+    {
+      "id": "conformance-4:060",
+      "workstream": 4,
+      "family": "ester-with-nitrile",
+      "smiles": "CCOC(=O)CCCCC#N",
+      "obligations": {
+        "principal": "ester",
+        "bounded_class_route": false
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared ester-with-nitrile"
+      }
+    },
+    {
+      "id": "conformance-4:061",
+      "workstream": 4,
+      "family": "acyl-halide-with-ketone",
+      "smiles": "CCCCC(=O)CC(=O)Cl",
+      "obligations": {
+        "principal": "acid-halide"
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared acyl-halide-with-ketone"
+      }
+    },
+    {
+      "id": "conformance-5:001",
+      "workstream": 5,
+      "family": "organic-1-to-1-salts",
+      "smiles": "C[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-1-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:002",
+      "workstream": 5,
+      "family": "organic-2-to-1-salts",
+      "smiles": "C[NH3+].C[NH3+].O=S(=O)([O-])[O-]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:003",
+      "workstream": 5,
+      "family": "partial-polyamine-protonation",
+      "smiles": "NC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyamine-protonation"
+      }
+    },
+    {
+      "id": "conformance-5:004",
+      "workstream": 5,
+      "family": "partial-polyacid-neutralization",
+      "smiles": "O=C([O-])CC(=O)O.[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyacid-neutralization"
+      }
+    },
+    {
+      "id": "conformance-5:005",
+      "workstream": 5,
+      "family": "inorganic-2-to-1-salts",
+      "smiles": "O=C([O-])CC(=O)[O-].[Na+].[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:006",
+      "workstream": 5,
+      "family": "inorganic-1-to-2-salts",
+      "smiles": "CC(=O)[O-].CC(=O)[O-].[Ca+2]",
+      "obligations": {
+        "charges": [
+          2,
+          -1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-1-to-2-salts"
+      }
+    },
+    {
+      "id": "conformance-5:007",
+      "workstream": 5,
+      "family": "organic-1-to-1-salts",
+      "smiles": "CC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-1-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:008",
+      "workstream": 5,
+      "family": "organic-2-to-1-salts",
+      "smiles": "CC[NH3+].CC[NH3+].O=S(=O)([O-])[O-]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:009",
+      "workstream": 5,
+      "family": "partial-polyamine-protonation",
+      "smiles": "NCC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyamine-protonation"
+      }
+    },
+    {
+      "id": "conformance-5:010",
+      "workstream": 5,
+      "family": "partial-polyacid-neutralization",
+      "smiles": "O=C([O-])CCC(=O)O.[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyacid-neutralization"
+      }
+    },
+    {
+      "id": "conformance-5:011",
+      "workstream": 5,
+      "family": "inorganic-2-to-1-salts",
+      "smiles": "O=C([O-])CCC(=O)[O-].[Na+].[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:012",
+      "workstream": 5,
+      "family": "inorganic-1-to-2-salts",
+      "smiles": "CCC(=O)[O-].CCC(=O)[O-].[Ca+2]",
+      "obligations": {
+        "charges": [
+          2,
+          -1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-1-to-2-salts"
+      }
+    },
+    {
+      "id": "conformance-5:013",
+      "workstream": 5,
+      "family": "organic-1-to-1-salts",
+      "smiles": "CCC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-1-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:014",
+      "workstream": 5,
+      "family": "organic-2-to-1-salts",
+      "smiles": "CCC[NH3+].CCC[NH3+].O=S(=O)([O-])[O-]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:015",
+      "workstream": 5,
+      "family": "partial-polyamine-protonation",
+      "smiles": "NCCC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyamine-protonation"
+      }
+    },
+    {
+      "id": "conformance-5:016",
+      "workstream": 5,
+      "family": "partial-polyacid-neutralization",
+      "smiles": "O=C([O-])CCCC(=O)O.[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyacid-neutralization"
+      }
+    },
+    {
+      "id": "conformance-5:017",
+      "workstream": 5,
+      "family": "inorganic-2-to-1-salts",
+      "smiles": "O=C([O-])CCCC(=O)[O-].[Na+].[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:018",
+      "workstream": 5,
+      "family": "inorganic-1-to-2-salts",
+      "smiles": "CCCC(=O)[O-].CCCC(=O)[O-].[Ca+2]",
+      "obligations": {
+        "charges": [
+          2,
+          -1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-1-to-2-salts"
+      }
+    },
+    {
+      "id": "conformance-5:019",
+      "workstream": 5,
+      "family": "organic-1-to-1-salts",
+      "smiles": "CCCC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-1-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:020",
+      "workstream": 5,
+      "family": "organic-2-to-1-salts",
+      "smiles": "CCCC[NH3+].CCCC[NH3+].O=S(=O)([O-])[O-]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared organic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:021",
+      "workstream": 5,
+      "family": "partial-polyamine-protonation",
+      "smiles": "NCCCC[NH3+].[Cl-]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyamine-protonation"
+      }
+    },
+    {
+      "id": "conformance-5:022",
+      "workstream": 5,
+      "family": "partial-polyacid-neutralization",
+      "smiles": "O=C([O-])CCCCC(=O)O.[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared partial-polyacid-neutralization"
+      }
+    },
+    {
+      "id": "conformance-5:023",
+      "workstream": 5,
+      "family": "inorganic-2-to-1-salts",
+      "smiles": "O=C([O-])CCCCC(=O)[O-].[Na+].[Na+]",
+      "obligations": {
+        "charges": [
+          1,
+          1,
+          -2
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-2-to-1-salts"
+      }
+    },
+    {
+      "id": "conformance-5:024",
+      "workstream": 5,
+      "family": "inorganic-1-to-2-salts",
+      "smiles": "CCCCC(=O)[O-].CCCCC(=O)[O-].[Ca+2]",
+      "obligations": {
+        "charges": [
+          2,
+          -1,
+          -1
+        ]
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared inorganic-1-to-2-salts"
+      }
+    },
+    {
+      "id": "conformance-6:001",
+      "workstream": 6,
+      "family": "polyol-suffix-vowels",
+      "smiles": "OCC(O)CO",
+      "obligations": {
+        "suffix_count": 3
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyol-suffix-vowels"
+      }
+    },
+    {
+      "id": "conformance-6:002",
+      "workstream": 6,
+      "family": "polyol-suffix-vowels",
+      "smiles": "OCC(O)CC(O)CO",
+      "obligations": {
+        "suffix_count": 4
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyol-suffix-vowels"
+      }
+    },
+    {
+      "id": "conformance-6:003",
+      "workstream": 6,
+      "family": "polyol-suffix-vowels",
+      "smiles": "OCC(O)CC(O)CC(O)CO",
+      "obligations": {
+        "suffix_count": 5
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyol-suffix-vowels"
+      }
+    },
+    {
+      "id": "conformance-6:004",
+      "workstream": 6,
+      "family": "polyol-suffix-vowels",
+      "smiles": "OCC(O)CC(O)CC(O)CC(O)CO",
+      "obligations": {
+        "suffix_count": 6
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyol-suffix-vowels"
+      }
+    },
+    {
+      "id": "conformance-6:005",
+      "workstream": 6,
+      "family": "polyol-suffix-vowels",
+      "smiles": "OCC(O)CC(O)CC(O)CC(O)CC(O)CO",
+      "obligations": {
+        "suffix_count": 7
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared polyol-suffix-vowels"
+      }
+    },
+    {
+      "id": "conformance-6:006",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "C[C@H](O)CO",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:007",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "C[C@@H](O)CO",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:008",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "[13CH3]C(O)CO",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:009",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "[2H]OC[C@@H](C)O",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:010",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "C/C=C/CO",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:011",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "C/C=C\\CO",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:012",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "COC(=O)[C@@H](C)O",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    },
+    {
+      "id": "conformance-6:013",
+      "workstream": 6,
+      "family": "annotation-writing",
+      "smiles": "COC(=O)[13CH2]O",
+      "obligations": {
+        "preserve_annotations": true
+      },
+      "source": {
+        "kind": "independent-control",
+        "evaluation_only": false,
+        "reference": "development/build_conformance_controls.py: declared annotation-writing"
+      }
+    }
+  ]
+}

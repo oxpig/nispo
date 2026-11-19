@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from functools import lru_cache
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .acyclic.rules import (
     _bond_key,
     _path_substituent_prefixes,
@@ -18,6 +19,7 @@ from .branch.functional_groups import _is_nitrile_carbon
 from .branch.hetero_atoms import _imine_carbon_ylidene
 from .candidate_facts import (
     CandidateSafety,
+    PrefixCandidate,
     ChargeEvidence,
     HydrogenEvidence,
     OPSIN_FRAGILE_CHARGED_REPLACEMENT_UNSATURATION,
@@ -28,10 +30,12 @@ from .candidate_facts import (
     StereoEvidence,
     SuffixCandidate,
 )
-from .constants import HALO, MULT, ROOTS
+from .constants import HALO, MULT, ROOTS, ROOT_LENGTHS
 from .cycle_utils import ordered_ring, ring_system_extends_core
 from .formatting import format_prefixes as _format_prefixes
+from .formatting import complete_parent_name as _complete_parent_name
 from .formatting import join_prefix_parent as _join_prefix_parent
+from .formatting import prefix_alphabetization_key as _prefix_alphabetization_key
 from .formatting import loc_unsat
 from .formatting import preferred_parent_stem as _preferred_parent_stem
 from .formatting import unsaturated_parent as _unsaturated_parent
@@ -59,6 +63,7 @@ from .ring_rules import (
 from .branch.ring_substituents import _ring_substituent_prefix
 from .spiro_component_rules import component_spiro_parent_candidates
 from .template_store import template_store
+from .retained_composition import RetainedComponentCompositionRule
 from .rule_dispatch import (
     RuleSpec,
     acyclic,
@@ -120,9 +125,10 @@ from .engine_flags import (
 )
 from .rule_engine import NameCandidate
 from .simple_prefixes import simple_external_prefix
-from .stereochemistry import assigned_atom_stereochemistry
+from .stereochemistry import _indexed_bond_stereochemistry, assigned_atom_stereochemistry
 from .sulfur_oxo_rules import SulfurOxoRetainedParentRule
 from .template_access import template_record_locants, template_record_mol, template_record_name
+from .template_match_utils import match_preserves_formal_charges
 from .template_index import ring_system_with_graph_signatures
 
 
@@ -171,7 +177,7 @@ def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
 
 
 def _acyclic_carbohydrate_retained_name(mol, Chem) -> str:
-    if any(atom.GetAtomicNum() not in {6, 8} for atom in mol.GetAtoms()):
+    if any(atom.GetAtomicNum() not in {6, 8} for atom in iter_atoms(mol)):
         return ""
     path = _linear_carbon_chain_path(mol, Chem)
     if len(path) != 5:
@@ -205,12 +211,12 @@ def _acyclic_carbohydrate_retained_stereo_locants(mol, Chem) -> tuple[tuple[int,
 
 
 def _linear_carbon_chain_path(mol, Chem) -> tuple[int, ...]:
-    carbon_atoms = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6]
+    carbon_atoms = [atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() == 6]
     if len(carbon_atoms) < 2:
         return ()
     carbon_set = set(carbon_atoms)
     neighbors: dict[int, list[int]] = {idx: [] for idx in carbon_atoms}
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtom()
         end = bond.GetEndAtom()
         if begin.GetAtomicNum() != 6 or end.GetAtomicNum() != 6:
@@ -337,6 +343,7 @@ class AcyclicParentRule:
                 self.priority,
                 parent_atoms=_heavy_atom_indices(mol),
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
                 estimated_length=len(name),
             )
 
@@ -441,7 +448,7 @@ class SmallInorganicRetainedParentRule:
 def _small_element_oxide_name(mol, Chem) -> str:
     if mol.GetNumAtoms() != 2:
         return ""
-    atoms = list(mol.GetAtoms())
+    atoms = list(iter_atoms(mol))
     oxygen_atoms = [atom for atom in atoms if atom.GetSymbol() == "O" and atom.GetFormalCharge() == 0]
     if len(oxygen_atoms) != 1:
         return ""
@@ -464,7 +471,7 @@ def _nitryl_halide_name(mol, Chem) -> str:
         return ""
     nitrogen_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == 1 and not atom.IsInRing()
     ]
     if len(nitrogen_atoms) != 1:
@@ -494,12 +501,12 @@ def _sulfonylamide_name(mol, Chem) -> str:
         return ""
     nitrogen_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
     ]
     sulfur_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     ]
     if len(nitrogen_atoms) != 1 or len(sulfur_atoms) != 1:
@@ -529,7 +536,7 @@ def _sulfonylamide_name(mol, Chem) -> str:
 def _sulfonyl_azanide_name(mol, Chem) -> str:
     nitrogen_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
     ]
     if len(nitrogen_atoms) != 1:
@@ -620,7 +627,7 @@ def _sulfonyl_azanide_unit(mol, Chem, sulfur_idx: int, nitrogen_idx: int) -> tup
 def _small_sulfur_imide_name(mol, Chem) -> str:
     sulfur_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     ]
     if len(sulfur_atoms) != 1:
@@ -683,7 +690,7 @@ def _small_sulfur_imide_name(mol, Chem) -> str:
 def _small_lambda_sulfur_parent_name(mol, Chem) -> str:
     sulfur_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     ]
     if len(sulfur_atoms) != 1:
@@ -693,6 +700,7 @@ def _small_lambda_sulfur_parent_name(mol, Chem) -> str:
     double_oxygen = 0
     double_nitrogen = 0
     owners = []
+    owner_roots = []
     covered = {sidx}
     for nbr in sulfur.GetNeighbors():
         nidx = nbr.GetIdx()
@@ -712,6 +720,7 @@ def _small_lambda_sulfur_parent_name(mol, Chem) -> str:
             if not _lambda_sulfur_owner_supported(owner):
                 return ""
             owners.append(owner)
+            owner_roots.append(nidx)
             covered.update(_collect_component_atoms(mol, nidx, sidx))
         else:
             return ""
@@ -725,6 +734,13 @@ def _small_lambda_sulfur_parent_name(mol, Chem) -> str:
     if valence not in {4, 6}:
         return ""
     owner_prefix = _lambda_sulfur_owner_prefix(owners)
+    if len(owners) > 1 and len(set(owners)) == 1:
+        from .organyl_prefix_components import multiplied_organyl_prefix
+        root = owner_roots[0]
+        typed = multiplied_organyl_prefix(
+            mol, root, _collect_component_atoms(mol, root, sidx), owners[0], len(owners))
+        if typed is not None:
+            owner_prefix = typed
     if not owner_prefix:
         return ""
     if double_oxygen == 1:
@@ -742,6 +758,7 @@ def _lambda_sulfur_owner_supported(name: str) -> bool:
         "isopropyl",
         "butyl",
         "isobutyl",
+        "2-methylpropyl",
         "t-butyl",
         "tert-butyl",
         "cyclopropyl",
@@ -768,6 +785,8 @@ def _lambda_sulfur_owner_supported(name: str) -> bool:
         name,
     ):
         return True
+    if re.fullmatch(rf"\((?:\d+(?:,\d+)*-{aryl_substituent})+phenyl\)methyl",name):
+        return True
     if name.endswith("phenyl") and re.fullmatch(
         rf"(?:\d+(?:,\d+)*-{aryl_substituent})*phenyl",
         name,
@@ -776,7 +795,7 @@ def _lambda_sulfur_owner_supported(name: str) -> bool:
     return bool(
         re.fullmatch(
             r"(?:\d+-)?(?:furyl|thienyl|pyrrolyl|imidazolyl|pyrazolyl)|"
-            r"(?:pyridin|pyrimidin|pyrazin|pyridazin|quinolin|isoquinolin|quinazolin|quinoxalin|benzimidazol|benzoxazol|benzothiazol|indol)-\d+-yl",
+            r"(?:furan|thiophen|pyridin|pyrimidin|pyrazin|pyridazin|quinolin|isoquinolin|quinazolin|quinoxalin|benzimidazol|benzoxazol|benzothiazol|indol)-\d+-yl",
             name,
         )
     )
@@ -1040,7 +1059,7 @@ class SulfaniumParentRule:
         atom_set = set(range(mol.GetNumAtoms()))
         sulfur_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "S" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(sulfur_atoms) == 2:
@@ -1099,7 +1118,7 @@ def _sulfanium_ligand_component_has_nitrile(mol, ligand_idx: int, sulfur_idx: in
 
 
 def _bis_sulfonium_alkane_or_arene_name(mol, Chem, sulfur_idxs: Sequence[int]) -> str:
-    if len(sulfur_idxs) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 2:
+    if len(sulfur_idxs) != 2 or sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != 2:
         return ""
     first_s, second_s = sulfur_idxs
     path = tuple(Chem.rdmolops.GetShortestPath(mol, first_s, second_s))
@@ -1263,7 +1282,7 @@ class BisSulfoniumSulfideRetainedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         atom_set = set(range(mol.GetNumAtoms()))
-        for sulfur in mol.GetAtoms():
+        for sulfur in iter_atoms(mol):
             sidx = sulfur.GetIdx()
             if (
                 sulfur.GetSymbol() != "S"
@@ -1331,7 +1350,7 @@ class DithiocarbamateRetainedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         atom_set = set(range(mol.GetNumAtoms()))
-        for nitrogen in mol.GetAtoms():
+        for nitrogen in iter_atoms(mol):
             nidx = nitrogen.GetIdx()
             if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
                 continue
@@ -1370,7 +1389,7 @@ class DithiocarbonateRetainedParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         atom_set = set(range(mol.GetNumAtoms()))
-        for carbon in mol.GetAtoms():
+        for carbon in iter_atoms(mol):
             if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
                 continue
             record = _dithiocarbonate_record(mol, self._Chem, carbon.GetIdx())
@@ -1420,7 +1439,7 @@ class PhosphaniumParentRule:
         mol = ctx.mol
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) == 2:
@@ -1491,11 +1510,11 @@ class BisPhosphinoAmineRetainedParentRule:
 
 
 def _bis_phosphino_amine_names(mol, Chem) -> list[str]:
-    if sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 0:
+    if sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != 0:
         return []
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
             continue
         if nitrogen.GetTotalNumHs() != 0:
@@ -1589,7 +1608,7 @@ def _stable_bis_phosphino_amine_substituent(name: str) -> bool:
 
 
 def _bis_phosphonio_alkane_name(mol, Chem, phosphorus_idxs: Sequence[int]) -> str:
-    if len(phosphorus_idxs) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 2:
+    if len(phosphorus_idxs) != 2 or sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != 2:
         return ""
     first_p, second_p = phosphorus_idxs
     path = tuple(Chem.rdmolops.GetShortestPath(mol, first_p, second_p))
@@ -1685,7 +1704,7 @@ class PhosphanyliumOxideParentRule:
         atom_set = set(range(atom_count))
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -1823,7 +1842,7 @@ class PhosphanyliumIminoParentRule:
         atom_set = set(range(atom_count))
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -1907,7 +1926,7 @@ class PhosphanyliumYlideneParentRule:
         atom_set = set(range(atom_count))
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -1943,7 +1962,7 @@ class PhosphanyliumYlideneParentRule:
                     return
                 ylidene.append((nidx, ylidene_text))
             elif bond.GetBondType() == self._Chem.BondType.SINGLE and nbr.GetAtomicNum() > 1 and nbr.GetFormalCharge() == 0:
-                ligand = _phosphanylium_ylidene_ligand_text(mol, nidx, pidx)
+                ligand = _phosphanylium_ylidene_ligand_text(mol, self._Chem, nidx, pidx)
                 if not ligand:
                     return
                 ligands.append((nidx, ligand))
@@ -1972,14 +1991,25 @@ class PhosphanyliumYlideneParentRule:
         )
 
 
-def _phosphanylium_ylidene_ligand_text(mol, ligand_idx: int, phosphorus_idx: int) -> str:
+def _phosphanylium_ylidene_ligand_text(mol, Chem, ligand_idx: int, phosphorus_idx: int) -> str:
     ligand = mol.GetAtomWithIdx(ligand_idx)
     if ligand.GetFormalCharge() != 0:
         return ""
     if ligand.GetSymbol() in HALO and _heavy_degree_excluding(mol, ligand_idx, phosphorus_idx) == 0:
         return HALO[ligand.GetSymbol()]
     text = _strip_outer_parentheses(_simple_or_branch_prefix(mol, ligand_idx, phosphorus_idx))
-    return text if _stable_phosphanylium_ylidene_ligand(text) else ""
+    if _stable_phosphanylium_ylidene_ligand(text):
+        return text
+    if not any(mark in text for mark in "[]{}") or not _stable_phosphanylium_ylidene_ligand(
+            text, mapped_enclosures=True):
+        return ""
+    from .component_mapping import mapped_branch
+
+    mapped_text, owned = mapped_branch(mol, Chem, ligand_idx, phosphorus_idx)
+    if (_strip_outer_parentheses(mapped_text) == text
+            and owned == frozenset(_collect_component_atoms(mol, ligand_idx, phosphorus_idx))):
+        return text
+    return ""
 
 
 def _phosphanylium_ylidene_text(mol, Chem, carbon_idx: int, phosphorus_idx: int) -> str:
@@ -2070,14 +2100,18 @@ def _phosphanylium_carbonyl_oxygen_owner(mol, oxygen_idx: int, carbonyl_idx: int
     return text if _stable_phosphanylium_ylidene_ligand(text) else ""
 
 
-def _stable_phosphanylium_ylidene_ligand(name: str) -> bool:
+def _stable_phosphanylium_ylidene_ligand(name: str, *, mapped_enclosures=False) -> bool:
     if not name or len(name) > 96:
         return False
     if _unstable_retained_functional_parent_substituent(name):
         return False
-    if " " in name or "[" in name or "]" in name:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+    if mapped_enclosures:
+        from .prefix_presentation import is_balanced_name_unit
+
+        if not is_balanced_name_unit(name):
+            return False
+    pattern = r"[A-Za-z0-9,()'\-\[\]{}]+" if mapped_enclosures else r"[A-Za-z0-9,()'\-]+"
+    if not re.fullmatch(pattern, name):
         return False
     if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea", "azanid")):
         return False
@@ -2187,7 +2221,7 @@ class AzaniumParentRule:
         mol = ctx.mol
         nitrogen_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0 and not atom.IsInRing()
         ]
         if len(nitrogen_atoms) != 1:
@@ -2272,7 +2306,7 @@ def _azanium_hydrocarbon_ligand_kind(mol, Chem, attach_idx: int, nitrogen_idx: i
         for idx in component
     ):
         return ""
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         if begin in component and end in component and bond.GetBondType() != Chem.BondType.SINGLE:
@@ -2297,7 +2331,7 @@ class NeutralAmineParentRule:
         mol = ctx.mol
         nitrogen_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "N"
             and atom.GetFormalCharge() == 0
             and not atom.IsInRing()
@@ -2348,7 +2382,7 @@ class HydrazineParentRule:
         mol = ctx.mol
         nitrogen_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "N"
             and atom.GetFormalCharge() == 0
             and not atom.IsInRing()
@@ -2365,6 +2399,8 @@ class HydrazineParentRule:
             return
         names_by_side: list[tuple[str, list[str]]] = []
         covered = {left_idx, right_idx}
+        from .locant_presentation import SubstitutionSite, substitution_locant_presentation
+        substitutions = []
         for locant, nidx in (("1", left_idx), ("2", right_idx)):
             names: list[str] = []
             for nbr in mol.GetAtomWithIdx(nidx).GetNeighbors():
@@ -2374,19 +2410,29 @@ class HydrazineParentRule:
                 bond_to_n = mol.GetBondBetweenAtoms(nidx, nbr_idx)
                 if bond_to_n is None or bond_to_n.GetBondType() != self._Chem.BondType.SINGLE:
                     return
-                if nbr.GetSymbol() not in {"C", "Si"}:
+                halogen = {"F":"fluoro","Cl":"chloro","Br":"bromo","I":"iodo"}.get(nbr.GetSymbol())
+                if nbr.GetSymbol() not in {"C", "Si"} and not halogen:
                     return
                 if _is_carbonyl_neighbor(mol, nbr_idx, nidx):
                     return
-                prefix = _simple_or_branch_prefix(mol, nbr_idx, nidx)
+                prefix = halogen or _simple_or_branch_prefix(mol, nbr_idx, nidx)
                 if not prefix:
                     return
                 names.append(prefix)
-                covered.update(_collect_component_atoms(mol, nbr_idx, nidx))
+                atoms = frozenset(_collect_component_atoms(mol, nbr_idx, nidx))
+                covered.update(atoms)
+                substitutions.append(SubstitutionSite(nidx,nbr_idx,atoms,prefix))
             names_by_side.append((locant, names))
         if covered != set(range(mol.GetNumAtoms())):
             return
-        name = _hydrazine_parent_name(names_by_side)
+        omission = substitution_locant_presentation(mol,self._Chem,
+            ((left_idx,'1'),(right_idx,'2')),substitutions)
+        if omission is not None:
+            from .formatting import format_prefixes
+            name = format_prefixes([('',sub.text) for sub in substitutions],omit_locants=True,
+                                   separate_unlocanted=True)+'hydrazine'
+        else:
+            name = _hydrazine_parent_name(names_by_side)
         if name:
             yield NameCandidate(
                 name,
@@ -2416,27 +2462,14 @@ def _hydrazine_parent_name(names_by_side: Sequence[tuple[str, Sequence[str]]]) -
         return "hydrazine"
     if len(occupied) == 1 and occupied[0][0] == "2":
         occupied = [("1", occupied[0][1])]
-    pieces: list[str] = []
-    grouped: dict[str, list[str]] = {}
-    for locant, names in occupied:
-        for name in names:
-            grouped.setdefault(name, []).append(locant)
-    for name, locants in sorted(grouped.items(), key=lambda item: (_strip_outer_parentheses(item[0]), item[1])):
-        bare = _strip_outer_parentheses(name)
-        locant_text = ",".join(sorted(locants, key=int))
-        if len(locants) == 1:
-            pieces.append(f"{locant_text}-{bare}")
-            continue
-        multiplier = MULT.get(len(locants), "")
-        if not multiplier:
-            return ""
-        if _simple_unparenthesized_n_substituent(bare):
-            pieces.append(f"{locant_text}-{multiplier}{bare}")
-        elif multiplier == "di":
-            pieces.append(f"{locant_text}-bis({bare})")
-        else:
-            pieces.append(f"{locant_text}-{multiplier}({bare})")
-    return "-".join(pieces) + "hydrazine" if pieces else ""
+    from .formatting import format_prefixes
+    # A hydrazine attachment locant precedes the complete substituent. Its
+    # own stereodescriptors, locants and internal substituents must stay
+    # enclosed together; stripping them produced 1-(3R)-...ylhydrazine.
+    text = format_prefixes([(locant, _strip_outer_parentheses(name))
+                            for locant, names in occupied for name in names],
+                           hierarchical_enclosures=True)
+    return text + "hydrazine" if text else ""
 
 
 PNICTOGEN_HYDRIDE_PARENTS = {
@@ -2475,7 +2508,7 @@ class Group14HydrideParentRule:
         mol = ctx.mol
         centers = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() in GROUP14_HYDRIDE_PARENTS
             and atom.GetFormalCharge() == 0
             and not atom.IsInRing()
@@ -2601,7 +2634,7 @@ def _group14_carbon_ligands_contain_heteroatoms(mol, center_idx: int, carbon_nei
 
 
 def _has_organophosphorus_oxide_center(mol, Chem) -> bool:
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
             continue
         pidx = phosphorus.GetIdx()
@@ -2652,7 +2685,7 @@ class PhosphorusAcidParentRule:
         atom_set = set(range(mol.GetNumAtoms()))
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -2943,7 +2976,7 @@ class BiphenylDiphosphoniteParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         phosphorus_groups = []
-        for atom in mol.GetAtoms():
+        for atom in iter_atoms(mol):
             if atom.GetSymbol() != "P":
                 continue
             group = _biphenyl_diphosphonite_phosphorus_group(mol, self._Chem, atom.GetIdx())
@@ -3032,7 +3065,7 @@ class OrganophosphorusOxideParentRule:
         mol = ctx.mol
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -3083,6 +3116,12 @@ class OrganophosphorusOxideParentRule:
         else:
             return
         prefix_text = _pnictogen_hydride_name(names, "")
+        if parent == "phosphinic acid":
+            # Keep the two carbon organyls on phosphorus. Concatenating a
+            # ring-yl unit and methyl instead names one ring-ylmethyl arm.
+            from .formatting import format_prefixes
+            prefix_text = format_prefixes([('', name) for name in names],
+                omit_locants=True, hierarchical_enclosures=True, separate_unlocanted=True)
         if prefix_text:
             name = prefix_text + parent
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
@@ -3201,7 +3240,7 @@ def _simple_no_hydrogen_phosphine_oxide_scope(
         return False
     if mol.GetAtomWithIdx(phosphorus_idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
         return False
-    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol)):
         return False
     atom_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings()]
     for ligand_atoms in ligand_atom_sets:
@@ -3218,9 +3257,9 @@ def _simple_no_hydrogen_phosphine_oxide_scope(
 def _simple_no_hydrogen_phosphine_sulfide_scope(mol, Chem, ligand_atom_sets: Sequence[frozenset[int]]) -> bool:
     if mol.GetNumAtoms() > 48:
         return False
-    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)):
         return False
-    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol)):
         return False
     atom_rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings()]
     for ligand_atoms in ligand_atom_sets:
@@ -3235,23 +3274,23 @@ def _simple_no_hydrogen_phosphine_sulfide_scope(mol, Chem, ligand_atom_sets: Seq
 
 
 def _phosphine_oxide_ligand_text(names: Sequence[str]) -> str:
+    from .prefix_presentation import enclose_complete_name_unit
+
     parts = []
     counts = Counter(names)
-    for name, count in sorted(
-        counts.items(),
-        key=lambda item: (-item[1], _needs_substituent_parentheses(item[0]), item[0]),
-    ):
+    for name in sorted(counts, key=_prefix_alphabetization_key):
+        count = counts[name]
         bare = _strip_outer_parentheses(name)
         if count == 1:
-            if not parts and not _needs_substituent_parentheses(bare):
+            if not parts and not (bare.startswith(("[", "{")) or _needs_substituent_parentheses(bare)):
                 parts.append(bare)
             else:
-                parts.append(f"({bare})")
+                parts.append(enclose_complete_name_unit(bare))
             continue
         multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
         if not multiplier:
             return ""
-        parts.append(f"{multiplier}({bare})")
+        parts.append(multiplier + enclose_complete_name_unit(bare))
     return "".join(parts)
 
 
@@ -3267,7 +3306,7 @@ class PhosphoraneParentRule:
         mol = ctx.mol
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -3350,28 +3389,11 @@ class PhosphoraneParentRule:
 
 
 def _phosphorane_parent_name(carbon_names: Sequence[str], halo_names: Sequence[str]) -> str:
-    parts = []
-    halo_counts = Counter(halo_names)
-    for name in sorted(halo_counts):
-        count = halo_counts[name]
-        multiplier = MULT.get(count, "") if count > 1 else ""
-        parts.append(multiplier + name)
-
-    carbon_counts = Counter(carbon_names)
-    for name in sorted(carbon_counts):
-        count = carbon_counts[name]
-        is_complex = _needs_substituent_parentheses(name)
-        if count == 1:
-            term = f"({name})" if is_complex or halo_names else name
-        elif is_complex:
-            multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
-            term = f"{multiplier}({name})" if multiplier else ""
-        else:
-            term = (MULT.get(count, "") if count > 1 else "") + name
-        if not term:
-            return ""
-        parts.append(term)
-    return "".join(parts) + "phosphorane" if parts else ""
+    from .formatting import format_prefixes
+    # Every term is independently attached to P, even without locants.
+    text = format_prefixes([('', name) for name in (*halo_names, *carbon_names)],
+                           omit_locants=True, separate_unlocanted=True)
+    return text + 'phosphorane' if text else ''
 
 
 def _phosphorane_carbonyl_ylide_retained_name(mol, Chem, carbon_idx: int, phosphorus_idx: int, parent_name: str) -> str:
@@ -3574,7 +3596,7 @@ class AminophosphaneParentRule:
         atom_set = set(range(atom_count))
         phosphorus_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
         ]
         if len(phosphorus_atoms) != 1:
@@ -3605,7 +3627,8 @@ class AminophosphaneParentRule:
                     sort_key=(len(name), name),
                 )
             return
-        if len(nitrogen_neighbors) + phosphorus.GetTotalNumHs() != 3:
+        valence = len(nitrogen_neighbors) + phosphorus.GetTotalNumHs()
+        if valence != 3 and not (valence == 5 and len(nitrogen_neighbors) == 1):
             return
         if not nitrogen_neighbors:
             return
@@ -3619,7 +3642,8 @@ class AminophosphaneParentRule:
             covered.update(_collect_component_atoms(mol, nidx, pidx))
         if covered != atom_set:
             return
-        name = _pnictogen_hydride_name(names, "phosphane")
+        parent = "phosphane" if valence == 3 else "-lambda5-phosphane"
+        name = _pnictogen_hydride_name(names, parent)
         if name:
             yield NameCandidate(
                 name,
@@ -4275,7 +4299,7 @@ class OrganicPeroxideRetainedParentRule:
                 sort_key=(len(diacylperoxy_name), diacylperoxy_name),
             )
             return
-        for bond in mol.GetBonds():
+        for bond in iter_bonds(mol):
             if bond.GetBondType() != self._Chem.BondType.SINGLE:
                 continue
             begin = bond.GetBeginAtom()
@@ -4414,11 +4438,11 @@ class OrganomagnesiumHalideParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        if mol.GetRingInfo().NumRings() != 0 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != 0:
+        if mol.GetRingInfo().NumRings() != 0 or sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != 0:
             return
         magnesium_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() == "Mg" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
         ]
         if len(magnesium_atoms) != 1:
@@ -4460,7 +4484,7 @@ class OrganoboraneParentRule:
         mol = ctx.mol
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
-        for boron in mol.GetAtoms():
+        for boron in iter_atoms(mol):
             if (
                 boron.GetSymbol() != "B"
                 or boron.GetFormalCharge() != 0
@@ -4506,7 +4530,7 @@ def _organoborane_parent_name(ligand_names: Sequence[str]) -> str:
         return ""
     counts = Counter(ligand_names)
     parts = []
-    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+    for ligand, count in sorted(counts.items(), key=lambda item: _prefix_alphabetization_key(item[0])):
         unit = _organoborane_ligand_unit(ligand, count)
         if not unit:
             return ""
@@ -4515,17 +4539,8 @@ def _organoborane_parent_name(ligand_names: Sequence[str]) -> str:
 
 
 def _organoborane_ligand_unit(ligand: str, count: int) -> str:
-    ligand = _strip_outer_parentheses(ligand)
-    if count == 1:
-        return _parenthesized_if_complex(ligand)
-    multiplier = MULT.get(count)
-    if not multiplier:
-        return ""
-    if multiplier == "di":
-        return f"bis({ligand})"
-    if multiplier == "tri":
-        return f"tris({ligand})"
-    return f"{multiplier}({ligand})"
+    from .formatting import multiply_component
+    return multiply_component(_strip_outer_parentheses(ligand), count)
 
 
 class BenziodoxoleRetainedParentRule:
@@ -4585,7 +4600,7 @@ class BenziodoxoleRetainedParentRule:
 def _benziodoxole_triacyloxy_lactone_name(mol, Chem, match: Sequence[int]) -> str:
     if set(match) != set(range(mol.GetNumAtoms())):
         return ""
-    iodine_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "I" and atom.IsInRing()]
+    iodine_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "I" and atom.IsInRing()]
     if len(iodine_atoms) != 1:
         return ""
     iodine_idx = iodine_atoms[0].GetIdx()
@@ -4623,7 +4638,7 @@ def _benziodoxole_lactone_name(mol, Chem, match: Sequence[int]) -> str:
 def _benziodoxole_hydride_lactone_name(mol, Chem, match: Sequence[int]) -> str:
     iodine_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if (
             atom.GetSymbol() == "I"
             and atom.IsInRing()
@@ -4650,7 +4665,7 @@ def _benziodoxole_dihydro_hydride_lactone_name(mol, Chem, match: Sequence[int]) 
         return ""
     iodine_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if (
             atom.GetSymbol() == "I"
             and atom.IsInRing()
@@ -4693,7 +4708,7 @@ def _benziodoxole_halo_lactone_name(mol, Chem, match: Sequence[int]) -> str:
         return ""
     iodine_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "I" and atom.IsInRing() and atom.GetFormalCharge() == 0
     ]
     if len(iodine_atoms) != 1:
@@ -4715,7 +4730,7 @@ def _benziodoxole_hydroxy_lactone_name(mol, Chem, match: Sequence[int]) -> str:
         return ""
     iodine_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "I" and atom.IsInRing() and atom.GetFormalCharge() == 0
     ]
     if len(iodine_atoms) != 1:
@@ -4826,7 +4841,7 @@ def _benziodoxole_hydride_name(mol, Chem, match: Sequence[int]) -> str:
         return ""
     iodine_atoms = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "I" and atom.GetFormalCharge() == 0 and atom.GetTotalNumHs() == 1
     ]
     if len(iodine_atoms) != 1:
@@ -4845,7 +4860,7 @@ class IodaneParentRule:
         mol = ctx.mol
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
-        for iodine in mol.GetAtoms():
+        for iodine in iter_atoms(mol):
             if iodine.GetSymbol() != "I" or iodine.GetFormalCharge() != 0 or iodine.IsInRing():
                 continue
             iodine_idx = iodine.GetIdx()
@@ -4857,7 +4872,7 @@ class IodaneParentRule:
             implicit_hydrogens = iodine.GetTotalNumHs()
             if len(neighbors) + implicit_hydrogens != 3 or not 1 <= len(neighbors) <= 3:
                 continue
-            ligand_names = []
+            ligands = []
             covered = {iodine_idx}
             for nidx in neighbors:
                 bond = mol.GetBondBetweenAtoms(iodine_idx, nidx)
@@ -4866,40 +4881,41 @@ class IodaneParentRule:
                 name = _simple_or_branch_prefix(mol, nidx, iodine_idx)
                 if not name:
                     break
-                ligand_names.append(name)
-                covered.update(_collect_component_atoms(mol, nidx, iodine_idx))
+                branch = frozenset(_collect_component_atoms(mol, nidx, iodine_idx))
+                if nidx not in branch or branch & covered:
+                    break
+                ligands.append(PrefixCandidate(
+                    name, branch, attachment_atom=nidx, parent_atom=iodine_idx, kind="iodane-ligand",
+                ))
+                covered.update(branch)
             else:
                 if covered != atom_set:
                     continue
-                name = _iodane_parent_name(ligand_names)
+                name = _iodane_parent_name([ligand.text for ligand in ligands])
                 if name:
-                    yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+                    yield NameCandidate(
+                        name, self.family, self.priority, parent_atoms=frozenset({iodine_idx}),
+                        prefixes=tuple(ligands), safety=CandidateSafety(), sort_key=(len(name), name),
+                    )
 
 
 def _iodane_parent_name(ligand_names: Sequence[str]) -> str:
     if not 1 <= len(ligand_names) <= 3:
         return ""
-    counts = Counter(ligand_names)
-    parts = []
-    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
-        parts.append(_iodane_ligand_prefix(ligand, count))
-    if not all(parts):
+    from .formatting import format_prefixes
+    # Each ligand is attached independently to I. A locanted alkenyl group
+    # must not absorb a preceding halo ligand into its own carbon skeleton.
+    text = format_prefixes([('', _strip_outer_parentheses(ligand))
+                            for ligand in ligand_names], omit_locants=True,
+                           separate_unlocanted=True)
+    if not text:
         return ""
-    return "".join(parts) + "-lambda3-iodane"
+    return text + "-lambda3-iodane"
 
 
 def _iodane_ligand_prefix(ligand: str, count: int) -> str:
-    ligand = _strip_outer_parentheses(ligand)
-    if count == 1:
-        return _parenthesized_if_complex(ligand)
-    multiplier = MULT.get(count)
-    if not multiplier:
-        return ""
-    if _simple_unparenthesized_n_substituent(ligand):
-        return f"{multiplier}{ligand}"
-    if multiplier == "di":
-        return f"bis({ligand})"
-    return f"{multiplier}({ligand})"
+    from .formatting import multiply_component
+    return multiply_component(_strip_outer_parentheses(ligand), count)
 
 
 class IodoniumParentRule:
@@ -4913,7 +4929,7 @@ class IodoniumParentRule:
         mol = ctx.mol
         atom_count = mol.GetNumAtoms()
         atom_set = set(range(atom_count))
-        for iodine in mol.GetAtoms():
+        for iodine in iter_atoms(mol):
             if iodine.GetSymbol() != "I" or iodine.GetFormalCharge() != 1 or iodine.IsInRing():
                 continue
             iodine_idx = iodine.GetIdx()
@@ -4935,7 +4951,7 @@ class IodoniumParentRule:
                 ligand_count = len(ligand_neighbors)
                 if not (
                     (ligand_count + implicit_hydrogens == 2 and ligand_count in {1, 2})
-                    or (ligand_count == 3 and implicit_hydrogens == 1)
+                    or (ligand_count + implicit_hydrogens == 4 and ligand_count in {1, 2, 3, 4})
                 ):
                     continue
                 ligand_names = []
@@ -4949,32 +4965,28 @@ class IodoniumParentRule:
                 else:
                     if covered != atom_set:
                         continue
-                    name = _iodonium_parent_name(ligand_names)
+                    name = _iodonium_parent_name(
+                        ligand_names, lambda_valence=3 if ligand_count + implicit_hydrogens == 4 else 1)
                     if name:
                         yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
-def _iodonium_parent_name(ligand_names: Sequence[str]) -> str:
-    if not 1 <= len(ligand_names) <= 3:
+def _iodonium_parent_name(ligand_names: Sequence[str], *, lambda_valence: int = 1) -> str:
+    if not 1 <= len(ligand_names) <= 4:
         return ""
     counts = Counter(ligand_names)
     parts = []
-    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+    for ligand, count in sorted(counts.items(), key=lambda item: _prefix_alphabetization_key(item[0])):
         unit = _iodonium_ligand_unit(ligand, count)
         if not unit:
             return ""
         parts.append(unit)
-    return "".join(parts) + "iodonium"
+    return "".join(parts) + ("-lambda3-iodanium" if lambda_valence == 3 else "iodanium")
 
 
 def _iodonium_ligand_unit(ligand: str, count: int) -> str:
-    ligand = _strip_outer_parentheses(ligand)
-    if count == 1:
-        return _parenthesized_if_complex(ligand)
-    multiplier = MULT.get(count)
-    if not multiplier:
-        return ""
-    return f"bis({ligand})" if multiplier == "di" else f"{multiplier}({ligand})"
+    from .formatting import multiply_component
+    return multiply_component(_strip_outer_parentheses(ligand), count)
 
 
 class IodineOxoParentRule:
@@ -4987,7 +4999,7 @@ class IodineOxoParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         atom_set = set(range(mol.GetNumAtoms()))
-        for iodine in mol.GetAtoms():
+        for iodine in iter_atoms(mol):
             if iodine.GetSymbol() != "I" or iodine.IsInRing() or iodine.GetTotalNumHs() != 0:
                 continue
             charge = iodine.GetFormalCharge()
@@ -5082,7 +5094,7 @@ def _charged_retained_parent_names(mol, Chem) -> list[str]:
 def _alcohol_oxide_retained_parent_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for oxygen in mol.GetAtoms():
+    for oxygen in iter_atoms(mol):
         if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 1 or oxygen.IsInRing():
             continue
         oidx = oxygen.GetIdx()
@@ -5206,7 +5218,7 @@ def _terminal_alcohol_oxide_path_name(
 def _carboxylic_acid_chalcogenide_retained_parent_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = _heavy_atom_indices(mol)
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -5333,7 +5345,7 @@ def _organic_diazenide_retained_parent_names(mol, Chem) -> list[str]:
         return []
     atom_set = set(range(mol.GetNumAtoms()))
     names: list[str] = []
-    for terminal in mol.GetAtoms():
+    for terminal in iter_atoms(mol):
         if terminal.GetSymbol() != "N" or terminal.GetFormalCharge() != -1 or terminal.IsInRing():
             continue
         terminal_idx = terminal.GetIdx()
@@ -5396,7 +5408,7 @@ def _exocyclic_imine_azanide_retained_parent_names(mol, Chem) -> list[str]:
         return []
     names: list[str] = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for terminal in mol.GetAtoms():
+    for terminal in iter_atoms(mol):
         if terminal.GetSymbol() != "N" or terminal.GetFormalCharge() != -1 or terminal.IsInRing():
             continue
         terminal_idx = terminal.GetIdx()
@@ -5525,7 +5537,7 @@ def _isocyanide_retained_parent_names(mol, Chem) -> list[str]:
 
 def _isocyanide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != -1:
             continue
         carbon_idx = carbon.GetIdx()
@@ -5628,10 +5640,10 @@ def _stable_isocyanide_owner_prefix(name: str) -> bool:
 def _bis_azanidyl_alkane_retained_parent_names(mol, Chem) -> list[str]:
     nitrogens = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
     ]
-    if len(nitrogens) != 2 or sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != -2:
+    if len(nitrogens) != 2 or sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != -2:
         return []
     first_n, second_n = nitrogens
     path = tuple(Chem.rdmolops.GetShortestPath(mol, first_n, second_n))
@@ -5704,7 +5716,7 @@ def _azanidyl_substituent_piece(name: str) -> str:
 def _amide_oxide_retained_parent_names(mol, Chem) -> list[str]:
     names: list[str] = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -5771,7 +5783,7 @@ def _n_substituted_imine_oxide_retained_parent_names(mol, Chem) -> list[str]:
         return []
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
             continue
         record = _n_substituted_imine_oxide_record(mol, Chem, nitrogen.GetIdx())
@@ -5893,14 +5905,14 @@ def _has_nonaromatic_carbon_double_bond_except(mol, Chem, allowed_bond_idx: int)
         and not bond.GetIsAromatic()
         and mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetSymbol() == "C"
         and mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetSymbol() == "C"
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
 def _terminal_imine_oxide_parent_path(mol, Chem, imine_idx: int, nitrogen_idx: int) -> tuple[int, ...]:
     allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and atom.GetFormalCharge() == 0
         and not atom.IsInRing()
@@ -5967,7 +5979,7 @@ def _amine_oxide_retained_parent_names(mol, Chem) -> list[str]:
         return []
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
             continue
         record = _amine_oxide_record(mol, Chem, nitrogen.GetIdx())
@@ -6032,7 +6044,7 @@ def _hydroxylamine_oxide_retained_parent_names(mol, Chem) -> list[str]:
         return []
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
             continue
         record = _hydroxylamine_oxide_record(mol, Chem, nitrogen.GetIdx())
@@ -6155,19 +6167,23 @@ def _allowed_hydroxylamine_oxide_substituent(name: str) -> bool:
 def _hydroxylamine_oxide_alkyl_substituent(name: str) -> bool:
     if _simple_linear_alkyl_substituent(name):
         return True
-    for length, root in ROOTS.items():
-        if name == f"{root}yl":
-            return True
-        if length > 1 and any(name == f"{root}an-{locant}-yl" for locant in range(2, length + 1)):
-            return True
-    return False
+    # Recognize the locant rather than constructing every possible spelling
+    # for every root. Enumerating all locants is quadratic in root coverage
+    # and made an ordinary non-alkyl miss costly with the longer vocabulary.
+    if name.endswith('yl') and name[:-2] in ROOT_LENGTHS:
+        return True
+    matched = re.fullmatch(r'([a-z]+)an-([1-9][0-9]*)-yl', name)
+    if matched is None:
+        return False
+    length = ROOT_LENGTHS.get(matched[1], 0)
+    return 2 <= int(matched[2]) <= length
 
 
 def _has_explicit_alkene_stereo(mol, Chem) -> bool:
     return any(
         bond.GetBondType() == Chem.BondType.DOUBLE
         and bond.GetStereo() not in {Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY}
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
@@ -6184,7 +6200,7 @@ def _amine_oxide_ligand_text(ligand_names: Sequence[str]) -> str:
         return _secondary_amine_oxide_ligand_text(ligand_names)
     counts = Counter(ligand_names)
     pieces = []
-    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+    for ligand, count in sorted(counts.items(), key=lambda item: _prefix_alphabetization_key(item[0])):
         bare = _strip_outer_parentheses(ligand)
         if count == 1:
             pieces.append(_parenthesized_if_complex(bare))
@@ -6232,7 +6248,7 @@ def _secondary_amine_oxide_parent_score(ligand: str) -> tuple[int, int, str]:
 def _anionic_amide_retained_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -6405,11 +6421,11 @@ def _simple_anionic_amide_alkyl_substituent(name: str) -> bool:
 
 
 def _sulfur_oxoanion_retained_parent_names(mol, Chem) -> list[str]:
-    if sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) >= 0:
+    if sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) >= 0:
         return []
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         record = _sulfur_oxoanion_retained_parent_record(mol, Chem, sulfur.GetIdx())
@@ -6492,7 +6508,7 @@ def _sulfur_oxoanion_parent_names(substituent: str, suffix: str) -> list[str]:
 def _oxonium_retained_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for oxygen in mol.GetAtoms():
+    for oxygen in iter_atoms(mol):
         if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() <= 0 or oxygen.IsInRing():
             continue
         oidx = oxygen.GetIdx()
@@ -6525,7 +6541,7 @@ def _oxonium_retained_parent_names(mol, Chem) -> list[str]:
 def _methylium_retained_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 1 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -6556,7 +6572,7 @@ def _methylium_retained_parent_names(mol, Chem) -> list[str]:
 def _cyano_methane_ion_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() not in {-1, 1} or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -6600,7 +6616,7 @@ def _cyano_methane_ion_parent_names(mol, Chem) -> list[str]:
 def _nitrone_azaniumolate_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -6709,7 +6725,7 @@ def _charged_ligand_parent_name(ligands: Sequence[str], parent: str) -> str:
         return ""
     counts = Counter(_strip_outer_parentheses(ligand) for ligand in ligands)
     pieces = []
-    for ligand, count in sorted(counts.items(), key=lambda item: item[0]):
+    for ligand, count in sorted(counts.items(), key=lambda item: _prefix_alphabetization_key(item[0])):
         unit = _charged_ligand_unit(ligand, count)
         if not unit:
             return ""
@@ -6740,7 +6756,7 @@ class PnictogenHydrideParentRule:
         mol = ctx.mol
         pnictogen_atoms = [
             atom
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
             if atom.GetSymbol() in PNICTOGEN_HYDRIDE_PARENTS
             and atom.GetFormalCharge() == 0
             and not atom.IsInRing()
@@ -6809,11 +6825,11 @@ def _mixed_phosphane_hydride_scope(mol, Chem, phosphorus_idx: int, neighbors: Se
         return False
     if all(symbol in HALO for symbol in symbols):
         return False
-    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+    if any(atom.GetFormalCharge() != 0 for atom in iter_atoms(mol)):
         return False
-    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)):
         return False
-    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds()):
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol)):
         return False
     if mol.GetNumAtoms() > 48:
         return False
@@ -6878,7 +6894,7 @@ class OxidoNitrosoAzaniumRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() != 0:
             return
-        for atom in mol.GetAtoms():
+        for atom in iter_atoms(mol):
             nidx = atom.GetIdx()
             if atom.GetSymbol() != "N" or atom.GetFormalCharge() <= 0:
                 continue
@@ -6929,7 +6945,7 @@ class OxoSulfaniumParentRule:
 
     def candidates(self, ctx):
         mol = ctx.mol
-        for atom in mol.GetAtoms():
+        for atom in iter_atoms(mol):
             sidx = atom.GetIdx()
             if atom.GetSymbol() != "S" or atom.GetFormalCharge() <= 0 or atom.IsInRing():
                 continue
@@ -6991,7 +7007,7 @@ class NHaloImineParentRule:
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() != 0:
             return
-        for carbon in mol.GetAtoms():
+        for carbon in iter_atoms(mol):
             cidx = carbon.GetIdx()
             if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
                 continue
@@ -7188,7 +7204,7 @@ class GuanidineRetainedParentRule:
 def _formamidine_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if (
             carbon.GetSymbol() != "C"
             or carbon.IsInRing()
@@ -7273,7 +7289,7 @@ def _formamidine_parent_record(mol, single_nidx: int, imino_nidx: int, carbon_id
 
 def _component_has_nonaromatic_carbon_nitrogen_double_bond(mol, atoms: Collection[int]) -> bool:
     atom_set = set(atoms)
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondTypeAsDouble() != 2.0 or bond.GetIsAromatic():
             continue
         begin = bond.GetBeginAtomIdx()
@@ -7289,7 +7305,7 @@ def _component_has_nonaromatic_carbon_nitrogen_double_bond(mol, atoms: Collectio
 def _charged_iminium_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.IsInRing() or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -7396,7 +7412,7 @@ def _charged_iminium_n_substituents(mol, nitrogen_idx: int, carbon_idx: int) -> 
 def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.IsInRing() or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -7454,7 +7470,7 @@ def _nitroguanidine_parent_names(mol, Chem) -> list[str]:
 
 def _nitroguanidine_core_stereo_compatible(mol, Chem, carbon_idx: int, imino_idx: int) -> bool:
     core_bond = frozenset((carbon_idx, imino_idx))
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetStereo() == Chem.BondStereo.STEREONONE:
             continue
         bond_atoms = frozenset((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))
@@ -7567,7 +7583,7 @@ class AcylHydrazideRetainedParentRule:
 
     def candidates(self, ctx):
         seen = set()
-        for name, source_family in _acyl_hydrazide_records(ctx.mol, self._Chem):
+        for name, source_family, centers in _acyl_hydrazide_function_records(ctx.mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
@@ -7577,12 +7593,13 @@ class AcylHydrazideRetainedParentRule:
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+                principal_group_centers=centers,
             )
 
 
 def _sulfonohydrazide_motifs(mol, Chem) -> list[tuple[int, int, int, int]]:
     motifs = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0:
             continue
         sulfur_idx = sulfur.GetIdx()
@@ -7652,6 +7669,8 @@ def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
     carbon = mol.GetAtomWithIdx(carbon_idx)
     if carbon.IsInRing():
         ring = _simple_or_branch_prefix(mol, carbon_idx, nitrogen_idx)
+        if ring.endswith("ylidene"):
+            return ring
         if ring.endswith("yl"):
             return ring[: -len("yl")] + "ylidene"
         return ""
@@ -7673,7 +7692,12 @@ def _hydrazone_ylidene_name(mol, carbon_idx: int, nitrogen_idx: int) -> str:
 
 
 def _acyl_hydrazide_records(mol, Chem) -> list[tuple[str, str]]:
-    records: list[tuple[str, str]] = []
+    return [(name, source) for name, source, _centers
+            in _acyl_hydrazide_function_records(mol, Chem)]
+
+
+def _acyl_hydrazide_function_records(mol, Chem):
+    records = []
     for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
         motif = _acyl_hydrazide_imine_motif(mol, Chem, carbonyl_idx, nitrogen_idx)
         if motif is None:
@@ -7684,13 +7708,18 @@ def _acyl_hydrazide_records(mol, Chem) -> list[tuple[str, str]]:
         ylidene = _hydrazone_ylidene_name(mol, imine_carbon_idx, _distal_n_idx)
         if not ylidene:
             continue
+        bond = mol.GetBondBetweenAtoms(_distal_n_idx, imine_carbon_idx)
+        descriptor = {"STEREOE": "E", "STEREOTRANS": "E", "STEREOZ": "Z", "STEREOCIS": "Z"}.get(str(bond.GetStereo()))
+        if descriptor and not re.search(r"\([^)]*[EZ][^)]*\)", ylidene):
+            ylidene = f"({descriptor})-{ylidene}"
         n_prime_prefix = _hydrazide_n_prime_prefix(ylidene)
         for path in _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx):
             core = _generic_acyl_functional_parent_path_name(mol, Chem, carbonyl_idx, path, "hydrazide")
             if core:
-                records.append((_join_n_prefix_functional_parent(n_prime_prefix, core), "generic-acyl-hydrazide"))
+                records.append((_join_n_prefix_functional_parent(n_prime_prefix, core), "generic-acyl-hydrazide", frozenset({carbonyl_idx})))
         records.extend(
-            _ring_carbohydrazide_parent_records(
+            (name, source, frozenset({carbonyl_idx}))
+            for name, source in _ring_carbohydrazide_parent_records(
                 mol,
                 Chem,
                 carbonyl_idx,
@@ -7780,7 +7809,7 @@ def _carbodiimide_parent_records(mol, Chem) -> list[tuple[str, frozenset[int]]]:
     if len(motifs) > 1:
         records = _bis_phenylene_carbodiimide_parent_records(mol, Chem, motifs)
         return sorted(set(records), key=lambda item: (len(item[0]), item[0])) if len(records) == 1 else []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
             continue
         carbon_idx = atom.GetIdx()
@@ -7860,7 +7889,7 @@ def _carbodiimide_parent_names(mol, Chem) -> list[str]:
 
 def _carbodiimide_motif_records(mol, Chem) -> list[dict]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         carbon_idx = carbon.GetIdx()
@@ -8065,7 +8094,7 @@ class IsocyanateRetainedParentRule:
 def _isocyanate_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         carbon_idx = carbon.GetIdx()
@@ -8123,6 +8152,33 @@ def _allowed_isocyanate_substituent(name: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9,()'\-]+", name))
 
 
+def _carbamate_oxime_owner_name(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
+    """Preserve C=N in an oxime-derived O ligand of a carbamate."""
+    owners = [a for a in mol.GetAtomWithIdx(oxygen_idx).GetNeighbors()
+              if a.GetIdx() != carbonyl_idx and a.GetAtomicNum() > 1]
+    if len(owners) != 1 or owners[0].GetAtomicNum() != 7:
+        return ""
+    nitrogen = owners[0]
+    if nitrogen.GetFormalCharge() or nitrogen.GetNumRadicalElectrons():
+        return ""
+    carbon = [a for a in nitrogen.GetNeighbors()
+              if a.GetIdx() != oxygen_idx and a.GetAtomicNum() > 1]
+    if len(carbon) != 1 or carbon[0].GetAtomicNum() != 6:
+        return ""
+    bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), carbon[0].GetIdx())
+    if bond.GetBondTypeAsDouble() != 2:
+        return ""
+    prefix = _simple_or_branch_prefix(mol, carbon[0].GetIdx(), nitrogen.GetIdx())
+    if prefix.endswith("yl"):
+        prefix += "idene"
+    if not prefix.endswith("ylidene"):
+        return ""
+    descriptor = {"STEREOE": "E", "STEREOTRANS": "E",
+                  "STEREOZ": "Z", "STEREOCIS": "Z"}.get(str(bond.GetStereo()))
+    owner = f"({prefix})amino"
+    return f"({descriptor})-{owner}" if descriptor else owner
+
+
 class CarbamateRetainedParentRule:
     family = "carbamate-retained-parent"
     priority = parent_priority("senior-functional-exception")
@@ -8148,7 +8204,10 @@ class CarbamateRetainedParentRule:
             nitrogen = mol.GetAtomWithIdx(nitrogen_idx)
             if nitrogen.GetFormalCharge() != 0:
                 continue
-            oxygen_substituent = _single_external_substituent_name(mol, oxygen_idx, carbonyl_idx)
+            oxygen_substituent = (
+                _carbamate_oxime_owner_name(mol, oxygen_idx, carbonyl_idx)
+                or _single_external_substituent_name(mol, oxygen_idx, carbonyl_idx)
+            )
             if not oxygen_substituent:
                 continue
             nitrogen_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
@@ -8156,13 +8215,18 @@ class CarbamateRetainedParentRule:
                 continue
             nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
             if nitrogen_prefix is None:
+                from .principal_functional import principal_organic_function
+                if principal_organic_function(mol) == self.family:
+                    nitrogen_prefix = _sulfonamide_n_substituent_prefix(nitrogen_substituents)
+            if nitrogen_prefix is None:
                 continue
             if _unstable_retained_functional_parent_substituent(oxygen_substituent) or any(
                 _unstable_retained_functional_parent_substituent(name) for name in nitrogen_substituents
             ):
                 continue
-            name = f"{oxygen_substituent} {nitrogen_prefix}carbamat"
-            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
+            name = f"{oxygen_substituent} {nitrogen_prefix}carbamate"
+            yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name),
+                                principal_group_centers=frozenset({carbonyl_idx}))
 
 
 class CyclicNCarbamateCarboxylateRetainedParentRule:
@@ -8234,7 +8298,7 @@ class RetainedAcidEsterParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name, source_family in _retained_acid_ester_records(mol, self._Chem):
+        for name, source_family, centers in _retained_acid_ester_function_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
@@ -8249,6 +8313,7 @@ class RetainedAcidEsterParentRule:
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+                principal_group_centers=centers,
                 parent_atoms=parent_atoms,
                 estimated_length=len(name),
             )
@@ -8288,7 +8353,7 @@ class RetainedAmideParentRule:
     def candidates(self, ctx):
         mol = ctx.mol
         seen = set()
-        for name, source_family, parent_atoms in _retained_amide_records(mol, self._Chem):
+        for name, source_family, parent_atoms, centers in _retained_amide_function_records(mol, self._Chem):
             if name in seen:
                 continue
             seen.add(name)
@@ -8298,6 +8363,7 @@ class RetainedAmideParentRule:
                 self.priority,
                 sort_key=(len(name), name),
                 source_family=source_family,
+                principal_group_centers=centers,
                 parent_atoms=parent_atoms,
             )
 
@@ -8413,10 +8479,20 @@ class SulfonamideRetainedParentRule:
                 continue
             nitrogen_prefix = _n_substituent_prefix(nitrogen_substituents)
             if nitrogen_prefix is None:
+                from .principal_groups import sole_sulfonamide
+                if sole_sulfonamide(mol):
+                    nitrogen_prefix = _sulfonamide_n_substituent_prefix(nitrogen_substituents)
+            if nitrogen_prefix is None:
                 continue
             if any(_unstable_retained_functional_parent_substituent(name) for name in nitrogen_substituents):
                 continue
-            name = _join_retained_sulfonamide_parent(nitrogen_prefix, base)
+            base_record = mol_cache_get(mol, ("alkanesulfonamide_base", sulfur_idx, substituent_idx))
+            if base_record:
+                core, carbon_prefixes = base_record
+                prefixes = list(carbon_prefixes) + [("N", substituent) for substituent in nitrogen_substituents]
+                name = _join_prefix_parent(_format_prefixes(prefixes), core)
+            else:
+                name = _join_retained_sulfonamide_parent(nitrogen_prefix, base)
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
@@ -8496,7 +8572,9 @@ class LambdaSulfanoneParentRule:
         mol = ctx.mol
         seen: set[str] = set()
         for sulfur_idx, ligand_records in _lambda_sulfanone_parent_records(mol, self._Chem):
-            ligand_text = "".join(f"({name})" for _atom_idx, name in ligand_records)
+            from .prefix_presentation import enclose_complete_name_unit
+
+            ligand_text = "".join(enclose_complete_name_unit(name) for _atom_idx, name in ligand_records)
             name = f"{ligand_text}-lambda6-sulfanone"
             if name in seen:
                 continue
@@ -8608,7 +8686,7 @@ class AminoAcidRetainedParentRule:
 
 def _carbamate_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -8796,7 +8874,8 @@ def _cyclic_n_branch_to_carboxylate_parent(branch: str) -> str:
         "pyrrolidino": "pyrrolidine-1-carboxylate",
         "morpholino": "morpholine-4-carboxylate",
     }
-    for suffix, replacement in saturated_n_suffixes.items():
+    from .component_vocabulary import with_preferred_keys
+    for suffix, replacement in with_preferred_keys(saturated_n_suffixes).items():
         if branch == suffix:
             return replacement
         if branch.endswith(suffix):
@@ -8907,7 +8986,7 @@ def _glutarimide_substituent_locant(position: int) -> str:
 
 def _phosphite_ester_names(mol, Chem) -> list[str]:
     names = []
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0:
             continue
         pidx = phosphorus.GetIdx()
@@ -9166,7 +9245,7 @@ def _phosphite_internal_stereo_owner_name(mol, Chem, owner_record: tuple[str, in
 def _single_component_alkene_stereo_descriptor(mol, Chem, start_idx: int, blocked_idx: int) -> str:
     component_atoms = _collect_component_atoms(mol, start_idx, blocked_idx)
     descriptors = []
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin_idx = bond.GetBeginAtomIdx()
         end_idx = bond.GetEndAtomIdx()
         if begin_idx not in component_atoms or end_idx not in component_atoms:
@@ -9187,7 +9266,7 @@ def _single_component_alkene_stereo_descriptor(mol, Chem, start_idx: int, blocke
 def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
             continue
         pidx = phosphorus.GetIdx()
@@ -9419,12 +9498,7 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
             and len(substituted_amino_ligands) == 2
             and phosphorus.GetTotalNumHs() == 0
         ):
-            name = _symmetric_phosphorodiamidite_name(
-                [
-                    _phosphoramidite_substituted_amino_prefix(mol, ligand_idx, pidx)
-                    for ligand_idx in substituted_amino_ligands
-                ]
-            )
+            name = _symmetric_phosphorodiamidite_name(mol,substituted_amino_ligands,pidx)
             if name:
                 names.append(name)
             continue
@@ -9548,13 +9622,10 @@ def _mixed_p3_anionic_phosphorus_names(mol, Chem) -> list[str]:
 
 def _phosphinite_ligand_text(names: Sequence[str]) -> str:
     if len(names) != 2 or any(not name for name in names):
-        return ""
-    first, second = sorted(_strip_outer_parentheses(name) for name in names)
-    if first == second:
-        if _simple_unparenthesized_n_substituent(first):
-            return f"di{first}"
-        return f"bis({first})"
-    return "".join(_parenthesized_if_complex(name) for name in (first, second))
+        return ''
+    from .formatting import format_prefixes
+    return format_prefixes([('', _strip_outer_parentheses(name)) for name in names],
+                           omit_locants=True, separate_unlocanted=True)
 
 
 def _phosphinate_carbon_ligand_text(mol, carbon_ligands: Sequence[int], phosphorus_idx: int) -> str:
@@ -9647,19 +9718,18 @@ def _phosphoramidite_substituted_amino_prefix(
     return prefix
 
 
-def _symmetric_phosphorodiamidite_name(amino_prefixes: Sequence[str]) -> str:
-    if len(amino_prefixes) != 2 or amino_prefixes[0] != amino_prefixes[1]:
+def _symmetric_phosphorodiamidite_name(mol, nitrogens, phosphorus_idx):
+    if len(nitrogens) != 2:
         return ""
-    prefix = amino_prefixes[0]
-    if not _stable_phosphoramidite_amino_prefix(prefix):
+    ligands = [_external_substituent_names(mol, idx, phosphorus_idx) for idx in nitrogens]
+    if any(names is None or len(names) != 2 for names in ligands):
         return ""
-    bare = _strip_outer_parentheses(prefix)
-    if not bare.startswith("di"):
+    flat = [name for names in ligands for name in names]
+    if len(set(flat)) != 1 or not _simple_n_retained_parent_substituent(flat[0]):
         return ""
-    ligand = bare[2:]
-    if not re.fullmatch(r"[A-Za-z0-9']+", ligand):
-        return ""
-    return f"tetra{ligand}phosphorodiamidite"
+    from .formatting import format_prefixes
+    # Nitrogen ownership is independent of the preferred ligand spelling.
+    return format_prefixes([("N", flat[0])] * 2 + [("N'", flat[0])] * 2) + "phosphorodiamidite"
 
 
 def _phosphoramidite_explicit_n_substituent_prefix(substituents: Sequence[str]) -> str | None:
@@ -9755,15 +9825,10 @@ def _phosphite_triester_name(owner_names: Sequence[str]) -> str:
 
 
 def _phosphite_repeated_owner_text(owner: str, count: int) -> str:
-    if count == 2:
-        if _simple_unparenthesized_n_substituent(owner) and re.fullmatch(r"[A-Za-z0-9']+", owner):
-            return f"di{owner}"
-        return f"bis({owner})"
-    if count == 3:
-        if _simple_unparenthesized_n_substituent(owner) and re.fullmatch(r"[A-Za-z0-9']+", owner):
-            return f"tri{owner}"
-        return f"tris({owner})"
-    return ""
+    if count not in {2, 3}:
+        return ''
+    from .formatting import multiply_component
+    return multiply_component(owner, count)
 
 
 def _phosphite_monoester_name(owner: str, hydroxy_count: int) -> str:
@@ -9776,7 +9841,7 @@ def _phosphite_monoester_name(owner: str, hydroxy_count: int) -> str:
 def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
             continue
         pidx = phosphorus.GetIdx()
@@ -10219,7 +10284,7 @@ def _charged_organophosphorus_oxo_names(mol, Chem) -> list[str]:
 def _phosphate_ester_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.GetFormalCharge() != 0 or phosphorus.IsInRing():
             continue
         record = _phosphate_ester_record(mol, Chem, phosphorus.GetIdx())
@@ -10267,10 +10332,13 @@ def _phosphate_ester_record(mol, Chem, pidx: int) -> dict | None:
                 continue
             if len(heavy) != 1 or nbr.GetFormalCharge() != 0:
                 return None
-            owner = _single_external_substituent_name(mol, nidx, pidx)
+            owner_atoms = _collect_component_atoms(mol, heavy[0], nidx)
+            from .component_mapping import mapped_branch
+            owner, owned = mapped_branch(mol, Chem, heavy[0], nidx)
+            if set(owned) != owner_atoms:
+                return None
             if not _stable_phosphate_ester_owner(owner):
                 return None
-            owner_atoms = _collect_component_atoms(mol, heavy[0], nidx)
             if not _stable_phosphate_oxygen_owner_component(mol, Chem, owner_atoms):
                 return None
             if _phosphate_owner_has_nonaromatic_carbon_alkoxy_phosphoryloxy(mol, Chem, owner_atoms):
@@ -10281,9 +10349,9 @@ def _phosphate_ester_record(mol, Chem, pidx: int) -> dict | None:
             continue
         if nbr.GetSymbol() == "C" and nbr.GetFormalCharge() == 0 and bond.GetBondType() == Chem.BondType.SINGLE:
             carbon = _phosphorus_attached_prefix(mol, nidx, pidx)
+            carbon_atoms = _collect_component_atoms(mol, nidx, pidx)
             if not _stable_phosphate_ester_owner(carbon):
                 return None
-            carbon_atoms = _collect_component_atoms(mol, nidx, pidx)
             if any(mol.GetAtomWithIdx(atom_idx).GetSymbol() == "P" for atom_idx in carbon_atoms):
                 return None
             carbon_names.append(_strip_outer_parentheses(carbon))
@@ -10304,11 +10372,13 @@ def _phosphate_ester_record(mol, Chem, pidx: int) -> dict | None:
 def _stable_phosphate_ester_owner(name: str) -> bool:
     if not name or len(name) > 96:
         return False
-    if " " in name or "[" in name or "]" in name:
-        return False
     if _unstable_retained_functional_parent_substituent(name):
         return False
-    return bool(re.fullmatch(r"[A-Za-z0-9,()'\-]+", name))
+    from .prefix_presentation import is_balanced_name_unit
+
+    # The complete directed branch and acid core already own the graph.
+    # Hierarchical enclosure changes must not demote its acid-derived parent.
+    return is_balanced_name_unit(name) and bool(re.fullmatch(r"[A-Za-z0-9,()'\-\[\]{}]+", name))
 
 
 def _stable_phosphate_oxygen_owner_component(mol, Chem, atom_indices: set[int]) -> bool:
@@ -10450,7 +10520,7 @@ def _phosphorus_attached_prefix(mol, atom_idx: int, phosphorus_idx: int) -> str:
 def _thiooxo_ester_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for center in mol.GetAtoms():
+    for center in iter_atoms(mol):
         if center.IsInRing() or center.GetFormalCharge() != 0 or center.GetSymbol() not in {"P", "S"}:
             continue
         record = _thiooxo_ester_center_record(mol, Chem, center.GetIdx())
@@ -10467,7 +10537,7 @@ def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
     simple_name = _simple_sulfinate_family_name(mol, Chem)
     if simple_name:
         names.append(simple_name)
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         record = _sulfenate_retained_parent_record(mol, Chem, sulfur.GetIdx())
@@ -10495,11 +10565,11 @@ def _sulfinate_retained_parent_names(mol, Chem) -> list[str]:
 
 
 def _simple_sulfinate_family_name(mol, Chem) -> str:
-    element_counts = Counter(atom.GetSymbol() for atom in mol.GetAtoms())
+    element_counts = Counter(atom.GetSymbol() for atom in iter_atoms(mol))
     if element_counts == {"C": 1, "O": 2, "S": 1}:
-        sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
-        carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-        oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"]
+        sulfur = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S")
+        carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+        oxygens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O"]
         if (
             sulfur.GetFormalCharge() == 0
             and carbon.GetFormalCharge() == 0
@@ -10518,8 +10588,8 @@ def _simple_sulfinate_family_name(mol, Chem) -> str:
             return "methylenesulfinate"
 
     if element_counts == {"C": 1, "O": 4, "S": 2}:
-        carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-        sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"]
+        carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+        sulfurs = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S"]
         if carbon.GetFormalCharge() != 0:
             return ""
         for sulfur in sulfurs:
@@ -10958,6 +11028,7 @@ def _thiooxo_ester_name(owner_names: Sequence[str], hydrogen_count: int, parent:
 
 
 def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
+    from .formatting import multiply_component
     pieces = []
     counts = Counter(owner_names)
     for owner in sorted(counts):
@@ -10965,12 +11036,10 @@ def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
         if count == 1:
             pieces.append(_parenthesized_if_complex(owner))
             continue
-        if _simple_unparenthesized_n_substituent(owner):
-            multiplier = MULT.get(count, "")
-            pieces.append(multiplier + owner if multiplier else "")
-            continue
-        multiplier = _PHOSPHORANE_COMPLEX_MULTIPLIERS.get(count, "")
-        pieces.append(f"{multiplier}({_strip_outer_parentheses(owner)})" if multiplier else "")
+        # The same P-16 component grammar applies to ester words and
+        # substituent prefixes. In particular, dihydroxymethyl is one
+        # doubly hydroxylated group, whereas bis(hydroxymethyl) is two arms.
+        pieces.append(multiply_component(_strip_outer_parentheses(owner), count))
     if any(not piece for piece in pieces):
         return ""
     return " ".join(pieces)
@@ -10979,7 +11048,7 @@ def _thiooxo_ester_owner_text(owner_names: Sequence[str]) -> str:
 def _phosphorothioic_triamide_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.IsInRing() or phosphorus.GetFormalCharge() != 0:
             continue
         record = _phosphorothioic_triamide_record(mol, Chem, phosphorus.GetIdx())
@@ -11066,7 +11135,7 @@ def _phosphorothioic_triamide_record_name(record: dict) -> str:
 def _dithiophosphate_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for phosphorus in mol.GetAtoms():
+    for phosphorus in iter_atoms(mol):
         if phosphorus.GetSymbol() != "P" or phosphorus.IsInRing() or phosphorus.GetFormalCharge() != 0:
             continue
         record = _dithiophosphate_record(mol, Chem, phosphorus.GetIdx())
@@ -11187,7 +11256,7 @@ def _dithiophosphate_owner_name(owner: str, hydrogen_count: int, parent: str) ->
 def _diacylperoxy_dimethylhexane_name(mol, Chem) -> str:
     records = []
     seen_bonds = set()
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() != Chem.BondType.SINGLE:
             continue
         begin = bond.GetBeginAtom()
@@ -11619,7 +11688,7 @@ def _ring_sequence(mol, ring_set: frozenset[int], start_idx: int, next_idx: int)
 
 def _oxime_sulfonyloxyimino_motifs(mol, Chem) -> list[dict]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         cidx = carbon.GetIdx()
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
             continue
@@ -11774,7 +11843,7 @@ def _thiophenylidene_oxime_sulfonate_acetonitrile_name(mol, Chem, motif: dict) -
 def _nitrile_oxide_retained_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C":
             continue
         record = _nitrile_oxide_retained_parent_record(mol, Chem, carbon.GetIdx())
@@ -11833,7 +11902,9 @@ def _terminal_nitrile_oxide_oxygen(mol, nitrogen_idx: int, carbon_idx: int) -> i
 def _nitrile_oxide_names_from_prefix(prefix: str) -> list[str]:
     if not prefix:
         return ["fulminate"]
-    names = []
+    # The charge-separated C#N(+)-O(-) group also has an explicit substitutive
+    # form when a retained nitrile name is unavailable (e.g. an alkyl ligand).
+    names = [f"({prefix})((oxidanidyl)azaniumylidyne)methane"]
     if prefix == "cyano":
         names.extend(["ethanedinitrile oxide", "cyanoformonitrile oxide"])
     if prefix == "phenyl":
@@ -11859,7 +11930,7 @@ def _five_membered_thiophene_like_ring_for_atom(mol, atom_idx: int) -> frozenset
 
 
 def _has_assigned_bond_stereo(mol, Chem) -> bool:
-    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol))
 
 
 def _diphenylsulfonio_phenyl_sulfide_side_atoms(mol, Chem, ring_attachment_idx: int, central_sulfur_idx: int) -> set[int]:
@@ -11954,7 +12025,7 @@ def _bis_dithiocarbamate_name(mol, Chem) -> str:
 
 def _methylenebis_dithiocarbamate_name(mol, Chem) -> str:
     atom_set = set(range(mol.GetNumAtoms()))
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         cidx = carbon.GetIdx()
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
@@ -11987,7 +12058,7 @@ def _methylenebis_dithiocarbamate_name(mol, Chem) -> str:
 def _linked_bis_dithiocarbamate_name(mol, Chem) -> str:
     atom_set = set(range(mol.GetNumAtoms()))
     units = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         nidx = nitrogen.GetIdx()
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
             continue
@@ -12243,19 +12314,19 @@ def _dithiocarbonate_record_name(record: dict) -> str:
     if oxygen_owner and len(sulfur_owners) == 1 and terminal_sulfido == 0:
         return (
             f"{_hetero_ligand_role_text('O', oxygen_owner)} "
-            f"{_hetero_ligand_role_text('S', sulfur_owners[0])}dithiocarbonate"
+            f"{_hetero_ligand_role_text('S', sulfur_owners[0])} dithiocarbonate"
         )
     if oxygen_owner is None and len(sulfur_owners) == 1 and terminal_sulfido == 1:
         if sulfur_owner_has_nitrile[0]:
             return ""
-        return f"{_hetero_ligand_role_text('S', sulfur_owners[0])}trithiocarbonate"
+        return f"{_hetero_ligand_role_text('S', sulfur_owners[0])} trithiocarbonate"
     return ""
 
 
 def _hexamethylenediamide_name(mol, Chem) -> str:
     nitrogens = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == -1 and not atom.IsInRing()
     ]
     if len(nitrogens) != 2:
@@ -12556,23 +12627,28 @@ def _retained_acid_ester_names(mol, Chem) -> list[str]:
 
 
 def _retained_acid_ester_records(mol, Chem) -> list[tuple[str, str]]:
-    names = _acyl_diphosphate_records(mol, Chem)
+    return [(name, source) for name, source, _centers
+            in _retained_acid_ester_function_records(mol, Chem)]
+
+
+def _retained_acid_ester_function_records(mol, Chem):
+    names = [(name, source, frozenset()) for name, source in _acyl_diphosphate_records(mol, Chem)]
     for carbonyl_idx, ester_oxygen_idx, acyl_idx in _ester_acyl_motifs(mol, Chem):
         owner = _stable_ester_owner_name(mol, ester_oxygen_idx, carbonyl_idx)
         if owner:
             generic_source = _retained_acid_ester_source_family(mol, Chem, carbonyl_idx, acyl_idx, "generic")
             generic = _generic_acyl_ester_names(mol, Chem, carbonyl_idx, acyl_idx, owner)
-            names.extend((name, generic_source) for name in generic)
+            names.extend((name, generic_source, frozenset({carbonyl_idx})) for name in generic)
             dicarboxylate = _dicarboxylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
             if dicarboxylate:
-                names.append((dicarboxylate, "retained-acid-ester:dicarboxylate"))
+                names.append((dicarboxylate, "retained-acid-ester:dicarboxylate", frozenset({carbonyl_idx})))
             acrylate = _acrylate_ester_name(mol, Chem, carbonyl_idx, acyl_idx, owner)
             if acrylate:
-                names.append((acrylate, "retained-acid-ester:acrylate"))
+                names.append((acrylate, "retained-acid-ester:acrylate", frozenset({carbonyl_idx})))
             continue
         dicarboxylate = _acyl_owner_dicarboxylate_ester_name(mol, Chem, carbonyl_idx, ester_oxygen_idx, acyl_idx)
         if dicarboxylate:
-            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate-acyl-owner"))
+            names.append((dicarboxylate, "retained-acid-ester:dicarboxylate-acyl-owner", frozenset({carbonyl_idx})))
     return names
 
 
@@ -12764,7 +12840,7 @@ def _retained_acid_ester_source_family(mol, Chem, carbonyl_idx: int, acyl_idx: i
 
 
 def _has_stable_retained_acid_ester_graph(mol, Chem, carbonyl_idx: int, acyl_idx: int) -> bool:
-    if any(atom.GetSymbol() in {"I", "Si"} for atom in mol.GetAtoms()):
+    if any(atom.GetSymbol() in {"I", "Si"} for atom in iter_atoms(mol)):
         return True
     if _has_isothiocyanate_motif(mol, Chem):
         return True
@@ -12772,7 +12848,7 @@ def _has_stable_retained_acid_ester_graph(mol, Chem, carbonyl_idx: int, acyl_idx
 
 
 def _has_isothiocyanate_motif(mol, Chem) -> bool:
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C":
             continue
         double_nitrogen = False
@@ -12810,7 +12886,7 @@ def _is_simple_alpha_amino_ester(mol, Chem, carbonyl_idx: int, acyl_idx: int) ->
 
 def _neutral_carbonyl_count(mol, Chem) -> int:
     count = 0
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
             continue
         atom_idx = atom.GetIdx()
@@ -12827,6 +12903,11 @@ def _retained_amide_names(mol, Chem) -> list[str]:
 
 
 def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
+    return [(name, source, atoms) for name, source, atoms, _centers
+            in _retained_amide_function_records(mol, Chem)]
+
+
+def _retained_amide_function_records(mol, Chem):
     records = []
     for carbonyl_idx, nitrogen_idx, acyl_idx in _amide_acyl_motifs(mol, Chem):
         acyl_parent_paths = _ester_acyl_parent_paths(mol, Chem, carbonyl_idx, acyl_idx)
@@ -12836,6 +12917,11 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
         n_substituents = _external_substituent_names(mol, nitrogen_idx, carbonyl_idx)
         if n_substituents is None or len(n_substituents) > 2:
             continue
+        from .principal_functional import principal_organic_function
+        if principal_organic_function(mol) == "retained-amide-parent":
+            neighbors = [a for a in mol.GetAtomWithIdx(nitrogen_idx).GetNeighbors() if a.GetIdx() != carbonyl_idx and a.GetAtomicNum() > 1]
+            assigned = dict(assigned_atom_stereochemistry(mol, Chem, atom_order="idx"))
+            n_substituents = [f"(1{assigned[a.GetIdx()]})-{name}" if a.GetIdx() in assigned and not a.IsInRing() and name.endswith("methyl") and not re.match(r"^\([^)]*[RS][^)]*\)", name) else name for a, name in zip(neighbors, n_substituents)]
         n_prefix = _n_substituent_prefix(n_substituents)
         if n_prefix is None:
             continue
@@ -12860,10 +12946,10 @@ def _retained_amide_records(mol, Chem) -> list[tuple[str, str, frozenset[int]]]:
                     nitrogen_idx,
                     path,
                 )
-            records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms))
+            records.append((_join_n_prefix_functional_parent(n_prefix, core), "generic-acyl-amide", parent_atoms, frozenset({carbonyl_idx})))
         if has_ring_carboxamide_parent:
             records.extend(
-                (name, source_family, frozenset())
+                (name, source_family, frozenset(), frozenset({carbonyl_idx}))
                 for name, source_family in _ring_carboxamide_parent_records(
                     mol,
                     Chem,
@@ -12919,7 +13005,7 @@ def _complete_oxalamide_carboxylate_parent_atoms(
         if nidx == carbonyl_idx or nbr.GetAtomicNum() <= 1:
             continue
         covered.update(_collect_component_atoms(mol, nidx, nitrogen_idx))
-    heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    heavy_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1}
     return frozenset(covered) if covered == heavy_atoms else frozenset()
 
 
@@ -12933,7 +13019,7 @@ def _complete_dimethyl_amide_carbamate_path_parent_atoms(
     if not _amide_nitrogen_has_two_methyl_substituents(mol, Chem, nitrogen_idx, carbonyl_idx):
         return frozenset()
     covered = _retained_amide_path_covered_atoms(mol, Chem, carbonyl_idx, nitrogen_idx, path)
-    heavy_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    heavy_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1}
     if covered != heavy_atoms:
         return frozenset()
     if not _covered_atoms_have_n_methyl_carboxylate_substituent(mol, Chem, covered):
@@ -13077,6 +13163,7 @@ def _ring_carboxamide_parent_records(
     if not mol.GetAtomWithIdx(acyl_idx).IsInRing():
         return []
     records = []
+    suffix_ranks = []
     for ring in mol.GetRingInfo().AtomRings():
         if acyl_idx not in ring or _ring_is_fused_to_another_ring(mol, ring):
             continue
@@ -13099,6 +13186,11 @@ def _ring_carboxamide_parent_records(
             )
             if name:
                 records.append((name, _ring_carboxamide_source_family(mol, ring)))
+                suffix_ranks.append(seq.index(acyl_idx) + 1)
+    from .principal_functional import principal_organic_function
+    if records and principal_organic_function(mol) == "retained-amide-parent":
+        lowest = min(suffix_ranks)
+        return [r for r, rank in zip(records, suffix_ranks) if rank == lowest]
     return records
 
 
@@ -13205,7 +13297,15 @@ def _ring_carboxamide_parent_name(
     if not core:
         return ""
     core = _join_n_prefix_functional_parent(n_prefix, core)
-    return _join_prefix_parent(prefix_text, core) if prefix_text else core
+    name = _join_prefix_parent(prefix_text, core) if prefix_text else core
+    from .principal_functional import principal_organic_function
+    if principal_organic_function(mol) == "retained-amide-parent":
+        from rdkit import Chem
+        assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
+        descriptors = [f"{pos[i]}{d}" for i, d in sorted(assigned, key=lambda row: pos.get(row[0], 999)) if i in pos]
+        if descriptors:
+            name = f"({','.join(descriptors)})-{name}"
+    return name
 
 
 def _ring_carbohydrazide_parent_name(
@@ -13298,7 +13398,7 @@ def _ring_lambda_parent_name(mol, parent_name: str, seq: Sequence[int]) -> str:
 def _beta_dicarbonyl_parent_names(mol, Chem) -> list[str]:
     names = []
     seen_cores = set()
-    for alpha in mol.GetAtoms():
+    for alpha in iter_atoms(mol):
         if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing():
             continue
         alpha_idx = alpha.GetIdx()
@@ -13379,14 +13479,14 @@ def _beta_dicarbonyl_terminal_ligand(mol, Chem, carbonyl_idx: int, alpha_idx: in
 def _join_n_prefix_functional_parent(n_prefix: str, core: str) -> str:
     if not n_prefix:
         return core
-    if _needs_explicit_n_parent_separator(n_prefix) or re.match(r"^\(?\d", core):
+    if re.match(r"^\(?\d", core):
         return f"{n_prefix}-{core}"
     return n_prefix + core
 
 
 def _amide_acyl_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -13423,6 +13523,7 @@ _AMINO_ACID_SIDECHAIN_NAMES = {
     "t-butyl": "t-leucine",
     "tert-butyl": "t-leucine",
     "isobutyl": "leucine",
+    "2-methylpropyl": "leucine",
     "1-methyl-propyl": "isoleucine",
     "sec-butyl": "isoleucine",
     "benzyl": "phenylalanine",
@@ -13447,7 +13548,7 @@ _AMINO_ACID_SIDECHAIN_NAMES = {
 def _amino_acid_parent_names(mol, Chem) -> list[str]:
     names = []
     atom_count = mol.GetNumAtoms()
-    for alpha in mol.GetAtoms():
+    for alpha in iter_atoms(mol):
         if alpha.GetSymbol() != "C" or alpha.GetFormalCharge() != 0 or alpha.IsInRing():
             continue
         alpha_idx = alpha.GetIdx()
@@ -13473,8 +13574,13 @@ def _amino_acid_parent_names(mol, Chem) -> list[str]:
             sidechain_name = _simple_or_branch_prefix(mol, sidechains[0], alpha_idx)
             if not sidechain_name:
                 continue
-        amino_acid = _AMINO_ACID_SIDECHAIN_NAMES.get(sidechain_name)
+        from .component_vocabulary import with_preferred_keys
+        amino_acid = with_preferred_keys(_AMINO_ACID_SIDECHAIN_NAMES).get(sidechain_name)
         if not amino_acid:
+            continue
+        if sidechains and alpha.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
+            # A retained amino-acid parent must not supply a configuration
+            # absent from the original graph. Keep the systematic route.
             continue
         covered = {alpha_idx}
         covered.update(_collect_component_atoms(mol, carboxyl[0], alpha_idx))
@@ -13541,7 +13647,7 @@ def _is_n_acyl_or_carbamate_link(mol, Chem, carbon_idx: int, nitrogen_idx: int) 
 
 
 def _component_has_nonring_carbon_unsaturation(mol, Chem, component: set[int]) -> bool:
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtom()
         end = bond.GetEndAtom()
         if begin.GetIdx() not in component or end.GetIdx() not in component:
@@ -13643,7 +13749,7 @@ def _collect_component_atoms_excluding(mol, start_idx: int, blocked: Collection[
 
 def _boronic_pinacol_ester_motifs(mol, Chem) -> list[tuple[int, int]]:
     motifs = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "B" or atom.GetFormalCharge() != 0:
             continue
         bidx = atom.GetIdx()
@@ -13718,6 +13824,7 @@ def _stable_boronic_pinacol_owner(name: str) -> bool:
         "isopropyl",
         "butyl",
         "isobutyl",
+        "2-methylpropyl",
         "tert-butyl",
         "t-butyl",
         "vinyl",
@@ -13735,7 +13842,8 @@ def _stable_boronic_pinacol_owner(name: str) -> bool:
         "crotyl",
         "acetenyl",
     }
-    if name in simple_tokens:
+    from .component_vocabulary import recognised_component
+    if recognised_component(name,simple_tokens):
         return True
     phenyl_substituent = (
         r"(?:amino|hydroxy|fluoro|chloro|bromo|iodo|methyl|ethyl|methoxy|ethoxy|"
@@ -13795,7 +13903,7 @@ def _boronic_pinacol_owner_alias(name: str) -> str:
         ("1-bromo-methyl", "bromomethyl"),
         ("1-methyl-ethyl", "isopropyl"),
         ("1,1-dimethyl-ethyl", "t-butyl"),
-        ("2-methyl-propyl", "isobutyl"),
+        ("2-methyl-propyl", "2-methylpropyl"),
         ("1-phenyl-methyl", "benzyl"),
         ("eth-1-ene-1-yl", "vinyl"),
     ):
@@ -13811,6 +13919,7 @@ def _boronic_pinacol_owner_alias(name: str) -> str:
         "isopropyl",
         "t-butyl",
         "isobutyl",
+        "2-methylpropyl",
         "benzyl",
         "vinyl",
     ):
@@ -13820,7 +13929,7 @@ def _boronic_pinacol_owner_alias(name: str) -> str:
 
 def _ester_acyl_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -13845,6 +13954,40 @@ def _ester_acyl_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     return motifs
 
 
+def _preferred_carbopolycyclic_ester_owner(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
+    """Use free-valence numbering for bounded, unspecified-stereo carbon ligands."""
+    if mol.GetRingInfo().NumRings() < 2:
+        return ""
+    owners = [n.GetIdx() for n in mol.GetAtomWithIdx(oxygen_idx).GetNeighbors()
+              if n.GetIdx() != carbonyl_idx and n.GetAtomicNum() > 1]
+    if len(owners) != 1 or not mol.GetAtomWithIdx(owners[0]).IsInRing():
+        return ""
+    atoms = _collect_component_atoms(mol, owners[0], oxygen_idx)
+    if not 6 <= len(atoms) <= 60 or any(
+        mol.GetAtomWithIdx(i).GetAtomicNum() not in {1, 6, 8}
+        or mol.GetAtomWithIdx(i).GetFormalCharge() or mol.GetAtomWithIdx(i).GetIsotope()
+        or mol.GetAtomWithIdx(i).GetNumRadicalElectrons() or int(mol.GetAtomWithIdx(i).GetChiralTag())
+        for i in atoms
+    ):
+        return ""
+    # Terminal OH/oxo and cyclic ester oxygen atoms are representable as
+    # branches of a carbon polycycle. An additional acyclic ether/ester owner
+    # keeps its established functional route rather than being swallowed here.
+    for i in atoms:
+        atom = mol.GetAtomWithIdx(i)
+        if atom.GetAtomicNum() == 8 and not (atom.GetDegree() == 1
+                or atom.IsInRing() and atom.GetDegree() == 2):
+            return ""
+    rings = [r for r in mol.GetRingInfo().AtomRings() if set(r) <= atoms]
+    carbon_rings = [r for r in rings if all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in r)]
+    if not 2 <= len(carbon_rings) <= 3 or any(int(b.GetStereo()) for b in iter_bonds(mol)
+                                       if {b.GetBeginAtomIdx(), b.GetEndAtomIdx()} <= atoms):
+        return ""
+    from rdkit import Chem
+    from .polycyclic_rules import polycyclic_substituent_prefix
+    return polycyclic_substituent_prefix(mol, Chem, owners[0], oxygen_idx)
+
+
 def _stable_ester_owner_name(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
     oxygen = mol.GetAtomWithIdx(oxygen_idx)
     if oxygen.GetSymbol() != "O" or oxygen.GetFormalCharge() != 0:
@@ -13858,10 +14001,19 @@ def _stable_ester_owner_name(mol, oxygen_idx: int, carbonyl_idx: int) -> str:
         return ""
     if mol.GetAtomWithIdx(heavy[0]).GetSymbol() != "C":
         return ""
+    polycyclic = _preferred_carbopolycyclic_ester_owner(mol, oxygen_idx, carbonyl_idx)
+    if polycyclic:
+        return polycyclic
     name = _simple_or_branch_prefix(mol, heavy[0], oxygen_idx)
     if not name:
         return ""
     name = _retained_parent_substituent_alias(name)
+    if mol.GetRingInfo().NumRings() >= 4:
+        from rdkit import Chem
+        from .principal_carbonyl import higher_carbopolycycle_prefix
+        extended = higher_carbopolycycle_prefix(mol, Chem, heavy[0], oxygen_idx)
+        if extended and name == extended:
+            return name
     if len(name) > 40 or " " in name or "[" in name or "]" in name:
         return ""
     if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
@@ -13971,9 +14123,44 @@ def _generic_acyl_functional_parent_path_name(
     parent = _generic_acyl_functional_parent_text(mol, Chem, root, path, suffix)
     if not parent:
         return ""
-    prefix_text = _format_prefixes(prefixes)
+    # Prove the retained acetic-acid locant rule from this candidate graph and
+    # its original atom map. Parent text by itself is not enough, and isotope
+    # numbering can require locants even on this short retained parent.
+    retained_acid_omission = False
+    if parent in {"acetic acid", "acetate"} and suffix in {"acid", "oate"} and len(path) == 1:
+        from .retained_acid_rules import retained_acid_locant_evidence
+
+        carbonyl_oxygen = _carbonyl_double_oxygen(mol, Chem, carbonyl_idx)
+        if carbonyl_oxygen is not None:
+            acid_atoms = frozenset({carbonyl_idx, carbonyl_oxygen, path[0]})
+            acid_locants = (
+                (carbonyl_idx, "1"), (carbonyl_oxygen, "O1"), (path[0], "2"),
+            )
+            evidence = retained_acid_locant_evidence(
+                mol, Chem, parent_class="acetic acid",
+                principal_kind="acid" if suffix == "acid" else "carboxylate",
+                parent_atoms=acid_atoms, atom_locants=acid_locants,
+                prefixes=tuple(prefixes),
+                isotope_forces_locants=any(atom.GetIsotope() for atom in iter_atoms(mol)),
+            )
+            retained_acid_omission = evidence is not None
+    if retained_acid_omission:
+        from .retained_acid_rules import retained_acid_prefix_sequence
+
+        sequence = retained_acid_prefix_sequence(
+            mol, Chem, evidence, acid_locants, tuple(prefixes)
+        )
+        if sequence is None:
+            return ""
+        prefix_text = sequence.text
+    else:
+        prefix_text = _format_prefixes(prefixes)
     core = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
-    stereo = _generic_acyl_ester_stereo_prefix(mol, Chem, path)
+    if suffix == "hydrazide":
+        acyl_atoms = _collect_component_atoms(mol, path[0], carbonyl_idx) if path else set()
+        stereo = _generic_path_stereo_prefix(mol, Chem, path, start=2, allowed_atoms=acyl_atoms)
+    else:
+        stereo = _generic_acyl_ester_stereo_prefix(mol, Chem, path)
     if stereo is None:
         return ""
     if stereo:
@@ -14001,6 +14188,8 @@ def _generic_acyl_functional_parent_text(mol, Chem, root: str, path: Sequence[in
         if suffix == "acid":
             return root + "anoic acid"
     parent = _unsaturated_parent(root, ene_locs, yne_locs)
+    if ene_locs or yne_locs:
+        parent = _complete_parent_name(parent)
     if suffix == "amide":
         return parent[:-1] + "amide" if parent.endswith("e") else parent + "amide"
     if suffix == "acid":
@@ -14064,8 +14253,6 @@ def _terminal_monocarboxylate_path_covered_atoms(
             if nidx in allowed_neighbors or nidx in path_set or nbr.GetAtomicNum() <= 1:
                 continue
             branch_atoms = _collect_component_atoms_excluding(mol, nidx, {atom_idx, *path_set})
-            if any(mol.GetAtomWithIdx(branch_idx).IsInRing() for branch_idx in branch_atoms):
-                return set()
             if any(mol.GetAtomWithIdx(branch_idx).GetFormalCharge() != 0 for branch_idx in branch_atoms):
                 return set()
             covered.update(branch_atoms)
@@ -14091,7 +14278,7 @@ def _terminal_carboxyl_groups(
     allowed_kinds: set[str] | None = None,
 ) -> list[tuple[int, int, str]]:
     groups: list[tuple[int, int, str]] = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0 or atom.IsInRing():
             continue
         carbonyl_idx = atom.GetIdx()
@@ -14347,7 +14534,7 @@ def _simple_alpha_keto_dicarboxylate_path(mol, Chem, path: Sequence[int]) -> boo
         if pos not in {0, len(path) - 1} and len(double_oxygens) > 1:
             return False
     covered = path_set | allowed_external_oxygens
-    heavy = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1}
+    heavy = {atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1}
     return heavy == covered and len(_path_oxo_locants(mol, Chem, path)) == 1
 
 
@@ -14397,6 +14584,8 @@ def _retained_simple_acyl_parent_text(root: str, suffix: str) -> str:
             "meth": "formamide",
             "eth": "acetamide",
         }.get(root, "")
+    if suffix == "hydrazide":
+        return {"meth": "formohydrazide", "eth": "acetohydrazide"}.get(root, "")
     if suffix == "oate":
         return {
             "meth": "formate",
@@ -14409,16 +14598,18 @@ def _generic_acyl_ester_stereo_prefix(mol, Chem, path: Sequence[int]) -> str | N
     return _generic_path_stereo_prefix(mol, Chem, path, start=2)
 
 
-def _generic_path_stereo_prefix(mol, Chem, path: Sequence[int], *, start: int) -> str | None:
+def _generic_path_stereo_prefix(mol, Chem, path: Sequence[int], *, start: int, allowed_atoms=None) -> str | None:
     locants = {idx: pos for pos, idx in enumerate(path, start=start)}
     assigned = assigned_atom_stereochemistry(mol, Chem, atom_order="idx")
     atom_descriptors = []
     for idx, descriptor in assigned:
+        if allowed_atoms is not None and idx not in allowed_atoms:
+            continue
         if idx not in locants:
             return None
         atom_descriptors.append((locants[idx], f"{locants[idx]}{descriptor}"))
     bond_descriptors: list[tuple[int, str]] = []
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() != Chem.BondType.DOUBLE:
             continue
         stereo = bond.GetStereo()
@@ -14432,6 +14623,8 @@ def _generic_path_stereo_prefix(mol, Chem, path: Sequence[int], *, start: int) -
             continue
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
+        if allowed_atoms is not None and not ({begin, end} & set(allowed_atoms)):
+            continue
         if begin not in locants or end not in locants:
             return None
         locant = min(locants[begin], locants[end])
@@ -14698,7 +14891,7 @@ def _is_terminal_methyl_substituent(mol, Chem, idx: int, parent_idx: int) -> boo
 
 def _urea_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0:
             continue
         cidx = carbon.GetIdx()
@@ -14784,9 +14977,9 @@ def _allowed_sydnone_urea_amidate_substituent(name: str, *, charged: bool) -> bo
         return False
     if len(name) > (120 if charged else 72):
         return False
-    if " " in name or "[" in name or "]" in name:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+    from .prefix_presentation import is_balanced_name_unit
+
+    if not is_balanced_name_unit(name) or not re.fullmatch(r"[A-Za-z0-9,()'\-\[\]{}]+", name):
         return False
     if _unstable_retained_functional_parent_substituent(name):
         return False
@@ -14808,7 +15001,7 @@ def _allowed_sydnone_urea_amidate_substituent(name: str, *, charged: bool) -> bo
 
 def _n_substituted_sulfonamide_motifs(mol, Chem) -> list[tuple[int, int]]:
     motifs = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         sidx = sulfur.GetIdx()
@@ -14834,7 +15027,7 @@ def _n_substituted_sulfonamide_motifs(mol, Chem) -> list[tuple[int, int]]:
 
 def _sulfonamide_motifs(mol, Chem) -> list[tuple[int, int, int]]:
     motifs = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0:
             continue
         sidx = sulfur.GetIdx()
@@ -14929,7 +15122,7 @@ def _sulfonamide_defer_to_sulfonohydrazide(mol, Chem, nitrogen_idx: int, sulfur_
 
 def _sulfonimidamide_motifs(mol, Chem) -> list[dict]:
     motifs = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.GetFormalCharge() != 0 or sulfur.IsInRing():
             continue
         sidx = sulfur.GetIdx()
@@ -14974,7 +15167,7 @@ def _lambda_sulfanone_parent_records(mol, Chem) -> list[tuple[int, tuple[tuple[i
     if not _lambda_sulfanone_formal_charges_supported(mol):
         return []
     records: list[tuple[int, tuple[tuple[int, str], ...]]] = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if (
             sulfur.GetSymbol() != "S"
             or sulfur.GetFormalCharge() != 0
@@ -15036,7 +15229,7 @@ def _lambda_sulfanone_parent_records(mol, Chem) -> list[tuple[int, tuple[tuple[i
 
 
 def _lambda_sulfanone_formal_charges_supported(mol) -> bool:
-    charged_atoms = [atom for atom in mol.GetAtoms() if atom.GetFormalCharge()]
+    charged_atoms = [atom for atom in iter_atoms(mol) if atom.GetFormalCharge()]
     if not charged_atoms:
         return True
     nitro_atoms: set[int] = set()
@@ -15079,13 +15272,13 @@ def _lambda_sulfanone_imino_ligand(mol, nitrogen_idx: int, sulfur_idx: int) -> s
 def _safe_lambda_sulfanone_ligand(name: str, *, max_len: int) -> bool:
     if not name or len(name) > max_len:
         return False
-    if " " in name or "[" in name or "]" in name:
-        return False
-    if not re.fullmatch(r"[A-Za-z0-9,().'\-]+", name):
+    if not re.fullmatch(r"[A-Za-z0-9,().\[\]{}'\-]+", name):
         return False
     if any(fragment in name for fragment in ("lambda", "sulfanone", "sulfonimidamide")):
         return False
-    return True
+    from .prefix_presentation import is_balanced_name_unit
+
+    return is_balanced_name_unit(name)
 
 
 def _single_external_substituent_name(mol, atom_idx: int, blocked_idx: int) -> str:
@@ -15212,7 +15405,8 @@ def _retained_parent_substituent_alias(name: str) -> str:
         "1-(1-oxo-methyl)-methyl": "2-oxoethyl",
         "1-oxo-methyl": "formyl",
     }
-    name = aliases.get(name, name)
+    from .component_vocabulary import preferred_component
+    name = preferred_component(aliases.get(name, name))
     name = re.sub(r"^[123]H-(benzotriazol-\d+[a-z]?'-?yl)$", r"\1", name)
     name = re.sub(r"^[123]H-(benzotriazol-\d+[a-z]?-yl)$", r"\1", name)
     return re.sub(r"(\d+)-\(1-oxo-methyl\)(?=[A-Za-z])", r"\1-formyl", name)
@@ -15221,15 +15415,17 @@ def _retained_parent_substituent_alias(name: str) -> str:
 def _allowed_n_retained_parent_substituent(name: str) -> bool:
     if _simple_n_retained_parent_substituent(name):
         return True
-    if len(name) > 48:
+    from .component_vocabulary import component_recognition_length
+    if component_recognition_length(name) > 48:
         return False
     if _unstable_retained_functional_parent_substituent(name):
         return False
-    if " " in name or "[" in name or "]" in name:
+    normalized = re.sub(r"\[[a-z,]+\]", "", name)
+    if " " in normalized or "[" in normalized or "]" in normalized:
         return False
     if any(fragment in name for fragment in ("phosph", "sulfon", "sulfin", "carbam", "urea")):
         return False
-    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", name):
+    if not re.fullmatch(r"[A-Za-z0-9,()'\-]+", normalized):
         return False
     if _stable_fused_heteroaryl_n_substituent(name):
         return True
@@ -15286,7 +15482,9 @@ def _stable_fused_heteroaryl_n_substituent(name: str) -> bool:
         "quinolin",
         "quinoxalin",
     )
-    return any(stem in name for stem in fused_stems)
+    # Fusion descriptors do not change the identity of the heteroaryl stem.
+    stem_name = re.sub(r"\[[a-z,]+\]", "", name)
+    return any(stem in stem_name for stem in fused_stems)
 
 
 def _allowed_sulfonimidamide_substituent(name: str) -> bool:
@@ -15427,32 +15625,40 @@ _SIMPLE_N_RETAINED_PARENT_SUBSTITUENTS = {
 
 
 def _simple_n_retained_parent_substituent(name: str) -> bool:
-    if name in _SIMPLE_N_RETAINED_PARENT_SUBSTITUENTS:
+    from .component_vocabulary import recognised_component
+    if recognised_component(name,_SIMPLE_N_RETAINED_PARENT_SUBSTITUENTS):
         return True
     return bool(re.fullmatch(r"[234]-(?:fluoro|chloro|bromo|iodo|methyl|methoxy|trifluoromethyl)phenyl", name))
 
 
 def _sulfonamide_base_name(mol, sulfur_idx: int, substituent_idx: int) -> str:
+    from .principal_groups import substituted_alkanesulfonamide_base
+
+    base = substituted_alkanesulfonamide_base(mol, sulfur_idx, substituent_idx)
+    if base:
+        return base
     substituent = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
     if not substituent:
         return ""
     simple_alkyl = {
-        "methyl": "methanesulfonamid",
-        "ethyl": "ethanesulfonamid",
-        "propyl": "propanesulfonamid",
-        "isopropyl": "propane-2-sulfonamid",
-        "butyl": "butanesulfonamid",
-        "t-butyl": "2-methylpropane-2-sulfonamid",
-        "tert-butyl": "2-methylpropane-2-sulfonamid",
+        "methyl": "methanesulfonamide",
+        "ethyl": "ethanesulfonamide",
+        "propyl": "propanesulfonamide",
+        "isopropyl": "propane-2-sulfonamide",
+        "butyl": "butanesulfonamide",
+        "t-butyl": "2-methylpropane-2-sulfonamide",
+        "tert-butyl": "2-methylpropane-2-sulfonamide",
     }.get(substituent)
     if simple_alkyl:
         return simple_alkyl
+    if re.fullmatch(r"cyclo(?:prop|but|pent|hex|hept|oct|non|dec)yl", substituent):
+        return substituent.removesuffix("yl") + "anesulfonamide"
     if substituent == "phenyl":
-        return "benzenesulfonamid"
+        return "benzenesulfonamide"
     if substituent in {"o-tolyl", "m-tolyl", "p-tolyl"}:
-        return substituent[0] + "-toluenesulfonamid"
+        return substituent[0] + "-toluenesulfonamide"
     if substituent.endswith("phenyl"):
-        return substituent[: -len("phenyl")] + "benzenesulfonamid"
+        return substituent[: -len("phenyl")] + "benzenesulfonamide"
     generic = _generic_sulfonamide_base_name(substituent)
     if generic:
         return generic
@@ -15509,13 +15715,16 @@ def _allowed_sulfonamide_base_substituent(substituent: str) -> bool:
 def _join_retained_sulfonamide_parent(prefix: str, base: str) -> str:
     if not prefix:
         return base
-    return f"{prefix}-{base}" if _needs_explicit_n_parent_separator(prefix) or base[:1].isdigit() else prefix + base
+    return f"{prefix}-{base}" if base[:1].isdigit() else prefix + base
 
 
 def _sulfonimidamide_base_name(mol, sulfur_idx: int, substituent_idx: int | None) -> str:
     if substituent_idx is None:
         return "sulfonimidamide"
-    substituent = _simple_or_branch_prefix(mol, substituent_idx, sulfur_idx)
+    return _sulfonimidamide_base_from_prefix(_simple_or_branch_prefix(mol, substituent_idx, sulfur_idx))
+
+
+def _sulfonimidamide_base_from_prefix(substituent: str) -> str:
     if not substituent:
         return ""
     simple_alkyl = {
@@ -15563,13 +15772,13 @@ def _heteroaryl_sulfonimidamide_base_name(substituent: str) -> str:
         stem = (prefix + "furan") if prefix else "furan"
         return f"{stem}-{furyl.group('loc')}-sulfonimidamide"
     match = re.fullmatch(
-        r"(?P<stem>.+(?:pyridin|pyrimidin|pyridazin|pyrazin|pyrazol|imidazol|triazol|thiazol|oxazol))-(?P<loc>\d+)-yl",
+        r"(?P<stem>.*(?:furan|thiophen|pyridin|pyrimidin|pyridazin|pyrazin|pyrazol|imidazol|triazol|thiazol|oxazol))-(?P<loc>\d+)-yl",
         substituent,
     )
     if not match:
         return ""
     stem = match.group("stem")
-    if stem.endswith(("pyridin", "pyrimidin", "pyridazin", "pyrazin", "pyrazol", "imidazol", "triazol", "thiazol", "oxazol")):
+    if stem.endswith(("thiophen", "pyridin", "pyrimidin", "pyridazin", "pyrazin", "pyrazol", "imidazol", "triazol", "thiazol", "oxazol")):
         stem += "e"
     return f"{stem}-{match.group('loc')}-sulfonimidamide"
 
@@ -15843,7 +16052,7 @@ class AceneParentRule:
 def _linear_acene_parent_name(mol) -> str:
     if _formal_charge(mol) != 0:
         return ""
-    if any(atom.GetSymbol() != "C" or not atom.GetIsAromatic() for atom in mol.GetAtoms()):
+    if any(atom.GetSymbol() != "C" or not atom.GetIsAromatic() for atom in iter_atoms(mol)):
         return ""
     rings = tuple(tuple(ring) for ring in mol.GetRingInfo().AtomRings())
     ring_count = len(rings)
@@ -15960,6 +16169,8 @@ class AcyclicSkeletonWithRingSubstituentsRule:
                 sort_key=(len(name), name),
                 parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
+                principal_group_centers=name_record.principal_group_centers,
                 estimated_length=len(name),
             )
 
@@ -16043,6 +16254,8 @@ class PreferredAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             sort_key=(len(name), name),
             parent_atoms=parent_atoms,
             stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+            parent_selection=name_record.parent_selection,
+            principal_group_centers=name_record.principal_group_centers,
             estimated_length=len(name),
         )
 
@@ -16077,6 +16290,8 @@ class ChainDominantAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRi
                 sort_key=((750, 999, (), 999, name), len(name), name),
                 parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
+                principal_group_centers=name_record.principal_group_centers,
                 estimated_length=len(name),
             )
 
@@ -16114,6 +16329,7 @@ class SulfurOxoAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingSu
             parent_atoms=parent_atoms,
             source_family="sulfur-oxo-acyclic-skeleton",
             stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+            parent_selection=name_record.parent_selection,
             estimated_length=len(name),
         )
 
@@ -16127,8 +16343,8 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
         profile = ctx.profile
         if profile.ring_count == 0 or not ctx.has_spiro_topology:
             return
-        ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
-        nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
+        ring_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if atom.IsInRing() and atom.GetAtomicNum() > 1}
+        nonring_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if not atom.IsInRing() and atom.GetAtomicNum() > 1}
         if len(nonring_atoms) < 4 or len(nonring_atoms) < len(ring_atoms) // 2:
             return
         parent_atoms = _nonring_heavy_atom_indices(mol)
@@ -16153,6 +16369,7 @@ class SpiroFunctionalChainSubstituentRule(AcyclicSkeletonWithRingSubstituentsRul
                 parent_atoms=parent_atoms,
                 source_family=source_family,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
                 estimated_length=len(name),
             )
 
@@ -16209,7 +16426,7 @@ class LambdaSulfanoneSpiroSubstituentRule:
 
 def _lambda_sulfanone_spiro_motifs(mol) -> tuple[_LambdaSulfanoneMotif, ...]:
     motifs: list[_LambdaSulfanoneMotif] = []
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if (
             sulfur.GetSymbol() != "S"
             or sulfur.IsInRing()
@@ -16286,6 +16503,7 @@ class ChargedRingAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRing
                 sort_key=(len(name), name),
                 parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
                 estimated_length=len(name),
             )
 
@@ -16325,6 +16543,8 @@ class FunctionalAcyclicSkeletonWithRingSubstituentsRule(AcyclicSkeletonWithRingS
                 sort_key=(len(name), name),
                 parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
+                principal_group_centers=name_record.principal_group_centers,
                 estimated_length=len(name),
             )
 
@@ -16366,6 +16586,7 @@ class IminoFunctionalAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSubsti
                 parent_atoms=parent_atoms,
                 source_family=source_family,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
                 estimated_length=len(name),
             )
 
@@ -16407,6 +16628,7 @@ class ConjugatedCarbonylAcyclicSkeletonRule(FunctionalAcyclicSkeletonWithRingSub
                 sort_key=(len(name), name),
                 parent_atoms=parent_atoms,
                 stereo_locants=_complete_acyclic_stereo_locants(ctx, name, name_record.stereo_locants),
+                parent_selection=name_record.parent_selection,
                 estimated_length=len(name),
             )
 
@@ -16416,12 +16638,12 @@ def _may_have_chain_dominant_acyclic_parent(mol) -> bool:
 
     ring_atoms = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetAtomicNum() > 1 and atom.IsInRing()
     }
     nonring_atoms = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetAtomicNum() > 1 and not atom.IsInRing()
     }
     if not ring_atoms or len(nonring_atoms) < 2:
@@ -16436,7 +16658,7 @@ def _may_have_chain_dominant_acyclic_parent(mol) -> bool:
         bond.GetBondTypeAsDouble() > 1.0
         and bond.GetBeginAtomIdx() in nonring_atoms
         and bond.GetEndAtomIdx() in nonring_atoms
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
@@ -16444,8 +16666,8 @@ def _chain_dominates_single_ring(mol, name: str) -> bool:
     if "diazaeth" in name:
         return False
     has_polycyclic_substituent = any(term in name for term in ("bicyclo[", "tricyclo[", "spiro["))
-    ring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.IsInRing() and atom.GetAtomicNum() > 1}
-    nonring_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if not atom.IsInRing() and atom.GetAtomicNum() > 1}
+    ring_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if atom.IsInRing() and atom.GetAtomicNum() > 1}
+    nonring_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if not atom.IsInRing() and atom.GetAtomicNum() > 1}
     if not ring_atoms:
         return False
     cyclic_substituent = any(
@@ -16560,7 +16782,7 @@ def _nonring_heavy_atom_count(mol) -> int:
     return mol_cache_set(
         mol,
         "nonring_heavy_atom_count",
-        sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing()),
+        sum(1 for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1 and not atom.IsInRing()),
     )
 
 
@@ -16571,7 +16793,7 @@ def _heavy_atom_indices(mol) -> frozenset[int]:
     return mol_cache_set(
         mol,
         "heavy_atom_indices",
-        frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1),
+        frozenset(atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1),
     )
 
 
@@ -16582,7 +16804,7 @@ def _nonring_heavy_atom_indices(mol) -> frozenset[int]:
     return mol_cache_set(
         mol,
         "nonring_heavy_atom_indices",
-        frozenset(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing()),
+        frozenset(atom.GetIdx() for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1 and not atom.IsInRing()),
     )
 
 
@@ -16600,7 +16822,7 @@ def _should_defer_acyclic_sulfur_imidoyl_holder_to_ring_parent(
         return False
     ring_atoms = frozenset(
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetAtomicNum() > 1 and atom.IsInRing()
     )
     if parent_set & ring_atoms:
@@ -16612,7 +16834,7 @@ def _has_nonring_sulfur_oxo_acyclic_parent_center(mol, parent_atoms: Sequence[in
     parent_set = frozenset(int(idx) for idx in parent_atoms)
     if not parent_set:
         return False
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         sulfur_idx = sulfur.GetIdx()
         if sulfur_idx not in parent_set:
             continue
@@ -16841,7 +17063,7 @@ def _has_ring_attached_sulfur_imidoyl_branch(
     parent_atoms: frozenset[int],
     ring_atoms: frozenset[int],
 ) -> bool:
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         sulfur_idx = sulfur.GetIdx()
         if sulfur_idx not in parent_atoms:
             continue
@@ -17089,18 +17311,14 @@ def _assigned_bond_stereo_atom_sets(ctx) -> tuple[frozenset[int], ...]:
 
 
 def _assigned_bond_stereo_atom_sets_for_mol(mol, Chem) -> tuple[frozenset[int], ...]:
-    records: list[frozenset[int]] = []
-    for bond in mol.GetBonds():
-        if bond.GetBondType() != Chem.BondType.DOUBLE:
-            continue
-        if bond.GetStereo() in {
-            Chem.BondStereo.STEREOE,
-            Chem.BondStereo.STEREOTRANS,
-            Chem.BondStereo.STEREOZ,
-            Chem.BondStereo.STEREOCIS,
-        }:
-            records.append(frozenset((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())))
-    return tuple(records)
+    cached = mol_cache_get(mol, "assigned_bond_stereo_atom_sets")
+    if cached is None:
+        cached = tuple(
+            frozenset((begin, end))
+            for begin, end, _descriptor in _indexed_bond_stereochemistry(mol, Chem)
+        )
+        mol_cache_set(mol, "assigned_bond_stereo_atom_sets", cached)
+    return cached
 
 
 def _internal_locanted_atom_stereo_count(name: str) -> int:
@@ -17300,7 +17518,7 @@ def _has_ringless_short_functional_parent_for_cyclic_molecule(name: str) -> bool
 
 
 def _has_unrendered_ring_isotope(mol, name: str) -> bool:
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         isotope = atom.GetIsotope()
         if isotope and atom.IsInRing():
             symbol = atom.GetSymbol()
@@ -17462,7 +17680,7 @@ def _has_fused_bracket_descriptor(name: str) -> bool:
 
 def _nonring_atoms_are_terminal_exocyclic_multiples(mol, Chem) -> bool:
     nonring_atoms = [
-        atom for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1 and not atom.IsInRing()
+        atom for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1 and not atom.IsInRing()
     ]
     if not nonring_atoms or len(nonring_atoms) > 3:
         return False
@@ -17489,7 +17707,7 @@ def _has_carbonyl_group(mol, Chem) -> bool:
             and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
             for nbr in atom.GetNeighbors()
         )
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
     )
 
 
@@ -17530,6 +17748,8 @@ class WholeMoleculeRetainedParentRule:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) != atom_set or _match_has_extra_core_bonds(mol, template, match):
+                    continue
+                if not match_preserves_formal_charges(mol, template_record_mol(template), match):
                     continue
                 candidate_name = _template_isotope_prefixed_parent_name(mol, template, match, name)
                 candidate_name = _opsin_parseable_retained_parent_name(candidate_name)
@@ -17599,7 +17819,7 @@ def _template_has_carbonyl_group(template: dict) -> bool:
             and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondTypeAsDouble() == 2.0
             for nbr in atom.GetNeighbors()
         )
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
     )
 
 
@@ -17607,21 +17827,21 @@ def _formal_charge(mol) -> int:
     cached = mol_cache_get(mol, "formal_charge")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "formal_charge", sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "formal_charge", sum(atom.GetFormalCharge() for atom in iter_atoms(mol)))
 
 
 def _formal_charge_atom_count(mol) -> int:
     cached = mol_cache_get(mol, "formal_charge_atom_count")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "formal_charge_atom_count", sum(1 for atom in mol.GetAtoms() if atom.GetFormalCharge()))
+    return mol_cache_set(mol, "formal_charge_atom_count", sum(1 for atom in iter_atoms(mol) if atom.GetFormalCharge()))
 
 
 def _abs_formal_charge_sum(mol) -> int:
     cached = mol_cache_get(mol, "abs_formal_charge_sum")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "abs_formal_charge_sum", sum(abs(atom.GetFormalCharge()) for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "abs_formal_charge_sum", sum(abs(atom.GetFormalCharge()) for atom in iter_atoms(mol)))
 
 
 _STANDALONE_RETAINED_ACID_STEM_EXCEPTIONS = {
@@ -17726,7 +17946,8 @@ class FusedParentRule:
         facts = self._candidate_facts(ctx)
         if ctx.telemetry is not None:
             ctx.telemetry.candidate_facts_total[self.family] += len(facts)
-        render_set = _retained_fused_render_set(facts)
+        from .ring_parent_selection import template_parent_frontier
+        render_set = _retained_fused_render_set(template_parent_frontier(mol, facts))
         if ctx.telemetry is not None:
             ctx.telemetry.render_set_size[self.family] += len(render_set)
             ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
@@ -17813,12 +18034,16 @@ class FusedParentRule:
             source_family = _retained_fused_source_family(mol, template, match)
             charge = _polycyclic_parent_charge_evidence(mol, match)
             safety = CandidateSafety(charge_supported=False) if fact.unrendered_charge_penalty else None
+            from .fused_lactam import fused_lactam_seniority
             yield NameCandidate(
                 name=name,
                 family=self.family,
                 priority=self.priority,
                 sort_key=sort_key,
                 parent_atoms=frozenset(match),
+                fused_lactam_seniority=fused_lactam_seniority(
+                    mol, template, match, name, topology_query=fact.topology_query,
+                ),
                 stereo_locants=_template_match_stereo_locants(template, match),
                 template_id=id(template),
                 template_name=template_record_name(template),
@@ -17944,7 +18169,12 @@ class RetainedRingScaffoldParentRule:
         facts = self._candidate_facts(ctx)
         if ctx.telemetry is not None:
             ctx.telemetry.candidate_facts_total["retained-ring-scaffold-parent"] += len(facts)
-        finalists = _retained_ring_scaffold_render_set(facts)
+        from .ring_parent_selection import template_parent_frontier
+        finalists = _retained_ring_scaffold_render_set(template_parent_frontier(mol, facts))
+        if (len(finalists) > 1 and mol.GetRingInfo().NumRings() >= 4
+                and len(ctx.ring_systems) == 2):
+            from .linked_spiro_bicyclic import order_linked_spiro_scaffold_facts
+            finalists = order_linked_spiro_scaffold_facts(mol, self._Chem, finalists)
         if ctx.telemetry is not None:
             ctx.telemetry.render_set_size["retained-ring-scaffold-parent"] += len(finalists)
             ctx.telemetry.facts_suppressed_before_render["retained-ring-scaffold-parent"] += max(
@@ -18170,7 +18400,7 @@ def _compiled_retained_ring_scaffold_template_can_be_general_parent(mol, compile
 
 
 def _aromatic_atom_count(mol) -> int:
-    return sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+    return sum(1 for atom in iter_atoms(mol) if atom.GetIsAromatic())
 
 
 def _charged_atom_values(mol) -> frozenset[int]:
@@ -18180,7 +18410,7 @@ def _charged_atom_values(mol) -> frozenset[int]:
     return mol_cache_set(
         mol,
         "charged_atom_values",
-        frozenset(atom.GetFormalCharge() for atom in mol.GetAtoms() if atom.GetFormalCharge()),
+        frozenset(atom.GetFormalCharge() for atom in iter_atoms(mol) if atom.GetFormalCharge()),
     )
 
 
@@ -18584,7 +18814,7 @@ def _topology_nonaromatic_bonds(mol) -> tuple[tuple[int, int, float], ...]:
         return cached
     bonds = tuple(
         (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), bond.GetBondTypeAsDouble())
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if not bond.GetIsAromatic()
     )
     return mol_cache_set(mol, "topology_nonaromatic_bonds", bonds)
@@ -18599,7 +18829,7 @@ def _topology_bond_facts(mol) -> dict[tuple[int, int], tuple[bool, float]]:
             bond.GetIsAromatic(),
             bond.GetBondTypeAsDouble(),
         )
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     }
     return mol_cache_set(mol, "topology_bond_facts", bonds)
 
@@ -18709,7 +18939,7 @@ def _simple_relative_stereo_ring_branch(mol, ring: frozenset[int], Chem) -> bool
 def _simple_relative_stereo_ring_branch_tagged_atoms(mol, ring: frozenset[int], Chem) -> frozenset[int]:
     tagged = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetIdx() in ring and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     ]
     if len(tagged) != 2:
@@ -18720,7 +18950,7 @@ def _simple_relative_stereo_ring_branch_tagged_atoms(mol, ring: frozenset[int], 
         return frozenset()
     if any(_ring_external_heavy_degree(mol, atom.GetIdx(), ring) != 1 for atom in tagged):
         return frozenset()
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBeginAtomIdx() in ring and bond.GetEndAtomIdx() in ring and bond.GetBondType() != Chem.BondType.SINGLE:
             return frozenset()
     return frozenset(atom.GetIdx() for atom in tagged)
@@ -18770,7 +19000,8 @@ class GeneratedFusedParentRule(FusedParentRule):
         facts = self._candidate_facts(ctx)
         if ctx.telemetry is not None:
             ctx.telemetry.candidate_facts_total[self.family] += len(facts)
-        render_set = _generated_fused_render_set(facts)
+        from .ring_parent_selection import template_parent_frontier
+        render_set = _generated_fused_render_set(template_parent_frontier(mol, facts))
         if ctx.telemetry is not None:
             ctx.telemetry.render_set_size[self.family] += len(render_set)
             ctx.telemetry.facts_suppressed_before_render[self.family] += max(0, len(facts) - len(render_set))
@@ -18797,9 +19028,11 @@ class GeneratedFusedParentRule(FusedParentRule):
 
         if ctx.telemetry is not None:
             ctx.telemetry.filter_stage_count[f"{self.family}:exact_facts"] += exact_facts
-        filtered_exact_facts = _filter_generated_fused_orientation_alias_facts(tuple(facts))
-        if len(filtered_exact_facts) > _GENERATED_FUSED_RENDER_SET_SIZE:
-            return filtered_exact_facts
+        from .fusion_components import fusion_input_scope
+        exact_records = (tuple(facts) if fusion_input_scope(mol) else
+                         _filter_generated_fused_orientation_alias_facts(tuple(facts)))
+        if len(exact_records) > _GENERATED_FUSED_RENDER_SET_SIZE:
+            return exact_records
 
         topology_templates = tuple(
             template
@@ -18828,7 +19061,8 @@ class GeneratedFusedParentRule(FusedParentRule):
 
         if ctx.telemetry is not None:
             ctx.telemetry.filter_stage_count[f"{self.family}:topology_facts"] += topology_facts
-        return _filter_generated_fused_orientation_alias_facts(tuple(facts))
+        return (tuple(facts) if fusion_input_scope(mol) else
+                _filter_generated_fused_orientation_alias_facts(tuple(facts)))
 
     def _render_facts(self, ctx, facts: tuple["_GeneratedFusedCandidateFacts", ...]):
         mol = ctx.mol
@@ -18888,7 +19122,7 @@ def _molecule_stereo_evidence(mol, Chem) -> StereoEvidence | None:
     atom_descriptors = tuple(assigned_atom_stereochemistry(mol, Chem, atom_order="idx"))
     bond_descriptors = tuple(
         (bond.GetIdx(), str(bond.GetStereo()))
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if bond.GetStereo() != Chem.BondStereo.STEREONONE
     )
     if not atom_descriptors and not bond_descriptors:
@@ -18899,25 +19133,15 @@ def _molecule_stereo_evidence(mol, Chem) -> StereoEvidence | None:
     )
 
 
-def _filter_generated_fused_orientation_alias_facts(
-    facts: tuple[_GeneratedFusedCandidateFacts, ...],
-) -> tuple[_GeneratedFusedCandidateFacts, ...]:
-    preferred_core_keys = {
-        (fact.topology_query, frozenset(fact.match))
-        for fact in facts
-        if _generated_fusion_orientation_role(template_record_name(fact.template)) == "preferred-pyrazolo-imidazole"
-    }
-    if not preferred_core_keys:
-        return facts
-    return tuple(
-        fact
-        for fact in facts
-        if not (
-            _generated_fusion_orientation_role(template_record_name(fact.template))
-            == "disfavored-pyrazole-imidazole"
-            and (fact.topology_query, frozenset(fact.match)) in preferred_core_keys
-        )
-    )
+def _filter_generated_fused_orientation_alias_facts(facts):
+    """Legacy compatibility for charged/isotopic/assigned-stereo inputs only."""
+    preferred = {(fact.topology_query,frozenset(fact.match)) for fact in facts
+                 if _generated_fusion_orientation_role(template_record_name(fact.template))
+                 == 'preferred-pyrazolo-imidazole'}
+    return tuple(fact for fact in facts if not (
+        (fact.topology_query,frozenset(fact.match)) in preferred
+        and _generated_fusion_orientation_role(template_record_name(fact.template))
+        == 'disfavored-pyrazole-imidazole'))
 
 
 def _generated_fused_fact_sort_key(
@@ -19204,7 +19428,7 @@ def _topology_match_atom_facts(mol) -> tuple[tuple[int, ...], tuple[int, ...], t
     cached = mol_cache_get(mol, "topology_match_atom_facts")
     if cached is not None:
         return cached
-    atoms = tuple(mol.GetAtoms())
+    atoms = tuple(iter_atoms(mol))
     facts = (
         tuple(atom.GetFormalCharge() for atom in atoms),
         tuple(atom.GetTotalNumHs() for atom in atoms),
@@ -19231,6 +19455,36 @@ def _has_generated_topology_fused_suffix_parent(name: str) -> bool:
             name,
         )
     )
+
+
+def _ordinary_alkene_monocycle_assembly(ctx):
+    """Allow structural ring comparison before deciding annotated numbering."""
+    mol = ctx.mol
+    if (mol.GetRingInfo().NumRings() < 2 or not _is_all_monocycle_ring_assembly(ctx)
+            or mol.GetStereoGroups()):
+        return False
+    configured = [bond for bond in iter_bonds(mol) if int(bond.GetStereo())]
+    if (len(configured) != 1 or configured[0].GetBondTypeAsDouble() != 2
+            or configured[0].IsInRing()
+            or not all(atom.GetAtomicNum() == 6 for atom in
+                       (configured[0].GetBeginAtom(), configured[0].GetEndAtom()))):
+        return False
+    for atom in iter_atoms(mol):
+        number = atom.GetAtomicNum()
+        if (number not in {6, 7, 8} or atom.GetFormalCharge() or atom.GetNumRadicalElectrons()
+                or atom.GetIsotope() or int(atom.GetChiralTag()) or atom.HasQuery()):
+            return False
+        if number == 7 and (not atom.IsInRing() or atom.GetIsAromatic()
+                            or atom.GetDegree() != 3 or atom.GetTotalNumHs()):
+            return False
+        if number == 8 and (atom.GetDegree() != 2 or atom.GetTotalValence() != 2
+                            or atom.GetTotalNumHs()):
+            return False
+        if number in {7, 8} and any(bond.GetBondTypeAsDouble() != 1
+                                    or bond.GetOtherAtom(atom).GetAtomicNum() != 6
+                                    for bond in atom.GetBonds()):
+            return False
+    return True
 
 
 class SingleRingParentRule:
@@ -19261,6 +19515,7 @@ class SingleRingParentRule:
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         ring_facts = self._ring_fact_render_set(ctx, self._candidate_ring_facts(ctx, parent_rings))
+        structural_comparison = _ordinary_alkene_monocycle_assembly(ctx)
         for render_rank, ring_fact in enumerate(ring_facts, start=1):
             ring = ring_fact.ring
             for record in _named_ring_instance_records(mol, tuple(ring), self._Chem):
@@ -19269,6 +19524,13 @@ class SingleRingParentRule:
                     if record.retained_carbohydrate_substituent_count
                     else ""
                 )
+                parent_selection = record.parent_selection
+                if structural_comparison and parent_selection is None and not record.suffix_kind:
+                    from .parent_selection import ParentFacts
+
+                    counts = Counter(mol.GetAtomWithIdx(idx).GetAtomicNum() for idx in ring)
+                    parent_selection = ParentFacts(principal_class=(40, 0), suffix_count=0,
+                        kind='ring', elements=tuple(sorted(counts.items())), ring_count=1)
                 yield NameCandidate(
                     name=record.name,
                     family=self.family,
@@ -19294,6 +19556,8 @@ class SingleRingParentRule:
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
+                    principal_group_centers=frozenset(host for host, _, _ in record.oxo_sites),
+                    parent_selection=parent_selection,
                     charge=_single_ring_charge_evidence(mol, ring, record.name),
                     hydrogen=_single_ring_hydrogen_evidence(record),
                     estimated_length=len(record.name),
@@ -19363,6 +19627,8 @@ class PositiveSingleRingParentRule(SingleRingParentRule):
                     locants=_locants_from_sequence(record.locant_seq),
                     stereo_locants=_complete_single_ring_parent_stereo_locants(mol, record.locant_seq, self._Chem),
                     suffixes=_single_ring_suffix_candidates(mol, record),
+                    principal_group_centers=frozenset(host for host, _, _ in record.oxo_sites),
+                    parent_selection=record.parent_selection,
                     charge=_single_ring_charge_evidence(mol, ring, record.name),
                     hydrogen=_single_ring_hydrogen_evidence(record),
                     estimated_length=len(record.name),
@@ -19385,6 +19651,12 @@ def _single_ring_suffix_candidates(mol, record) -> tuple[SuffixCandidate, ...]:
         safety = CandidateSafety(
             opsin_fragility_reasons=(OPSIN_FRAGILE_EXOCYCLIC_CHARGED_RING_SUFFIX,),
         )
+    if record.oxo_sites:
+        return (SuffixCandidate(
+            text="one", atoms=frozenset(atom for host, ligand, _ in record.oxo_sites for atom in (host, ligand)),
+            locants=tuple(loc for _, _, loc in record.oxo_sites),
+            kind=record.suffix_kind, source=source, safety=safety,
+        ),)
     return (SuffixCandidate(text="", kind=record.suffix_kind, source=source, safety=safety),)
 
 
@@ -20028,6 +20300,47 @@ class HydroFusedParentRule:
                 )
 
 
+
+class FusedHydrogenationParentRule(HydroFusedParentRule):
+    """Complete graph-derived hydro states for numbered fused hydrides."""
+    family = "hydrogenated-fused-parent"
+
+    @lru_cache(maxsize=8)
+    def _templates(self):
+        from .preferred_fused import hydrogenation_parent_templates
+        return hydrogenation_parent_templates(_curated_fused_templates(self._Chem))
+
+    def candidates(self, ctx):
+        from .preferred_fused import hydrogenated_fused_parent_name
+        mol = ctx.mol
+        if (ctx.features.get("max_ring_system_ring_count", 0) < 2
+                or _too_large_for_exhaustive_ring_parent_search(mol)
+                or _has_explicit_stereochemistry(mol, self._Chem)):
+            return
+        seen = set()
+        for template, match in _cached_iter_fused_template_matches(
+            ctx, ctx.candidate_templates(self._templates()), self._Chem,
+            topology_query=True, require_one_ring_system=True, reject_extra_core_bonds=True,
+        ):
+            parent_name = hydrogenated_fused_parent_name(mol, template, match)
+            if not parent_name:
+                continue
+            name = _name_fused_core_match(mol, {**template, "name": parent_name, "preserve_indicated_hydrogen": True},
+                                          match, parent_name=parent_name)
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            yield NameCandidate(
+                name=name, family=self.family, priority=self.priority,
+                sort_key=(-len(match), _substituent_locant_tuple(name), name),
+                parent_atoms=frozenset(match),
+                stereo_locants=_template_match_stereo_locants(template, match),
+                template_id=id(template), template_name=template_record_name(template),
+                source_family=str(template.get("source_family", "")),
+                source_file=str(template.get("source_file", "")),
+                charge=_polycyclic_parent_charge_evidence(mol, match), estimated_length=len(name),
+            )
+
 class GeneratedHydroFusedParentRule(HydroFusedParentRule):
     family = "generated-hydro-fused-parent"
     priority = parent_priority("generated-parent")
@@ -20035,6 +20348,181 @@ class GeneratedHydroFusedParentRule(HydroFusedParentRule):
 
     def _template_iter(self, ctx) -> Sequence[dict]:
         return ctx.generated_fused_templates
+
+
+def _bounded_saturated_monospiro_carbon_parent(mol) -> bool:
+    """P-24.2.1 core with a proved terminal or arylalkyl branch.
+
+    The complete ring graph is two unequal simple saturated carbon cycles
+    sharing exactly one atom. An optional single terminal C/O/F atom or a
+    single one/two-carbon chain to a benzene ring is completely owned. In the
+    latter case P-44.2.1(d) selects the two-ring system over the carbon-only
+    monocycle. A partially hydrogenated component-spiro template is not the
+    P-24.5 parent: neither spiro component is polycyclic. Leave all isotope,
+    stereo, other unsaturation and higher functionality to existing routes.
+    """
+    rings = mol.GetRingInfo().AtomRings()
+    if len(rings) not in {2, 3}:
+        return False
+    rings = tuple(frozenset(ring) for ring in rings)
+    possible = tuple((first, second) for first, second in combinations(rings, 2)
+                     if len(first & second) == 1 and len(first) != len(second))
+    if len(possible) != 1:
+        return False
+    first, second = possible[0]
+    core = first | second
+    if len(core) not in ROOTS:
+        return False
+    atoms = tuple(iter_atoms(mol))
+    if mol.GetStereoGroups() or any(
+        atom.GetIsotope() or atom.GetFormalCharge() or atom.GetNumRadicalElectrons()
+        or int(atom.GetChiralTag()) or atom.GetAtomicNum() == 1
+        for atom in atoms
+    ):
+        return False
+    if any(mol.GetAtomWithIdx(index).GetAtomicNum() != 6 for index in core):
+        return False
+    bonds = tuple(iter_bonds(mol))
+    if any(int(bond.GetStereo()) or int(bond.GetBondDir()) for bond in bonds):
+        return False
+    if any(bond.GetBondTypeAsDouble() != 1 or bond.GetIsAromatic() for bond in bonds
+           if {bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()} <= core):
+        return False
+    if len(rings) == 2:
+        if any(bond.GetBondTypeAsDouble() != 1 or bond.GetIsAromatic() for bond in bonds):
+            return False
+        outside = tuple(atom for atom in atoms if atom.GetIdx() not in core)
+        if len(outside) > 1:
+            return False
+        if outside:
+            atom = outside[0]
+            if (atom.GetAtomicNum() not in {6, 8, 9} or atom.GetDegree() != 1
+                    or atom.GetNeighbors()[0].GetIdx() not in core):
+                return False
+            if atom.GetAtomicNum() == 6 and atom.GetTotalNumHs() != 3:
+                return False
+        return True
+
+    other = next((ring for ring in rings if ring not in (first, second)), None)
+    if (other is None or other & core or len(other) != 6
+            or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6
+                   or not mol.GetAtomWithIdx(i).GetIsAromatic() for i in other)):
+        return False
+    linker = frozenset(a.GetIdx() for a in atoms if a.GetIdx() not in core | other)
+    if not 1 <= len(linker) <= 2:
+        return False
+    if any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6
+           or mol.GetAtomWithIdx(i).GetDegree() != 2 for i in linker):
+        return False
+    if any((not bond.GetIsAromatic() if {bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()} <= other
+            else bond.GetBondTypeAsDouble() != 1 or bond.GetIsAromatic()) for bond in bonds):
+        return False
+    core_links = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in bonds
+                  if (b.GetBeginAtomIdx() in core and b.GetEndAtomIdx() in linker)
+                  or (b.GetEndAtomIdx() in core and b.GetBeginAtomIdx() in linker)]
+    other_links = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in bonds
+                   if (b.GetBeginAtomIdx() in other and b.GetEndAtomIdx() in linker)
+                   or (b.GetEndAtomIdx() in other and b.GetBeginAtomIdx() in linker)]
+    if len(core_links) != 1 or len(other_links) != 1:
+        return False
+    if any(({b.GetBeginAtomIdx(), b.GetEndAtomIdx()} & core
+            and {b.GetBeginAtomIdx(), b.GetEndAtomIdx()} & other) for b in bonds):
+        return False
+    start = next(i for i in core_links[0] if i in linker)
+    seen, stack = set(), [start]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(n.GetIdx() for n in mol.GetAtomWithIdx(current).GetNeighbors()
+                     if n.GetIdx() in linker and n.GetIdx() not in seen)
+    return seen == linker
+
+
+def _bounded_naphthyl_linked_monospiro_core(mol) -> frozenset[int]:
+    """Prove a saturated monocyclic-spiro core with one naphthylalkyl branch.
+
+    The returned core is only an exclusion of component-spiro hydro templates
+    on those atoms. It does not select that core over the independently named
+    fused component. Functionalized, annotated, mixed-element and other ring
+    graphs retain all of their ordinary candidates.
+    """
+    rings = tuple(frozenset(r) for r in mol.GetRingInfo().AtomRings())
+    if len(rings) != 4:
+        return frozenset()
+    atoms = tuple(iter_atoms(mol))
+    if mol.GetStereoGroups() or any(
+        a.GetAtomicNum() != 6 or a.GetIsotope() or a.GetFormalCharge()
+        or a.GetNumRadicalElectrons() or int(a.GetChiralTag()) for a in atoms
+    ):
+        return frozenset()
+    pairs = tuple((a, b) for a, b in combinations(rings, 2)
+                  if len(a & b) == 1 and len(a) != len(b))
+    if len(pairs) != 1:
+        return frozenset()
+    first, second = pairs[0]
+    core = first | second
+    if len(core) not in ROOTS:
+        return frozenset()
+    other = tuple(r for r in rings if r not in (first, second))
+    if (len(other) != 2 or any(len(r) != 6 or r & core for r in other)
+            or len(other[0] & other[1]) != 2):
+        return frozenset()
+    common = tuple(other[0] & other[1])
+    if mol.GetBondBetweenAtoms(*common) is None:
+        return frozenset()
+    aromatic = other[0] | other[1]
+    if len(aromatic) != 10 or not all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in aromatic):
+        return frozenset()
+    linker = frozenset(a.GetIdx() for a in atoms if a.GetIdx() not in core | aromatic)
+    if not 1 <= len(linker) <= 2:
+        return frozenset()
+    if any(mol.GetAtomWithIdx(i).GetDegree() != 2 for i in linker):
+        return frozenset()
+    bonds = tuple(iter_bonds(mol))
+    if any(int(b.GetStereo()) or int(b.GetBondDir()) for b in bonds):
+        return frozenset()
+    if any((not bond.GetIsAromatic() if {bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()} <= aromatic
+            else bond.GetBondTypeAsDouble() != 1 or bond.GetIsAromatic()) for bond in bonds):
+        return frozenset()
+    core_links = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in bonds
+                  if (b.GetBeginAtomIdx() in core and b.GetEndAtomIdx() in linker)
+                  or (b.GetEndAtomIdx() in core and b.GetBeginAtomIdx() in linker)]
+    aryl_links = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in bonds
+                  if (b.GetBeginAtomIdx() in aromatic and b.GetEndAtomIdx() in linker)
+                  or (b.GetEndAtomIdx() in aromatic and b.GetBeginAtomIdx() in linker)]
+    if len(core_links) != 1 or len(aryl_links) != 1:
+        return frozenset()
+    if any(({b.GetBeginAtomIdx(), b.GetEndAtomIdx()} & core
+            and {b.GetBeginAtomIdx(), b.GetEndAtomIdx()} & aromatic) for b in bonds):
+        return frozenset()
+    start = next(i for i in core_links[0] if i in linker)
+    seen, stack = set(), [start]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(n.GetIdx() for n in mol.GetAtomWithIdx(current).GetNeighbors()
+                     if n.GetIdx() in linker and n.GetIdx() not in seen)
+    return core if seen == linker else frozenset()
+
+
+def _has_direct_saturated_spiro_parent(ctx, core):
+    """Identify a fully rendered numeric spiro parent on the same two rings."""
+    mol = ctx.mol
+    rings = [frozenset(ring) for ring in mol.GetRingInfo().AtomRings() if not core.isdisjoint(ring)]
+    if len(rings) != 2 or rings[0] | rings[1] != core or len(rings[0] & rings[1]) != 1:
+        return False
+    for i in core:
+        atom = mol.GetAtomWithIdx(i)
+        if (atom.GetAtomicNum() not in {6, 8} or atom.GetIsotope() or atom.GetFormalCharge()
+                or atom.GetNumRadicalElectrons() or int(atom.GetChiralTag())
+                or any(b.GetBondTypeAsDouble() != 1 for b in atom.GetBonds())):
+            return False
+    return (not _should_defer_spiro_core_parent_to_senior_azolone(mol, core)
+            and any(frozenset(seq) == core for _, seq in ctx.polycyclic_parent_records('spiro')))
 
 
 class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
@@ -20049,11 +20537,24 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
         mol = ctx.mol
         if mol.GetRingInfo().NumRings() < 2:
             return
+        if _bounded_saturated_monospiro_carbon_parent(mol):
+            # A direct P-24.2.1 numeric-spiro parent is available for this
+            # complete graph. Do not let P-24.5-style component templates
+            # masquerade as a higher-priority fused/partially-hydrogenated
+            # parent; downstream generic spiro construction still owns the
+            # original substituent and its numbering.
+            return
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return
         if _high_rank_hetero_retained_fused_search_unpromising(mol):
             return
+        excluded_spiro_core = _bounded_naphthyl_linked_monospiro_core(mol)
+        if (not excluded_spiro_core and mol.GetRingInfo().NumRings() >= 4
+                and len(ctx.ring_systems) == 2):
+            from .linked_spiro_bicyclic import linked_saturated_spiro_bicyclic_core
+            excluded_spiro_core = linked_saturated_spiro_bicyclic_core(mol, self._Chem)
         facts = []
+        saturated_spiro = {}
         for template, match in _cached_iter_fused_template_matches(
             ctx,
             self._template_iter(ctx),
@@ -20062,6 +20563,14 @@ class GeneratedPartialHydroFusedParentRule(GeneratedHydroFusedParentRule):
             require_one_ring_system=True,
             reject_extra_core_bonds=self.reject_extra_core_bonds,
         ):
+            if excluded_spiro_core and frozenset(match) == excluded_spiro_core:
+                continue
+            if 'spiro[' in template_record_name(template):
+                core = frozenset(match)
+                if core not in saturated_spiro:
+                    saturated_spiro[core] = _has_direct_saturated_spiro_parent(ctx, core)
+                if saturated_spiro[core]:
+                    continue
             for parent_name, hydro_key in _partial_hydro_parent_names(mol, template, match):
                 fusion_key = _partial_hydro_fusion_preference(template_record_name(template))
                 partial_hydro_key = self._partial_hydro_key(template, parent_name, hydro_key)
@@ -20260,7 +20769,7 @@ def _high_rank_hetero_retained_fused_search_unpromising(mol) -> bool:
 
 
 def _has_positive_charged_ring_atom(mol) -> bool:
-    return any(atom.IsInRing() and atom.GetFormalCharge() > 0 for atom in mol.GetAtoms())
+    return any(atom.IsInRing() and atom.GetFormalCharge() > 0 for atom in iter_atoms(mol))
 
 
 class NaturalProductTopologyParentRule(FusedParentRule):
@@ -20268,6 +20777,7 @@ class NaturalProductTopologyParentRule(FusedParentRule):
     priority = parent_priority("whole-molecule-retained-parent")
     min_ring_system_ring_count = 4
 
+    @lru_cache(maxsize=8)
     def _templates(self) -> tuple[dict, ...]:
         return tuple(
             template
@@ -20354,15 +20864,15 @@ def _has_generic_polycyclic_stereo_fallback(ctx, mol, Chem) -> bool:
 
 def _has_explicit_stereochemistry(mol, Chem) -> bool:
     return any(
-        atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()
+        atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)
     ) or any(
         bond.GetStereo() != Chem.BondStereo.STEREONONE
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
 def _has_nonring_carbon_substituent_chain(mol, Chem) -> bool:
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C" or atom.IsInRing():
             continue
         ring_neighbors = [nbr for nbr in atom.GetNeighbors() if nbr.IsInRing()]
@@ -20729,7 +21239,7 @@ def _retained_topology_replacement_template_elements_possible(
 def _retained_topology_replacement_template_noncarbon_elements(template_mol) -> tuple[tuple[str, int], ...]:
     counts = Counter(
         atom.GetSymbol()
-        for atom in template_mol.GetAtoms()
+        for atom in iter_atoms(template_mol)
         if atom.GetSymbol() != "C"
     )
     return tuple(sorted(counts.items()))
@@ -20743,7 +21253,7 @@ def _retained_topology_replacement_template_has_nh(template: dict) -> bool:
 def _retained_topology_replacement_template_mol_has_nh(template_mol) -> bool:
     return any(
         atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0
-        for atom in template_mol.GetAtoms()
+        for atom in iter_atoms(template_mol)
     )
 
 
@@ -20993,7 +21503,9 @@ class FunctionalGenericBicyclicParentRule(GenericBicyclicParentRule):
     priority = parent_priority("polycyclic-functional-skeleton")
 
     def _accept_record(self, name: str, seq: Sequence[int]) -> bool:
-        return any(term in name for term in _FUNCTIONAL_GENERIC_BICYCLIC_TERMS)
+        return any(term in name for term in _FUNCTIONAL_GENERIC_BICYCLIC_TERMS) or (
+            "bicyclo[" in name and name.endswith(("one", "ol"))
+        )
 
     def _defer_record(self, ctx, name: str, seq: Sequence[int]) -> bool:
         if not _has_retained_fused_parent_substituent_name(name):
@@ -21033,7 +21545,7 @@ class KekulizedGenericPolycyclicParentRule(_PolycyclicRecordParentRule):
         if _too_large_for_exhaustive_ring_parent_search(mol):
             return None
         ring_count = mol.GetRingInfo().NumRings()
-        aromatic = any(atom.GetIsAromatic() for atom in mol.GetAtoms())
+        aromatic = any(atom.GetIsAromatic() for atom in iter_atoms(mol))
         if not aromatic and ring_count < 3:
             return None
         return self.priority if aromatic else parent_priority("generic-polycyclic-parent")
@@ -21276,6 +21788,8 @@ class ExactRetainedParentRule:
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    if not match_preserves_formal_charges(mol, template_record_mol(template), match):
+                        continue
                     if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
                     family = (
@@ -21335,6 +21849,8 @@ class ExactFunctionalRetainedParentRule(ExactRetainedParentRule):
                 continue
             for match in ctx.template_matches(template):
                 if set(match) == atom_set and not _match_has_extra_core_bonds(mol, template, match):
+                    if not match_preserves_formal_charges(mol, template_record_mol(template), match):
+                        continue
                     if not _exact_retained_fused_match_is_hydrogen_compatible(mol, template, match):
                         continue
                     family = (
@@ -21416,6 +21932,8 @@ class ExactRetainedNOxideParentRule(ExactRetainedParentRule):
         if site is None:
             return
         nitrogen_idx, oxide_idx = site
+        if any(bond.GetBondType() == self._Chem.BondType.TRIPLE for bond in mol.GetAtomWithIdx(nitrogen_idx).GetBonds()):
+            return  # Nitrile oxides require their own bond-order-preserving form.
         if mol.GetNumAtoms() > 65:
             return
 
@@ -21428,7 +21946,7 @@ class ExactRetainedNOxideParentRule(ExactRetainedParentRule):
             template_mol = template_record_mol(template)
             if template_mol.GetNumAtoms() != template_atom_count:
                 continue
-            if not any(atom.GetSymbol() == "C" for atom in template_mol.GetAtoms()):
+            if not any(atom.GetSymbol() == "C" for atom in iter_atoms(template_mol)):
                 continue
             if _formal_charge(template_mol) != _formal_charge(mol):
                 continue
@@ -21469,7 +21987,7 @@ class ExactRetainedNOxideParentRule(ExactRetainedParentRule):
 
 def _single_terminal_n_oxide_site(mol, Chem) -> tuple[int, int] | None:
     sites = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0:
             continue
         nidx = nitrogen.GetIdx()
@@ -21501,7 +22019,7 @@ def _exact_retained_n_oxide_candidate_name(template: dict, match: Sequence[int],
     locant = template_record_locants(template).get(template_nitrogen_idx, "")
     oxidizable_nitrogen_count = sum(
         1
-        for atom in template_mol.GetAtoms()
+        for atom in iter_atoms(template_mol)
         if atom.GetSymbol() == "N" and atom.GetFormalCharge() == 0
     )
     if locant and locant[0].isdigit():
@@ -21527,6 +22045,7 @@ def _exact_retained_parent_stereo_prefix(mol, Chem, template: dict, match: Seque
 
 
 def parent_rules(Chem) -> tuple:
+    retained_composition = RetainedComponentCompositionRule()
     sulfanium = SulfaniumParentRule(Chem)
     bis_sulfonium_sulfide = BisSulfoniumSulfideRetainedParentRule(Chem)
     methylenebis_dithiocarbamate = MethylenebisDithiocarbamateRetainedParentRule(Chem)
@@ -21622,6 +22141,7 @@ def parent_rules(Chem) -> tuple:
     preferred_bicyclic = PreferredGenericBicyclicParentRule(Chem)
     fused = FusedParentRule(Chem)
     hydro_fused = HydroFusedParentRule(Chem)
+    exact_hydro_fused = FusedHydrogenationParentRule(Chem)
     partial_hydro_fused = PartialHydroFusedParentRule(Chem)
     oxido_fused = OxidoFusedParentRule(Chem)
     generated_oxido_fused = GeneratedOxidoFusedParentRule(Chem)
@@ -21885,6 +22405,12 @@ def parent_rules(Chem) -> tuple:
             (acyclic,),
             acyclic_carbohydrate_retained.candidates,
         ),
+        RuleSpec(
+            "retained-component-composition",
+            parent_priority("functional-acyclic-skeleton"),
+            (min_ring_count(1),),
+            retained_composition.candidates,
+        ),
         RuleSpec("acyclic-parent", parent_priority("acyclic-parent"), (acyclic,), acyclic_parent.candidates),
         RuleSpec(
             "imino-functional-acyclic-skeleton-with-ring-substituents",
@@ -21989,8 +22515,10 @@ def parent_rules(Chem) -> tuple:
             (min_ring_system_ring_count(2), generic_bicyclic_topology),
             preferred_bicyclic.candidates,
         ),
-        RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_system_ring_count(2),), fused.candidates),
+        RuleSpec("fused-retained-parent", parent_priority("retained-fused-parent"), (min_ring_system_ring_count(2),), fused.candidates, ring_parent_scope=True),
         RuleSpec("hydro-fused-retained-parent", parent_priority("hydro-retained-fused-parent"), (min_ring_count(2), min_ring_system_ring_count(2)), hydro_fused.candidates),
+        RuleSpec("hydrogenated-fused-parent", parent_priority("hydro-retained-fused-parent"),
+                 (min_ring_count(2), min_ring_system_ring_count(2)), exact_hydro_fused.candidates, ring_parent_scope=True),
         RuleSpec("partial-hydro-fused-retained-parent", parent_priority("retained-partial-hydro-fallback"), (min_ring_count(2), min_ring_system_ring_count(2)), partial_hydro_fused.candidates),
         RuleSpec(
             "generated-spiro-partial-hydro-parent",
@@ -22024,7 +22552,7 @@ def parent_rules(Chem) -> tuple:
         ),
         RuleSpec("generic-bicyclic-parent", parent_priority("generic-bicyclic-parent"), (generic_bicyclic_topology,), generic_bicyclic.candidates),
         RuleSpec("generic-spiro-parent", parent_priority("generic-spiro-parent"), (min_ring_system_ring_count(2), spiro_topology), generic_spiro.candidates),
-        RuleSpec("single-ring-parent", parent_priority("single-ring-parent"), (min_ring_count(1),), single_ring.candidates),
+        RuleSpec("single-ring-parent", parent_priority("single-ring-parent"), (min_ring_count(1),), single_ring.candidates, ring_parent_scope=True),
         RuleSpec("generated-exact-parent", parent_priority("generated-parent"), (min_ring_count(1), exact_ring_system), generated_exact.candidates),
         RuleSpec(
             "high-signal-generated-topology-fused-parent",
@@ -22032,8 +22560,8 @@ def parent_rules(Chem) -> tuple:
             (min_ring_system_ring_count(2),),
             high_signal_generated_topology_fused.candidates,
         ),
-        RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates),
-        RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates),
+        RuleSpec("generated-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_fused.candidates, ring_parent_scope=True),
+        RuleSpec("generated-hydro-fused-parent", parent_priority("generated-parent"), (min_ring_system_ring_count(2),), generated_hydro_fused.candidates, ring_parent_scope=True),
         RuleSpec("generated-partial-hydro-fused-parent", parent_priority("generated-partial-hydro-parent"), (min_ring_system_ring_count(2),), generated_partial_hydro.candidates),
         RuleSpec("natural-product-topology-parent", parent_priority("whole-molecule-retained-parent"), (min_ring_system_ring_count(4),), natural_product_topology.candidates),
         RuleSpec("skeletal-replacement-fused-parent", parent_priority("skeletal-replacement-parent"), (min_ring_system_ring_count(3),), skeletal_replacement.candidates),

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .formatting import join_locants as _join_locants, loc_unsat, restore_terminal_unsaturation_e
 from .molecule_cache import mol_cache_dict
+from .ring.atom_facts import ring_adjustment_atoms
 from .ring.hydrogen import _drop_indicated_hydrogen_prefix, _indicated_hydrogen_prefix
 
 
@@ -80,6 +81,8 @@ _CHARGEABLE_SUBSTITUENT_STEMS = {
     "thiophene": "thiophen",
     "thiazole": "thiazol",
     "isothiazole": "isothiazol",
+    "1,3-thiazole": "1,3-thiazol",
+    "1,2-thiazole": "1,2-thiazol",
     "imidazolidine": "imidazolidin",
     "piperidine": "piperidin",
     "piperazine": "piperazin",
@@ -104,6 +107,8 @@ _NEUTRAL_SUBSTITUENT_STEMS = {
     "furan": "furan",
     "oxazole": "oxazol",
     "isoxazole": "isoxazol",
+    "1,3-oxazole": "1,3-oxazol",
+    "1,2-oxazole": "1,2-oxazol",
 }
 
 
@@ -126,7 +131,10 @@ _AROMATIC_5_SINGLE_HETERO_NAMES = {
     "B": "borole",
     "N": "1H-pyrrole",
     "O": "furan",
-    "P": "phosphole",
+    # P-22.2.2.1.4: the trivalent P is the saturated atom of the
+    # maximally unsaturated five-membered parent, even when its H is
+    # replaced by a substituent in the named derivative.
+    "P": "1H-phosphole",
     "S": "thiophene",
     "Se": "selenole",
     "Si": "silole",
@@ -137,8 +145,10 @@ _AROMATIC_5_TRIAZOLE_NAMES = {
     (1, 2, 4): "1,2,4-triazole",
 }
 _AROMATIC_5_AZOLE_NAMES = {
-    "O": {2: "isoxazole", 3: "oxazole"},
-    "S": {2: "isothiazole", 3: "thiazole"},
+    # P-52.2.2.2: the unlocanted retained names are general-nomenclature
+    # aliases; preferred Hantzsch–Widman names carry the heteroatom locants.
+    "O": {2: "1,2-oxazole", 3: "1,3-oxazole"},
+    "S": {2: "1,2-thiazole", 3: "1,3-thiazole"},
 }
 _AROMATIC_5_DIAZOLE_HETERO_FAMILIES = {"O": "oxadiazole", "S": "thiadiazole"}
 _AROMATIC_5_DIAZOLE_HETERO_LOCANTS = {
@@ -281,6 +291,15 @@ def _ring_parent_candidates_uncached(mol, ordered: Sequence[int]) -> list[tuple[
 
     if n == 6 and (all_aromatic or kekulized_aromatic):
         candidates = _six_membered_aromatic_candidates(mol, ordered, symbols)
+        if candidates:
+            return candidates
+
+    # RDKit does not mark many main-group heteroles aromatic even when they
+    # have the two noncumulative double bonds of a mancude parent. Recognize
+    # their parent ring directly rather than treating it as a replacement
+    # cyclopentadiene, and retain the parent's indicated hydrogen on derivatives.
+    if n == 5 and all_aliphatic:
+        candidates = _main_group_mancude_heterole_candidates(mol, ordered, Counter(symbols))
         if candidates:
             return candidates
 
@@ -713,11 +732,70 @@ def _five_membered_aromatic_candidates(
     return candidates
 
 
+def _main_group_mancude_heterole_candidates(
+    mol, ordered: Sequence[int], counts: Counter[str]
+) -> list[tuple[str, tuple[int, ...]]]:
+    parents = {"B": ("1H-borole", 3), "Si": ("1H-silole", 4),
+               "As": ("1H-arsole", 3)}
+    for symbol, (parent, valence) in parents.items():
+        if counts != Counter({"C": 4, symbol: 1}):
+            continue
+        hetero = next(mol.GetAtomWithIdx(idx) for idx in ordered
+                      if mol.GetAtomWithIdx(idx).GetSymbol() == symbol)
+        if (hetero.GetFormalCharge() or hetero.GetNumRadicalElectrons()
+                or hetero.GetTotalValence() != valence):
+            return []
+        edges = [mol.GetBondBetweenAtoms(a, b) for a, b in zip(ordered, ordered[1:] + ordered[:1])]
+        if (any(bond is None or bond.GetIsAromatic() for bond in edges)
+                or sorted(bond.GetBondTypeAsDouble() for bond in edges) != [1, 1, 1, 2, 2]):
+            return []
+        ring = frozenset(ordered)
+        if any(bond.GetBondTypeAsDouble() != 1
+               for bond in hetero.GetBonds() if bond.GetOtherAtomIdx(hetero.GetIdx()) in ring):
+            return []
+        if any(bond.GetBondTypeAsDouble() != 1 for idx in ordered
+               for bond in mol.GetAtomWithIdx(idx).GetBonds()
+               if bond.GetOtherAtomIdx(idx) not in ring):
+            return []
+        return [(parent, seq) for seq in _numberings_with_atom_at(ordered, mol, symbol)]
+    return []
+
+
 def _five_membered_main_group_heterole_candidates(
     mol, ordered: Sequence[int], counts: Counter[str]
 ) -> list[tuple[str, tuple[int, ...]]]:
+    if counts == Counter({"C": 3, "N": 1, "P": 1}):
+        # Assign the unsaturated parent before detecting its indicated H.
+        # N is senior to P for numbering; the saturated N or P is marked
+        # even when its hydrogen is replaced in a derivative.
+        from rdkit import Chem
+        try:
+            kekule = Chem.Mol(mol)
+            Chem.Kekulize(kekule, clearAromaticFlags=True)
+        except (ValueError, RuntimeError):
+            return []
+        edges = [kekule.GetBondBetweenAtoms(a, b)
+                 for a, b in zip(ordered, ordered[1:] + ordered[:1])]
+        if (any(bond is None for bond in edges)
+                or sorted(bond.GetBondTypeAsDouble() for bond in edges) != [1, 1, 1, 2, 2]):
+            return []
+        ring = frozenset(ordered)
+        indicated = [idx for idx in ordered if mol.GetAtomWithIdx(idx).GetSymbol() in {'N', 'P'}
+                     and not mol.GetAtomWithIdx(idx).GetFormalCharge()
+                     and mol.GetAtomWithIdx(idx).GetTotalValence() == 3
+                     and all(bond.GetBondTypeAsDouble() == 1
+                             for bond in kekule.GetAtomWithIdx(idx).GetBonds()
+                             if bond.GetOtherAtomIdx(idx) in ring)]
+        if len(indicated) != 1:
+            return []
+        result = []
+        for seq in _numberings_with_atom_at(ordered, mol, 'N'):
+            p_loc = next(i + 1 for i, idx in enumerate(seq) if mol.GetAtomWithIdx(idx).GetSymbol() == 'P')
+            if p_loc in {2, 3}:
+                h_loc = seq.index(indicated[0]) + 1
+                result.append((f'{h_loc}H-1,{p_loc}-azaphosphole', seq))
+        return result
     pattern_specs = (
-        (Counter({"C": 3, "N": 1, "P": 1}), "phosphazole", ("P", "N", "C", "C", "C")),
         (Counter({"C": 2, "N": 2, "P": 1}), "diazaphosphole", ("N", "N", "P", "C", "C")),
         (Counter({"C": 1, "P": 4}), "tetraphosphole", ("P", "P", "P", "P", "C")),
         (Counter({"C": 3, "N": 1, "Si": 1}), "azasilole", ("N", "Si", "C", "C", "C")),
@@ -860,6 +938,11 @@ def _medium_hantzsch_widman_candidates(
     }
     if not hetero_counts or sum(hetero_counts.values()) + counts.get("C", 0) != len(ordered):
         return []
+    # P-22.2.2.1.6/Table 2.5: six-membered rings use the stem for
+    # their least senior heteroatom. P is least senior in this bounded
+    # O/S/N/P grammar and belongs to group 6C, whose stem is ``inine``.
+    if len(ordered) == 6 and hetero_counts.get("P"):
+        root = "inine"
     stem = _medium_hw_stem(hetero_counts)
     if not stem:
         return []
@@ -870,12 +953,15 @@ def _medium_hantzsch_widman_candidates(
         if locanted:
             locants = tuple(
                 i + 1
+                for symbol in _MEDIUM_HW_ANCHOR_ORDER if symbol in hetero_counts
                 for i, idx in enumerate(seq)
-                if mol.GetAtomWithIdx(idx).GetSymbol() in hetero_counts
+                if mol.GetAtomWithIdx(idx).GetSymbol() == symbol
             )
             if not locants:
                 continue
-            name = f"{_join_locants(locants)}-{stem}{root}"
+            # P-22.2.2: locants follow their element prefixes, not a global
+            # numerical sort (e.g. both sulfur sites precede nitrogen).
+            name = f"{','.join(map(str, locants))}-{stem}{root}"
         else:
             name = f"{stem}{root}"
         candidates.append((name, seq))
@@ -900,6 +986,10 @@ def _hantzsch_widman_aromatic_heterocycle_candidates(
     }
     if not hetero_counts:
         return []
+    # The 6C stem must remain distinct from the mononuclear hydride word
+    # produced by concatenating phosph + ine.
+    if len(ordered) == 6 and hetero_counts.get("P"):
+        root = "inine"
     if len(ordered) == 5 and hetero_counts.get("P", 0) and not (
         hetero_counts.get("O", 0) or hetero_counts.get("S", 0)
     ):
@@ -917,12 +1007,13 @@ def _hantzsch_widman_aromatic_heterocycle_candidates(
         if locanted:
             locants = tuple(
                 i + 1
+                for symbol in _MEDIUM_HW_ANCHOR_ORDER if symbol in hetero_counts
                 for i, idx in enumerate(seq)
-                if mol.GetAtomWithIdx(idx).GetSymbol() in hetero_counts
+                if mol.GetAtomWithIdx(idx).GetSymbol() == symbol
             )
             if not locants:
                 continue
-            prefix = f"{_join_locants(locants)}-"
+            prefix = f"{','.join(map(str, locants))}-"
         else:
             prefix = ""
         for stem in stems:
@@ -1320,10 +1411,11 @@ def _carbocycle_parent(mol, seq: Sequence[int]) -> str:
             return root + "ane"
         return root + "an"
     if ene_locs and not yne_locs:
-        return loc_unsat(root, ene_locs, "ene")
+        return loc_unsat(root, ene_locs, "ene", terminal_e=True)
     if yne_locs and not ene_locs:
-        return loc_unsat(root, yne_locs, "yne")
-    ene = loc_unsat(root, ene_locs, "en", terminal_e=False)
+        return loc_unsat(root, yne_locs, "yne", terminal_e=True)
+    ene_root = root + 'a' if len(ene_locs)==1 and len(yne_locs)>1 else root
+    ene = loc_unsat(ene_root, ene_locs, "ene", terminal_e=False)
     yne = loc_unsat("", yne_locs, "yne", terminal_e=True)
     return ene + "-" + yne
 
@@ -1336,7 +1428,7 @@ def _aromatic_carbocycle_parent(seq: Sequence[int]) -> str:
     if ene_count <= 0:
         return ""
     locants = tuple(range(1, ene_count * 2, 2))
-    return loc_unsat("cyclo" + root, locants, "ene")
+    return loc_unsat("cyclo" + root, locants, "ene", terminal_e=True)
 
 
 def _aromatic_carbocycle_has_supported_valence(mol, ordered: Sequence[int]) -> bool:
@@ -1517,6 +1609,8 @@ def _has_exocyclic_imino(mol, idx: int, ring_set: set[int]) -> bool:
 
 
 def adjust_ring_parent_for_charge(mol, parent_name: str, seq: Sequence[int], raw_subs) -> str:
+    if ring_adjustment_atoms(mol)[0].isdisjoint(seq):
+        return parent_name
     lambda_name = _lambda_ring_parent_name(mol, parent_name, seq)
     if lambda_name:
         parent_name = lambda_name
@@ -2027,6 +2121,37 @@ def _ring_numberings(ordered: Sequence[int]) -> list[tuple[int, ...]]:
 
 
 
+def omit_monosubstituted_ring_locant(mol, parent_atoms, atom_locants, prefixes, Chem):
+    """Join the legacy ring writer to the same source-owned .2(c) proof."""
+    core = frozenset(parent_atoms)
+    if len(prefixes) != 1 or prefixes[0][0] != '1' or not 3 <= len(core) <= 64:
+        return False
+    # Replacement vocabulary has its own structural locants. The mapped
+    # component path can prove omission for homogeneous noncarbon hydrides;
+    # this older writer constructs their locanted replacement names instead.
+    if any(mol.GetAtomWithIdx(idx).GetAtomicNum() != 6 for idx in core):
+        return False
+    external = [(idx, n.GetIdx()) for idx in core for n in mol.GetAtomWithIdx(idx).GetNeighbors()
+                if n.GetIdx() not in core and n.GetAtomicNum() > 1]
+    if len(external) != 1:
+        return False
+    host, root = external[0]
+    if dict(atom_locants).get(host) != '1':
+        return False
+    branch, stack = set(), [root]
+    while stack:
+        idx = stack.pop()
+        if idx in branch or idx in core:
+            continue
+        branch.add(idx)
+        stack.extend(n.GetIdx() for n in mol.GetAtomWithIdx(idx).GetNeighbors()
+                     if n.GetIdx() not in core and n.GetIdx() not in branch)
+    from .locant_presentation import SubstitutionSite, substitution_locant_presentation
+    proof = substitution_locant_presentation(mol, Chem, tuple(dict(atom_locants).items()),
+        (SubstitutionSite(host, root, frozenset(branch), prefixes[0][1]),))
+    return proof is not None and proof.rule == 'P-14.3.4.2(c)'
+
+
 def ring_substituent_suffix(
     parent_name: str,
     loc: int,
@@ -2042,11 +2167,11 @@ def ring_substituent_suffix(
     if parent_name == "benzene":
         return "phenyl" if loc == 1 else ""
     if parent_name == "furan":
-        return f"{loc}-furyl"
+        return f"furan-{loc}-yl"
     if parent_name == "thiophene" and charge_loc is None:
-        return f"{loc}-thienyl"
+        return f"thiophen-{loc}-yl"
     if parent_name == "pyridine" and charge_loc is None:
-        return f"{loc}-pyridyl"
+        return f"pyridin-{loc}-yl"
     if parent_name == "piperidine" and charge_loc is None and loc != 1:
         return f"piperidin-{loc}-yl"
     retained_n_substituent = _retained_saturated_n_substituent_suffix(parent_name, loc, charge_loc)
@@ -2109,11 +2234,11 @@ def _retained_saturated_n_substituent_suffix(parent_name: str, loc: int, charge_
     if charge_loc is not None:
         return ""
     return {
-        ("piperidine", 1): "piperidino",
-        ("piperazine", 1): "piperazino",
-        ("piperazine", 4): "piperazino",
-        ("pyrrolidine", 1): "pyrrolidino",
-        ("morpholine", 4): "morpholino",
+        ("piperidine", 1): "piperidin-1-yl",
+        ("piperazine", 1): "piperazin-1-yl",
+        ("piperazine", 4): "piperazin-4-yl",
+        ("pyrrolidine", 1): "pyrrolidin-1-yl",
+        ("morpholine", 4): "morpholin-4-yl",
     }.get((parent_name, loc), "")
 
 

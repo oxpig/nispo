@@ -4,6 +4,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import json
 
+from .molecule_iteration import iter_atoms
 from .acyclic_rules import AcyclicNameRecord, name_acyclic_record
 from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
@@ -32,7 +33,7 @@ from .template_index import (
 from .template_store import TemplateStore, template_store
 from .ring_topology import RingSystemTopology, ring_system_topologies
 from .telemetry import CandidateTelemetry
-from .molecule_cache import mol_cache_set
+from .molecule_cache import mol_cache_get, mol_cache_set
 
 
 _TEMPLATE_COLLECTION_LABEL_CACHE: dict[int, tuple[tuple[dict, ...], str]] = {}
@@ -50,14 +51,14 @@ def _kekulized_polycyclic_parent_record_limit(mol) -> int:
     if (
         mol.GetNumAtoms() >= 30
         and mol.GetRingInfo().NumRings() >= 4
-        and not any(atom.GetFormalCharge() for atom in mol.GetAtoms())
+        and not any(atom.GetFormalCharge() for atom in iter_atoms(mol))
     ):
         return _LARGE_UNCHARGED_KEKULIZED_POLYCYCLIC_PARENT_RECORD_LIMIT
-    if not any(atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS for atom in mol.GetAtoms()):
+    if not any(atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS for atom in iter_atoms(mol)):
         return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
     ring_count = mol.GetRingInfo().NumRings()
     chiral_count = _assigned_chiral_atom_count(mol)
-    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+    if any(atom.GetFormalCharge() != 0 for atom in iter_atoms(mol)):
         return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
     if ring_count <= 4 and chiral_count >= 2:
         return _KEKULIZED_POLYCYCLIC_PARENT_RECORD_FULL_LIMIT
@@ -71,7 +72,7 @@ def _kekulized_polycyclic_parent_record_limit(mol) -> int:
 
 
 def _assigned_chiral_atom_count(mol) -> int:
-    return sum(int(atom.GetChiralTag()) != 0 for atom in mol.GetAtoms())
+    return sum(int(atom.GetChiralTag()) != 0 for atom in iter_atoms(mol))
 
 
 def _polycyclic_parent_record_limit(mol, family: str) -> int | None:
@@ -131,6 +132,12 @@ class MoleculeContext:
     _template_store: TemplateStore | None = None
     _facts: MoleculeFacts | None = None
     _route_plan: RoutePlan | None = None
+    # A later writer may provide a general name while PIN comparison is open.
+    # In that path concrete candidate safety failures are exclusions.
+    unresolved_preference: bool = False
+    # A later source-class continuation may inspect compatibility evidence.
+    # Such a stage retains the original eager preparation and its caches.
+    compatibility_eager: bool = False
 
     def __post_init__(self) -> None:
         if self.telemetry is not None:
@@ -363,6 +370,16 @@ class MoleculeContext:
         return self._narrow_generated_fused_templates
 
 
+def _canonical_template_smiles(template, Chem) -> str:
+    """Cache canonical text on immutable template molecules, without global owners."""
+    mol = template_record_mol(template)
+    cached = mol_cache_get(mol, "canonical_template_smiles")
+    if cached is None:
+        cached = Chem.MolToSmiles(mol, canonical=True)
+        mol_cache_set(mol, "canonical_template_smiles", cached)
+    return cached
+
+
 def _supplement_generated_fused_templates_by_ring_graph(
     mol,
     Chem,
@@ -382,7 +399,9 @@ def _supplement_generated_fused_templates_by_ring_graph(
         graph_key = system.get("graph_signature", "")
         if not graph_key:
             continue
-        records = _generated_records_for_graph(key, graph_key, "", False, Chem)
+        from .fusion_components import fusion_input_scope
+        records = _generated_records_for_graph(key, graph_key, "", False, Chem,
+                                              component_seniority=fusion_input_scope(mol))
         if not records:
             continue
         candidate_records_found = True
@@ -404,7 +423,7 @@ def _supplement_generated_fused_templates_by_ring_graph(
     seen: set[tuple[str, str]] = {
         (
             template_record_name(template),
-            Chem.MolToSmiles(template_record_mol(template), canonical=True),
+            _canonical_template_smiles(template, Chem),
         )
         for template in templates
     }
@@ -419,7 +438,7 @@ def _supplement_generated_fused_templates_by_ring_graph(
         ):
             marker = (
                 template_record_name(template),
-                Chem.MolToSmiles(template_record_mol(template), canonical=True),
+                _canonical_template_smiles(template, Chem),
             )
             if marker in seen:
                 continue

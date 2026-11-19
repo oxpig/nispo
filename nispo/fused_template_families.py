@@ -266,6 +266,8 @@ def candidate_generated_fused_templates(
     if cached is not None:
         return cached
     features = features or molecule_features(mol, Chem)
+    from .fusion_components import fusion_input_scope
+    component_seniority = fusion_input_scope(mol)
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
@@ -280,6 +282,7 @@ def candidate_generated_fused_templates(
             element_graph_key,
             graph_filter,
             Chem,
+            component_seniority=component_seniority,
         ):
             marker = id(template)
             if marker in seen:
@@ -325,12 +328,17 @@ def is_targeted_generated_fused_alias_key(
 
 
 def _preferred_generated_templates(templates: tuple[dict, ...], Chem, per_skeleton: int) -> tuple[dict, ...]:
+    from .fusion_components import fusion_record_frontier
+
     grouped: dict[str, list[dict]] = {}
     for template in templates:
         key = Chem.MolToSmiles(template_record_mol(template), canonical=True)
         grouped.setdefault(key, []).append(template)
     preferred = []
-    for items in grouped.values():
+    for smiles, items in grouped.items():
+        records = [dict(name=template_record_name(item), smiles=smiles,
+                        locants=item.get('locants'), template=item) for item in items]
+        items = [record['template'] for record in fusion_record_frontier(records)]
         preferred.extend(sorted(items, key=generated_template_key)[:per_skeleton])
     return tuple(sorted(preferred, key=generated_template_key))
 
@@ -388,9 +396,11 @@ def _resolve_generated_record_refs(value, table: tuple[dict, ...]):
 
 @lru_cache(maxsize=1024)
 def _generated_templates_for_key(
-    key: str, graph_key: str, element_graph_key: str, graph_filter: bool, Chem
+    key: str, graph_key: str, element_graph_key: str, graph_filter: bool, Chem,
+    *, component_seniority: bool = True,
 ) -> tuple[dict, ...]:
-    records = _generated_records_for_graph(key, graph_key, element_graph_key, graph_filter, Chem)
+    records = _generated_records_for_graph(key, graph_key, element_graph_key, graph_filter, Chem,
+                                         component_seniority=component_seniority)
     return build_generated_fused_parent_templates_from_records(
         Chem,
         records,
@@ -400,7 +410,8 @@ def _generated_templates_for_key(
 
 @lru_cache(maxsize=1024)
 def _generated_records_for_graph(
-    key: str, graph_key: str, element_graph_key: str, graph_filter: bool, Chem
+    key: str, graph_key: str, element_graph_key: str, graph_filter: bool, Chem,
+    *, component_seniority: bool = True,
 ) -> tuple[dict, ...]:
     if element_graph_key:
         records = (
@@ -414,17 +425,20 @@ def _generated_records_for_graph(
                 records,
                 aliases_per_scaffold=_MAX_TARGETED_GENERATED_ALIASES_PER_SCAFFOLD,
                 orientation_aliases_per_scaffold=_MAX_TARGETED_ORIENTATION_ALIASES_PER_SCAFFOLD,
+                component_seniority=component_seniority,
             )
-        return _preferred_records_per_scaffold(records)
+        return _preferred_records_per_scaffold(records, component_seniority=component_seniority)
     if graph_filter:
         return ()
     graph_records = _generated_fused_template_graph_index().get(key, {}).get(graph_key)
     if graph_records is not None:
-        return _preferred_records_per_scaffold(graph_records[:_MAX_GENERATED_RECORDS_PER_GRAPH])
+        return _preferred_records_per_scaffold(graph_records[:_MAX_GENERATED_RECORDS_PER_GRAPH],
+                                               component_seniority=component_seniority)
     if graph_key:
         return ()
     return _preferred_records_per_scaffold(
-        _generated_fused_template_index().get(key, ())[:_MAX_GENERATED_RECORDS_PER_GRAPH]
+        _generated_fused_template_index().get(key, ())[:_MAX_GENERATED_RECORDS_PER_GRAPH],
+        component_seniority=component_seniority,
     )
 
 
@@ -433,6 +447,7 @@ def _preferred_records_per_scaffold(
     *,
     aliases_per_scaffold: int | None = None,
     orientation_aliases_per_scaffold: int | None = None,
+    component_seniority: bool = True,
 ) -> tuple[dict, ...]:
     """Collapse OPSIN alias fan-out before materializing generated templates.
 
@@ -459,6 +474,7 @@ def _preferred_records_per_scaffold(
                 scaffold_records,
                 aliases_per_scaffold=aliases_per_scaffold,
                 orientation_aliases_per_scaffold=orientation_aliases_per_scaffold,
+                component_seniority=component_seniority,
             )
         )
     return tuple(
@@ -474,7 +490,13 @@ def _preferred_generated_records_for_scaffold(
     *,
     aliases_per_scaffold: int | None = None,
     orientation_aliases_per_scaffold: int | None = None,
+    component_seniority: bool = True,
 ) -> list[dict]:
+    from .fusion_components import fusion_record_frontier
+    if component_seniority:
+        from .fusion_networks import alternative_fusion_records
+        records = alternative_fusion_records(records)
+        records = fusion_record_frontier(records)
     if aliases_per_scaffold is None:
         aliases_per_scaffold = _MAX_GENERATED_ALIASES_PER_SCAFFOLD
     if orientation_aliases_per_scaffold is None:
@@ -484,11 +506,8 @@ def _preferred_generated_records_for_scaffold(
         key=lambda record: (generated_fusion_preference(str(record.get("name", ""))), len(str(record.get("name", "")))),
     )[:orientation_aliases_per_scaffold]
     shortest = sorted(
-        (
-            record
-            for record in records
-            if not _skip_short_generated_fusion_alias(record, orientation_preferred)
-        ),
+        (record for record in records if component_seniority
+         or not _skip_short_generated_fusion_alias(record, orientation_preferred)),
         key=lambda record: (
             len(str(record.get("name", ""))),
             generated_fusion_preference(str(record.get("name", ""))),
@@ -506,13 +525,11 @@ def _preferred_generated_records_for_scaffold(
 
 
 def _skip_short_generated_fusion_alias(record: dict, orientation_preferred: list[dict]) -> bool:
-    name = str(record.get("name", ""))
-    if generated_fusion_orientation_role(name) != "disfavored-pyrazole-imidazole":
+    """Compatibility only when the input has no supported P-25 evidence."""
+    if generated_fusion_orientation_role(str(record.get('name', ''))) != 'disfavored-pyrazole-imidazole':
         return False
-    return any(
-        generated_fusion_orientation_role(str(preferred.get("name", ""))) == "preferred-pyrazolo-imidazole"
-        for preferred in orientation_preferred
-    )
+    return any(generated_fusion_orientation_role(str(preferred.get('name', '')))
+               == 'preferred-pyrazolo-imidazole' for preferred in orientation_preferred)
 
 
 def _is_targeted_generated_fused_alias_json_key(key: str, graph_key: str, element_graph_key: str) -> bool:
@@ -530,6 +547,7 @@ def _generated_fused_alias_key(feature_key, graph_key: str, element_graph_key: s
 
 
 def _target_fusion_orientation_rank(component: str, base: str) -> int:
+    # Compatibility ordering; supported P-25 component frontiers run first.
     if component.startswith("pyrazolo") and base == "imidazole":
         return 0
     if component.startswith("imidazo") and base == "pyrazole":
@@ -548,15 +566,16 @@ def _fusion_letter_rank(component: str, base: str, letter: str) -> int:
 
 
 def generated_fusion_orientation_role(name: str) -> str:
+    """Legacy roles retained for input states outside the P-25 adapter."""
     match = _FUSION_NAME_RE.match(name)
     if match is None:
-        return ""
+        return ''
     component, _locant_text, _letter, base = match.groups()
-    if component.startswith("pyrazolo") and base == "imidazole":
-        return "preferred-pyrazolo-imidazole"
-    if component.startswith("imidazo") and base == "pyrazole":
-        return "disfavored-pyrazole-imidazole"
-    return ""
+    if component.startswith('pyrazolo') and base == 'imidazole':
+        return 'preferred-pyrazolo-imidazole'
+    if component.startswith('imidazo') and base == 'pyrazole':
+        return 'disfavored-pyrazole-imidazole'
+    return ''
 
 
 def _fusion_descriptor_locants(text: str) -> tuple:

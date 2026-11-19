@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from .molecule_iteration import iter_atoms, iter_bonds
+
 from collections import Counter, OrderedDict, defaultdict
 from functools import lru_cache
 
-from .graph_model import graph_view
+from .graph_model import graph_view, _ring_systems_from_atom_rings
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 
 
@@ -14,6 +16,7 @@ _TemplateIndex = tuple[
 ]
 _TEMPLATE_INDEX_CACHE: dict[int, tuple[tuple[dict, ...], _TemplateIndex]] = {}
 _TEMPLATE_INDEX_MARKER_CACHE: dict[tuple[int, tuple[int, ...]], _TemplateIndex] = {}
+_TEMPLATE_COARSE_INDEX_CACHE: dict[tuple[int, int], tuple] = {}
 _TEMPLATE_SCAFFOLD_KEY_CACHE: dict[int, tuple[dict, str]] = {}
 _TEMPLATE_FEATURE_CACHE: dict[int, tuple[dict, dict]] = {}
 _MAX_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
@@ -58,14 +61,14 @@ def candidate_templates(
     features = features or molecule_features(mol, Chem)
     molecule_charge_counts = features.get("charged_atom_value_counts") or {}
     molecule_ring_system_graph_keys: set[tuple] | None = None
-    (
-        pure_ring_templates,
-        other_templates_by_atom_count,
-        exact_other_templates_by_atom_elements,
-    ) = _template_index(templates, Chem)
+    pure_buckets, other_buckets = _template_coarse_index(templates, Chem)
     candidates = []
     seen: set[int] = set()
     for system in features["ring_systems"]:
+        bucket = pure_buckets.get(ring_system_feature_key(system))
+        if bucket is None:
+            continue
+        pure_ring_templates = _template_index(bucket, Chem)[0]
         if system.get("element_graph_signature"):
             key = _ring_system_index_key(system)
         else:
@@ -79,19 +82,14 @@ def candidate_templates(
             candidates.append((system["atom_count"], template))
     if exact_atom_count:
         atom_count = features["atom_count"]
-        atom_count_items = (
-            (
-                atom_count,
-                exact_other_templates_by_atom_elements.get(
-                    (atom_count, _element_count_key(features["elements"])),
-                    (),
-                ),
-            ),
-        )
+        bucket = other_buckets.get(atom_count, ())
+        exact = _template_index(bucket, Chem)[2] if bucket else {}
+        atom_count_items = ((atom_count, exact.get(
+            (atom_count, _element_count_key(features["elements"])), ())),)
     else:
         atom_count_items = (
-            (atom_count, items)
-            for atom_count, items in other_templates_by_atom_count.items()
+            (atom_count, _template_index(bucket, Chem)[1].get(atom_count, ()))
+            for atom_count, bucket in other_buckets.items()
             if atom_count <= features["atom_count"]
         )
     for _atom_count, entries in atom_count_items:
@@ -124,6 +122,51 @@ def candidate_templates(
     result = tuple(template for _atom_count, template in candidates)
     cache[cache_key] = result
     return result
+
+
+def _template_coarse_index(templates, Chem):
+    """Partition a static catalog before building detailed matching indexes.
+
+    A pure ring query can only use its exact size/ring/element bucket. Other
+    templates were already indexed independently by atom count. Keeping each
+    complete bucket preserves scaffold alias selection and enumeration order;
+    graph signatures and canonical scaffold strings are needed only on use.
+    """
+    key = (id(templates), id(Chem))
+    cached = _TEMPLATE_COARSE_INDEX_CACHE.get(key)
+    if cached is not None and cached[0] is templates and cached[1] is Chem:
+        return cached[2]
+    pure, other = defaultdict(list), defaultdict(list)
+    for template in templates:
+        mol = template["mol"]
+        facts = mol_cache_get(mol, 'template_coarse_facts')
+        if facts is None:
+            info = mol.GetRingInfo()
+            try:
+                ring_count = info.NumRings()
+            except RuntimeError:
+                if Chem is None:
+                    ring_count = 0
+                else:
+                    Chem.GetSymmSSSR(mol)
+                    info = mol.GetRingInfo()
+                    ring_count = info.NumRings()
+            rings = tuple(tuple(ring) for ring in info.AtomRings()) if ring_count else ()
+            atom_count = mol.GetNumAtoms()
+            systems = _ring_systems_from_atom_rings(rings)
+            pure_ring = bool(systems) and any(len(system) == atom_count for system in systems)
+            elements = tuple(sorted(Counter(atom.GetSymbol() for atom in iter_atoms(mol)).items()))
+            facts = mol_cache_set(mol, 'template_coarse_facts',
+                                  (atom_count, ring_count, elements, pure_ring))
+        atom_count, ring_count, elements, pure_ring = facts
+        if pure_ring:
+            pure[(atom_count, ring_count, elements)].append(template)
+        else:
+            other[atom_count].append(template)
+    indexed = ({key: tuple(rows) for key, rows in pure.items()},
+               {key: tuple(rows) for key, rows in other.items()})
+    _TEMPLATE_COARSE_INDEX_CACHE[key] = (templates, Chem, indexed)
+    return indexed
 
 
 def _template_index(
@@ -208,7 +251,7 @@ def _preferred_template_entries_by_scaffold(entries: list[tuple[dict, dict]], Ch
 
 def _template_alias_preference_key(template: dict) -> tuple:
     name = str(template.get("name", ""))
-    return (_template_alias_source_priority(template), _template_alias_priority(name), len(name), name)
+    return (not template.get("preferred_iupac_parent", False), _template_alias_source_priority(template), _template_alias_priority(name), len(name), name)
 
 
 def _template_alias_source_priority(template: dict) -> int:
@@ -248,9 +291,18 @@ def _template_scaffold_key(template: dict, Chem) -> str:
     cached = _TEMPLATE_SCAFFOLD_KEY_CACHE.get(cache_key)
     if cached is not None and cached[0] is template:
         return cached[1]
-    key = Chem.MolToSmiles(template["mol"], canonical=True, isomericSmiles=False)
+    key = _template_canonical_smiles(template["mol"], Chem, isomeric=False)
     _TEMPLATE_SCAFFOLD_KEY_CACHE[cache_key] = (template, key)
     return key
+
+
+def _template_canonical_smiles(mol, Chem, *, isomeric=True):
+    """Share canonicalization across aliases of an immutable template query."""
+    cache = mol_cache_dict(mol, 'template_canonical_smiles')
+    key = (Chem, isomeric)
+    if key not in cache:
+        cache[key] = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=isomeric)
+    return cache[key]
 
 
 def molecule_features(mol, Chem) -> dict:

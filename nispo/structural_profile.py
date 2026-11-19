@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .graph_model import graph_view
 
 
@@ -259,7 +260,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
         elif symbol in {"Si", "Ge", "Sn", "Pb"} and view.formal_charges[idx] == 0:
             nonring_neutral_group14 += 1
 
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtom()
         end = bond.GetEndAtom()
         begin_idx = begin.GetIdx()
@@ -311,7 +312,7 @@ def structural_profile(mol, Chem=None) -> StructuralProfile:
             nitrile_like += 1
         if "S" in symbols and "O" in symbols:
             sulfone_like += 1
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0:
             continue
         nidx = nitrogen.GetIdx()
@@ -393,7 +394,7 @@ def _record_amide_acyl_neighbor(counts: list[int], neighbor, order: float) -> No
 
 
 def _has_sulfur_oxo_retained_parent_signal(mol) -> bool:
-    for sulfur in mol.GetAtoms():
+    for sulfur in iter_atoms(mol):
         if sulfur.GetSymbol() != "S" or sulfur.IsInRing():
             continue
         facts = _sulfur_oxo_neighbor_facts(mol, sulfur.GetIdx())

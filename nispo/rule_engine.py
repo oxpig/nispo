@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 import re
+import sys
 import time
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .candidate_facts import (
     CandidateSafety,
     ChargeEvidence,
@@ -35,19 +38,29 @@ from .fragment_rules import (
     simple_fragment_name,
     standalone_polyatomic_fragment_name,
 )
+from .locant_presentation import placement_proof_scope
 from .naming_context import MoleculeContext
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .route_plan import RoutePlan
 from .rule_dispatch import RuleSpec, compile_rules_for_context
+from .principal_selection import PrincipalDecision, PrincipalRequirement, PrincipalSelectionPipeline
+from .parent_selection import ParentFacts, parent_frontier
+from .prefix_presentation import preferred_prefix_presentation, primed_ring_assembly_presentation
+from .ring_template_presentation import locanted_fused_component_presentation
 from .stereochemistry import (
     apply_locanted_stereochemical_prefix,
     apply_stereochemical_prefix,
     assigned_atom_stereochemistry,
+    assigned_bond_stereochemistry,
 )
 from .telemetry import CandidateTelemetry
+from .naming_result import NamingResult, SelectionLimitation, _SelectionState
 
 
-_DEFAULT_MAX_NAME_LENGTH = 260
+# Name length is not a chemical eligibility criterion. Structural search
+# budgets remain in their owning constructors; an otherwise complete name
+# must not disappear merely because its systematic spelling is long.
+_DEFAULT_MAX_NAME_LENGTH = sys.maxsize
 _CANDIDATE_FACT_RANKER_MIN_MARGIN = 0.0
 _CANDIDATE_FACT_SWITCH_GATE_THRESHOLD = 0.6
 _STEREO_EMPTY_FALLBACK_EVALUATION_LENGTH = 320
@@ -267,6 +280,7 @@ class NameCandidate:
     parent_element_counts: tuple[tuple[str, int], ...] = ()
     parent_aromatic_atom_count: int = 0
     parent_hetero_atom_count: int = 0
+    fused_lactam_seniority: tuple[int, ...] = ()
     parent_terminal_hetero_substituent_count: int = 0
     parent_terminal_heterocarbon_substituent_count: int = 0
     parent_terminal_carbonyl_substituent_count: int = 0
@@ -297,6 +311,8 @@ class NameCandidate:
     render_rank: int | None = None
     external_bond_stereo_parent_fragile: bool = False
     rejection_reason: str = ""
+    principal_group_centers: frozenset[int] = field(default_factory=frozenset)
+    parent_selection: ParentFacts | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +325,77 @@ class _PreparedCandidate:
     stability_penalty: int
     selection_bonus: int
     output_name: str = ""
+    preference_issues: tuple = ()
+    parent_comparison: object = None
+
+
+class _PrincipalSelectionBackend:
+    """Adapt existing validated producers without exposing dispatcher internals."""
+
+    __slots__ = ("mol", "Chem", "ctx")
+
+    def __init__(self, mol, Chem, ctx):
+        self.mol, self.Chem, self.ctx = mol, Chem, ctx
+
+    def prepare(self, rules):
+        return _prepare_candidates(self.mol, self.Chem, self.ctx, rules)
+
+    @staticmethod
+    def best(items):
+        return _select_best_prepared_candidate_item(items)
+
+    @staticmethod
+    def safety_reasons(candidate):
+        return candidate_safety_reasons(candidate)
+
+    def finalize_record(self, record):
+        return _finalize_candidate_name(
+            self.mol, self.Chem, NameCandidate(record.name, "acyclic-skeleton", 0,
+                                              stereo_locants=record.stereo_locants))
+
+    def finalize_direct(self, name):
+        return _finalize_direct_name(self.mol, self.Chem, name)
+
+
+def _commit_principal_decision(decision, *, telemetry=None, result_state=None):
+    if result_state is not None:
+        result_state.record(decision)
+    if telemetry is not None:
+        telemetry.principal_stage_selected[decision.stage] += 1
+        telemetry.principal_function_selected[decision.requirement.kind] += 1
+        # This counter describes each committed decision, including decisions
+        # without enough evidence to assess preferred selection.
+        decision_state = _SelectionState()
+        decision_state.record(decision)
+        telemetry.preferred_selection_status[decision_state.preferred_status] += 1
+        telemetry.preferred_selection_obligations.update(
+            issue.stage + ':' + issue.rule for issue in decision_state.unresolved)
+    if decision.prepared is not None:
+        return _record_and_return_prepared_candidate(decision.prepared, telemetry=telemetry)
+    if decision.direct_route:
+        _record_direct_route(telemetry, decision.direct_route)
+    return decision.output_name
+
+
+def _commit_general_method(method, stage, *, telemetry, result_state):
+    decision = PrincipalDecision(stage, PrincipalRequirement(
+        stage, tuple(sorted(method.principal_centers)), method.method),
+        output_name=method.name, direct_route='general:' + stage,
+        atom_locants=method.atom_locants, comparison=method,
+        preference_issues=method.preference_issues)
+    return _commit_principal_decision(decision, telemetry=telemetry, result_state=result_state)
+
+
+def _implicit_unknown_configuration(name):
+    if "Ξ" not in name:
+        return name
+    from .stereochemistry import _leading_stereochemical_descriptors
+
+    descriptors, body = _leading_stereochemical_descriptors(name)
+    if not any(descriptor.endswith("Ξ") for descriptor in descriptors):
+        return name
+    assigned = [descriptor for descriptor in descriptors if not descriptor.endswith("Ξ")]
+    return f'({",".join(assigned)})-{body}' if assigned else body
 
 
 class NamingEngine:
@@ -316,7 +403,9 @@ class NamingEngine:
 
     def __init__(self, Chem, rules: Iterable[RuleSpec]):
         self._Chem = Chem
+        self._axial_bond_stereo = frozenset({Chem.BondStereo.STEREOATROPCW,Chem.BondStereo.STEREOATROPCCW})
         self._rules = tuple(sorted(rules, key=lambda rule: rule.priority))
+        self._principal_selection = PrincipalSelectionPipeline(self._rules)
         self._fast_monocycle_system_rules = tuple(
             rule for rule in self._rules if rule.family in _FAST_MONOCYCLE_SYSTEM_RULE_FAMILIES
         )
@@ -352,17 +441,547 @@ class NamingEngine:
         self._fragment_rule = FragmentAssemblyRule(self._Chem, self)
 
     def name(self, mol, *, telemetry: CandidateTelemetry | None = None) -> str:
+        name = self._present(mol, self._name_or_general(mol, telemetry=telemetry))
+        name = locanted_fused_component_presentation(mol, name)
+        return _implicit_unknown_configuration(primed_ring_assembly_presentation(name))
+
+    def name_result(self, mol, *, telemetry: CandidateTelemetry | None = None) -> NamingResult:
+        source = self._Chem.Mol(mol)
+        state = _SelectionState()
+        name = self._present(mol, self._name_or_general(mol, telemetry=telemetry, result_state=state))
+        name = locanted_fused_component_presentation(mol, name)
+        primed = primed_ring_assembly_presentation(name)
+        if primed != name:
+            state.unresolved.append(SelectionLimitation(
+                'delivery', 'P-28.3.1', 'Ring assembly occurrences are cited with general primed locants.'))
+        name = _implicit_unknown_configuration(primed)
+        if name != primed:
+            state.unresolved.append(SelectionLimitation(
+                'delivery', 'P-91.2.1.2.1', 'Unspecified configurations are left implicit in the general name.'))
+        _retain_unproved_stereochemistry(state, source, self._Chem, name)
+        return state.result(name)
+
+    def name_mapped_result(self, mol):
+        """Opt-in partial mapping from the committed route, for typed joins."""
+        from .naming_result import _MappedSelectionState
+        source=self._Chem.Mol(mol)
+        state=_MappedSelectionState()
+        name=self._present(mol,self._name_or_general(mol,result_state=state))
+        _retain_unproved_stereochemistry(state, source, self._Chem, name)
+        return state.result(name),state.mapping_for(name)
+
+    @lru_cache(maxsize=4096)
+    def _native_polycyclic_hydride_numberings(self, smiles):
+        mol = self._Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return ()
+        ctx = MoleculeContext(mol, self._Chem)
+        rows = _prepare_general_candidates(mol, self._Chem, ctx, self._rules)
+        complete = frozenset(range(mol.GetNumAtoms()))
+        result = set()
+        for row in rows:
+            candidate = row.candidate
+            mapping = candidate.stereo_locants or candidate.locants
+            name = row.output_name or row.name
+            if (candidate.parent_atoms != complete or not _usable_general_candidate(candidate)
+                    or not candidate_has_complete_graph(candidate)
+                    or candidate.prefixes or candidate.suffixes or candidate.charge is not None
+                    or not name.endswith('ane') or any(c.isspace() for c in name)
+                    or {i for i, _ in mapping} != complete
+                    or any(not str(loc).isdigit() for _, loc in mapping)
+                    or len({loc for _, loc in mapping}) != len(complete)):
+                continue
+            result.add((name, tuple(sorted(mapping))))
+        return tuple(sorted(result))
+
+    @lru_cache(maxsize=4096)
+    def _native_hydride_numberings(self, smiles):
+        """Complete current hydride words with their actual skeletal maps."""
+        mol = self._Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return ()
+        def hydride_word(name):
+            return (name.endswith(('ane', 'ene', 'yne', 'ine', 'ole'))
+                    and not name.endswith(('amine', 'imine')) and not any(c.isspace() for c in name))
+        ctx = MoleculeContext(mol, self._Chem)
+        result = set()
+        for row in _prepare_general_candidates(mol, self._Chem, ctx, self._rules):
+            candidate = row.candidate
+            mapping = candidate.stereo_locants or candidate.locants
+            name = row.output_name or row.name
+            if (not mapping or not _usable_general_candidate(candidate)
+                    or not candidate_has_complete_graph(candidate)
+                    or candidate.suffixes or candidate.charge is not None
+                    or not hydride_word(name)
+                    or {i for i, _ in mapping} != set(candidate.parent_atoms)
+                    or len({loc for _, loc in mapping}) != len(mapping)
+                    or any(not str(loc) or not str(loc)[0].isdigit() for _, loc in mapping)):
+                continue
+            result.add((name, tuple(sorted(mapping))))
+        named, mapping = self.name_mapped_result(self._Chem.Mol(mol))
+        if (named.name and mapping and hydride_word(named.name)
+                and len({loc for _, loc in mapping}) == len(mapping)
+                and all(str(loc) and str(loc)[0].isdigit() for _, loc in mapping)):
+            result.add((named.name, tuple(sorted(mapping))))
+        return tuple(sorted(result))
+
+    @placement_proof_scope()
+    def _name_or_general(self, mol, *, telemetry=None, result_state=None):
+        """Keep preferred selection and general-name availability separate."""
+        depth = _GENERAL_DELIVERY_DEPTH.get()
+        token = _GENERAL_DELIVERY_DEPTH.set(depth + 1)
+        fragment_names_token = _HYDRAZIDO_FRAGMENT_NAMES.set({}) if depth == 0 else None
+        ring_prefixes_token = _RING_FRAGMENT_PREFIXES.set({}) if depth == 0 else None
+        # Recursive naming stays on its established paths while a usable
+        # outer construction is still being attempted. General recovery is
+        # a final delivery step and cannot change an already available name.
+        try:
+            recovery_graph = self._Chem.Mol(mol) if depth == 0 else None
+            failure = None
+            try:
+                name = self._name(mol, telemetry=telemetry, result_state=result_state)
+            except _CONSTRUCTION_ERRORS as error:
+                if depth:
+                    raise
+                failure = error
+                name = ''
+            if not name:
+                if mol_cache_get(mol, 'senior_carbon_parent_unavailable'):
+                    # A source-selected carbon parent has no supported root
+                    # or complete rendering. The general recovery pool may
+                    # repeat the same writer on a shorter chain; do not let
+                    # that erase the explicit parent-availability limit.
+                    return ''
+                from .nitrogen_anion_components import requires_nitrogen_anion_proof
+                if requires_nitrogen_anion_proof(mol):
+                    # A failed typed N hydron-loss operation is a graph
+                    # barrier, not an invitation to reuse a monoanion prefix
+                    # in a general, ring, fragment or localized-ion recovery.
+                    _record_general_construction(
+                        result_state, 'unsupported:amine-derived-anion',
+                        'nitrogen-anion-component', 'P-72.2.2.2.3',
+                        'The multiply charged nitrogen has no complete graph-preserving construction.')
+                    return ''
+            if not depth:
+                if name.endswith('-formic acid') and recovery_graph.GetRingInfo().NumRings():
+                    from .mapped_principal_general import mapped_principal_decision, senior_sites
+
+                    sites = senior_sites(recovery_graph)
+                    if (len(sites) == 1 and sites[0].kind == 'acid' and sites[0].owner >= 0
+                            and recovery_graph.GetAtomWithIdx(sites[0].owner).IsInRing()):
+                        mapped = mapped_principal_decision(recovery_graph, self._Chem)
+                        if mapped is not None and mapped.principal_centers == {sites[0].center}:
+                            return _commit_general_method(mapped, 'mapped-principal',
+                                telemetry=telemetry, result_state=result_state)
+                # When the full writer cannot produce a name, the bounded
+                # graph-derived polycycle construction is also a general
+                # full-mode route. On its narrow aromatic scope, prefer its
+                # explicitly reconstructed topology over an older generic
+                # bridge spelling whose main-bridge direction is not proved.
+                # Retained and fused names from the full writer keep priority.
+                bridge_prefix = name.split('cyclo[', 1)[0] if 'cyclo[' in name else ''
+                if not name or bridge_prefix.isalpha():
+                    from .fused_arene_rescue import candidate_name
+                    try:
+                        candidate = candidate_name(recovery_graph, self._Chem)
+                    except _CONSTRUCTION_ERRORS:
+                        candidate = ''
+                    if candidate:
+                        if result_state is not None:
+                            result_state.justification = None
+                        _record_general_construction(
+                            result_state, 'general:structural-von-baeyer', 'polycycle-construction',
+                            'P-23.2/P-25',
+                            'The original graph is reconstructed by the bridge descriptor; '
+                            'preferred fused-parent and complete locant comparisons remain unresolved.')
+                        return candidate
+                if 'hydrazinyl' in name and 'carboxy' in name and not name.endswith(' acid'):
+                    from .hydrazone_methods import hydrazono_acid_decision
+
+                    acid = hydrazono_acid_decision(recovery_graph, self._Chem)
+                    if acid is not None:
+                        return _commit_general_method(acid, 'hydrazono-acid',
+                            telemetry=telemetry, result_state=result_state)
+                if 'spirocyclo' in name and 'thia' in name:
+                    from .spiro_component_rules import spiro_sulfamate_carbamate, numbered_thia_spiro_dioxide
+
+                    sulfamate = spiro_sulfamate_carbamate(recovery_graph, self._Chem)
+                    if sulfamate is not None:
+                        return _commit_general_method(sulfamate, 'mapped-spiro-sulfamate',
+                            telemetry=telemetry, result_state=result_state)
+                    spiro = numbered_thia_spiro_dioxide(recovery_graph, self._Chem)
+                    if spiro is not None:
+                        return _commit_general_method(spiro, 'numbered-spiro-dioxide',
+                            telemetry=telemetry, result_state=result_state)
+                if name.endswith('formate') and recovery_graph.GetRingInfo().NumRings():
+                    from .extended_inventory import selection_inventory
+                    from .mapped_ester_general import carboxylate_for_formate
+
+                    ester = carboxylate_for_formate(recovery_graph, self._Chem)
+                    if ester is not None:
+                        owner = selection_inventory(recovery_graph).principal[0].owner
+                        route = ('mapped-ring-ester' if recovery_graph.GetAtomWithIdx(owner).IsInRing()
+                                 else 'mapped-ester')
+                        return _commit_general_method(ester, route,
+                            telemetry=telemetry, result_state=result_state)
+                    if any(a.GetFormalCharge() < 0 for a in iter_atoms(recovery_graph)):
+                        from .mapped_principal_general import mapped_principal_decision, selected_acid_anions
+
+                        groups = selected_acid_anions(recovery_graph, selection_inventory(recovery_graph))
+                        if (len(groups) == 1 and groups[0].kind == 'carboxylate' and groups[0].owner >= 0
+                                and recovery_graph.GetAtomWithIdx(groups[0].owner).IsInRing()):
+                            anion = mapped_principal_decision(recovery_graph, self._Chem)
+                            if anion is not None and anion.principal_centers == {groups[0].center}:
+                                return _commit_general_method(anion, 'mapped-ring-carboxylate',
+                                    telemetry=telemetry, result_state=result_state)
+                if 'tetracyclo[' in name:
+                    from .natural_products import mapped_steroid_ketone
+
+                    steroid = mapped_steroid_ketone(recovery_graph, self._Chem)
+                    if steroid is not None:
+                        return _commit_general_method(steroid, 'mapped-steroid-ketone',
+                            telemetry=telemetry, result_state=result_state)
+                if name.count('carbazol') == 2:
+                    from .ring_assembly_methods import identical_fused_ring_units
+
+                    assembly = identical_fused_ring_units(recovery_graph, self._Chem)
+                    if assembly is not None:
+                        return _commit_general_method(assembly, 'identical-fused-ring-units',
+                            telemetry=telemetry, result_state=result_state)
+                if name.endswith('pyrrole-2,5-dione') and 'dioxo' in name:
+                    from .ring_assembly_methods import identical_cyclic_imide_arms
+
+                    assembly = identical_cyclic_imide_arms(recovery_graph, self._Chem)
+                    if assembly is not None:
+                        return _commit_general_method(assembly, 'equivalent-cyclic-imide-arms',
+                            telemetry=telemetry, result_state=result_state)
+            if name or depth:
+                return name
+            if any(bond.GetStereo() in self._axial_bond_stereo
+                   for bond in iter_bonds(recovery_graph)):
+                # The assigned-axis route was tried in _name.  General
+                # recovery cannot represent an axis it did not prove, so it
+                # must not return the corresponding unconfigured name.
+                return ''
+            if _has_substituted_carbonyl_oxidanium(recovery_graph):
+                # The complete ionic route was tried in _name. Ordinary
+                # carbonyl fallback grammars cannot own the extra O ligand.
+                return ''
+            if recovery_graph.GetRingInfo().NumRings() >= 2 and any(
+                    atom.GetAtomicNum() == 7 and atom.GetFormalCharge() == 1
+                    for atom in recovery_graph.GetAtoms()):
+                from .mapped_ring_construction import azido_fused_construction
+
+                ring = azido_fused_construction(recovery_graph, self._Chem)
+                if ring is not None:
+                    _record_general_construction(
+                        result_state, 'general:mapped-azido-fused-parent', 'mapped-cyclic-construction',
+                        'P-25/P-29/P-61', 'The fused parent and azido branch are mapped; '
+                        'whole-parent and method comparison remains unresolved.')
+                    return ring.name
+            # Prefer an original-graph construction with explicit ring bond,
+            # hydrogen and branch ownership over compatibility producers whose
+            # vocabulary/selection proof is incomplete. This is still general
+            # nomenclature and cannot certify a preferred-name comparison.
+            name = self._mapped_cyclic_general_name(recovery_graph, result_state)
+            if not name:
+                name = self._general_construction_name(
+                    recovery_graph, None, telemetry, result_state, wide=True)
+            if not name:
+                from .ether_construction import cyclic_ether_construction
+                construction = cyclic_ether_construction(recovery_graph, self._Chem)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:cyclic-ether-functional-class', 'cyclic-ether-functional-class',
+                        construction.rule, construction.preference_issues[0].reason)
+            if not name and any(atom.GetAtomicNum() == 7 and atom.GetFormalCharge() == 1
+                                for atom in recovery_graph.GetAtoms()):
+                from .amine_oxide_methods import amine_oxide_decision
+                construction = amine_oxide_decision(
+                    recovery_graph, self._Chem, allow_unresolved_parent=True)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:amine-oxide-component', 'amine-oxide-parent',
+                        construction.rule,
+                        'The mapped amine and oxide components are complete; preferred parent comparison remains unresolved.')
+            if not name and any(atom.GetFormalCharge() for atom in recovery_graph.GetAtoms()):
+                from .hydrogen_loss_components import mapped_carbon_hydrogen_loss
+                construction = mapped_carbon_hydrogen_loss(recovery_graph, self._Chem, cation=True)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:carbon-hydride-loss', 'hydrogen-loss-parent',
+                        construction.rule, construction.preference_issues[0].reason)
+            if not name and any(atom.GetIsotope() for atom in recovery_graph.GetAtoms()):
+                from .uniform_isotope_construction import uniform_one_word_isotope_name
+                name = uniform_one_word_isotope_name(
+                    recovery_graph, self._Chem, lambda graph: self.name(graph, telemetry=telemetry))
+                if name:
+                    _record_general_construction(
+                        result_state, 'general:uniform-one-word-isotopes', 'isotope-parent',
+                        'P-82.2.5/P-82.6.1.2/P-82.6.1.3',
+                        'A complete current one-word construction carries uniformly modified element populations; global preferred selection remains unresolved.')
+            if not name and any(atom.GetNumRadicalElectrons() for atom in recovery_graph.GetAtoms()):
+                from .radical_construction import general_radical_construction
+                construction = general_radical_construction(
+                    recovery_graph, self._Chem, self._native_hydride_numberings)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:source-radical-component', 'radical-construction',
+                        construction.rule,
+                        'Every original radical, atom and annotation is constructed; preferred radical-parent/method comparison remains unresolved.')
+            if not name:
+                from .cyclic_suffix_construction import cyclic_suffix_construction
+                construction = cyclic_suffix_construction(
+                    recovery_graph, self._Chem, self._native_polycyclic_hydride_numberings)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:cyclic-suffix-join', 'cyclic-parent-construction',
+                        construction.rule,
+                        'A complete native hydride numbering is joined to the original characteristic unit; preferred construction/parent comparison remains unresolved.')
+            if not name:
+                from .cyclic_characteristic_join import cyclic_characteristic_join
+                construction = cyclic_characteristic_join(
+                    recovery_graph, self._Chem, self._native_polycyclic_hydride_numberings)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:cyclic-characteristic-join', 'cyclic-characteristic-join',
+                        construction.rule,
+                        'The original characteristic units are partitioned by P-41 and joined to a complete current parent; preferred construction/parent comparison remains unresolved.')
+            if not name and any(atom.GetFormalCharge() for atom in recovery_graph.GetAtoms()):
+                from .phosphorus_ionic_components import phosphorus_chalcogen_anion_decision
+                construction = phosphorus_chalcogen_anion_decision(recovery_graph, self._Chem)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:phosphorus-chalcogen-anion',
+                        'phosphorus-chalcogen-anion-parent', construction.rule,
+                        construction.preference_issues[0].reason)
+            if not name and any(atom.GetFormalCharge() for atom in recovery_graph.GetAtoms()):
+                from .ionic_radical_components import localized_ionic_radical
+                construction = localized_ionic_radical(
+                    recovery_graph, self._Chem, allow_closed_shell=True)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:localized-ionic-hydride', 'ionic-hydride-construction',
+                        construction.rule,
+                        'The original charged hydride and complete source substituents are constructed; preferred ionic-parent comparison remains unresolved.')
+            if not name and len(self._Chem.GetMolFrags(recovery_graph)) == 2:
+                from .ionic_radical_components import one_to_one_ionic_salt
+                construction = one_to_one_ionic_salt(recovery_graph, self._Chem, self.name)
+                if construction is not None:
+                    name = construction.name
+                    _record_general_construction(
+                        result_state, 'general:one-to-one-ionic-salt', 'ionic-assembly',
+                        construction.rule,
+                        'One original +1 component and one -1 component are constructed in a 1:1 salt; preferred component naming remains unresolved.')
+            if not name:
+                from .oxime_components import cyclic_oxime_ether_name
+
+                name = cyclic_oxime_ether_name(recovery_graph, self._Chem)
+                if name:
+                    _record_general_construction(
+                        result_state, 'general:cyclic-oxime-ether', 'cyclic-oxime-ether',
+                        'P-68.3.1.1.2/P-93.4.2.1.3',
+                        'The mapped ring and oxime ether preserve the original attachment and configuration; preferred parent and method comparisons remain unresolved.')
+            if not name:
+                from .mapped_ring_construction import mapped_substituted_ring
+
+                try:
+                    ring = mapped_substituted_ring(recovery_graph, self._Chem)
+                except _CONSTRUCTION_ERRORS:
+                    ring = None
+                if ring is not None:
+                    name = ring.name
+                    _record_general_construction(
+                        result_state, 'general:mapped-substituted-ring', 'mapped-cyclic-construction',
+                        'P-15.1/P-29/P-44/P-45/P-51',
+                        'The numbered ring and all branches have complete graph ownership; preferred parent and method comparisons remain unresolved.')
+            if not name:
+                from .mapped_polycycle_recovery import numbered_polycycle_decision
+                from .mapped_principal_general import mapped_amide_ring_arm_decision
+                from .nested_azide_methods import nested_azide_decision
+                from .phosphorus_ionic_components import mapped_imino_phosphanylium
+                from .sulfur_ester_methods import mapped_sulfonate_decision
+
+                for writer, route in ((nested_azide_decision, 'nested-azido'),
+                                      (mapped_amide_ring_arm_decision, 'mapped-amide-ring-arm'),
+                                      (mapped_imino_phosphanylium, 'mapped-imino-phosphanylium'),
+                                      (mapped_sulfonate_decision, 'mapped-sulfonate'),
+                                      (numbered_polycycle_decision, 'numbered-polycyclic-parent')):
+                    try:
+                        construction = writer(recovery_graph, self._Chem)
+                    except _CONSTRUCTION_ERRORS:
+                        continue
+                    if construction is not None:
+                        return _commit_general_method(construction, route,
+                            telemetry=telemetry, result_state=result_state)
+            if name or failure is None:
+                return name
+            raise failure
+        finally:
+            if ring_prefixes_token is not None:
+                _RING_FRAGMENT_PREFIXES.reset(ring_prefixes_token)
+            if fragment_names_token is not None:
+                _HYDRAZIDO_FRAGMENT_NAMES.reset(fragment_names_token)
+            _GENERAL_DELIVERY_DEPTH.reset(token)
+
+    def _mapped_cyclic_general_name(self, mol, result_state):
+        from .mapped_ring_construction import mapped_ring_construction
+        try:
+            construction = mapped_ring_construction(mol, self._Chem)
+        except _CONSTRUCTION_ERRORS:
+            return ''
+        if construction is None:
+            return ''
+        _record_general_construction(
+            result_state, 'general:mapped-cyclic-construction', 'mapped-cyclic-construction',
+            construction.rule, construction.preference_issues[0].reason)
+        # The selected mapped construction may contain separately proved
+        # nested components. Preserve their additional pending comparisons;
+        # a discarded branch or another candidate contributes no issues.
+        if result_state is not None:
+            for issue in construction.preference_issues[1:]:
+                if issue not in result_state.unresolved:
+                    result_state.unresolved.append(issue)
+        return construction.name
+
+    @staticmethod
+    def _present(mol, name):
+        if any(atom.GetNumRadicalElectrons() for atom in iter_atoms(mol)):
+            # The P-71 producers emit complete radical names from typed
+            # operations. Prefix-only presentation cannot infer that role
+            # from a word such as alkylsulfanyl, also a complete radical name.
+            return name
+        return preferred_prefix_presentation(name)
+
+    def _name(self, mol, *, telemetry: CandidateTelemetry | None = None, result_state=None) -> str:
         atom_count = mol.GetNumAtoms()
-        if atom_count == 1:
+        axial_bond_stereo=self._axial_bond_stereo
+        if any(bond.GetStereo() in axial_bond_stereo for bond in iter_bonds(mol)):
+            from .axial_stereochemistry import _atropisomer_result
+            from .principal_selection import PrincipalDecision,PrincipalRequirement
+            axial=_atropisomer_result(mol,self._Chem)
+            decision=PrincipalDecision('axial-configuration',PrincipalRequirement('assigned-atropisomer'),
+                output_name=axial.name,direct_route=axial.route,atom_locants=axial.atom_locants,
+                comparison=axial,preference_issues=axial.unresolved)
+            return _commit_principal_decision(decision,telemetry=telemetry,result_state=result_state)
+        if any(atom.GetNumRadicalElectrons() for atom in iter_atoms(mol)):
+            # Resolve P-70/P-71 before closed-shell single-atom, fragment,
+            # and retained-hydride shortcuts can discard a radical center.
+            ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+            if telemetry is not None:
+                _record_route_plan(telemetry, ctx.route_plan)
+            decision = self._principal_selection.select(
+                _PrincipalSelectionBackend(mol, self._Chem, ctx))
+            return (_commit_principal_decision(decision, telemetry=telemetry, result_state=result_state)
+                    if decision is not None else "")
+        fragment_atom_sets = self._Chem.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
+        if len(fragment_atom_sets) == 1 and any(a.GetFormalCharge() for a in iter_atoms(mol)):
+            from .ionic_radical_components import substituted_sulfanuide
+            sulfur_anion = substituted_sulfanuide(mol, self._Chem)
+            if sulfur_anion is not None:
+                return _commit_general_method(sulfur_anion, 'substituted-sulfanuide',
+                    telemetry=telemetry, result_state=result_state)
+            # P-72/P-73 component methods precede general common-ion names:
+            # an eligible amine-derived aminide must retain its suffix class.
+            ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+            decision = self._principal_selection.select_ion_component(
+                _PrincipalSelectionBackend(mol, self._Chem, ctx))
+            if decision is not None:
+                if telemetry is not None:
+                    _record_route_plan(telemetry, ctx.route_plan)
+                return _commit_principal_decision(decision, telemetry=telemetry, result_state=result_state)
+            if any(a.GetAtomicNum() == 8 and a.GetFormalCharge() == 1
+                   and any(n.IsInRing() and not n.GetIsAromatic() for n in a.GetNeighbors())
+                   for a in iter_atoms(mol)):
+                # A retained oxonium candidate can join separate mixed
+                # substituent words ambiguously.  Use the complete mapped
+                # P-16 mononuclear-prefix construction when its graph proof
+                # succeeds, without claiming its global parent preference.
+                from .ionic_radical_components import mixed_cycloalkyl_oxidanium
+                construction = mixed_cycloalkyl_oxidanium(mol, self._Chem)
+                if construction is not None:
+                    _record_general_construction(
+                        result_state, 'general:mixed-cycloalkyl-oxidanium',
+                        'cation-parent', 'P-73.1.1.2/P-16.5.1.3.1/P-44/P-45',
+                        'All original ionic and substituent atoms are owned; preferred parent and method comparisons remain unresolved.')
+                    return construction.name
+            from .ionic_single_root_fallback import single_root_phosphorus_zwitterion
+            construction = single_root_phosphorus_zwitterion(mol, self._Chem)
+            if construction is not None:
+                from .principal_selection import PrincipalDecision, PrincipalRequirement
+                decision = PrincipalDecision(
+                    'ionic-general', PrincipalRequirement('anionic-parent',
+                        tuple(sorted(construction.principal_centers)), 'ide'),
+                    output_name=construction.name,
+                    direct_route='general:single-root-phosphorus-zwitterion',
+                    atom_locants=construction.atom_locants, comparison=construction,
+                    preference_issues=construction.preference_issues)
+                return _commit_principal_decision(
+                    decision, telemetry=telemetry, result_state=result_state)
+            if _has_substituted_carbonyl_oxidanium(mol):
+                # A substituted C=O+ unit is not a terminal neutral oxo group.
+                # Construct all original ligands on the charged O before an
+                # ordinary carbonyl writer can omit the second O attachment.
+                from .carbonyl_oxide_methods import carbonyl_oxide_decision
+                from .ionic_radical_components import carbonyl_oxidanium, localized_ionic_radical
+
+                construction = carbonyl_oxidanium(mol, self._Chem, dipole_parent=True)
+                if construction is not None:
+                    return _commit_general_method(construction, 'carbonyl-dipole',
+                        telemetry=telemetry, result_state=result_state)
+                oxide = carbonyl_oxide_decision(mol, self._Chem)
+                if oxide is not None:
+                    return _commit_general_method(oxide, 'carbonyl-oxide',
+                        telemetry=telemetry, result_state=result_state)
+                construction = (carbonyl_oxidanium(mol, self._Chem)
+                                or localized_ionic_radical(mol, self._Chem, allow_closed_shell=True))
+                if construction is not None:
+                    return _commit_general_method(construction, 'complete-carbonyl-oxidanium',
+                        telemetry=telemetry, result_state=result_state)
+                _record_general_construction(
+                    result_state, 'unsupported:substituted-carbonyl-oxygen',
+                    'substituted-carbonyl-oxygen', 'P-72/P-73/P-29',
+                    'The original nonterminal charged oxygen requires a complete ionic construction of every attached ligand.')
+                return ''
+        if atom_count == 1 or mol.GetNumHeavyAtoms() == 1:
             simple_name = simple_fragment_name(mol, self._Chem)
             if simple_name:
                 _record_direct_route(telemetry, "single_atom")
                 return _finalize_direct_name(mol, self._Chem, simple_name)
-        fragment_atom_sets = self._Chem.GetMolFrags(mol, asMols=False, sanitizeFrags=False)
         if len(fragment_atom_sets) > 1:
-            fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
+            source_atom_maps = []
+            fragments = self._Chem.GetMolFrags(
+                mol, asMols=True, sanitizeFrags=True,
+                fragsMolAtomMapping=source_atom_maps,
+            )
             _record_direct_route(telemetry, "fragment_assembly")
-            return _finalize_direct_name(mol, self._Chem, self._fragment_rule.name(fragments))
+            fragment_name = _finalize_direct_name(
+                mol, self._Chem,
+                self._fragment_rule.name(
+                    fragments,
+                    source_atom_maps=tuple(tuple(ids) for ids in source_atom_maps),
+                    expected_source_atom_ids=frozenset(range(mol.GetNumAtoms())),
+                ),
+            )
+            if fragment_name:
+                return fragment_name
+            from .nitrogen_anion_components import requires_nitrogen_anion_proof
+            if requires_nitrogen_anion_proof(mol):
+                _record_general_construction(
+                    result_state, 'unsupported:amine-derived-anion',
+                    'ionic-assembly', 'P-72.2.2.2.3/P-77',
+                    'The nitrogen-anion components have no proved complete ionic assembly.')
+                return ''
+            return self._general_fragment_citation(
+                mol, fragments, source_atom_maps, telemetry, result_state)
         if 2 <= atom_count <= 24:
             standalone_polyatomic_name = standalone_polyatomic_fragment_name(mol, self._Chem)
             if standalone_polyatomic_name:
@@ -377,6 +996,67 @@ class NamingEngine:
         ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
         if telemetry is not None:
             _record_route_plan(telemetry, ctx.route_plan)
+        decision = self._principal_selection.select(_PrincipalSelectionBackend(mol, self._Chem, ctx))
+        if decision is not None:
+            name = _commit_principal_decision(decision, telemetry=telemetry, result_state=result_state)
+            if name:
+                return name
+            if not decision.preference_fallback:
+                status = getattr(decision.comparison, 'status', '')
+                if (decision.requirement.kind not in {
+                        'unresolved-nitrous-amide', 'unresolved-partial-polyol-ester',
+                        'unresolved-halogen-acid-amide'}
+                        or getattr(status, 'value', status) not in {
+                            'pending', 'higher-class-route', 'preselected-parent'}):
+                    return ''
+                return self._general_construction_name(
+                    mol, decision, telemetry, result_state)
+            # A missing comparison or preferred writer is not evidence that
+            # another construction is chemically wrong. Reuse the established
+            # whole-molecule producers with concrete safety failures excluded;
+            # no new PIN claim is inferred from this compatibility ordering.
+            ctx.unresolved_preference = True
+            mapped_name = self._mapped_cyclic_general_name(mol, result_state)
+            if mapped_name:
+                return mapped_name
+            prepared = _prepare_candidates(mol, self._Chem, ctx, self._rules)
+            if decision.requirement.kind == 'unresolved-halogen-acid-amide':
+                # This is the final, known-higher-class continuation, never
+                # the pending-recognition or cyclic-imide path. Reuse only
+                # the original-graph acyclic producer here; an arbitrary
+                # partial template cannot establish whole-name availability.
+                prepared = [item for item in prepared
+                            if _usable_halogen_class_general_candidate(
+                                mol, self._Chem, item.candidate,
+                                decision.comparison)]
+            usable = _select_best_prepared_candidate_item(
+                _principal_citation_candidates(mol, prepared))
+            if usable is None:
+                return self._general_construction_name(
+                    mol, decision, telemetry, result_state)
+            if (usable.candidate.family == 'skeletal-replacement-fused-parent'
+                    and not usable.candidate.suffixes and ctx.has_component_spiro_topology):
+                # The component rule proves both numbered hydrides and their
+                # spiro junction. Prefer that proof over replacement on the
+                # same core when delivering an unresolved general name.
+                proved = [item for item in prepared
+                          if item.candidate.family == 'component-spiro-parent'
+                          and item.candidate.render_rank == 0
+                          and item.candidate.parent_atoms == usable.candidate.parent_atoms
+                          and not candidate_safety_reasons(item.candidate)]
+                if proved:
+                    usable = _select_best_prepared_candidate_item(proved)
+            if result_state is not None:
+                result_state.route = 'general:' + usable.producer_family
+            return _record_and_return_prepared_candidate(usable, telemetry=telemetry)
+        ring_oxo = _configured_ring_oxo_prepared(mol, self._Chem, ctx, self._rules)
+        if ring_oxo is not None:
+            _record_general_construction(
+                result_state, 'general:principal-ring-suffix', 'principal-ring-suffix',
+                'P-41/P-43/P-44.1.1',
+                'The original ring and cited senior sites are mapped. Complete preferred parent and numbering comparison remains open.',
+            )
+            return _record_and_return_prepared_candidate(ring_oxo, telemetry=telemetry)
         multi_monocycle_senior_name = _fast_multi_monocycle_senior_name(
             mol,
             self._Chem,
@@ -452,7 +1132,8 @@ class NamingEngine:
             if route_miss_name:
                 return route_miss_name
         best_name = _select_best_prepared_candidate(
-            _prepare_candidates(mol, self._Chem, ctx, self._rules),
+            _principal_citation_candidates(
+                mol, _prepare_candidates(mol, self._Chem, ctx, self._rules)),
             telemetry=telemetry,
         )
 
@@ -536,6 +1217,243 @@ class NamingEngine:
                 telemetry.legacy_fallback_empty_count[ctx.route_plan.primary_route] += 1
         return fallback_name
 
+    def _general_construction_name(self, mol, decision, telemetry, result_state, *, wide=False):
+        """Reuse bounded whole-graph writers without resolving PIN preference."""
+        if mol.GetStereoGroups() or any(atom.GetNumRadicalElectrons() for atom in iter_atoms(mol)):
+            return ''
+        if wide and len(self._Chem.GetMolFrags(mol)) > 1:
+            fragments = self._Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
+            names = []
+            for fragment in fragments:
+                try:
+                    name = self.name(fragment, telemetry=telemetry)
+                except _CONSTRUCTION_ERRORS:
+                    name = ''
+                if not name:
+                    name = self._general_construction_name(
+                        fragment, None, telemetry, None, wide=True)
+                names.append(name)
+            if not all(names):
+                return ''
+            name = _finalize_direct_name(mol, self._Chem, ' and '.join(sorted(names)))
+            if name:
+                _record_general_construction(
+                    result_state, 'general:component-citation', 'general-construction', 'P-50/P-77',
+                    'Each original disconnected component is cited once; preferred assembly remains unresolved.')
+            return name
+        original = mol
+        normalized = self._Chem.Mol(mol)
+        for atom in iter_atoms(normalized):
+            atom.SetAtomMapNum(0)
+        mol = self._Chem.MolFromSmiles(self._Chem.MolToSmiles(
+            normalized, canonical=True, isomericSmiles=True))
+        if mol is None:
+            return ''
+        # Compatibility rendering uses a stable graph order. Rebuild evidence
+        # on this graph instead of carrying atom-indexed caches across copies.
+        for prop in ('_nispo_fragment_substituent_depth', '_nispo_fragment_substituent_view'):
+            if original.HasProp(prop):
+                mol.SetProp(prop, original.GetProp(prop))
+        kind = decision.requirement.kind if decision is not None else ''
+        disposition = decision.comparison if decision is not None else None
+        if kind == 'unresolved-halogen-acid-amide':
+            from .halogen_acid_amide_methods import (
+                classify_halogen_acid_amide, mononuclear_haloazane_name,
+            )
+            disposition = classify_halogen_acid_amide(mol, self._Chem)
+            name = mononuclear_haloazane_name(mol, self._Chem)
+            if name:
+                _record_general_construction(
+                    result_state, 'general:haloazane', 'general-construction',
+                    'P-21.1/P-68.5.0/P-82.2',
+                    'A complete substituted azane supplies a general name; preferred noncarbon-parent selection remains unresolved.')
+                _record_direct_route(telemetry, 'general-haloazane')
+                return name
+        ctx = MoleculeContext(mol, self._Chem, telemetry=telemetry)
+        ctx.unresolved_preference = True
+        if telemetry is not None:
+            telemetry.principal_stage_attempts['general-construction'] += 1
+
+        def deliver(pool):
+            pool = [item for item in pool if (
+                _usable_general_candidate(item.candidate)
+                and candidate_has_complete_graph(item.candidate)
+                if wide else _bounded_general_candidate(mol, item.candidate))]
+            if kind == 'unresolved-halogen-acid-amide':
+                pool = [item for item in pool if _usable_halogen_class_general_candidate(
+                    mol, self._Chem, item.candidate, disposition)]
+            try:
+                selected = _select_best_prepared_candidate_item(
+                    _principal_citation_candidates(mol, pool))
+            except _CONSTRUCTION_ERRORS:
+                if not wide:
+                    raise
+                selected = None
+            if wide and selected is None and pool:
+                # A missing preferred-parent comparison does not invalidate
+                # complete rendered candidates. Stable native compatibility
+                # order supplies a general name, with the gap kept explicit.
+                selected = min(pool, key=lambda item: (
+                    item.stability_penalty, item.candidate.priority,
+                    len(item.output_name or item.name) - item.selection_bonus,
+                    item.output_name or item.name))
+            if selected is None:
+                return ''
+            _record_general_construction(
+                result_state, 'general:' + selected.producer_family,
+                'general-construction', 'P-44/P-45/P-51',
+                'An existing complete general writer supplies the name; preferred construction remains unresolved.')
+            return _record_and_return_prepared_candidate(selected, telemetry=telemetry)
+
+        prepare = _prepare_general_candidates if wide else _prepare_candidates
+        name = deliver(prepare(mol, self._Chem, ctx, self._rules))
+        if name or _should_skip_complex_empty_fallback(mol, ctx):
+            return name
+        props = (_FRAGMENT_SUBSTITUENT_FALLBACK_PROP, _RETAINED_PARTIAL_HYDRO_FALLBACK_PROP)
+        previous = [(prop, mol.GetProp(prop) if mol.HasProp(prop) else None) for prop in props]
+        try:
+            for prop in props:
+                mol.SetProp(prop, '1')
+            fallback_ctx = MoleculeContext(
+                mol, self._Chem, telemetry=telemetry, cache=ctx.cache.shared_for_fallback())
+            fallback_ctx.unresolved_preference = True
+            evaluation_length, output_length = _empty_fallback_limits(mol, self._Chem)
+            return deliver(prepare(
+                mol, self._Chem, fallback_ctx, self._rules,
+                max_length=evaluation_length, output_max_length=output_length))
+        finally:
+            for prop, value in previous:
+                if value is None:
+                    mol.ClearProp(prop)
+                else:
+                    mol.SetProp(prop, value)
+
+    def _general_fragment_citation(self, mol, fragments, source_atom_maps, telemetry, result_state):
+        """Cite all named ion occurrences after an open binary comparison."""
+        from .ionic_assembly import binary_ionic_assembly
+
+        assembly = binary_ionic_assembly(
+            fragments, self._Chem, self, source_atom_maps=source_atom_maps,
+            expected_source_atom_ids=frozenset(range(mol.GetNumAtoms())))
+        if assembly is None or not assembly[2].startswith('P-77-binary-pending:'):
+            return ''
+        from .full_bluebook_frontier import mixed_cation_acid_salt
+        mixed_salt = mixed_cation_acid_salt(fragments, assembly[1])
+        if mixed_salt:
+            name = _finalize_direct_name(mol, self._Chem, mixed_salt)
+            if name:
+                _record_direct_route(telemetry, 'functional-class:P-65.6.2.1')
+                return name
+        # The assessment has proved complete disjoint ownership and charge
+        # balance. Preserve each occurrence instead of guessing a binary ratio.
+        name = _finalize_direct_name(
+            mol, self._Chem, ' and '.join(sorted(c.name for c in assembly[1])))
+        if not name:
+            return ''
+        _record_general_construction(
+            result_state, 'general:fragment-assembly', 'ionic-assembly', 'P-77',
+            assembly[2].split(':', 1)[1] + '; every independently named component occurrence is retained.')
+        _record_direct_route(telemetry, 'general:fragment-assembly')
+        return name
+
+
+def _bounded_general_candidate(mol, candidate):
+    """Admit the established complete tree or single-ring writer scope."""
+    if not _usable_general_candidate(candidate) or candidate_safety_reasons(candidate):
+        return False
+    heavy = frozenset(a.GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum() > 1)
+    if candidate.family == 'whole-molecule-retained-parent':
+        # Exact retained templates prove all atoms, bonds and formal charges;
+        # they are complete general names even when PIN class selection is open.
+        return candidate.template_id is not None and candidate.parent_atoms == heavy
+    if candidate.family == 'acyclic-parent':
+        # This producer's parent_atoms represents its complete traversal scope,
+        # including the recursively rendered characteristic groups and branches.
+        return not mol.GetRingInfo().NumRings() and candidate.parent_atoms == heavy
+    if candidate.family == 'single-ring-parent':
+        rings = mol.GetRingInfo().AtomRings()
+        # A single cycle leaves only rooted tree branches; fused/bridged parents
+        # and partial templates do not acquire a whole-graph claim here.
+        return len(rings) == 1 and candidate.parent_atoms == frozenset(rings[0])
+    return False
+
+
+def _has_substituted_carbonyl_oxidanium(mol):
+    return any(a.GetAtomicNum() == 8 and a.GetFormalCharge() == 1
+               and a.GetTotalValence() == 3
+               and len([n for n in a.GetNeighbors() if n.GetAtomicNum() > 1]) > 1
+               and any(b.GetBondTypeAsDouble() == 2
+                       and b.GetOtherAtom(a).GetAtomicNum() == 6 for b in a.GetBonds())
+               for a in iter_atoms(mol))
+
+
+def _retain_unproved_stereochemistry(state, source, Chem, name):
+    """Keep a complete selection open when unknown stereo lacks proof.
+
+    Potential stereo is a conservative graph census: it may include a unit
+    whose descriptor can be omitted under P-91.2.2.  The census does not
+    assign a configuration or claim that every feature requires a descriptor.
+    """
+    if not name or state.preferred_status != 'resolved':
+        return
+    try:
+        unknown = any(site.specified != Chem.StereoSpecified.Specified
+                      for site in Chem.FindPotentialStereo(source))
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        reason = 'The original-graph potential-stereochemistry census did not complete.'
+    else:
+        if not unknown:
+            return
+        reason = ('The delivered result has no complete, attached source-mapped '
+                  'proof of the applicable stereodescriptors or their omission '
+                  'for all potentially stereogenic units left unspecified.')
+    issue = SelectionLimitation('stereochemistry', 'P-91.2.1.2.1/P-91.2.2/P-91.3', reason)
+    if issue not in state.unresolved:
+        state.unresolved.append(issue)
+    state.preferred_status = 'unresolved'
+
+
+def _record_general_construction(state, route, stage, rule, reason):
+    if state is not None:
+        issue = SelectionLimitation(stage, rule, reason)
+        if issue not in state.unresolved:
+            state.unresolved.append(issue)
+        state.preferred_status = 'unresolved'
+        state.route = route
+
+
+_CONSTRUCTION_ERRORS = (
+    ArithmeticError, AssertionError, AttributeError, LookupError,
+    NotImplementedError, RuntimeError, TypeError, ValueError,
+)
+_GENERAL_DELIVERY_DEPTH = ContextVar('nispo_general_delivery_depth', default=0)
+_HYDRAZIDO_FRAGMENT_NAMES: ContextVar[dict[tuple[bytes, bool], str] | None] = ContextVar(
+    'nispo_hydrazido_fragment_names', default=None)
+_RING_FRAGMENT_PREFIXES: ContextVar[dict[tuple[bytes, int, bool], str] | None] = ContextVar(
+    'nispo_ring_fragment_prefixes', default=None)
+
+
+def _prepare_general_candidates(mol, Chem, ctx, rules, **limits):
+    """Isolate unavailable producers while retaining native candidate safety."""
+    prepared = []
+    mol = Chem.Mol(mol)
+    ctx = MoleculeContext(mol, Chem, telemetry=ctx.telemetry)
+    ctx.unresolved_preference = True
+    source = mol.ToBinary(Chem.PropertyPickleOptions.AllProps)
+    rules = compile_rules_for_context(ctx, rules, telemetry=ctx.telemetry)
+    for rule in rules:
+        if prepared and rule.priority > _SENIOR_CANDIDATE_EARLY_STOP_PRIORITY:
+            break
+        try:
+            prepared.extend(_prepare_candidates(mol, Chem, ctx, (rule,), **limits))
+        except _CONSTRUCTION_ERRORS:
+            # Abandon the failed writer's scratch state. Every subsequent
+            # writer sees the same graph and mode flags with fresh caches.
+            mol = Chem.Mol(source)
+            ctx = MoleculeContext(mol, Chem, telemetry=ctx.telemetry)
+            ctx.unresolved_preference = True
+    return prepared
+
 
 def _fast_monocycle_system_name(
     mol,
@@ -601,7 +1519,7 @@ def _fast_poly_low_hetero_senior_name(
     if not _can_fast_stage_low_hetero_poly_senior(ctx):
         return ""
     return _select_best_prepared_candidate(
-        _prepare_candidates(mol, Chem, ctx, rules),
+        _principal_citation_candidates(mol, _prepare_candidates(mol, Chem, ctx, rules)),
         telemetry=telemetry,
     )
 
@@ -855,6 +1773,81 @@ def _record_route_plan(telemetry: CandidateTelemetry | None, route_plan: RoutePl
         telemetry.route_uses_polycyclic_search[route_plan.primary_route] += 1
 
 
+def _configured_ring_oxo_prepared(mol, Chem, ctx, rules):
+    """Give the source-qualified ring suffix a staged comparison."""
+    if not ctx.profile.ring_count or mol.GetStereoGroups():
+        return None
+    from .principal_carbonyl import (
+        _ring_carbonyl_comparison_sites, configured_acyclic_methine_ring_hosts,
+    )
+    junctions = configured_acyclic_methine_ring_hosts(mol)
+    if not junctions:
+        return None
+    sites = _ring_carbonyl_comparison_sites(mol)
+    if not sites or sites[0].kind not in {'ketone', 'lactam', 'lactone', 'pseudoketone', 'alcohol'}:
+        return None
+    from .mapped_ring_parents import ring_systems
+    centers = {site.center for site in sites}
+    systems = ring_systems(mol)
+    ring_site_counts = tuple(len(centers.intersection(core)) for core in systems)
+    acyclic_count = sum(not mol.GetAtomWithIdx(i).IsInRing() for i in centers)
+    # A mapped suffix may be complete on one parent yet lose to a parent in
+    # another component. This bounded shortcut needs a unique winner by
+    # coverage across the source candidate types before returning.
+    required = max(ring_site_counts, default=0)
+    if required <= acyclic_count or ring_site_counts.count(required) != 1:
+        return None
+    senior_core = systems[ring_site_counts.index(required)]
+    scoped = tuple(core for core in ring_systems(mol)
+                   if centers.intersection(core) and junctions.intersection(core))
+    if not scoped:
+        return None
+    if sum(set(ring) <= senior_core for ring in mol.GetRingInfo().AtomRings()) >= 2:
+        families = {'fused-retained-parent', 'hydro-fused-retained-parent',
+                    'generated-hydro-fused-parent', 'generated-fused-parent',
+                    'kekulized-generic-polycyclic-parent', 'generic-bicyclic-parent',
+                    'functional-generic-bicyclic-parent'}
+    else:
+        families = {'single-ring-parent'}
+    rules = tuple(rule for rule in rules if rule.family in families)
+    candidates = _prepare_candidates(mol, Chem, ctx, rules)
+    candidates = [
+        item for item in candidates
+        if senior_core.intersection(centers) <= item.candidate.principal_group_centers
+        and not candidate_safety_reasons(item.candidate)
+    ]
+    return _select_best_prepared_candidate_item(candidates)
+
+
+def _same_core_retained_fused_candidate(mol, candidate, Chem):
+    """Use an exact retained frame before the generic same-core replacement."""
+    if candidate.family != 'kekulized-generic-polycyclic-parent':
+        return None
+    from .principal_carbonyl import (
+        cited_ring_suffix_centers, configured_methine_ring_junction,
+    )
+    if (not configured_methine_ring_junction(mol, frozenset().union(*mol.GetRingInfo().AtomRings()))
+            or candidate.principal_group_centers
+            or cited_ring_suffix_centers(mol, candidate.parent_atoms, candidate.name)):
+        return None
+    from .preferred_fused import exact_retained_aromatic_frame
+    from .parent.rule_helpers import _name_fused_core_match
+
+    retained = exact_retained_aromatic_frame(mol, candidate.parent_atoms)
+    if retained is None:
+        return None
+    template, match = retained
+    name = _name_fused_core_match(mol, template, match)
+    if not name:
+        return None
+    return replace(candidate, name=name, family='fused-retained-parent',
+                   template_name=template['name'], template_id=id(template),
+                   locants=tuple((idx, template['locants'][pos])
+                                 for pos, idx in enumerate(match)),
+                   stereo_locants=tuple((idx, template['locants'][pos])
+                                        for pos, idx in enumerate(match)))
+
+
 def _first_valid_candidate_name(
     mol,
     Chem,
@@ -877,7 +1870,15 @@ def _first_valid_candidate_name(
             for candidate in rule.candidates(ctx):
                 if not candidate.name:
                     continue
-                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                retained = _same_core_retained_fused_candidate(mol, candidate, Chem)
+                if retained is not None:
+                    output_name = _finalize_candidate_name(mol, Chem, retained, max_length=max_length)
+                    if output_name and (output_max_length is None or len(output_name) <= output_max_length):
+                        candidate = retained
+                    else:
+                        retained = None
+                if retained is None:
+                    output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
                 if output_name and (output_max_length is None or len(output_name) <= output_max_length):
                     return output_name
             continue
@@ -893,7 +1894,15 @@ def _first_valid_candidate_name(
                 if not candidate.name:
                     telemetry.rejected_candidate_count[rule.family] += 1
                     continue
-                output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
+                retained = _same_core_retained_fused_candidate(mol, candidate, Chem)
+                if retained is not None:
+                    output_name = _finalize_candidate_name(mol, Chem, retained, max_length=max_length)
+                    if output_name and (output_max_length is None or len(output_name) <= output_max_length):
+                        candidate = retained
+                    else:
+                        retained = None
+                if retained is None:
+                    output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
                 if not output_name:
                     telemetry.rejected_candidate_count[rule.family] += 1
                     continue
@@ -1122,7 +2131,7 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
     for index, ring in enumerate(rings):
         if any(ring & other for other in rings[index + 1 :]):
             return False
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetAtomicNum() not in _FAST_MONOCYCLE_ALLOWED_ATOMIC_NUMBERS:
             return False
         if atom.GetFormalCharge() != 0:
@@ -1131,7 +2140,7 @@ def _can_fast_stage_monocycle_system(mol) -> bool:
             return False
         if not atom.IsInRing() and atom.GetSymbol() in {"I", "S"}:
             return False
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if str(bond.GetStereo()) != "STEREONONE":
             return False
         order = bond.GetBondTypeAsDouble()
@@ -1237,6 +2246,9 @@ def _finalize_direct_name(mol, Chem, name: str, *, max_length: int = _DEFAULT_MA
     if _has_assigned_stereo(mol, Chem):
         name = apply_stereochemical_prefix(mol, Chem, name)
     name = _apply_uniform_isotope_label(mol, name)
+    from .isotope_mapping import preserves_isotope_information
+    if not preserves_isotope_information(mol, name):
+        return ""
     return name if len(name) <= max_length else ""
 
 
@@ -1263,6 +2275,8 @@ def _prepare_candidates(
             continue
         if ctx.telemetry is None:
             for candidate in _cached_rule_candidates(ctx, rule, rule_candidate_cache_state):
+                if ctx.unresolved_preference and not _usable_general_candidate(candidate):
+                    continue
                 if not candidate.name:
                     continue
                 output_name = _finalize_candidate_name(mol, Chem, candidate, max_length=max_length)
@@ -1273,6 +2287,8 @@ def _prepare_candidates(
                 candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
                 candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
                 candidate = _with_parent_element_counts(mol, candidate)
+                if ctx.unresolved_preference and not _usable_general_candidate(candidate):
+                    continue
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -1299,6 +2315,9 @@ def _prepare_candidates(
             for candidate in rule.candidates(ctx):
                 ctx.telemetry.candidate_count[rule.family] += 1
                 _record_candidate_fact_telemetry(ctx.telemetry, rule.family, candidate)
+                if ctx.unresolved_preference and not _usable_general_candidate(candidate):
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
                 if not candidate.name:
                     ctx.telemetry.rejected_candidate_count[rule.family] += 1
                     continue
@@ -1312,6 +2331,9 @@ def _prepare_candidates(
                 candidate = _with_molecule_stereo_evidence(mol, Chem, candidate)
                 candidate = _with_molecule_graph_fragility_evidence(mol, Chem, candidate)
                 candidate = _with_parent_element_counts(mol, candidate)
+                if ctx.unresolved_preference and not _usable_general_candidate(candidate):
+                    ctx.telemetry.rejected_candidate_count[rule.family] += 1
+                    continue
                 selection_name = _candidate_selection_surface_name(
                     mol,
                     Chem,
@@ -1377,11 +2399,49 @@ def _select_best_prepared_candidate(
     return _record_and_return_prepared_candidate(best_item, telemetry=telemetry)
 
 
+def _principal_citation_candidates(mol, prepared):
+    """Keep the largest source-bound senior citation in a general pool."""
+    bound = [item for item in prepared if item.candidate.principal_group_centers
+             and not candidate_safety_reasons(item.candidate)]
+    if not bound:
+        return prepared
+    from .mapped_principal_general import senior_sites
+
+    sites = {group.center for group in senior_sites(mol)}
+    by_count = [(len(sites & item.candidate.principal_group_centers), item)
+                for item in bound]
+    maximum = max(count for count, _item in by_count)
+    return [item for count, item in by_count if count == maximum] if maximum else prepared
+
+
 def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> _PreparedCandidate | None:
     if not prepared:
         return None
+    # Renderers supply explicit parent/suffix facts. A proved dominated parent
+    # cannot be restored by a priority, compact-name bonus or learned ranker.
+    prepared = parent_frontier(
+        prepared, lambda item: item.candidate.parent_selection
+        if not candidate_safety_reasons(item.candidate) else None,
+    )
+    from .method_parent_frontier import select_method_parent
+    comparison = select_method_parent(
+        prepared, lambda item: item.candidate.parent_selection
+        if not candidate_safety_reasons(item.candidate) else None,
+        # This assesses only the supplied compatibility pool. It does not
+        # certify the global eligible universe; delivery retains that gap.
+        proposal_set_complete=True,
+        record_pairwise=False,
+    )
+    if comparison.selected is not None:
+        return replace(comparison.selected, parent_comparison=comparison,
+            preference_issues=(*comparison.selected.preference_issues, SelectionLimitation(
+                'candidate-completeness', 'P-44/P-45/P-51',
+                'The supplied compatibility pool was compared, but its eligible candidate universe is unproved.')))
     if len(prepared) == 1:
-        return prepared[0]
+        selected = prepared[0]
+        return replace(selected, parent_comparison=comparison,
+            preference_issues=(*selected.preference_issues, SelectionLimitation(
+                'parent-and-numbering', 'P-44/P-45', comparison.reason)))
     best_item: _PreparedCandidate | None = None
     best_key: tuple | None = None
     keyed_items: list[tuple[tuple, _PreparedCandidate]] = []
@@ -1391,7 +2451,32 @@ def _select_best_prepared_candidate_item(prepared: list[_PreparedCandidate]) -> 
         if best_key is None or candidate_key < best_key:
             best_item = item
             best_key = candidate_key
-    return _candidate_fact_ranked_item(keyed_items, best_item)
+    selected = _candidate_fact_ranked_item(keyed_items, best_item)
+    selected = _senior_fused_lactam_candidate(prepared, selected)
+    if selected is None:
+        return None
+    # Heuristic ranking chooses an available GENERAL rendering only. It
+    # cannot settle an unknown source comparison, even on the same parent.
+    return replace(selected, parent_comparison=comparison,
+        preference_issues=(*selected.preference_issues, SelectionLimitation(
+            'parent-and-numbering', 'P-44/P-45', comparison.reason)))
+
+
+def _senior_fused_lactam_candidate(prepared, selected):
+    """Apply scoped chemical seniority before render order or name length."""
+    if selected is None or not selected.candidate.fused_lactam_seniority:
+        return selected
+    rank = selected.candidate.fused_lactam_seniority
+    best = selected
+    for item in prepared:
+        other = item.candidate.fused_lactam_seniority
+        if (other and other[0] == rank[0]
+                and item.candidate.priority == selected.candidate.priority
+                and item.stability_penalty == selected.stability_penalty
+                and not candidate_safety_reasons(item.candidate)
+                and other[1:] > best.candidate.fused_lactam_seniority[1:]):
+            best = item
+    return best
 
 
 def _prepared_candidate_selection_key(
@@ -8327,10 +9412,10 @@ def _has_assigned_stereo(mol, Chem) -> bool:
     cached = mol_cache_get(mol, "has_assigned_stereo")
     if cached is not None:
         return cached
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             return mol_cache_set(mol, "has_assigned_stereo", True)
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return mol_cache_set(mol, "has_assigned_stereo", True)
     return mol_cache_set(mol, "has_assigned_stereo", False)
@@ -8353,12 +9438,12 @@ def _molecule_stereo_evidence(mol, Chem) -> StereoEvidence | None:
         return cached or None
     atom_descriptors = tuple(
         (atom.GetIdx(), str(atom.GetChiralTag()))
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     )
     bond_descriptors = tuple(
         (bond.GetIdx(), str(bond.GetStereo()))
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if bond.GetStereo() != Chem.BondStereo.STEREONONE
     )
     stereo = (
@@ -8471,8 +9556,21 @@ def _candidate_has_external_bond_stereo_parent(mol, Chem, candidate: NameCandida
 
 
 def _with_parent_element_counts(mol, candidate: NameCandidate) -> NameCandidate:
+    candidate = _with_rendered_parent_mapping(mol, candidate)
     if not candidate.parent_atoms:
         return candidate
+    from .principal_carbonyl import cited_ring_suffix_centers
+    cited = cited_ring_suffix_centers(mol, candidate.parent_atoms, candidate.name)
+    if cited:
+        candidate = replace(candidate, principal_group_centers=candidate.principal_group_centers | cited)
+    if candidate.parent_selection is None:
+        # Evidence was deposited by the renderer with explicit skeletal atoms,
+        # numbering and prefix ownership. This lookup does not infer a parent
+        # from legacy whole-molecule coverage fields or from name spelling.
+        from .ring_parent_selection import recorded_ring_facts
+        facts = recorded_ring_facts(mol, candidate.name, candidate.parent_atoms)
+        if facts is not None:
+            candidate = replace(candidate, parent_selection=facts)
     parent_atoms = frozenset(candidate.parent_atoms)
     (
         parent_element_counts,
@@ -8510,7 +9608,7 @@ def _molecule_charge_counts(mol) -> tuple[int, int]:
         return cached
     formal_charge_atom_count = 0
     abs_formal_charge_sum = 0
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         formal_charge = atom.GetFormalCharge()
         if formal_charge:
             formal_charge_atom_count += 1
@@ -8525,7 +9623,11 @@ def _molecule_charge_counts(mol) -> tuple[int, int]:
 def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameCandidate) -> bool:
     if not candidate.parent_atoms:
         return False
-    parent_atoms = set(candidate.parent_atoms)
+    parent_atoms = frozenset(candidate.parent_atoms)
+    cache = mol_cache_dict(mol, "external_oxyimino_carbonyl_parent")
+    cached = cache.get(parent_atoms)
+    if cached is not None:
+        return cached
     for parent_idx in parent_atoms:
         parent = mol.GetAtomWithIdx(parent_idx)
         for carbonyl in parent.GetNeighbors():
@@ -8536,7 +9638,9 @@ def _candidate_has_external_oxyimino_carbonyl_parent(mol, Chem, candidate: NameC
             if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
                 continue
             if _is_external_oxyimino_carbonyl(mol, Chem, carbonyl_idx, blocked_idx=parent_idx):
+                cache[parent_atoms] = True
                 return True
+    cache[parent_atoms] = False
     return False
 
 
@@ -8656,6 +9760,80 @@ def candidate_safety_reasons(candidate: NameCandidate) -> tuple[str, ...]:
     return candidate.safety.reasons if candidate.safety is not None else ()
 
 
+def _usable_general_candidate(candidate: NameCandidate) -> bool:
+    """Exclude demonstrated construction losses, not absent PIN proofs.
+
+    Parser fragility belongs to interoperability, not chemical validity. The
+    ordinary finalizer still decorates assigned stereo and preserves isotopes.
+    """
+    safety = candidate.safety
+    if safety is not None and (
+            not safety.graph_complete or not safety.charge_supported
+            or not safety.hydrogen_state_supported or not safety.stereo_supported
+            or safety.unsupported_reasons):
+        return False
+    if candidate.rejection_reason:
+        return False
+    if candidate.hydrogen is not None and candidate.hydrogen.unsupported:
+        return False
+    if candidate.stereo is not None and candidate.stereo.unsupported:
+        return False
+    return True
+
+
+def _usable_halogen_class_general_candidate(mol, Chem, candidate, disposition):
+    """Admit the existing whole-graph writer without certifying a PIN.
+
+    ``parent_atoms`` is this legacy producer's whole-graph scope, not a
+    preferred-parent proof. Its path mapping supplies annotation positions;
+    side branches, including the original N-X unit, are rendered recursively
+    from the same molecule. Focused structural checks remain distinct from
+    the unresolved class/method/parent comparison.
+    """
+    heavy = frozenset(atom.GetIdx() for atom in iter_atoms(mol)
+                      if atom.GetAtomicNum() > 1)
+    if not _usable_general_candidate(candidate):
+        return False
+    if (candidate.family == 'whole-molecule-retained-parent'
+            and candidate.template_id is not None and candidate.parent_atoms == heavy):
+        return not any(atom.GetIsotope() for atom in iter_atoms(mol))
+    if candidate.family == 'single-ring-parent':
+        # The established single-ring writer owns the ring and every rooted
+        # branch. This continuation excludes annotations whose mapping that
+        # legacy candidate does not expose and leaves class preference open.
+        rings = mol.GetRingInfo().AtomRings()
+        return (len(rings) == 1 and candidate.parent_atoms == frozenset(rings[0])
+                and not any(atom.GetFormalCharge() or atom.GetIsotope()
+                            or atom.GetNumRadicalElectrons()
+                            or atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+                            for atom in iter_atoms(mol))
+                and not any(bond.GetStereo() != Chem.BondStereo.STEREONONE
+                            for bond in iter_bonds(mol)))
+    if (candidate.family != 'acyclic-parent'
+            or candidate.parent_atoms != heavy
+            or not _usable_general_candidate(candidate)):
+        return False
+    mapping = dict(candidate.stereo_locants)
+    nitrogen = mol.GetAtomWithIdx(disposition.nitrogen)
+    if (not mapping or not mapping.keys() <= heavy
+            or len(set(mapping.values())) != len(mapping)
+            or any(not str(locant).isdigit() or int(locant) < 1 for locant in mapping.values())
+            or not any(atom.GetIdx() in mapping for atom in nitrogen.GetNeighbors()
+                               if atom.GetAtomicNum() == 6)):
+        return False
+    # The mapped path must retain every assigned annotation that this new
+    # continuation relies on. Branch-only annotation grammars stay with their
+    # existing owning writers instead of an unlocanted decoration guess.
+    if any((atom.GetIsotope() or atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED)
+           and atom.GetIdx() not in mapping for atom in iter_atoms(mol)):
+        return False
+    if any(bond.GetStereo() != Chem.BondStereo.STEREONONE
+           and not {bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()} <= mapping.keys()
+           for bond in iter_bonds(mol)):
+        return False
+    return True
+
+
 def candidate_estimated_length(candidate: NameCandidate) -> int:
     if candidate.estimated_length is not None:
         return candidate.estimated_length
@@ -8668,6 +9846,7 @@ def candidate_has_complete_graph(candidate: NameCandidate) -> bool:
     return bool(candidate.parent_atoms or candidate.template_id is not None)
 
 
+@lru_cache(maxsize=4096)
 def _opsin_stability_penalty(name: str) -> int:
     """Prefer alternative candidates over names with unstable OPSIN rendering.
 
@@ -17312,8 +18491,10 @@ def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
         return 0
     if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
         return 0
+    # A contiguous digit run is one locant. Keep suffix backtracking, but do
+    # not let the repeated group try partitions of the same digit run.
     if re.search(
-        r"(?:^|-)(?:\d+[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
+        r"(?:^|-)(?:\d+(?!\d)[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
         r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
         name,
     ):
@@ -17776,6 +18957,15 @@ def _has_fragile_ethanediylidene_alias(name: str) -> bool:
     )
 
 
+def _with_rendered_parent_mapping(mol, candidate):
+    """Use the renderer's proved atom map for every later decoration."""
+    cache = mol_cache_get(mol, 'rendered_parent_locants')
+    mapping = cache.get((candidate.name, frozenset(candidate.parent_atoms))) if cache else None
+    if mapping is not None:
+        return replace(candidate, locants=mapping, stereo_locants=mapping)
+    return candidate
+
+
 def _finalize_candidate_name(
     mol,
     Chem,
@@ -17790,13 +18980,42 @@ def _finalize_candidate_name(
     step only adds stereo/isotope information and enforces the length cap.
     """
 
+    candidate = _with_rendered_parent_mapping(mol, candidate)
     name = candidate.name
+    if (candidate.family == 'single-ring-parent' and not candidate.stereo_locants
+            and len(candidate.locants) == len(candidate.parent_atoms)
+            and set(dict(candidate.locants)) == set(candidate.parent_atoms)
+            and len({loc for _, loc in candidate.locants}) == len(candidate.parent_atoms)):
+        # The complete injective parent map is also the stereo map. Legacy
+        # producers must not lose annotations by filling only the first field.
+        from dataclasses import replace
+        candidate = replace(candidate, stereo_locants=candidate.locants)
     if candidate.source_family == "acyclic-carbohydrate-retained":
-        name = _apply_uniform_isotope_label(mol, name)
+        name = _apply_uniform_isotope_label(mol, name, whole_parent=True)
+        from .isotope_mapping import preserves_isotope_information
+        if not preserves_isotope_information(mol, name):
+            return ""
         return name if len(name) <= max_length else ""
     structured_stereo_applied = False
+    mononuclear_stereo = False
+    if (len(candidate.stereo_locants) == 1
+            and candidate.stereo_locants[0][1] == '1'
+            and name.endswith('methane') and re.match(r'^\([RS]\)-', name)
+            and not any(b.GetStereo() not in {Chem.BondStereo.STEREONONE,
+                                              Chem.BondStereo.STEREOANY}
+                        for b in mol.GetBonds())):
+        center = candidate.stereo_locants[0][0]
+        assigned = assigned_atom_stereochemistry(mol, Chem, atom_order='idx')
+        mononuclear_stereo = (mol.GetAtomWithIdx(center).GetAtomicNum() == 6
+                             and assigned == [(center, name[1])])
     if candidate.stereo_prefix and not name.startswith("("):
         name = f"({candidate.stereo_prefix})-{name}"
+        structured_stereo_applied = True
+    elif mononuclear_stereo:
+        # The parent writer already rendered the sole center without a
+        # numerical locant under P-14.3.4.2(a)/P-93.2.1.2. The same mapped
+        # construction can be delivered through a ring-branch/sulfur family;
+        # ownership follows the original atom, not the delivery family label.
         structured_stereo_applied = True
     elif candidate.stereo_locants:
         invert_unlocanted_bond_stereo = _candidate_needs_exocyclic_bond_stereo_inversion(
@@ -17836,12 +19055,20 @@ def _finalize_candidate_name(
         if locanted_name != name:
             name = locanted_name
             structured_stereo_applied = True
+    if (candidate.family == 'generic-bicyclic-parent'
+            and candidate.source_family == 'bicyclic' and candidate.stereo_prefix):
+        from .stereochemistry import apply_unknown_bicyclic_pseudo_stereo
+        name = apply_unknown_bicyclic_pseudo_stereo(
+            mol, Chem, name, candidate.stereo_locants, candidate.parent_atoms)
     if candidate.family in {
         "whole-molecule-retained-parent",
         "natural-product-topology-parent",
         "exact-biochemical-retained-parent",
     }:
-        name = _apply_uniform_isotope_label(mol, name)
+        name = _apply_uniform_isotope_label(mol, name, whole_parent=True)
+        from .isotope_mapping import preserves_isotope_information
+        if not preserves_isotope_information(mol, name):
+            return ""
         return name if len(name) <= max_length else ""
     skip_fallback_stereo = candidate.family in {
         "phosphite-ester-parent",
@@ -17867,7 +19094,20 @@ def _finalize_candidate_name(
                 candidate,
             ),
         )
+    if _has_retained_carbohydrate_substituent(name) and _has_assigned_stereo(mol, Chem):
+        # The retained branch owns its atom configurations, independently of
+        # any alkene geometry in the selected parent or other components.
+        name = apply_stereochemical_prefix(
+            mol, Chem, name, include_atom_stereo=False,
+            invert_unlocanted_bond_stereo=_candidate_needs_exocyclic_bond_stereo_inversion(
+                mol, Chem, candidate))
+    if candidate.family in {"acyclic-parent", "acyclic-skeleton"}:
+        from .isotope_mapping import apply_parent_isotopes
+        name = apply_parent_isotopes(mol, name, candidate.stereo_locants)
     name = _apply_uniform_isotope_label(mol, name)
+    from .isotope_mapping import preserves_isotope_information
+    if not preserves_isotope_information(mol, name):
+        return ""
     return name if len(name) <= max_length else ""
 
 
@@ -17910,7 +19150,7 @@ def _candidate_needs_endocyclic_bond_stereo_inversion(mol, Chem, candidate: Name
         for ring in mol.GetRingInfo().AtomRings()
         if begin_idx in ring and end_idx in ring
     ]
-    return any(
+    if not any(
         len(ring) == 8
         and all(
             mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6
@@ -17918,7 +19158,16 @@ def _candidate_needs_endocyclic_bond_stereo_inversion(mol, Chem, candidate: Name
             for atom_idx in ring
         )
         for ring in ring_atoms
-    )
+    ):
+        return False
+    # E/Z describes priorities in the complete named molecule. The native
+    # bond enum can use legacy CIP priorities, so correct it only when the
+    # modern whole-graph assignment differs; ring membership alone does not
+    # imply a priority reversal.
+    modern = next((descriptor for a, b, descriptor in assigned_bond_stereochemistry(mol, Chem)
+                   if {a, b} == {begin_idx, end_idx}), None)
+    legacy = "E" if bond.GetStereo() in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS} else "Z"
+    return modern is not None and modern != legacy
 
 
 def _candidate_needs_indene_exocyclic_carbon_stereo_inversion(mol, Chem, candidate: NameCandidate) -> bool:
@@ -18011,7 +19260,7 @@ def _assigned_double_stereo_bonds(mol, Chem):
         return cached
     return mol_cache_set(mol, "assigned_double_stereo_bonds", tuple(
         bond
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if bond.GetBondType() == Chem.BondType.DOUBLE
         and bond.GetStereo()
         in {
@@ -18098,7 +19347,7 @@ def _candidate_prefers_reversed_mixed_stereo_prefix(mol, Chem, candidate: NameCa
 
 
 def _has_any_assigned_bond_stereo(mol, Chem) -> bool:
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return True
     return False
@@ -18106,7 +19355,7 @@ def _has_any_assigned_bond_stereo(mol, Chem) -> bool:
 
 def _has_external_assigned_bond_stereo(mol, Chem, candidate: NameCandidate) -> bool:
     parent_atoms = set(candidate.parent_atoms)
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() != Chem.BondType.DOUBLE:
             continue
         if bond.GetStereo() == Chem.BondStereo.STEREONONE:
@@ -18151,14 +19400,14 @@ def _has_internal_locanted_stereo(name: str) -> bool:
     return bool(re.search(r"\(\d+[RSZE](?:,\d+[RSZE])*\)-", name))
 
 
-def _apply_uniform_isotope_label(mol, name: str) -> str:
+def _apply_uniform_isotope_label(mol, name: str, *, whole_parent=False) -> str:
     if not name:
         return name
     if not _mol_has_isotope(mol):
         return name
     labels: list[tuple[str, int, int]] = []
-    for symbol in sorted({atom.GetSymbol() for atom in mol.GetAtoms() if atom.GetSymbol() != "H"}):
-        atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == symbol]
+    for symbol in sorted({atom.GetSymbol() for atom in iter_atoms(mol) if atom.GetSymbol() != "H"}):
+        atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == symbol]
         isotopes = {atom.GetIsotope() for atom in atoms}
         if len(isotopes) != 1:
             continue
@@ -18170,13 +19419,19 @@ def _apply_uniform_isotope_label(mol, name: str) -> str:
     symbol, isotope, count = labels[0]
     if f"{isotope}{symbol}" in name:
         return name
-    if symbol == "C" and isotope in {13, 14}:
+    if symbol == "C" and whole_parent:
+        # Only a producer declaring a whole retained parent may apply a
+        # whole-carbon descriptor. Ordinary parents/branches write their
+        # disjoint atom maps upstream; a trailing mass is not a P-82 repair
+        # for missing component ownership.
         count_text = str(count) if count > 1 else ""
-        return f"{name}-{isotope}{symbol}{count_text}"
+        descriptor = f"({isotope}{symbol}{count_text})"
+        stereo = re.match(r"^(\([^()]*[RSZErs][^()]*\)-)(.*)$", name)
+        return stereo[1] + descriptor + stereo[2] if stereo else descriptor + name
     if symbol == "F" and isotope == 18 and count == 1:
         return _inline_single_fluorine_isotope(name)
-    if symbol == "N" and count == 1 and not name.startswith("("):
-        return f"[{isotope}{symbol}]{name}"
+    if symbol == "N" and count == 1 and not name.startswith("(") and ' ' not in name:
+        return f"({isotope}{symbol}){name}"
     return name
 
 
@@ -18190,7 +19445,7 @@ def _mol_has_isotope(mol) -> bool:
     cached = mol_cache_get(mol, "has_isotope")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in iter_atoms(mol)))
 
 
 def _fallback_stereo_atom_order(family: str, name: str = "", *, stereo_locant_count: int = 0) -> str:

@@ -1,0 +1,63 @@
+{
+  "numbered_stereo": {
+    "source": "tools/numbered_stereo_verifier.py",
+    "source_sha256": "dccfdaf12aab83d4e8408f977db20b7299e39cf26732cfab2000b579bc0db5f1",
+    "copy_sha256": "8ee99e39678880bb49459529519e56d6955b1d5547b1ee555937cd5bf15874be",
+    "copy_policy": "Derived independent name-only constitution/CIP verifier; no production naming imports or input graph. Current release adds unique rooted-component ownership, neutral three-ring N CIP, one annular E/Z bond and one uniquely numbered ol-H isotope before CIP. Multi-copy stereo assignment without complete ownership declines. The annular E/Z locant must identify the actual terminal unsaturation, on a ring of at least eight atoms.",
+    "origin": "Existing authorized regression cohort predating this release; hand-authored parser controls; frozen source retained in the viability baseline. No new panel records selected."
+  },
+  "ol_hydrogen": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/P8.html#P-82.2.1",
+      "https://iupac.qmul.ac.uk/BlueBook/P8.html#P-82.3.1",
+      "https://iupac.qmul.ac.uk/BlueBook/P8.html#P-82.6.1.1"
+    ],
+    "scope": "One terminal 2H/3H ol-suffix or one hydroxy-prefix insertion; exactly one neutral hydroxyl hydrogen in the independently parsed base, no other labelled atoms or stereo blocks. Other grammar or ambiguity declines.",
+    "origin": "Independent oracle for general P-82 suffix nuclide placement, motivated by independently authored deuterated alcohol test; no panel data/reference-name outcomes used.",
+    "implementation_sha256": "19abb434170dbf4d1e82ffb8d12c1c18c16ade7a2d72f0cc232d32550695b226"
+  },
+  "acid_hydrogen": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/P8.html#P-82.2.4"
+    ],
+    "scope": "One 2H/3H descriptor at carboxylic acid or oic acid suffix; exactly one neutral carbon-bound acid OH in an independently raw-parsed base; unsupported/ambiguous/charged/radical/stereo cases decline.",
+    "policy": "Name-only input; no original graph, reference name, production naming call or panel-derived evidence.",
+    "implementation_sha256": "ba8f78b429d960abf8e11d2750deaf0fd133a7171aec395a5cb96689c3de7bde"
+  },
+  "mixed_esters": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/PDF/P6.pdf"
+    ],
+    "scope": "P-65.6.3.3.3.2; independently raw-parsed small alkane-diol and two carboxylates; both ester-site assignments must give a single canonical graph; unsupported or ambiguous cases decline.",
+    "policy": "Name-only input; no original graph, reference name, production naming call or panel-derived evidence.",
+    "implementation_sha256": "dc352d2cb95b9a5beb4fea1447a84971da7828bef44225fa3d4729bd67424475"
+  },
+  "peroxolate_salts": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/P7.html#P-72.2.2.2.2",
+      "https://iupac.qmul.ac.uk/BlueBook/P7.html#P-77.2.1"
+    ],
+    "scope": "One plain binary Li/Na/K carbon-peroxolate; independently raw-parsed neutral peroxol and explicit metal(1+); unique O-OH hydron removal, valence/H/element/charge conservation; unsupported or ambiguous forms decline.",
+    "policy": "No original graph or NISPO naming code. Corrects raw-parser charge loss only after independent name proof; raw graph and proof graph remain recorded separately.",
+    "implementation_sha256": "61de75b2b086aeda16740206d1b6f6a0beea6d0a118ab152a17fd7e55ae6e8f8"
+  },
+  "functional_operations": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/P6.html#P-65.7.6.1",
+      "https://iupac.qmul.ac.uk/BlueBook/P7.html#P-72.2.2.2.3"
+    ],
+    "scope": "Unannotated primary hydrocarbylamine dianion; symmetric acyclic saturated carboxylic dianhydride with two identical terminal acids and a dibasic central acid. Independent parsed components, unique sites, hydrogen/element/charge conservation and parser graph ownership. Other grammar declines.",
+    "origin": "Existing independently authored functional boundaries; baseline frozen at dist/0.2.0rc1-viability-20261117T112204Z/baseline-manifest.json. No panel records selected.",
+    "policy": "Name-only input, no production naming calls or original graph; only raw OPSIN rejections supplemented. Raw outcomes remain visible.",
+    "implementation_sha256": "e729a75610553eba38f61ef8c4efdc5c509696772035c3cba09008f94fea52a6"
+  },
+  "phospho_hydrogen": {
+    "rule_sources": [
+      "https://iupac.qmul.ac.uk/BlueBook/P7.html"
+    ],
+    "scope": "One neutral diphosphooxy prefix, unique unbranched P-O-P, three acid oxygen sites and one separately declared onium centre; independently parsed charge/H correction only with exact heavy-atom/H/charge conservation. Other grammar or ambiguity declines.",
+    "origin": "Existing pre-release regression; historical molecule provenance retained in initial-triage.json and test-history.json. Independent hand-authored phosphoethylammonium parser controls.",
+    "policy": "Name and independent parser graphs only; no original input molecule, production naming calls or reference panel. Raw parser outcomes remain recorded.",
+    "implementation_sha256": "f10f6852ae86278862b1a692fc53eb0c6e163d34926f8433aa318defc1496939"
+  }
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .constants import ROOTS
 from .molecule_cache import mol_cache_get, mol_cache_set
 from .name_parts import NameParts, Suffix
@@ -22,7 +23,20 @@ class FragmentAssemblyRule:
         self.Chem = Chem
         self.engine = engine
 
-    def name(self, fragments: tuple[object, ...]) -> str:
+    def name(self, fragments: tuple[object, ...], *, source_atom_maps=None,
+             expected_source_atom_ids=None) -> str:
+        from .ionic_assembly import binary_ionic_assembly
+        assembly=binary_ionic_assembly(
+            fragments,self.Chem,self.engine,source_atom_maps=source_atom_maps,
+            expected_source_atom_ids=expected_source_atom_ids,
+        )
+        if assembly is not None:
+            return assembly[0]
+        from .nitrogen_anion_components import requires_nitrogen_anion_proof
+        if any(requires_nitrogen_anion_proof(fragment) for fragment in fragments):
+            # Only a charge/stoichiometry-proved assembly may cite these
+            # components; ordinary fragment fallbacks know only monoanions.
+            return ''
         named_fragments: list[str] = []
         cations: list[str] = []
         neutral_halide_suffixes: list[str] = []
@@ -272,7 +286,7 @@ def single_atom_anion_name(mol, Chem) -> str | None:
     return NameParts(parent=element_name, charge=f"({abs(atom.GetFormalCharge())}-)").render()
 
 
-def simple_fragment_name(mol, Chem) -> str:
+def _unmodified_single_atom_name(mol, Chem) -> str:
     if mol.GetNumAtoms() != 1:
         return ""
     atom = mol.GetAtomWithIdx(0)
@@ -303,6 +317,41 @@ def simple_fragment_name(mol, Chem) -> str:
     return NameParts(parent=element_name, charge=f"({abs(charge)}{sign})").render()
 
 
+def simple_fragment_name(mol, Chem) -> str:
+    """Name a mononuclear component with its own P-82 nuclide descriptor."""
+    if mol.GetNumAtoms() == 1:
+        atom = mol.GetAtomWithIdx(0)
+        name = _unmodified_single_atom_name(mol, Chem)
+    else:
+        heavy = [a for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+        if len(heavy) != 1:
+            return ''
+        atom = heavy[0]
+        if (atom.GetIsAromatic() or atom.GetNumRadicalElectrons() or atom.HasQuery()
+                or any(a.GetAtomicNum() != 1 or a.GetDegree() != 1
+                       or a.GetNeighbors()[0].GetIdx() != atom.GetIdx()
+                       or mol.GetBondBetweenAtoms(a.GetIdx(), atom.GetIdx()).GetBondTypeAsDouble() != 1
+                       for a in mol.GetAtoms() if a.GetIdx() != atom.GetIdx())):
+            return ''
+        hydrogen = atom.GetTotalNumHs(includeNeighbors=True)
+        charge = atom.GetFormalCharge()
+        name = (NEUTRAL_HYDRIDES.get((atom.GetSymbol(), hydrogen), '') if not charge else
+                COMMON_SINGLE_ATOM_CATIONS.get((atom.GetSymbol(), charge, hydrogen), ''))
+        if not name:
+            return ''
+    if not name or atom.GetAtomicNum() == 1 or not any(a.GetIsotope() for a in mol.GetAtoms()):
+        return name
+    from .component_mapping import MappedComponent, decorate_component
+    # A hydrogen halide is a two-word construction; its heavy-atom nuclide
+    # belongs immediately before the halide word, rather than hydrogen.
+    leading = 'hydrogen ' if name.startswith('hydrogen ') else ''
+    parent = name.removeprefix(leading) if leading else name
+    mapping = tuple((a.GetIdx(), '') for a in mol.GetAtoms())
+    text = decorate_component(mol, Chem, MappedComponent(parent, mapping,
+        frozenset(idx for idx, _ in mapping)))
+    return leading + text if text else ''
+
+
 def common_polyatomic_fragment_name(mol, Chem) -> str:
     """Name common standalone counterions by graph features, not row lookups."""
 
@@ -316,6 +365,20 @@ def common_polyatomic_fragment_name(mol, Chem) -> str:
         if _total_charge(mol) == 0:
             return ""
         return _large_common_polyatomic_fragment_name(mol, Chem)
+    if (sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) == 0
+            and _total_charge(mol) == 0):
+        # Every omitted counterion producer requires a negative total charge.
+        # Preserve the neutral producers' original order, including the
+        # substituted-borohydride writer whose local proof has no net-charge
+        # restriction. No fragment renderer or callback is cached here.
+        return (
+            _cyanonitrate_name(mol, Chem)
+            or _cyanoiodate_name(mol, Chem)
+            or _halogen_oxide_name(mol, Chem)
+            or _interhalogen_name(mol, Chem)
+            or _substituted_borohydride_name(mol, Chem)
+            or _oxoanion_name(mol, Chem)
+        )
     return (
         _small_standalone_polyatomic_name(mol, Chem)
         or _substituted_borohydride_name(mol, Chem)
@@ -387,6 +450,18 @@ def standalone_polyatomic_fragment_name(mol, Chem) -> str:
     # fragment-only templates and heteroatom motifs.
     if mol.GetNumAtoms() > 24:
         return ""
+    if not any(atom.GetAtomicNum() in {15, 16} for atom in iter_atoms(mol)):
+        # The omitted neutral/cation families all require an original P or S
+        # atom. Observe the live graph rather than a cached element summary.
+        return (
+            _small_retained_template_name(mol, Chem)
+            or _isodiazene_name(mol, Chem)
+            or _azanol_name(mol, Chem)
+            or _nitronic_acid_or_ester_name(mol, Chem)
+            or _peracetate_name(mol, Chem)
+            or _isouronium_name(mol, Chem)
+            or _selenocysteamine_name(mol, Chem)
+        )
     return (
         _simple_phosphorus_chalcogen_neutral_name(mol, Chem)
         or _simple_nitrogen_sulfur_neutral_name(mol, Chem)
@@ -408,14 +483,15 @@ _SMALL_RETAINED_TEMPLATE_CACHE = {}
 
 
 def _small_retained_template_name(mol, Chem) -> str:
-    template_index = _small_retained_template_index(Chem)
+    signature = tuple(sorted(_element_counts(mol).items()))
+    template_index = _small_retained_template_index(Chem).get(signature)
     if not template_index:
         return ""
     key = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
     return template_index.get(key, "")
 
 
-def _small_retained_template_index(Chem) -> dict[str, str]:
+def _small_retained_template_index(Chem) -> dict[tuple, dict[str, str]]:
     key = id(Chem)
     cached = _SMALL_RETAINED_TEMPLATE_CACHE.get(key)
     if cached is not None:
@@ -425,7 +501,10 @@ def _small_retained_template_index(Chem) -> dict[str, str]:
         template = Chem.MolFromSmiles(smiles)
         if template is None:
             continue
-        index[Chem.MolToSmiles(template, canonical=True, isomericSmiles=True)] = name
+        signature = tuple(sorted(_element_counts(template).items()))
+        index.setdefault(signature, {})[
+            Chem.MolToSmiles(template, canonical=True, isomericSmiles=True)
+        ] = name
     _SMALL_RETAINED_TEMPLATE_CACHE[key] = index
     return index
 
@@ -486,8 +565,8 @@ def _simple_nitrogen_sulfur_anion_name(mol, Chem) -> str:
 def _phosphaethene_yne_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "P": 1} or _total_charge(mol) != 0:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    phosphorus = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    phosphorus = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P")
     bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), phosphorus.GetIdx())
     if bond is None:
         return ""
@@ -503,9 +582,16 @@ def _phosphaethene_yne_name(mol, Chem) -> str:
 def _alkanethiosulfonic_acid_name(mol, Chem) -> str:
     if _total_charge(mol) != 0:
         return ""
-    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and not atom.IsInRing()]
+    sulfurs = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S" and not atom.IsInRing()]
     if len(sulfurs) != 2:
         return ""
+    # This legacy fragment shortcut precedes principal selection. Give the
+    # mapped functional-replacement construction its P-65.3.1.3 precedence.
+    from .bluebook_fusion_functional_methods import modified_chalcogen_acid_decision
+
+    preferred = modified_chalcogen_acid_decision(mol, Chem)
+    if preferred is not None:
+        return preferred.name
     for sulfur in sulfurs:
         sidx = sulfur.GetIdx()
         carbon_idx = terminal_sulfur_idx = None
@@ -556,7 +642,7 @@ def _alkanethiosulfonic_acid_name(mol, Chem) -> str:
 def _alkanesulfonimidate_name(mol, Chem) -> str:
     if _total_charge(mol) != -1:
         return ""
-    sulfur_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0]
+    sulfur_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S" and atom.GetFormalCharge() == 0]
     if len(sulfur_atoms) != 1:
         return ""
     sulfur = sulfur_atoms[0]
@@ -871,9 +957,9 @@ def _phosphorous_acid_dialkylamide_name(mol, Chem) -> str:
 def _isothiocyanoamide_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "N": 2, "S": 1} or _total_charge(mol) != -1:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
-    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    sulfur = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S")
+    nitrogens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N"]
     anionic_n = [atom for atom in nitrogens if atom.GetFormalCharge() == -1]
     neutral_n = [atom for atom in nitrogens if atom.GetFormalCharge() == 0]
     if len(anionic_n) != 1 or len(neutral_n) != 1:
@@ -892,7 +978,7 @@ def _isothiocyanoamide_name(mol, Chem) -> str:
 def _dialkylhydrazinide_name(mol, Chem) -> str:
     if _total_charge(mol) != -1:
         return ""
-    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    nitrogens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N"]
     if len(nitrogens) != 2:
         return ""
     bond = mol.GetBondBetweenAtoms(nitrogens[0].GetIdx(), nitrogens[1].GetIdx())
@@ -921,7 +1007,7 @@ def _dialkylhydrazinide_name(mol, Chem) -> str:
 def _n_alkyl_nitrosoamide_name(mol, Chem) -> str:
     if _total_charge(mol) != -1:
         return ""
-    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"]
+    nitrogens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N"]
     if len(nitrogens) != 2:
         return ""
     anionic = [atom for atom in nitrogens if atom.GetFormalCharge() == -1]
@@ -932,7 +1018,7 @@ def _n_alkyl_nitrosoamide_name(mol, Chem) -> str:
     neutral_n = neutral[0]
     if not _specific_bond(mol, Chem, anionic_n.GetIdx(), neutral_n.GetIdx(), Chem.BondType.SINGLE):
         return ""
-    oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"]
+    oxygens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O"]
     if len(oxygens) != 1 or not _specific_bond(mol, Chem, neutral_n.GetIdx(), oxygens[0].GetIdx(), Chem.BondType.DOUBLE):
         return ""
     carbon_neighbors = [nbr.GetIdx() for nbr in anionic_n.GetNeighbors() if nbr.GetSymbol() == "C"]
@@ -948,7 +1034,7 @@ def _n_alkyl_nitrosoamide_name(mol, Chem) -> str:
 def _dialkyl_thiolate_name(mol, Chem) -> str:
     if _total_charge(mol) != -1:
         return ""
-    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetFormalCharge() == -1]
+    sulfurs = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S" and atom.GetFormalCharge() == -1]
     if len(sulfurs) != 1 or sulfurs[0].GetTotalNumHs() != 1:
         return ""
     sulfur = sulfurs[0]
@@ -978,7 +1064,7 @@ def _dialkyl_thiolate_name(mol, Chem) -> str:
 def _alkyl_thiosulfoximine_name(mol, Chem) -> str:
     if _total_charge(mol) != 0:
         return ""
-    sulfurs = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"]
+    sulfurs = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S"]
     if len(sulfurs) != 2:
         return ""
     for sulfur in sulfurs:
@@ -1014,8 +1100,14 @@ def _alkyl_thiosulfoximine_name(mol, Chem) -> str:
 
 
 def _single_phosphorus_atom(mol):
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and not atom.IsInRing()]
-    return phosphorus_atoms[0] if len(phosphorus_atoms) == 1 else None
+    indices = mol_cache_get(mol, "fragment_nonring_phosphorus_indices")
+    if indices is None:
+        indices = (
+            tuple(atom.GetIdx() for atom in iter_atoms(mol) if atom.GetSymbol() == "P" and not atom.IsInRing())
+            if _element_counts(mol).get("P") else ()
+        )
+        mol_cache_set(mol, "fragment_nonring_phosphorus_indices", indices)
+    return mol.GetAtomWithIdx(indices[0]) if len(indices) == 1 else None
 
 
 def _simple_fragment_owner_name(mol, Chem, atom_idx: int, parent_idx: int) -> tuple[str, set[int]]:
@@ -1039,6 +1131,7 @@ def _simple_fragment_owner_name(mol, Chem, atom_idx: int, parent_idx: int) -> tu
         "isopropyl",
         "butyl",
         "isobutyl",
+        "2-methylpropyl",
         "t-butyl",
         "tert-butyl",
         "vinyl",
@@ -1148,8 +1241,8 @@ def _strip_fragment_parentheses(name: str) -> str:
 def _oxidonitrogen_anion_name(mol, Chem) -> str:
     if _element_counts(mol) != {"N": 1, "O": 1} or _total_charge(mol) != -1:
         return ""
-    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    nitrogen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N")
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
     bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
     if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
         return ""
@@ -1159,7 +1252,7 @@ def _oxidonitrogen_anion_name(mol, Chem) -> str:
 def _cyanonitrate_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "N": 2, "O": 2} or _total_charge(mol) != 0:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
     nitrile_nitrogens = []
     nitrate_nitrogens = []
     for nbr in carbon.GetNeighbors():
@@ -1193,9 +1286,9 @@ def _cyanonitrate_name(mol, Chem) -> str:
 def _cyanoiodate_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "I": 1, "N": 1, "O": 2} or _total_charge(mol) != 0:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    iodine = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "I")
-    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    iodine = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "I")
+    nitrogen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N")
     if carbon.GetFormalCharge() != 0 or iodine.GetFormalCharge() != 0 or nitrogen.GetFormalCharge() != 0:
         return ""
     if not _specific_bond(mol, Chem, carbon.GetIdx(), nitrogen.GetIdx(), Chem.BondType.TRIPLE):
@@ -1204,7 +1297,7 @@ def _cyanoiodate_name(mol, Chem) -> str:
         return ""
     oxo_count = sum(
         1
-        for oxygen in mol.GetAtoms()
+        for oxygen in iter_atoms(mol)
         if oxygen.GetSymbol() == "O"
         and oxygen.GetFormalCharge() == 0
         and _specific_bond(mol, Chem, iodine.GetIdx(), oxygen.GetIdx(), Chem.BondType.DOUBLE)
@@ -1215,10 +1308,10 @@ def _cyanoiodate_name(mol, Chem) -> str:
 def _hypothiocyanite_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "N": 1, "O": 1, "S": 1} or _total_charge(mol) != -1:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
-    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    sulfur = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S")
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
+    nitrogen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N")
     if carbon.GetFormalCharge() != 0 or sulfur.GetFormalCharge() != 0 or nitrogen.GetFormalCharge() != 0:
         return ""
     if oxygen.GetFormalCharge() != -1:
@@ -1238,8 +1331,8 @@ def _alkanesulfenate_name(mol, Chem) -> str:
         return ""
     if set(counts) != {"C", "O", "S"}:
         return ""
-    sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    sulfur = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S")
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
     if sulfur.GetFormalCharge() != 0 or oxygen.GetFormalCharge() != -1:
         return ""
     if not _specific_bond(mol, Chem, sulfur.GetIdx(), oxygen.GetIdx(), Chem.BondType.SINGLE):
@@ -1257,7 +1350,7 @@ def _alkanesulfenate_name(mol, Chem) -> str:
 
 
 def _terminal_linear_alkane_chain_length(mol, Chem, start_idx: int, sulfur_idx: int) -> int:
-    carbon_atoms = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetSymbol() == "C"}
+    carbon_atoms = {atom.GetIdx() for atom in iter_atoms(mol) if atom.GetSymbol() == "C"}
     if not carbon_atoms:
         return 0
     path = []
@@ -1296,8 +1389,8 @@ def _phosphacycloalkanolate_name(mol, Chem) -> str:
         return ""
     if set(counts) != {"C", "O", "P"}:
         return ""
-    phosphorus = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P")
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    phosphorus = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P")
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
     if phosphorus.GetFormalCharge() != 0 or oxygen.GetFormalCharge() != -1:
         return ""
     if not _specific_bond(mol, Chem, phosphorus.GetIdx(), oxygen.GetIdx(), Chem.BondType.SINGLE):
@@ -1319,7 +1412,7 @@ def _phosphacycloalkanolate_name(mol, Chem) -> str:
 def _diazenide_name(mol, Chem) -> str:
     if _element_counts(mol) != {"N": 2} or _total_charge(mol) != -1:
         return ""
-    atoms = list(mol.GetAtoms())
+    atoms = list(iter_atoms(mol))
     bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
     return "diazenide" if bond is not None and bond.GetBondType() == Chem.BondType.DOUBLE else ""
 
@@ -1327,7 +1420,7 @@ def _diazenide_name(mol, Chem) -> str:
 def _diselenide_name(mol, Chem) -> str:
     if _element_counts(mol) != {"Se": 2} or _total_charge(mol) != -1:
         return ""
-    atoms = list(mol.GetAtoms())
+    atoms = list(iter_atoms(mol))
     bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
     if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
         return ""
@@ -1341,8 +1434,8 @@ def _halogen_oxide_name(mol, Chem) -> str:
         return ""
     if _total_charge(mol) != 0:
         return ""
-    halogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == halogens[0])
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    halogen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == halogens[0])
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
     bond = mol.GetBondBetweenAtoms(halogen.GetIdx(), oxygen.GetIdx())
     if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
@@ -1356,7 +1449,7 @@ def _halogen_oxide_name(mol, Chem) -> str:
 def _interhalogen_name(mol, Chem) -> str:
     if mol.GetNumAtoms() != 2 or _total_charge(mol) != 0:
         return ""
-    atoms = list(mol.GetAtoms())
+    atoms = list(iter_atoms(mol))
     if any(atom.GetSymbol() not in HALIDE_STEMS or atom.GetTotalNumHs() for atom in atoms):
         return ""
     bond = mol.GetBondBetweenAtoms(atoms[0].GetIdx(), atoms[1].GetIdx())
@@ -1367,7 +1460,7 @@ def _interhalogen_name(mol, Chem) -> str:
 
 
 def _haloazanide_name(mol, Chem) -> str:
-    atoms = list(mol.GetAtoms())
+    atoms = list(iter_atoms(mol))
     nitrogens = [atom for atom in atoms if atom.GetSymbol() == "N"]
     if len(nitrogens) != 1 or _total_charge(mol) != -1:
         return ""
@@ -1404,7 +1497,7 @@ def _acetonide_name(mol, Chem) -> str:
         return ""
     carbonyl_carbons = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and any(
             nbr.GetSymbol() == "O"
@@ -1430,9 +1523,9 @@ def _acetonide_name(mol, Chem) -> str:
 def _nitronite_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "N": 1, "O": 1} or _total_charge(mol) != -1:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    nitrogen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N")
-    oxygen = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    nitrogen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N")
+    oxygen = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O")
     cn_bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nitrogen.GetIdx())
     no_bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
     if cn_bond is None or no_bond is None:
@@ -1445,7 +1538,7 @@ def _nitronite_name(mol, Chem) -> str:
 def _peroxycarbonate_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 1, "O": 4} or _total_charge(mol) != -2:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
     double_oxygen = terminal_oxido = peroxy_oxido = 0
     for nbr in carbon.GetNeighbors():
         bond = mol.GetBondBetweenAtoms(carbon.GetIdx(), nbr.GetIdx())
@@ -1473,7 +1566,7 @@ def _peroxycarbonate_name(mol, Chem) -> str:
 def _peroxyoxalate_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 2, "O": 5} or _total_charge(mol) != -2:
         return ""
-    carbons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C"]
+    carbons = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C"]
     cc_bond = mol.GetBondBetweenAtoms(carbons[0].GetIdx(), carbons[1].GetIdx())
     if cc_bond is None or cc_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
@@ -1511,9 +1604,16 @@ def _peroxyoxalate_name(mol, Chem) -> str:
 def _nitronic_acid_or_ester_name(mol, Chem) -> str:
     if _total_charge(mol) != 0:
         return ""
-    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0]
+    nitrogens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N" and atom.GetFormalCharge() > 0]
     if len(nitrogens) != 1:
         return ""
+    # The aci tautomer is an azinic-acid derivative, rather than the old
+    # standalone nitronic-acid/aci-nitro fragment alias. This early fragment
+    # path runs before the ordinary principal-function selector.
+    from .hetero_functional_methods import aci_nitro_acid_decision
+    decision = aci_nitro_acid_decision(mol, Chem)
+    if decision is not None:
+        return decision.name
     nitrogen = nitrogens[0]
     carbon = None
     oxido = None
@@ -1579,8 +1679,8 @@ def _is_terminal_ethoxy_owner(mol, Chem, carbon_idx: int, oxygen_idx: int) -> bo
 def _azanol_name(mol, Chem) -> str:
     if _element_counts(mol) != {"N": 1, "O": 1} or _total_charge(mol) != 0:
         return ""
-    nitrogen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"), None)
-    oxygen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"), None)
+    nitrogen = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N"), None)
+    oxygen = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O"), None)
     if nitrogen is None or oxygen is None:
         return ""
     bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), oxygen.GetIdx())
@@ -1594,7 +1694,7 @@ def _azanol_name(mol, Chem) -> str:
 def _isodiazene_name(mol, Chem) -> str:
     if _element_counts(mol) != {"N": 2} or _total_charge(mol) != 0:
         return ""
-    nitrogens = list(mol.GetAtoms())
+    nitrogens = list(iter_atoms(mol))
     bond = mol.GetBondBetweenAtoms(nitrogens[0].GetIdx(), nitrogens[1].GetIdx())
     if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
         return ""
@@ -1610,7 +1710,7 @@ def _peracetate_name(mol, Chem) -> str:
         return ""
     carbonyl_carbons = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and any(
             nbr.GetSymbol() == "O"
@@ -1651,7 +1751,7 @@ def _isouronium_name(mol, Chem) -> str:
 def _thiauronium_name(mol, Chem) -> str:
     if _element_counts(mol) != {"N": 2, "O": 1, "S": 1} or _total_charge(mol) != 1:
         return ""
-    sulfur = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"), None)
+    sulfur = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S"), None)
     if sulfur is None:
         return ""
     single_n = double_cation_n = single_o = 0
@@ -1673,7 +1773,7 @@ def _thiauronium_name(mol, Chem) -> str:
 def _chalcogenouronium_name(mol, Chem, chalcogen: str, name: str) -> str:
     if _element_counts(mol) != {"C": 1, "N": 2, chalcogen: 1} or _total_charge(mol) != 1:
         return ""
-    carbon = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C"), None)
+    carbon = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C"), None)
     if carbon is None:
         return ""
     single_n = double_n = single_chalcogen = 0
@@ -1693,13 +1793,13 @@ def _chalcogenouronium_name(mol, Chem, chalcogen: str, name: str) -> str:
 def _selenocysteamine_name(mol, Chem) -> str:
     if _element_counts(mol) != {"C": 2, "N": 1, "Se": 1} or _total_charge(mol) != 0:
         return ""
-    selenium = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "Se"), None)
-    nitrogen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N"), None)
+    selenium = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "Se"), None)
+    nitrogen = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N"), None)
     if selenium is None or nitrogen is None or selenium.GetTotalNumHs() != 1:
         return ""
     carbon_graph = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
     }
     if len(carbon_graph) != 2:
@@ -1711,7 +1811,7 @@ def _selenocysteamine_name(mol, Chem) -> str:
             if nbr.GetSymbol() in {"C", "N", "Se"}
             and mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx()).GetBondType() == Chem.BondType.SINGLE
         }
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
     }
     nidx = nitrogen.GetIdx()
@@ -1736,7 +1836,9 @@ def _hydride_anion_name(atom) -> str:
 
 
 def _substituted_borohydride_name(mol, Chem) -> str:
-    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if not _element_counts(mol).get("B"):
+        return ""
+    borons = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
     if len(borons) != 1:
         return ""
     boron = borons[0]
@@ -1801,7 +1903,9 @@ def _is_acetoxy_group(mol, Chem, oxygen_idx: int, boron_idx: int) -> bool:
 
 
 def _organotrifluoroborate_name(mol, Chem) -> str:
-    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if not _element_counts(mol).get("B"):
+        return ""
+    borons = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
     if len(borons) != 1 or _total_charge(mol) != -1:
         return ""
     boron = borons[0]
@@ -1832,7 +1936,9 @@ def _organotrifluoroborate_name(mol, Chem) -> str:
 
 
 def _tetraorganoborate_name(mol, Chem) -> str:
-    borons = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
+    if not _element_counts(mol).get("B"):
+        return ""
+    borons = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "B" and atom.GetFormalCharge() == -1]
     if len(borons) != 1 or _total_charge(mol) != -1:
         return ""
     boron = borons[0]
@@ -1879,9 +1985,11 @@ def _substituted_borate_prefix_text(names: list[str]) -> str:
 
 
 def _azanide_name(mol, Chem) -> str:
+    if not _element_counts(mol).get("N") or _total_charge(mol) != -1:
+        return ""
     nitrogens = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "N"
         and atom.GetFormalCharge() == -1
         and not atom.IsInRing()
@@ -2000,6 +2108,7 @@ def _carbamate_azanide_ester_owner_record(mol, Chem, oxygen_idx: int, carbonyl_i
         "isopropyl",
         "butyl",
         "isobutyl",
+        "2-methylpropyl",
         "tert-butyl",
         "benzyl",
     }:
@@ -2189,7 +2298,9 @@ def _azanide_substituent_prefix(mol, Chem, atom_idx: int, nitrogen_idx: int) -> 
 
 
 def _perfluoro_counterion_name(mol, Chem) -> str:
-    atoms = list(mol.GetAtoms())
+    if _element_counts(mol).get("F", 0) != mol.GetNumAtoms() - 1:
+        return ""
+    atoms = list(iter_atoms(mol))
     centers = [atom for atom in atoms if atom.GetSymbol() != "F"]
     fluorines = [atom for atom in atoms if atom.GetSymbol() == "F"]
     total_charge = _total_charge(mol)
@@ -2210,7 +2321,7 @@ def _trifluoroacetate_name(mol, Chem) -> str:
         return ""
     carbonyl_carbons = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and any(
             nbr.GetSymbol() == "O"
@@ -2241,7 +2352,9 @@ def _trifluoroacetate_name(mol, Chem) -> str:
 
 
 def _oxoanion_name(mol, Chem) -> str:
-    atoms = list(mol.GetAtoms())
+    if _element_counts(mol).get("O", 0) != mol.GetNumAtoms() - 1:
+        return ""
+    atoms = list(iter_atoms(mol))
     centers = [atom for atom in atoms if atom.GetSymbol() != "O"]
     oxygens = [atom for atom in atoms if atom.GetSymbol() == "O"]
     if len(centers) != 1 or len(oxygens) != len(atoms) - 1:
@@ -2304,7 +2417,7 @@ def _simple_thiosulfur_oxoanion_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts not in ({"O": 1, "S": 2}, {"O": 2, "S": 2}) or _total_charge(mol) != -1:
         return ""
-    centers = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S" and atom.GetTotalNumHs() == 1]
+    centers = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S" and atom.GetTotalNumHs() == 1]
     for center in centers:
         single_oxido = double_oxygen = double_sulfur = 0
         for nbr in center.GetNeighbors():
@@ -2345,7 +2458,7 @@ def _terminal_chalcogen_oxoanion_name(
     expected[terminal_symbol] = expected.get(terminal_symbol, 0) + 1
     if counts != expected:
         return ""
-    centers = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == center_symbol]
+    centers = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == center_symbol]
     for center in centers:
         single_oxido = hydroxy = double_oxygen = double_terminal = 0
         for nbr in center.GetNeighbors():
@@ -2379,7 +2492,7 @@ def _sulfur_oxo_cation_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts not in ({"O": 1, "S": 1}, {"O": 2, "S": 1}) or _total_charge(mol) != 1:
         return ""
-    sulfur = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S"), None)
+    sulfur = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S"), None)
     if sulfur is None or sulfur.GetFormalCharge() <= 0 or sulfur.GetTotalNumHs() != 1:
         return ""
     oxygen_count = counts["O"]
@@ -2398,8 +2511,8 @@ def _phosphorus_oxo_cation_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts != {"O": 1, "P": 1} or _total_charge(mol) != 1:
         return ""
-    phosphorus = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"), None)
-    oxygen = next((atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O"), None)
+    phosphorus = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P"), None)
+    oxygen = next((atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O"), None)
     if phosphorus is None or oxygen is None:
         return ""
     bond = mol.GetBondBetweenAtoms(phosphorus.GetIdx(), oxygen.GetIdx())
@@ -2409,23 +2522,36 @@ def _phosphorus_oxo_cation_name(mol, Chem) -> str:
 
 
 def _phosphorus_thiooxoanion_name(mol, Chem) -> str:
-    if _total_charge(mol) != -3:
+    # These retained anions describe the complete mononuclear star. A
+    # matching first coordination sphere does not own a substituted or
+    # hydrogen-bearing thione sulfur and must not discard its distal atoms.
+    if (_total_charge(mol) != -3
+            or _element_counts(mol) not in ({"O": 3, "P": 1, "S": 1},
+                                            {"O": 2, "P": 1, "S": 2})):
         return ""
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P"]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
+    if (phosphorus.GetFormalCharge() or phosphorus.GetTotalNumHs(includeNeighbors=True)
+            or phosphorus.GetIsotope() or phosphorus.GetNumRadicalElectrons()
+            or int(phosphorus.GetChiralTag()) or phosphorus.IsInRing()):
+        return ""
     pidx = phosphorus.GetIdx()
     single_oxido = 0
     single_sulfido = 0
     double_sulfur = 0
     for nbr in phosphorus.GetNeighbors():
         bond = mol.GetBondBetweenAtoms(pidx, nbr.GetIdx())
+        if (nbr.GetDegree() != 1 or nbr.GetTotalNumHs(includeNeighbors=True)
+                or nbr.GetIsotope() or nbr.GetNumRadicalElectrons()):
+            return ""
         if nbr.GetSymbol() == "O" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
             single_oxido += 1
         elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.SINGLE and nbr.GetFormalCharge() == -1:
             single_sulfido += 1
-        elif nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+        elif (nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE
+              and nbr.GetFormalCharge() == 0):
             double_sulfur += 1
         else:
             return ""
@@ -2442,7 +2568,7 @@ def _diphosphite_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts != {"O": 5, "P": 2} or _total_charge(mol) != -4:
         return ""
-    bridging_oxygens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "O" and atom.GetDegree() == 2]
+    bridging_oxygens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "O" and atom.GetDegree() == 2]
     if len(bridging_oxygens) != 1:
         return ""
     bridge = bridging_oxygens[0]
@@ -2470,7 +2596,7 @@ def _phosphorus_imido_chalcogen_oxoanion_name(mol, Chem) -> str:
         return ""
     if _total_charge(mol) != -3:
         return ""
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P"]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
@@ -2500,7 +2626,7 @@ def _phosphorus_hydrido_thiooxoanion_name(mol, Chem) -> str:
         return ""
     if _total_charge(mol) != -2:
         return ""
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
@@ -2527,7 +2653,7 @@ def _phosphorus_hydrido_thiooxoanion_name(mol, Chem) -> str:
 def _phosphorus_hydrido_oxoanion_name(mol, Chem) -> str:
     if _element_counts(mol) != {"O": 2, "P": 1} or _total_charge(mol) != -2:
         return ""
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P" and atom.GetTotalNumHs() == 1]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
@@ -2550,7 +2676,7 @@ def _phosphorus_selenooxoanion_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts != {"O": 2, "P": 1, "Se": 2} or _total_charge(mol) != -3:
         return ""
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P"]
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P"]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
@@ -2571,7 +2697,9 @@ def _phosphorus_selenooxoanion_name(mol, Chem) -> str:
 
 
 def _organophosphorus_oxoanion_name(mol, Chem) -> str:
-    phosphorus_atoms = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0]
+    if not _element_counts(mol).get("P"):
+        return ""
+    phosphorus_atoms = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "P" and atom.GetFormalCharge() == 0]
     if len(phosphorus_atoms) != 1:
         return ""
     phosphorus = phosphorus_atoms[0]
@@ -2629,7 +2757,7 @@ def _pseudohalide_name(mol, Chem) -> str:
     if counts == {"C": 1, "N": 1}:
         return "cyanide" if _has_bond(mol, Chem, "C", "N", Chem.BondType.TRIPLE) else ""
     if counts == {"N": 3}:
-        return "azide" if any(atom.GetDegree() == 2 for atom in mol.GetAtoms()) else ""
+        return "azide" if any(atom.GetDegree() == 2 for atom in iter_atoms(mol)) else ""
     if counts == {"C": 1, "N": 1, "O": 1}:
         if _has_bond(mol, Chem, "C", "N", Chem.BondType.TRIPLE):
             if _is_fulminate_anion(mol, Chem):
@@ -2659,7 +2787,7 @@ def _pseudohalide_name(mol, Chem) -> str:
 def _is_fulminate_anion(mol, Chem) -> bool:
     if _total_charge(mol) != -1:
         return False
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() >= 0:
             continue
         cidx = carbon.GetIdx()
@@ -2690,8 +2818,8 @@ def _trifluoromethanesulfonate_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts != {"C": 1, "F": 3, "O": 3, "S": 1} or _total_charge(mol) != -1:
         return ""
-    carbon = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "C")
-    sulfur = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "S")
+    carbon = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "C")
+    sulfur = next(atom for atom in iter_atoms(mol) if atom.GetSymbol() == "S")
     carbon_neighbors = {neighbor.GetSymbol() for neighbor in carbon.GetNeighbors()}
     sulfur_oxygen_count = sum(1 for neighbor in sulfur.GetNeighbors() if neighbor.GetSymbol() == "O")
     if carbon_neighbors == {"F", "S"} and sulfur_oxygen_count == 3:
@@ -2703,7 +2831,7 @@ def _bis_trifluoromethanesulfonyl_azanide_name(mol, Chem) -> str:
     counts = _element_counts(mol)
     if counts != {"C": 2, "F": 6, "N": 1, "O": 4, "S": 2} or _total_charge(mol) != -1:
         return ""
-    nitrogens = [atom for atom in mol.GetAtoms() if atom.GetSymbol() == "N" and atom.GetFormalCharge() < 0]
+    nitrogens = [atom for atom in iter_atoms(mol) if atom.GetSymbol() == "N" and atom.GetFormalCharge() < 0]
     if len(nitrogens) != 1:
         return ""
     nitrogen = nitrogens[0]
@@ -2750,7 +2878,7 @@ def _is_trifluoromethanesulfonyl_group(mol, Chem, sulfur_idx: int, nitrogen_idx:
 
 def _has_bond(mol, Chem, left_symbol: str, right_symbol: str, bond_type) -> bool:
     symbols = {left_symbol, right_symbol}
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() != bond_type:
             continue
         if {bond.GetBeginAtom().GetSymbol(), bond.GetEndAtom().GetSymbol()} == symbols:
@@ -2768,7 +2896,7 @@ def _element_counts(mol) -> dict[str, int]:
     if cached is not None:
         return cached
     counts: dict[str, int] = {}
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         symbol = atom.GetSymbol()
         counts[symbol] = counts.get(symbol, 0) + 1
     return mol_cache_set(mol, "fragment_element_counts", counts)
@@ -2778,7 +2906,7 @@ def _total_charge(mol) -> int:
     cached = mol_cache_get(mol, "fragment_total_charge")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "fragment_total_charge", sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "fragment_total_charge", sum(atom.GetFormalCharge() for atom in iter_atoms(mol)))
 
 
 def _salt_name(parent: str, fragments: list[str]) -> str:

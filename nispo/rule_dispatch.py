@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+from .molecule_iteration import iter_atoms
+
 
 Gate = Callable[[object], bool]
 CandidateProducer = Callable[[object], Iterable[object]]
@@ -17,6 +19,10 @@ class RuleSpec:
     priority: int
     gates: tuple[Gate, ...]
     producer: CandidateProducer
+    # Cross-route admission can use these producers only with connected,
+    # all-ring skeletal atoms and the ordinary external-branch graph proof.
+    # Unknown/custom producers keep the eager compatibility path.
+    ring_parent_scope: bool = False
 
     def applies(self, ctx) -> bool:
         for gate in self.gates:
@@ -406,7 +412,7 @@ sulfinate_retained_parent_signal._nispo_requires_any_facts = (
 def dithiocarbonate_signal(ctx) -> bool:
     mol = ctx.mol
     Chem = ctx.Chem
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         cidx = carbon.GetIdx()
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
@@ -537,7 +543,7 @@ def _has_charged_fused_thioxo_imino_system(ctx) -> bool:
         return False
     has_thioxo = False
     has_terminal_imino = False
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C" or not atom.IsInRing():
             continue
         cidx = atom.GetIdx()

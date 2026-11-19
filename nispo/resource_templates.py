@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .molecule_iteration import iter_atoms, iter_bonds
+
 import csv
 import json
 from importlib import resources
@@ -14,6 +16,7 @@ from .opsin_resource_utils import (
 from .resource_io import read_json_resource
 from .resource_manifest import FUSION_COMPONENT_FAMILY, RETAINED_PARENT_FAMILY
 from .resource_operations import apply_token_operations
+from .template_index import _template_canonical_smiles
 
 
 # Template resources often contain many acceptable names and locant schemes for
@@ -1075,7 +1078,8 @@ OPSIN_PARENT_TEMPLATES = (
     (
         "adamantane",
         "C12CC3CC(CC(C1)C3)C2",
-        ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"),
+        # The final two atoms close the 3--7 and 1--5 bridges respectively.
+        ("1", "2", "3", "4", "5", "6", "7", "8", "10", "9"),
     ),
     (
         "spiro[2.3]hexane",
@@ -1300,32 +1304,32 @@ OPSIN_PARENT_TEMPLATES = (
     (
         "1,3-benzodioxane",
         "O1COCc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "1,3-benzoxazine",
         "O1CN=Cc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "1,4-benzoxazine",
         "O1CC=Nc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "3,4-dihydro-2H-1,4-benzoxazine",
         "O1CCNc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "1,3-benzothiazine",
         "S1CN=Cc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "1,4-benzothiazine",
         "S1CC=Nc2c1cccc2",
-        ("1", "2", "3", "4", "4a", "5", "6", "7", "8", "8a"),
+        ("1", "2", "3", "4", "4a", "8a", "8", "7", "6", "5"),
     ),
     (
         "1,5-dihydro-4,1-benzothiazepin-2-one",
@@ -1831,12 +1835,18 @@ PARENT_NAME_NORMALIZATIONS = {
     "thiazol": "thiazole",
     "thiofuran": "thiophene",
     "triazol": "triazole",
+    # P-25.1.2.4: complete polyphenylene parent, not the OPSIN stem alias.
+    "triphenylen": "triphenylene",
     "v-triazin": "v-triazine",
 }
 
 FUSION_COMPONENT_PARENT_NORMALIZATIONS = {
     "benzo": "benzene",
     "benz": "benzene",
+    # P-25.2.2.4 / P-25.3.5: an explicitly locanted 1-benzofuran is one
+    # benzoheterocycle component; its attached prefix retains the locant.
+    "[1]benzofuro": "[1]benzofuran",
+    "[1]benzothiopheno": "[1]benzothiophene",
     "betacarbolino": "beta-carboline",
     "beta-carbolino": "beta-carboline",
     "b-carbolino": "beta-carboline",
@@ -1979,10 +1989,12 @@ def build_exact_unlocanted_resource_templates(Chem) -> tuple[dict, ...]:
         name = preferred_token_name(token.text or "", PARENT_NAME_NORMALIZATIONS)
         if not name:
             continue
+        from .preferred_fused import retained_fused_vocabulary
+        name = retained_fused_vocabulary(name)
         mol = _raw_template_mol(Chem, smiles)
         if mol is None or mol.GetNumAtoms() > 64:
             continue
-        key = (name, Chem.MolToSmiles(mol, canonical=True))
+        key = (name, _template_canonical_smiles(mol, Chem))
         if key in seen:
             continue
         seen.add(key)
@@ -2188,7 +2200,7 @@ def build_opsin_retained_ring_csv_templates(Chem, max_atoms: int = 54) -> tuple[
             "stereochemical": _has_stereochemical_smiles(smiles),
         }
         template = _annotate_opsin_retained_ring_template(Chem, template, smiles)
-        dedupe_key = (template["name"], Chem.MolToSmiles(mol, canonical=True))
+        dedupe_key = (template["name"], _template_canonical_smiles(mol, Chem))
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
@@ -2218,13 +2230,13 @@ def _annotate_opsin_retained_ring_template(Chem, template: dict, smiles: str) ->
         flags.add("multi-ring")
     if ring_atoms and len(ring_atoms) < mol.GetNumAtoms():
         flags.add("exocyclic-containing")
-    if any(atom.GetFormalCharge() for atom in mol.GetAtoms()):
+    if any(atom.GetFormalCharge() for atom in iter_atoms(mol)):
         flags.add("charged")
     if template.get("stereochemical") or _has_stereochemical_smiles(smiles):
         flags.add("stereochemical")
-    if any(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms()):
+    if any(atom.GetNumRadicalElectrons() for atom in iter_atoms(mol)):
         flags.add("radical")
-    if any(atom.GetSymbol() in {"U", "Th", "Pu", "Np"} for atom in mol.GetAtoms()):
+    if any(atom.GetSymbol() in {"U", "Th", "Pu", "Np"} for atom in iter_atoms(mol)):
         flags.add("organometallic")
     general_parent_safe = bool(template.get("general_parent_safe", True))
     general_parent_safe = general_parent_safe and (
@@ -2233,6 +2245,9 @@ def _annotate_opsin_retained_ring_template(Chem, template: dict, smiles: str) ->
     if not general_parent_safe:
         flags.add("general-parent-unsupported")
     annotated = dict(template)
+    if annotated["name"] in {"thiofuran", "thiofurane"}:
+        # The retained resource has the thiophene numbering (P-22.2.2).
+        annotated.update(name=PARENT_NAME_NORMALIZATIONS["thiofuran"], source_name=annotated["name"])
     annotated.update(
         {
             "flags": tuple(sorted(flags)),
@@ -2262,7 +2277,7 @@ def build_fusion_component_parent_templates(Chem, min_rings: int = 2, max_atoms:
             )
             if not template:
                 continue
-            key = (template["name"], Chem.MolToSmiles(template["mol"], canonical=True))
+            key = (template["name"], _template_canonical_smiles(template["mol"], Chem))
             if key in seen:
                 continue
             seen.add(key)
@@ -2364,7 +2379,14 @@ def _json_scaffold_template_from_record(
     if not name:
         _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = None
         return None
+    from .preferred_fused import retained_fused_vocabulary
+    source_name = name
+    from .ring_template_presentation import ring_template_name
+
+    name = ring_template_name(retained_fused_vocabulary(name), mol, locants)
     template = {"name": name, "mol": mol, "locants": locants}
+    if source_name != name:
+        template["source_name"] = source_name
     template.update(
         {
             "source_family": source_family,
@@ -2377,7 +2399,7 @@ def _json_scaffold_template_from_record(
         template["general_parent_safe"] = general_parent_safe
     if flags:
         template["flags"] = flags
-    result = (template, Chem.MolToSmiles(mol, canonical=True))
+    result = (template, _template_canonical_smiles(mol, Chem))
     _JSON_SCAFFOLD_TEMPLATE_CACHE[cache_key] = result
     return result
 
@@ -2461,7 +2483,7 @@ def build_retained_parent_templates(
         template = _template_from_token(Chem, record, min_rings=min_rings, max_rings=max_rings, max_atoms=max_atoms)
         if not template:
             continue
-        key = (template["name"], Chem.MolToSmiles(template["mol"], canonical=True))
+        key = (template["name"], _template_canonical_smiles(template["mol"], Chem))
         if key in seen:
             continue
         seen.add(key)
@@ -2491,13 +2513,19 @@ def _template_from_token(
     name = name_override or preferred_token_name(token.text or "", PARENT_NAME_NORMALIZATIONS)
     if not name:
         return None
-    mol = Chem.MolFromSmiles(smiles)
+    from .preferred_fused import retained_fused_vocabulary
+    name = retained_fused_vocabulary(name)
+    # Catalogs and aliases often revisit the same token graph. Parsing and
+    # sanitizing it again is expensive, especially for large retained tokens.
+    # Keep the cached raw query private: every token template owns a native
+    # copy before operations or consumers can attach properties to it.
+    mol = _raw_template_mol(Chem, smiles)
     if mol is None:
         return None
     labels = tuple(primary_label(label) for label in labels_text.split("/"))
     if len(labels) != mol.GetNumAtoms():
         return None
-    mol = apply_token_operations(Chem, mol, labels, token)
+    mol = apply_token_operations(Chem, Chem.Mol(mol), labels, token)
     if mol is None:
         return None
     if mol.GetNumAtoms() > max_atoms:
@@ -2507,10 +2535,13 @@ def _template_from_token(
         return None
     if max_rings is not None and ring_count > max_rings:
         return None
+    from .ring_template_presentation import ring_template_name
+
+    locants = dict(enumerate(labels))
     return {
-        "name": name,
+        "name": ring_template_name(name, mol, locants),
         "mol": mol,
-        "locants": {idx: locant for idx, locant in enumerate(labels)},
+        "locants": locants,
         "source_family": _record_family(record),
         "source_file": record.file_name if record is not None else "",
         "source_subtype": record.context.sub_type if record is not None else "",

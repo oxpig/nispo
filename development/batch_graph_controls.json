@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "source_sha256": {
+    "surechembl_batch_pin_20261030": "3c884f7d3abea016ef0f819bea4d434f4d4f4dd2e0c419c6626beafa0b608d32",
+    "surechembl_polycyclic_acid_20261030": "948978dd522c5c738e2d6bfdd1f574b2a568c9aa6b2dafd37e24c242abc7ea54",
+    "ring_polyacid_20261030": "8f2f60eaeb65328c0ef00522747505f035ad2edba5eb913df2d8576c48dc3fe6",
+    "fused_nitrogen_prefix_20261030": "4d7697b57c4f55f23152f17d16b3eea432633390a13e6f13a5d790528873927e"
+  },
+  "cohorts": {
+    "surechembl_batch_pin_20261030": {
+      "scope": "User-authorized SureChEMBL source graphs; no Blue Book panel mining",
+      "source_release": "SureChEMBL Zenodo 16755947, 2025-08-06",
+      "source_sha256": "1ded2042ca927ee3e2eb38c3fd4e2d78333b8a409811f7036eade776c7db5b50",
+      "baseline_package_manifest_sha256": "73c707b91ea6dd4d006dd644333fb6084ee8c8ccdeba68423bb127e66e79514b",
+      "cases": [
+        {
+          "id": "surechembl-2014983",
+          "source_row_id": 2014983,
+          "stratum": "acid_only",
+          "selection_seed": 2026103003,
+          "selection_sha256": "0251667acd60240782fc03526af320a9df4969d21534643c1af83dd16bd1101c",
+          "original_smiles": "CC(C)(C)OC(=O)N1CC[C@@H]([C@@H](Cc2cccc(Br)c2)C(=O)O)C1",
+          "smiles": "CC(C)(C)OC(=O)N1CC[C@@H]([C@@H](Cc2cccc(Br)c2)C(=O)O)C1",
+          "source_selection_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976"
+        },
+        {
+          "id": "surechembl-819263",
+          "source_row_id": 819263,
+          "stratum": "acid_only",
+          "selection_seed": 2026103003,
+          "selection_sha256": "0ee40a1cda7df0d8fad6c321af9019fd695c58f65927c531ae6718b217638804",
+          "original_smiles": "N[C@H]1CCN(CC(=O)O)C1",
+          "smiles": "N[C@H]1CCN(CC(=O)O)C1",
+          "source_selection_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976"
+        },
+        {
+          "id": "surechembl-1653749",
+          "source_row_id": 1653749,
+          "stratum": "acid_only",
+          "selection_seed": 2026103003,
+          "selection_sha256": "4c8e4465c955ef97c6f91671ba63aaeddbdd2657c4a2772d4c2213bbf01773ca",
+          "original_smiles": "CC(C)(C)OC(=O)N1C[C@H](F)C[C@H]1C(=O)O",
+          "smiles": "CC(C)(C)OC(=O)N1C[C@H](F)C[C@H]1C(=O)O",
+          "source_selection_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976"
+        },
+        {
+          "id": "surechembl-1324931",
+          "source_row_id": 1324931,
+          "stratum": "acid_only",
+          "selection_seed": 2026103003,
+          "selection_sha256": "72688e8cfc8fb9d97f914498b3e6dc0002af5f2724a8f6330cb63a88e1a1589e",
+          "original_smiles": "CC(C)(C)OC(=O)N1CC[C@@H](CC(=O)O)C1",
+          "smiles": "CC(C)(C)OC(=O)N1CC[C@@H](CC(=O)O)C1",
+          "source_selection_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976"
+        },
+        {
+          "id": "surechembl-3199754",
+          "source_row_id": 3199754,
+          "stratum": "acid_and_fused",
+          "selection_seed": 2026103003,
+          "selection_sha256": "0ae8d9e089dbd323d409b1befde2b858b42d07369cc0557a4e81400f46df84e1",
+          "original_smiles": "Cc1cc([C@@H](C)Nc2ccc(Cl)nc2C(=O)O)c2nc(N3CC4CCC3CC4(F)F)c(C#N)nc2c1",
+          "smiles": "Cc1cc([C@@H](C)Nc2ccc(Cl)nc2C(=O)O)c2nc(N3CC4CCC3CC4(F)F)c(C#N)nc2c1",
+          "source_selection_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976"
+        },
+        {
+          "id": "surechembl-3406428",
+          "source_row_id": 3406428,
+          "stratum": "fused_oxo_ring_acid",
+          "selection_seed": 2026103011,
+          "selection_sha256": "019cd5bd7534612c9ccaa8691bc9d3623cea413321682a44a632ca15f88ba4e1",
+          "original_smiles": "FC1=C(C=CC(=C1)F)N1C=C(C(C2=CC(=C(C(=C12)F)N1C[C@@H](N(CC1)C(=O)OC(C)(C)C)CO)F)=O)C(=O)O",
+          "smiles": "CC(C)(C)OC(=O)N1CCN(c2c(F)cc3c(=O)c(C(=O)O)cn(-c4ccc(F)cc4F)c3c2F)C[C@@H]1CO",
+          "source_selection_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900"
+        },
+        {
+          "id": "surechembl-2569080",
+          "source_row_id": 2569080,
+          "stratum": "fused_oxo_ring_acid",
+          "selection_seed": 2026103011,
+          "selection_sha256": "02e4f285a7b3c7ce075d1e857c949d3e109382ac4f45f58f8bb8c731f23e4ec6",
+          "original_smiles": "C1(CC1)N1C=C(C(C2=CC(=C(C=C12)C1=CC=C(C=C1)S(=O)(=O)NCCCCCCC)[N+](=O)[O-])=O)C(=O)O",
+          "smiles": "CCCCCCCNS(=O)(=O)c1ccc(-c2cc3c(cc2[N+](=O)[O-])c(=O)c(C(=O)O)cn3C2CC2)cc1",
+          "source_selection_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900"
+        },
+        {
+          "id": "surechembl-309279",
+          "source_row_id": 309279,
+          "stratum": "fused_oxo_ring_acid",
+          "selection_seed": 2026103011,
+          "selection_sha256": "27b23b43e38eb620d0f6da2ba30015a4e9736d58012f9dc4f9be964f2f6dc9cd",
+          "original_smiles": "FC=1C=C2C=C(C(OC2=CC1)=O)C(=O)O",
+          "smiles": "O=C(O)c1cc2cc(F)ccc2oc1=O",
+          "source_selection_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900"
+        },
+        {
+          "id": "surechembl-1470228",
+          "source_row_id": 1470228,
+          "stratum": "fused_oxo_ring_acid",
+          "selection_seed": 2026103011,
+          "selection_sha256": "4d46f7ec3905e21ecf5e17de7e2edda21e0706903b3d762b865c60fc7b6f5e5c",
+          "original_smiles": "C(C)C=1C(OC2=C(C(=CC=C2C1C)O)C(=O)O)=O",
+          "smiles": "CCc1c(C)c2ccc(O)c(C(=O)O)c2oc1=O",
+          "source_selection_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900"
+        }
+      ]
+    },
+    "surechembl_polycyclic_acid_20261030": {
+      "scope": "Independently source-selected SureChEMBL development; not blind",
+      "source_release": "SureChEMBL Zenodo 16755947, 2025-08-06",
+      "source_sha256": "1ded2042ca927ee3e2eb38c3fd4e2d78333b8a409811f7036eade776c7db5b50",
+      "selection_seed": 2026103011,
+      "baseline_package_manifest_sha256": "73c707b91ea6dd4d006dd644333fb6084ee8c8ccdeba68423bb127e66e79514b",
+      "rdkit": "2026.09.1",
+      "development_source_cases_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900",
+      "prior_fused_snapshot_manifest_sha256": "89e8b723db327b66805201be412c09ea62c563f7f4fcdf342a4d29488cab1c11",
+      "selection_note": "Source-selected ring-acid cases demonstrating monocyclic limitations on a bridged or spiro core; selected only from the authorized SureChEMBL development sample.",
+      "cases": [
+        {
+          "id": "surechembl-1902826",
+          "source_row_id": 1902826,
+          "smiles": "CC(C)(C)OC(=O)N1C[C@@H]2C[C@@H]2[C@@H]1C(=O)O",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1[C@H]([C@H]2C[C@H]2C1)C(=O)O",
+          "source_name": "(1S,2R,5R)-3-(tert-butoxycarbonyl)-3-azabicyclo[3.1.0]hexane-2-carboxylic acid!(1S,2R,5R)-3-(tert-Butoxycarbonyl)-3-azabicyclo[3.1.0]hexane-2-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "0829101a0f42d7e3728ca65be6a7ba78785ebb0a98c855352d6f1a1121bd0810"
+        },
+        {
+          "id": "surechembl-1670161",
+          "source_row_id": 1670161,
+          "smiles": "O=C(O)C1CN(C(=O)OCc2ccccc2)CC12COC2",
+          "original_smiles": "C(C1=CC=CC=C1)OC(=O)N1CC2(COC2)C(C1)C(=O)O",
+          "source_name": "6-((benzyloxy)carbonyl)-2-oxa-6-azaspiro[3.4]octane-8-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "0c77fb5884feb4bc4b5a83572542011ea1aa8e8597daa355529205244d93b424"
+        },
+        {
+          "id": "surechembl-2267817",
+          "source_row_id": 2267817,
+          "smiles": "CC(C)(C)OC(=O)N1[C@H]2CC[C@H]([C@H](O)C2)[C@H]1C(=O)O",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1[C@@H]2C[C@H]([C@H]([C@H]1C(=O)O)CC2)O",
+          "source_name": "(1s,3s,4s,5r)-2-(tert-butoxycarbonyl)-5-hydroxy-2-azabicyclo[2.2.2]octane-3-carboxylic acid!(1S,3S,4S,5R)-2-(tert-Butoxycarbonyl)-5-hydroxy-2-azabicyclo[2.2.2]octane-3-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "0d91eba910cf5f9ad9c882ba975faa331bfa7565e6b6751a3c523d2a45fbf370"
+        },
+        {
+          "id": "surechembl-2014546",
+          "source_row_id": 2014546,
+          "smiles": "CC(C)(C)OC(=O)N1C[C@@]2(C(=O)O)C[C@@H]1CO2",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1[C@H]2CO[C@@](C1)(C2)C(=O)O",
+          "source_name": "(1R,4R)-5-(tert-butoxycarbonyl)-2-oxa-5-azabicyclo[2.2.1]heptane-1-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "1310e0f9606f2dfa73e80a99df9f6e2f8bebfbf4f41a3745a7028023e1377c30"
+        },
+        {
+          "id": "surechembl-1671942",
+          "source_row_id": 1671942,
+          "smiles": "CC(C)(C)OC(=O)N1C2CCC1CC(C(=O)O)C2",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1C2CC(CC1CC2)C(=O)O",
+          "source_name": "8-(tert-butyloxycarbonyl)-8-azabicyclo[3.2.1]Octane-3-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "2152dbd186e39f8cb199c2a1c75a2fc9106837961e78247146cdffbbd391ed5a"
+        },
+        {
+          "id": "surechembl-1579616",
+          "source_row_id": 1579616,
+          "smiles": "CC(C)(C)OC(=O)N1CC2(C(=O)O)CCC1C2",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1C2CCC(C1)(C2)C(=O)O",
+          "source_name": "2-tert-butoxycarbonyl-2-azabicyclo[2.2.1]heptane-4-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "27b90ab6556c334c9601d0dce3eaad35b1bad4714b92089ba4d96cff12eb5c71"
+        },
+        {
+          "id": "surechembl-3754516",
+          "source_row_id": 3754516,
+          "smiles": "Cc1nc(-c2nnn(C)c2COC(=O)N(C)CC2CCC2)ccc1OCC12CCC(C(=O)O)(C1)C2",
+          "original_smiles": "C1(CCC1)CN(C(=O)OCC1=C(N=NN1C)C1=CC=C(C(=N1)C)OCC12CCC(C1)(C2)C(=O)O)C",
+          "source_name": "4-(((6-(5-((((cyclobutylmethyl)(methyl)carbamoyl)oxy)methyl)-1-methyl-1H-1,2,3-triazol-4-yl)-2-methylpyridin-3-yl)oxy)methyl)bicyclo[2.1.1]hexane-1-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "28f18de9ad18251508af35dcba3637601b0c2f15cef0669af3ba21236884ec79"
+        },
+        {
+          "id": "surechembl-2413488",
+          "source_row_id": 2413488,
+          "smiles": "O=C(O)[C@H]1CC12CCN(C(=O)OC(C(F)(F)F)C(F)(F)F)CC2",
+          "original_smiles": "FC(C(C(F)(F)F)OC(=O)N1CCC2(C[C@@H]2C(=O)O)CC1)(F)F",
+          "source_name": "(S)-6-(((1,1,1,3,3,3-hexafluoropropan-2-yl)oxy)carbonyl)-6-azaspiro[2.5]octane-1-carboxylic acid!(S)-6-(((1,1,1,3,3,3-hexafluoropropan-2-yl)oxy)carbonyl)-6-azaspiro[2.5]octane-1-carboxylic Acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "308907891f5c2cca0032702ee31d4cc447985ac096a2580f0b173c567b3db667"
+        },
+        {
+          "id": "surechembl-1807502",
+          "source_row_id": 1807502,
+          "smiles": "CC(C)(C)OC(=O)N1C(C(=O)O)COC2CC21",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1C(COC2CC12)C(=O)O",
+          "source_name": "5-(tert-butoxycarbonyl)-2-oxa-5-azabicyclo[4.1.0]heptane-4-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "4cc4226e9db23b6cda2b1e173e3be2f823e195a8b1b315f25bcfce378ba3e3a8"
+        },
+        {
+          "id": "surechembl-2211356",
+          "source_row_id": 2211356,
+          "smiles": "CC(C)(C)OC(=O)N1CC(C)(C(=O)O)[C@@H]2NC[C@@H]21",
+          "original_smiles": "C(C)(C)(C)OC(=O)N1[C@H]2CN[C@H]2C(C1)(C(=O)O)C",
+          "source_name": "(1S,5S)-2-(tert-Butoxycarbonyl)-4-methyl-2,6-diazabicyclo[3.2.0]heptane-4-carboxylic acid!(1S,5S)-2-(tert-butoxycarbonyl)-4-methyl-2,6-diazabicyclo[3.2.0]Heptane-4-carboxylic acid!(1S,5S)-2-(tert-Butoxycarbonyl)-4-methyl-2,6-diazabicyclo[3.2.0]Heptane-4-carboxylic acid",
+          "stratum": "ring_acid_carbamate",
+          "selection_sha256": "557b19e9eb7191825b15cf089136cd06cd54a461315cc38d4c343159cf6b99f0"
+        }
+      ]
+    },
+    "ring_polyacid_20261030": {
+      "scope": "Independent graph controls and authorized SureChEMBL development, not blind",
+      "source_release": "SureChEMBL Zenodo 16755947, 2025-08-06",
+      "source_sha256": "1ded2042ca927ee3e2eb38c3fd4e2d78333b8a409811f7036eade776c7db5b50",
+      "selection_seed": 2026103011,
+      "baseline_package_manifest_sha256": "73c707b91ea6dd4d006dd644333fb6084ee8c8ccdeba68423bb127e66e79514b",
+      "development_source_cases_sha256": "b39cfc1934692a6a929d90267300d434baa0413f0b89b9b0b7523ae2d7a8b900",
+      "prior_snapshot_manifest_sha256": "66d64357ad86a6c3ac5b0c64682bdcd084d25b09cf9ea26725b60ad95e42e3e9",
+      "rdkit": "2026.09.1",
+      "rule_references": [
+        "https://iupac.qmul.ac.uk/BlueBook/P6.html#P-65"
+      ],
+      "cases": [
+        {
+          "id": "surechembl-2325208",
+          "smiles": "CC(C)(C)OC(=O)N1C[C@@](Oc2cc(F)cc(F)c2[N+](=O)[O-])(C(=O)O)C[C@H]1C(=O)O",
+          "origin": "SureChEMBL Zenodo 16755947 release 2025-08-06",
+          "source_row_id": 2325208,
+          "original_smiles": "C(C)(C)(C)OC(=O)N1[C@@H](C[C@@](C1)(C(=O)O)OC1=C(C(=CC(=C1)F)F)[N+](=O)[O-])C(=O)O",
+          "source_name": "(2S,4R)-1-(t-butoxycarbonyl)-4-(3,5-difluoro-2-nitrophenoxy)pyrrolidine-2,4-dicarboxylic acid",
+          "selection_sha256": "1bf5d2f06b4ee7946a13653e1bd386c2fa4dcc15ea82a961ef36c5d4c0c32483"
+        },
+        {
+          "id": "independent-graph-1",
+          "smiles": "O=C(O)C1CCC(C(=O)O)CC1",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "O=C(O)C1CCC(C(=O)O)CC1"
+        },
+        {
+          "id": "independent-graph-2",
+          "smiles": "O=C(O)C1(C(=O)O)CCCCC1",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "O=C(O)C1(C(=O)O)CCCCC1"
+        },
+        {
+          "id": "independent-graph-3",
+          "smiles": "CC(C)(C)OC(=O)N1CC(C(=O)O)CC1C(=O)O",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "CC(C)(C)OC(=O)N1CC(C(=O)O)CC1C(=O)O"
+        },
+        {
+          "id": "independent-graph-4",
+          "smiles": "CC(C)(C)OC(=O)N1CC(C(=O)O)C(C(=O)O)C1",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "CC(C)(C)OC(=O)N1CC(C(=O)O)C(C(=O)O)C1"
+        },
+        {
+          "id": "independent-graph-5",
+          "smiles": "O=C(O)C1CC2(C(=O)O)CC1C2",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "O=C(O)C1CC2(C(=O)O)CC1C2"
+        },
+        {
+          "id": "independent-graph-6",
+          "smiles": "O=C(O)C1CC2(C(=O)O)CCC1C2",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "O=C(O)C1CC2(C(=O)O)CC1CC2"
+        },
+        {
+          "id": "independent-graph-7",
+          "smiles": "O=C(O)C1CC2(C1)CC(C(=O)O)C2",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "O=C(O)C1CC2(C1)CC(C(=O)O)C2"
+        },
+        {
+          "id": "independent-graph-8",
+          "smiles": "CC(C)(C)OC(=O)N1CCC1(C(=O)O)C(=O)O",
+          "origin": "Independently constructed ring graph with two carboxyl groups",
+          "original_smiles": "CC(C)(C)OC(=O)N1CCC1(C(=O)O)C(=O)O"
+        }
+      ]
+    },
+    "fused_nitrogen_prefix_20261030": {
+      "scope": "Independently constructed graphs, one based on an authorized SureChEMBL ring core; not blind",
+      "source_release": "SureChEMBL Zenodo 16755947, 2025-08-06",
+      "source_sha256": "1ded2042ca927ee3e2eb38c3fd4e2d78333b8a409811f7036eade776c7db5b50",
+      "review_source_sha256": "f4a9e7d37fc1ecdad364a8fe6cc8e47d03e1fc00062fe0622f606b8b77cafd98",
+      "source_row_id": 3717683,
+      "source_selection_seed": 20261029,
+      "source_parent_selection_seed": 2026102802,
+      "baseline_package_manifest_sha256": "6edf15ca98b8ec700b3cbf2f8bf36fdb26f7ce32eba526d7776f92ff694dcf3a",
+      "rdkit": "2026.09.1",
+      "rule_references": [
+        "https://iupac.qmul.ac.uk/BlueBook/P2.html#P-25.3",
+        "https://iupac.qmul.ac.uk/BlueBook/P1.html#P-14.3"
+      ],
+      "cases": [
+        {
+          "id": "review-core-acid",
+          "smiles": "O=C(O)Cn1ccc2cncnc21",
+          "original_smiles": "O=C(O)Cn1ccc2cncnc21",
+          "origin": "Constructed acetic acid derivative of the capped fused nitrogen core of SureChEMBL review row 3717683."
+        },
+        {
+          "id": "indolyl-acid",
+          "smiles": "O=C(O)Cn1ccc2ccccc21",
+          "original_smiles": "O=C(O)Cn1c2ccccc2cc1",
+          "origin": "Independently constructed indole N-acetic acid graph."
+        },
+        {
+          "id": "benzimidazolyl-acid",
+          "smiles": "O=C(O)Cn1cnc2ccccc21",
+          "original_smiles": "O=C(O)Cn1cnc2ccccc21",
+          "origin": "Independently constructed benzimidazole N-acetic acid graph."
+        },
+        {
+          "id": "indazolyl-acid",
+          "smiles": "O=C(O)Cn1cc2ccccc2n1",
+          "original_smiles": "O=C(O)Cn1nc2ccccc2c1",
+          "origin": "Independently constructed indazole N-acetic acid graph."
+        },
+        {
+          "id": "benzotriazolyl-acid",
+          "smiles": "O=C(O)Cn1nnc2ccccc21",
+          "original_smiles": "O=C(O)Cn1nnc2ccccc21",
+          "origin": "Independently constructed benzotriazole N-acetic acid graph."
+        },
+        {
+          "id": "surechembl-2034839",
+          "smiles": "CCOC(=O)CCCCCOc1ccccc1Cn1c(-c2ccc(OC)cc2)nc2ccccc21",
+          "original_smiles": "CCOC(=O)CCCCCOc1ccccc1Cn1c(-c2ccc(OC)cc2)nc2ccccc21",
+          "source_row_id": 2034839,
+          "stratum": "fused_only",
+          "selection_sha256": "04ae447d0e6ca23e82689c4be3b3ba7b55bdd64c491335061c3f0e0bad02630b",
+          "origin": "Authorized SureChEMBL development sample"
+        },
+        {
+          "id": "surechembl-1298286",
+          "smiles": "N#CC1(Cn2cnc3cccnc32)CC1",
+          "original_smiles": "N#CC1(Cn2cnc3cccnc32)CC1",
+          "source_row_id": 1298286,
+          "stratum": "fused_only",
+          "selection_sha256": "071237021637a600bfabeb12d0f8ab057e85f70065a59a0137213645228b7cf3",
+          "origin": "Authorized SureChEMBL development sample"
+        },
+        {
+          "id": "surechembl-3759696",
+          "smiles": "CC(=O)c1nn(CC(=O)N2C[C@H](C)C[C@H]2C(=O)Nc2ccc(F)c(Br)n2)c2c(C)nc(-c3cnc(C)nc3)cc12",
+          "original_smiles": "CC(=O)c1nn(CC(=O)N2C[C@H](C)C[C@H]2C(=O)Nc2ccc(F)c(Br)n2)c2c(C)nc(-c3cnc(C)nc3)cc12",
+          "source_row_id": 3759696,
+          "stratum": "fused_only",
+          "selection_sha256": "0844dd7c63854d7dc2082ba640eeb5149ae24750ba2175810e433272aa13e423",
+          "origin": "Authorized SureChEMBL development sample"
+        },
+        {
+          "id": "surechembl-2304924",
+          "smiles": "Cc1nn(CC(=O)O)c2cc(-c3ccc(F)c(C(F)F)c3)cnc12",
+          "original_smiles": "Cc1nn(CC(=O)O)c2cc(-c3ccc(F)c(C(F)F)c3)cnc12",
+          "source_row_id": 2304924,
+          "stratum": "acid_and_fused",
+          "selection_sha256": "0f71d448b5e951e3b0993238529287a6092d295aa4f99e6644738938ff17abd2",
+          "origin": "Authorized SureChEMBL development sample"
+        }
+      ],
+      "initial_cases_sha256": "a3ac86c8587e9d163923f6620846fc08d5b58bdad04a17d3f9c4399b8b94a176",
+      "stratified_source_cases_sha256": "333dae93f36313510544e59536d88856cebf5bc431a8b3dc2a7309731c86c976",
+      "stratified_selection_seed": 2026103003,
+      "stratified_parent_seed": 20261026
+    }
+  }
+}

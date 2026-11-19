@@ -14,6 +14,18 @@ class CandidateTelemetry:
     select candidates without changing naming behavior.
     """
 
+    principal_stage_attempts: Counter[str] = field(default_factory=Counter)
+    principal_stage_selected: Counter[str] = field(default_factory=Counter)
+    principal_function_selected: Counter[str] = field(default_factory=Counter)
+    naming_method_evidence: Counter[str] = field(default_factory=Counter)
+    naming_method_selected_rule: Counter[str] = field(default_factory=Counter)
+    cross_route_candidate_routes: Counter[str] = field(default_factory=Counter)
+    cross_route_comparison_rules: Counter[str] = field(default_factory=Counter)
+    cross_route_selected_routes: Counter[str] = field(default_factory=Counter)
+    ring_state_methods: Counter[str] = field(default_factory=Counter)
+    ring_state_rules: Counter[str] = field(default_factory=Counter)
+    ring_state_hydrogenation: Counter[str] = field(default_factory=Counter)
+    ring_state_accommodation: Counter[str] = field(default_factory=Counter)
     rule_applies: Counter[str] = field(default_factory=Counter)
     rule_seconds: Counter[str] = field(default_factory=Counter)
     candidate_count: Counter[str] = field(default_factory=Counter)
@@ -69,9 +81,25 @@ class CandidateTelemetry:
     legacy_fallback_success_count: Counter[str] = field(default_factory=Counter)
     legacy_fallback_empty_count: Counter[str] = field(default_factory=Counter)
     legacy_fallback_skipped_count: Counter[str] = field(default_factory=Counter)
+    preferred_selection_status: Counter[str] = field(default_factory=Counter)
+    preferred_selection_obligations: Counter[str] = field(default_factory=Counter)
 
 
 _COUNTER_FIELDS = (
+    "principal_stage_attempts",
+    "principal_stage_selected",
+    "principal_function_selected",
+    "preferred_selection_status",
+    "preferred_selection_obligations",
+    "naming_method_evidence",
+    "naming_method_selected_rule",
+    "cross_route_candidate_routes",
+    "cross_route_comparison_rules",
+    "cross_route_selected_routes",
+    "ring_state_methods",
+    "ring_state_rules",
+    "ring_state_hydrogenation",
+    "ring_state_accommodation",
     "rule_applies",
     "rule_seconds",
     "candidate_count",

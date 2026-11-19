@@ -5,6 +5,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from functools import lru_cache
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .branch_rules import branch_prefix
 from .candidate_facts import (
     CandidateSafety,
@@ -15,8 +16,10 @@ from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .fused_template_families import (
     curated_fused_templates,
 )
-from .formatting import format_prefixes as _format_prefixes
+from .constants import MULT
+from .formatting import format_prefixes as _format_prefixes, join_prefix_parent
 from .molecule_cache import mol_cache_dict, mol_cache_get
+from .ring_parent_selection import component_spiro_parent_facts
 from .naming_context import MoleculeContext
 from .parent.rule_helpers import (
     _adjust_fused_parent_for_charge,
@@ -90,7 +93,8 @@ def _simple_or_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     )
 
 
-def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]:
+def component_spiro_parent_candidates(ctx, priority: int, *, attachment=None,
+                                     branch_names=None) -> list[NameCandidate]:
     """Compose spiro parents where one component is itself bicyclic/tricyclic.
 
     Generic spiro naming in :mod:`polycyclic_rules` handles simple spiro
@@ -108,6 +112,9 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
     component_cache: dict[tuple, list[_Component]] = {}
     for atom_set in ctx.ring_systems:
         ring_system_atoms = set(atom_set)
+        if attachment is not None and (
+                attachment[0] not in ring_system_atoms or attachment[1] in ring_system_atoms):
+            continue
         graph = ring_system_graph(mol, Chem, ring_system_atoms)
         if not graph:
             continue
@@ -135,6 +142,8 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                         poly_atoms,
                         priority,
                         component_cache,
+                        attachment,
+                        branch_names,
                     )
                 )
             for left_rank, left_atoms, right_rank, right_atoms in _poly_poly_side_orders(sides):
@@ -154,16 +163,33 @@ def component_spiro_parent_candidates(ctx, priority: int) -> list[NameCandidate]
                         right_atoms,
                         priority,
                         component_cache,
+                        attachment,
+                        branch_names,
                     )
                 )
-        candidates.extend(_component_dispiro_candidates(ctx, ring_system_atoms, graph, priority, component_cache))
+        candidates.extend(_component_dispiro_candidates(
+            ctx, ring_system_atoms, graph, priority, component_cache,
+            attachment=attachment, branch_names=branch_names,
+        ))
+    # A nested spiro component has two independent priming levels. The
+    # two-component renderer does not preserve that locant scope. Where the
+    # complete chain has a direct dispiro construction, retain its explicit
+    # three-component mapping instead of emitting the ambiguous nested form.
+    dispiro_scopes = {c.parent_atoms for c in candidates
+                     if c.family == 'component-dispiro-parent'}
+    candidates = [c for c in candidates
+                  if not (c.parent_atoms in dispiro_scopes
+                          and c.family in {'component-spiro-parent', 'poly-component-spiro-parent'}
+                          and c.name.count('spiro[') > 1)]
     candidates.sort(key=lambda item: item.sort_key)
-    seen: set[str] = set()
+    seen = set()
     unique = []
     for candidate in candidates:
-        if candidate.name in seen:
+        marker = candidate.name if attachment is None else (
+            candidate.name, dict(candidate.stereo_locants).get(attachment[0]))
+        if marker in seen:
             continue
-        seen.add(candidate.name)
+        seen.add(marker)
         unique.append(candidate)
         if len(unique) >= 24:
             break
@@ -176,6 +202,9 @@ def _component_dispiro_candidates(
     graph: dict[int, set[int]],
     priority: int,
     component_cache: dict[tuple, list[_Component]],
+    *,
+    attachment=None,
+    branch_names=None,
 ) -> list[NameCandidate]:
     """Compose dispiro names from a chain of fused/simple ring components.
 
@@ -187,7 +216,7 @@ def _component_dispiro_candidates(
     """
 
     blocks = _fused_ring_blocks(ctx.mol, ring_system_atoms)
-    if len(blocks) < 3:
+    if len(blocks) != 3 or set().union(*blocks) != ring_system_atoms:
         return []
     edges: list[tuple[int, int, int]] = []
     for left_idx, left in enumerate(blocks):
@@ -231,6 +260,8 @@ def _component_dispiro_candidates(
                             spiro_right,
                             priority,
                             component_cache,
+                            attachment=attachment,
+                            branch_names=branch_names,
                         )
                     )
     return candidates
@@ -260,7 +291,7 @@ def _has_ring_peroxide(mol, Chem, atoms: set[int]) -> bool:
         and bond.GetEndAtomIdx() in atoms
         and bond.GetBeginAtom().GetSymbol() == "O"
         and bond.GetEndAtom().GetSymbol() == "O"
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
@@ -278,6 +309,59 @@ def _has_ring_system_carbonyl(mol, Chem, atoms: set[int]) -> bool:
     return False
 
 
+def _dispiro_component_hydride(component):
+    """Decode a proved component operation before composing its dispiro parent."""
+    parent = component.parent_name
+    hydro = ()
+    match = re.match(r"^([0-9a-z,]+)-([a-z]+hydro)-?(.+)$", parent)
+    if match is not None:
+        locations, prefix, base = match.groups()
+        locants = tuple(locations.split(","))
+        if prefix == MULT.get(len(locants), "") + "hydro" and set(locants) <= set(component.locants.values()):
+            parent, hydro = base, locants
+    indicated = ()
+    match = re.match(r"^([0-9]+[a-z]?H(?:,[0-9]+[a-z]?H)*)-(.+)$", parent)
+    if match is not None:
+        labels, base = match.groups()
+        locants = tuple(label[:-1] for label in labels.split(","))
+        if set(locants) <= set(component.locants.values()):
+            parent, indicated = base, locants
+    return parent, hydro, indicated
+
+
+def _dispiro_component_citation(parent):
+    # Ignore intrinsic numeric locants when comparing distinct terminal hydrides.
+    return re.sub(r"^(?:[0-9,]+-|\[[0-9,]+\])", "", parent).lower()
+
+
+def _dispiro_component_text(parent):
+    if re.fullmatch(r"[12]-benzofuran", parent):
+        return f"[{parent[0]}]benzofuran"
+    return _component_parent_text(parent)
+
+
+def _proved_neutral_dispiro_junctions(mol, components, blocks, spiro_atoms):
+    """Prove two neutral carbon junctions on three numbered component hydrides."""
+    hydride_kinds = {"mapped-ring-hydride", "simple-ring", "fused-template"}
+    if any(component.component_kind not in hydride_kinds
+           or set(component.locants) != block
+           or len(set(component.locants.values())) != len(block)
+           for component, block in zip(components, blocks)):
+        return False
+    for offset, idx in enumerate(spiro_atoms):
+        atom = mol.GetAtomWithIdx(idx)
+        if (atom.GetAtomicNum() != 6 or atom.GetFormalCharge() or atom.GetNumRadicalElectrons()
+                or atom.GetTotalNumHs() or atom.GetDegree() != 4
+                or any(bond.GetBondTypeAsDouble() != 1 for bond in atom.GetBonds())):
+            return False
+        neighbors = {neighbor.GetIdx() for neighbor in atom.GetNeighbors()}
+        left_neighbors = neighbors & blocks[offset]
+        right_neighbors = neighbors & blocks[offset + 1]
+        if len(left_neighbors) != 2 or len(right_neighbors) != 2 or left_neighbors & right_neighbors:
+            return False
+    return True
+
+
 def _component_dispiro_candidates_for_blocks(
     ctx,
     ring_system_atoms: set[int],
@@ -288,12 +372,29 @@ def _component_dispiro_candidates_for_blocks(
     right_spiro: int,
     priority: int,
     component_cache: dict[tuple, list[_Component]],
+    *,
+    attachment=None,
+    branch_names=None,
 ) -> list[NameCandidate]:
     left_components = _mapped_component_names(ctx, left_atoms, (left_spiro,), component_cache)
     center_components = _mapped_component_names(ctx, center_atoms, (left_spiro, right_spiro), component_cache)
     right_components = _mapped_component_names(ctx, right_atoms, (right_spiro,), component_cache)
     if not left_components or not center_components or not right_components:
         return []
+
+    # P-31.2.3: retain an available numbered heterocyclic component rather
+    # than replacing its heteroatoms on a carbon skeleton to change citation
+    # order. Apply this only to complete, annotation-safe mapped hydrides.
+    def component_hydrides(components):
+        native = [component for component in components
+                  if not any(prefix in _REPLACEMENT_TERMS
+                             for _locant, prefix in component.replacement_prefixes)
+                  and component.safety is None]
+        return native or components
+
+    left_components = component_hydrides(left_components)
+    center_components = component_hydrides(center_components)
+    right_components = component_hydrides(right_components)
 
     candidates: list[NameCandidate] = []
     component_triples = sorted(
@@ -303,6 +404,8 @@ def _component_dispiro_candidates_for_blocks(
             for center in center_components[:6]
             if left_spiro in center.locants and right_spiro in center.locants
             for right in right_components[:6]
+            if _dispiro_component_citation(_dispiro_component_hydride(left)[0])
+               <= _dispiro_component_citation(_dispiro_component_hydride(right)[0])
         ),
         key=lambda item: item[0],
     )
@@ -321,6 +424,8 @@ def _component_dispiro_candidates_for_blocks(
             ring_system_atoms,
             locants,
             covered_external_atoms=covered_external_atoms,
+            attachment=attachment,
+            branch_names=branch_names,
         )
         if substituent_prefixes is None:
             continue
@@ -341,28 +446,61 @@ def _component_dispiro_candidates_for_blocks(
         )
         substituent_prefixes.extend(component_prefixes)
         prefix_text = _component_spiro_prefix_text(substituent_prefixes, replacement_prefixes)
-        dispiro_name = (
-            "dispiro["
-            f"{_component_parent_text(left.parent_name)}-{left.locants[left_spiro]},"
-            f"{_prime_locant(center.locants[left_spiro])}-{_component_parent_text(center.parent_name)}-"
-            f"{_prime_locant(center.locants[right_spiro])},"
-            f"{_double_prime_locant(right.locants[right_spiro])}-{_component_parent_text(right.parent_name)}"
-            "]"
-        )
+        junctions = (left.locants[left_spiro], _prime_locant(center.locants[left_spiro]),
+                     _prime_locant(center.locants[right_spiro]), _double_prime_locant(right.locants[right_spiro]))
+        hydrides = tuple(map(_dispiro_component_hydride, (left, center, right)))
+        if all(hydro for _parent, hydro, _indicated in hydrides):
+            # Grouped hydro on all three independently hydrogenated components
+            # does not have a graph-preserving interoperability route. Preserve
+            # the numbered central hydride and remap the two terminal operations.
+            hydrides = (hydrides[0], (center.parent_name, (), ()), hydrides[2])
+        bases = tuple(_dispiro_component_text(parent) for parent, _hydro, _indicated in hydrides)
+        dispiro_name = f"dispiro[{bases[0]}-{junctions[0]},{junctions[1]}-{bases[1]}-{junctions[2]},{junctions[3]}-{bases[2]}]"
         if _has_unpromoted_component_replacement(dispiro_name):
             continue
-        name = f"{prefix_text}-{dispiro_name}" if prefix_text else dispiro_name
-        render_rank = _component_spiro_render_rank(left, center, right)
+        transforms = (str, _prime_locant, _double_prime_locant)
+        hydro_sites = sorted((transform(locant)
+                              for transform, (_, hydro, _) in zip(transforms, hydrides)
+                              for locant in hydro), key=_locant_key)
+        indicated_sites = sorted({transform(locant)
+                                  for transform, (_, _, indicated) in zip(transforms, hydrides)
+                                  for locant in indicated}, key=_locant_key)
+        if indicated_sites:
+            dispiro_name = ",".join(locant + "H" for locant in indicated_sites) + "-" + dispiro_name
+        if hydro_sites:
+            multiplier = MULT.get(len(hydro_sites))
+            if multiplier is None:
+                continue
+            dispiro_name = (",".join(hydro_sites) + "-" + multiplier + "hydro"
+                            + ("-" if indicated_sites else "") + dispiro_name)
+        name = join_prefix_parent(prefix_text, dispiro_name)
+        if attachment is None:
+            promoted = _complete_spiro_carbonyl_name(
+                ctx.mol, ring_system_atoms, locants, substituent_prefixes,
+                replacement_prefixes, dispiro_name,
+            )
+            if promoted:
+                name = promoted
         graph_atoms = frozenset(ring_system_atoms)
+        safety = _combined_component_safety(left, center, right)
+        render_rank = _component_spiro_render_rank(left, center, right)
+        if safety is None and _proved_neutral_dispiro_junctions(
+            ctx.mol, (left, center, right), (left_atoms, center_atoms, right_atoms),
+            (left_spiro, right_spiro),
+        ):
+            render_rank = 0
         candidates.append(
             NameCandidate(
                 name=name,
                 family="component-dispiro-parent",
+                parent_selection=component_spiro_parent_facts(ctx.mol, ring_system_atoms, locants, dispiro_name, name),
                 priority=priority,
                 sort_key=(
                     left.component_rank + center.component_rank + right.component_rank,
                     len(replacement_prefixes),
                     (left.component_order, center.component_order, right.component_order),
+                    tuple(sorted(map(_locant_key, junctions))),
+                    tuple(map(_locant_key, junctions)),
                     (
                         left.numbering_key,
                         center.numbering_key,
@@ -376,7 +514,7 @@ def _component_dispiro_candidates_for_blocks(
                 stereo_locants=_component_spiro_stereo_locants(locants),
                 parent_atoms=graph_atoms,
                 ring_system_atoms=graph_atoms,
-                safety=_combined_component_safety(left, center, right),
+                safety=safety,
                 render_cost=_combined_component_render_cost(left, center, right),
                 render_rank=render_rank,
             )
@@ -433,11 +571,13 @@ def _mapped_component_names(
                 locants=locants,
                 replacement_prefixes=component.replacement_prefixes,
                 component_rank=component.component_rank,
+                component_kind=component.component_kind,
                 component_order=component.component_order,
                 numbering_key=component.numbering_key,
                 covered_external_atoms=covered_external_atoms,
                 safety=component.safety,
                 render_cost=component.render_cost,
+                junction_proved=component.junction_proved,
             )
         )
     components.sort(
@@ -484,6 +624,8 @@ def _component_spiro_candidates_for_split(
     poly_atoms: set[int],
     priority: int,
     component_cache: dict[tuple, list[_Component]] | None = None,
+    attachment=None,
+    branch_names=None,
 ) -> list[NameCandidate]:
     Chem = ctx.Chem
     simple_expanded = _component_atoms_with_exocyclic_multiple_bond_atoms(ctx.mol, Chem, simple_atoms)
@@ -514,6 +656,36 @@ def _component_spiro_candidates_for_split(
     if not simple_components or not poly_components:
         return []
 
+    # The capped cycle leaves two equivalent directions after fixing the
+    # junction. Number its actual substituents before limiting the pair pool.
+    first = simple_components[0]
+    if attachment is not None and first.junction_proved and not first.replacement_prefixes:
+        first = min((item for item in simple_components if item.junction_proved
+                     and item.parent_name == first.parent_name and not item.replacement_prefixes
+                     and item.numbering_key == first.numbering_key),
+                    key=lambda item: _locant_key(item.spiro_locant))
+    if first.junction_proved and not first.replacement_prefixes:
+        directions = [
+            item for item in simple_components
+            if item.junction_proved and item.parent_name == first.parent_name
+            and item.spiro_locant == first.spiro_locant
+            and item.numbering_key == first.numbering_key and not item.replacement_prefixes
+        ]
+        if directions:
+            sites = [
+                simple_to_sub[idx] for idx in simple_atoms
+                for atom in ctx.mol.GetAtomWithIdx(idx).GetNeighbors()
+                if atom.GetAtomicNum() > 1 and atom.GetIdx() not in simple_expanded
+                and atom.GetIdx() not in ring_system_atoms
+                and (idx, atom.GetIdx()) != attachment
+            ]
+            root = simple_to_sub.get(attachment[0]) if attachment is not None else None
+            chosen = min(directions, key=lambda item: (
+                _locant_key(item.locants[root]) if root is not None else (),
+                tuple(sorted(_locant_key(item.locants[idx]) for idx in sites))))
+            if chosen is not simple_components[0]:
+                simple_components = [chosen, *(item for item in simple_components if item is not chosen)]
+
     candidates: list[NameCandidate] = []
     component_pairs = sorted(
         (
@@ -540,6 +712,8 @@ def _component_spiro_candidates_for_split(
             ring_system_atoms,
             locants,
             covered_external_atoms=covered_external_atoms,
+            attachment=attachment,
+            branch_names=branch_names,
         )
         if substituent_prefixes is None:
             continue
@@ -553,13 +727,20 @@ def _component_spiro_candidates_for_split(
         )
         if _has_unpromoted_component_replacement(spiro_name):
             continue
-        name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+        name = prefix_text + spiro_name
+        promoted = None if attachment is not None else _complete_spiro_carbonyl_name(
+            ctx.mol, ring_system_atoms, locants, substituent_prefixes,
+            parent_prefixes, spiro_name,
+        )
+        if promoted:
+            name = promoted
         render_rank = _component_spiro_render_rank(simple_component, poly_component)
         graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
         candidates.append(
             NameCandidate(
                 name=name,
                 family="component-spiro-parent",
+                parent_selection=component_spiro_parent_facts(ctx.mol, ring_system_atoms, locants, spiro_name, name),
                 priority=priority,
                 sort_key=(
                     simple_component.component_rank + poly_component.component_rank,
@@ -595,6 +776,8 @@ def _component_spiro_candidates_for_split(
                 ring_system_atoms,
                 locants,
                 covered_external_atoms=covered_external_atoms,
+                attachment=attachment,
+                branch_names=branch_names,
             )
             if substituent_prefixes is None:
                 continue
@@ -608,13 +791,20 @@ def _component_spiro_candidates_for_split(
             )
             if _has_unpromoted_component_replacement(spiro_name):
                 continue
-            name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+            name = prefix_text + spiro_name
+            promoted = None if attachment is not None else _complete_spiro_carbonyl_name(
+                ctx.mol, ring_system_atoms, locants, substituent_prefixes,
+                parent_prefixes, spiro_name,
+            )
+            if promoted:
+                name = promoted
             render_rank = 0
             graph_atoms = frozenset(ring_system_atoms)
             candidates.append(
                 NameCandidate(
                     name=name,
                     family="component-spiro-parent",
+                    parent_selection=component_spiro_parent_facts(ctx.mol, ring_system_atoms, locants, spiro_name, name),
                     priority=priority,
                     sort_key=(
                         simple_component.component_rank + poly_component.component_rank - 1,
@@ -645,6 +835,8 @@ def _poly_component_spiro_candidates_for_split(
     right_atoms: set[int],
     priority: int,
     component_cache: dict[tuple, list[_Component]] | None = None,
+    attachment=None,
+    branch_names=None,
 ) -> list[NameCandidate]:
     """Compose spiro names where both sides are named ring components."""
 
@@ -703,6 +895,8 @@ def _poly_component_spiro_candidates_for_split(
             ring_system_atoms,
             locants,
             covered_external_atoms=covered_external_atoms,
+            attachment=attachment,
+            branch_names=branch_names,
         )
         if substituent_prefixes is None:
             continue
@@ -716,13 +910,20 @@ def _poly_component_spiro_candidates_for_split(
         )
         if _has_unpromoted_component_replacement(spiro_name):
             continue
-        name = f"{prefix_text}-{spiro_name}" if prefix_text else spiro_name
+        name = prefix_text + spiro_name
+        promoted = None if attachment is not None else _complete_spiro_carbonyl_name(
+            ctx.mol, ring_system_atoms, locants, substituent_prefixes,
+            parent_prefixes, spiro_name,
+        )
+        if promoted:
+            name = promoted
         render_rank = _component_spiro_render_rank(left_component, right_component)
         graph_atoms = frozenset(ring_system_atoms) if render_rank is not None else frozenset()
         candidates.append(
             NameCandidate(
                 name=name,
                 family="poly-component-spiro-parent",
+                parent_selection=component_spiro_parent_facts(ctx.mol, ring_system_atoms, locants, spiro_name, name),
                 priority=priority,
                 sort_key=(
                     left_component.component_rank + right_component.component_rank,
@@ -836,16 +1037,13 @@ def _component_spiro_stereo_locants(locants: dict[int, str]) -> tuple[tuple[int,
 
 
 def _is_component_stereo_prefix_locant(locant: str) -> bool:
-    base = str(locant).rstrip("'")
-    return bool(base) and base.isdigit()
+    return bool(re.fullmatch(r"\d+[a-z]?'*", str(locant)))
 
 
 def _is_component_stereo_locant(locant: str) -> bool:
-    text = str(locant)
-    if text.endswith("''"):
-        return False
-    base = text[:-1] if text.endswith("'") else text
-    return bool(base) and base.isdigit()
+    # Fused-component bridgeheads and every primed component retain their
+    # original atom identity in the assembled spiro parent.
+    return _is_component_stereo_prefix_locant(locant)
 
 
 class _Component:
@@ -862,6 +1060,7 @@ class _Component:
         numbering_key: tuple = (0, ()),
         safety: CandidateSafety | None = None,
         render_cost: int = 1,
+        junction_proved: bool = False,
     ) -> None:
         self.parent_name = parent_name
         self.spiro_locant = spiro_locant
@@ -874,6 +1073,7 @@ class _Component:
         self.numbering_key = numbering_key
         self.safety = safety
         self.render_cost = render_cost
+        self.junction_proved = junction_proved
 
 
 def _component_name_cache_key(mol, Chem, family: str, spiro_idx: int) -> tuple:
@@ -888,7 +1088,7 @@ def _component_name_cache_key(mol, Chem, family: str, spiro_idx: int) -> tuple:
             atom.GetNoImplicit(),
             atom.GetNumRadicalElectrons(),
         )
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
     )
     bonds = tuple(
         sorted(
@@ -901,7 +1101,7 @@ def _component_name_cache_key(mol, Chem, family: str, spiro_idx: int) -> tuple:
                 str(bond.GetStereo()),
                 tuple(bond.GetStereoAtoms()),
             )
-            for bond in mol.GetBonds()
+            for bond in iter_bonds(mol)
         )
     )
     route_flag = (
@@ -951,6 +1151,15 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         return cached
     if mol.GetRingInfo().NumRings() != 1:
         return _store_component_names(cache_key, [])
+    # A saturated ring with an exocyclic carbonyl still has the saturated
+    # parent hydride. Name its capped ring first, then restore that terminal
+    # multiple-bond group as an owned component prefix below.
+    ring_atoms = frozenset(mol.GetRingInfo().AtomRings()[0])
+    if all(b.GetBondTypeAsDouble() == 1 for b in mol.GetBonds()
+           if b.GetBeginAtomIdx() in ring_atoms and b.GetEndAtomIdx() in ring_atoms):
+        mapped = _proved_hydride_component_names(mol, Chem, spiro_idx)
+        if mapped:
+            return _store_component_names(cache_key, mapped)
     ring = tuple(mol.GetRingInfo().AtomRings()[0])
     ordered = ordered_ring(mol, ring)
     if not ordered:
@@ -968,6 +1177,18 @@ def _simple_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
             parent_name = component_name
         else:
             replacement_prefixes = []
+        # The expanded fragment contains terminal multiple-bond atoms. Ring
+        # hydride recognition accounts only for the cycle; explicitly retain
+        # each exocyclic group before the assembly marks those atoms covered.
+        for owner in seq:
+            for neighbor in mol.GetAtomWithIdx(owner).GetNeighbors():
+                if neighbor.GetIdx() in locants:
+                    continue
+                bond = mol.GetBondBetweenAtoms(owner, neighbor.GetIdx())
+                term = {8: "oxo", 16: "thioxo", 7: "imino"}.get(neighbor.GetAtomicNum())
+                if (term and neighbor.GetDegree() == 1
+                        and bond.GetBondTypeAsDouble() == 2):
+                    replacement_prefixes.append((locants[owner], term))
         components.append(
             _Component(
                 parent_name=parent_name,
@@ -995,6 +1216,9 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
     cached = _cached_component_names(cache_key)
     if cached is not None:
         return cached
+    mapped = _proved_hydride_component_names(mol, Chem, spiro_idx)
+    if mapped:
+        return _store_component_names(cache_key, mapped)
     components: list[_Component] = []
     seen = set()
     record_groups = (
@@ -1075,6 +1299,98 @@ def _poly_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
         )
     )
     return _store_component_names(cache_key, components[:16])
+
+
+def _proved_hydride_component_names(mol, Chem, spiro_idx: int) -> list[_Component]:
+    """Compose a hydride from its numbered topology and proved H population.
+
+    The capped graph supplies vocabulary and maps only. Whole-assembly
+    substituents, isotope/stereo descriptors and suffixes still use the
+    caller's original atoms. No parser selects a component or a numbering.
+    """
+    from .mapped_ring_parents import _core_graph, skeletons
+    from .ring_state_parent import _inventory, _reference_states, _render
+
+    if mol.GetStereoGroups() or any(a.GetIsotope() or a.GetFormalCharge()
+            or a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
+        return []
+    core = frozenset(i for ring in mol.GetRingInfo().AtomRings() for i in ring)
+    if spiro_idx not in core or len(core) > 24:
+        return []
+    junction = mol.GetAtomWithIdx(spiro_idx)
+    neutral_carbon_junction = (
+        junction.GetAtomicNum() == 6 and junction.GetDegree() == 2
+        and junction.GetTotalNumHs() == 2
+        and all(bond.GetBondTypeAsDouble() == 1 for bond in junction.GetBonds())
+    )
+    external = []
+    for atom in mol.GetAtoms():
+        if atom.GetIdx() in core:
+            continue
+        if (atom.GetAtomicNum() not in {7, 8, 16} or atom.GetDegree() != 1
+                or atom.GetNeighbors()[0].GetIdx() not in core
+                or atom.GetBonds()[0].GetBondTypeAsDouble() != 2):
+            return []
+        external.append((atom.GetNeighbors()[0].GetIdx(),
+                         {7: 'imino', 8: 'oxo', 16: 'thioxo'}[atom.GetAtomicNum()]))
+    prepared = _core_graph(mol, Chem, core)
+    if prepared is None:
+        return []
+    graph, original = prepared
+    Chem.RemoveStereochemistry(graph)
+    ctx = MoleculeContext(graph, Chem)
+    inventory = _inventory(graph, Chem)
+    if not inventory.supported or inventory.groups:
+        return []
+    rows = []
+    for skeleton in skeletons(graph, Chem, frozenset(range(graph.GetNumAtoms()))):
+        references = ((None,) if skeleton[5] or len(skeleton) > 8
+                      else _reference_states(skeleton[3], skeleton[4]))
+        for reference in references:
+            rows.extend(_render(ctx, skeleton, reference, inventory))
+    if not rows or len({row.parent for row in rows}) != 1:
+        return []
+    minimum = min(row.numbering_key for row in rows)
+    components, seen = [], set()
+    for row in rows:
+        if row.numbering_key != minimum or row.prefixes:
+            continue
+        locants = {original[i]: loc for i, loc in row.atom_locants}
+        spiro_locant = locants.get(spiro_idx, '')
+        if not spiro_locant:
+            continue
+        component_name = row.name
+        if spiro_locant in row.indicated_h_locants:
+            # P-24.3.2: a neutral carbon junction replaces both hydrogens
+            # of the capped methylene. Retain the separate hydro operation
+            # on the proved ring and omit its now-consumed indicated H.
+            construction = row.construction
+            if (not neutral_carbon_junction or not row.hydrogen_budget_proved
+                    or row.indicated_h_locants != (spiro_locant,) or row.added_h_locants
+                    or construction is None or not construction.hydro_prefix
+                    or construction.parent != f"{spiro_locant}H-{row.parent}"):
+                continue
+            from .formatting import join_prefix_parent
+            component_name = join_prefix_parent(construction.hydro_prefix, row.parent)
+        # Hantzsch-Widman locants are intrinsic to that vocabulary. For
+        # example, dioxolane is not an oxo prefix followed by "lane".
+        replacement_parent = (row.method.startswith('skeletal-replacement-')
+                              or row.method in {'von-Baeyer', 'spiro', 'dispiro'})
+        parent, replacements = (_strip_leading_replacement_prefixes(component_name)
+                                if replacement_parent else (component_name, []))
+        replacements.extend((locants[owner], term) for owner, term in external)
+        key = (parent, tuple(replacements), tuple(sorted(locants.items())))
+        if key in seen:
+            continue
+        seen.add(key)
+        components.append(_Component(parent, spiro_locant, locants,
+            replacement_prefixes=tuple(replacements), component_rank=0,
+            component_kind='mapped-ring-hydride', numbering_key=_unsaturation_contiguity_key(
+                mol, tuple(original[i] for i in row.parent_atoms)),
+            junction_proved=(neutral_carbon_junction and row.hydrogen_budget_proved
+                             and row.annotation_coverage and set(locants) == core
+                             and len(set(locants.values())) == len(core))))
+    return components
 
 
 def _should_try_retained_fused_component_names(components: Sequence[_Component]) -> bool:
@@ -1222,19 +1538,35 @@ def _component_from_fused_template(
     }
     locants = {idx: locant for idx, locant in locants.items() if locant}
     spiro_locant = locants.get(spiro_idx, "")
-    if not spiro_locant or spiro_locant.endswith("a"):
+    # A fused carbon with a lettered fusion locant is a junction of the
+    # numbered parent. An ordinary carbon spiro center needs two bonds in
+    # each component, so that locant cannot name this attachment.
+    if not spiro_locant.isdecimal():
         return None
+    exact_template = parent_name is None
     parent_name = parent_name or _adjust_fused_parent_for_charge(mol, template, reverse)
     if not parent_name:
         return None
     if _unstable_component_spiro_retained_parent_name(parent_name):
         return None
+    # A capped indene junction replaces the two H atoms on C-1.
+    # Its complete template match fixes the double bond and every locant.
+    junction = mol.GetAtomWithIdx(spiro_idx)
+    indene_junction = (
+        exact_template and parent_name in {"inden", "indene", "1H-indene"}
+        and spiro_locant == "1" and len(set(locants.values())) == len(match)
+        and junction.GetAtomicNum() == 6 and junction.GetTotalNumHs() == 2
+        and junction.GetDegree() == 2 and not junction.GetFormalCharge()
+        and all(bond.GetBondTypeAsDouble() == 1 for bond in junction.GetBonds())
+        and all(not a.GetFormalCharge() and not a.GetIsotope() and not a.GetChiralTag()
+                for a in mol.GetAtoms()))
     return _Component(
-        parent_name=parent_name,
+        parent_name="indene" if indene_junction else parent_name,
         spiro_locant=spiro_locant,
         locants=locants,
         component_rank=0,
         component_kind="fused-template",
+        junction_proved=indene_junction,
     )
 
 
@@ -1249,12 +1581,15 @@ _EXPLICIT_HETERO_GENERIC_COMPONENT_KINDS = frozenset(
         "generic-bicyclic",
         "generic-spiro",
         "kekulized-polycyclic",
+        "mapped-ring-hydride",
     }
 )
 
 
 def _component_spiro_render_rank(*components: _Component) -> int | None:
     """Rank component-spiro renderings using component provenance facts."""
+    if all(component.junction_proved for component in components):
+        return 0
 
     explicit_generic_replacements = sum(
         len(component.replacement_prefixes)
@@ -1320,13 +1655,16 @@ def _external_substituent_prefixes(
     locants: dict[int, str],
     *,
     covered_external_atoms: set[int] | frozenset[int] = frozenset(),
+    attachment=None,
+    branch_names=None,
 ) -> list[tuple[str, str]] | None:
-    if mol_cache_get(mol, "candidate_telemetry") is None:
+    if branch_names is None and mol_cache_get(mol, "candidate_telemetry") is None:
         cache = mol_cache_dict(mol, "spiro_external_substituent_prefixes")
         cache_key = (
             tuple(sorted(core_atoms)),
             tuple(sorted((int(idx), str(locant)) for idx, locant in locants.items())),
             tuple(sorted(int(idx) for idx in covered_external_atoms)),
+            attachment,
             mol.HasProp("_nispo_allow_fragment_substituent_fallback"),
             mol.GetProp("_nispo_fragment_substituent_depth") if mol.HasProp("_nispo_fragment_substituent_depth") else "",
         )
@@ -1343,17 +1681,189 @@ def _external_substituent_prefixes(
             nidx = nbr.GetIdx()
             if nidx in core_atoms:
                 continue
+            if attachment == (atom_idx, nidx):
+                continue
             if nidx in covered_external_atoms:
                 continue
             if not locant:
                 return None
-            prefix = _simple_or_branch_prefix(mol, nidx, atom_idx)
+            prefix = (_simple_or_branch_prefix(mol, nidx, atom_idx) if branch_names is None
+                      else branch_names.get((atom_idx, nidx), ""))
             if not prefix:
                 return None
             prefixes.append((locant, prefix))
     if cache is not None and cache_key is not None:
         cache[cache_key] = tuple(prefixes)
     return prefixes
+
+
+def mapped_component_spiro_yl(mol, Chem, root, host, scope, *, allow_replacement=False,
+                             general_branches=False):
+    """One original free valence on a numbered spiro assembly."""
+    result = _mapped_component_spiro(
+        mol, Chem, root, host, scope, "yl",
+        allow_replacement=allow_replacement, general_branches=general_branches)
+    if result is None:
+        return "", frozenset()
+    name, locants = result
+    from .component_mapping import _record_branch_ring_atoms
+
+    _record_branch_ring_atoms(mol, Chem, root, host, name, scope, dict(locants))
+    return name, scope
+
+
+def _mapped_component_spiro(mol, Chem, root, host, scope, suffix, *,
+                           allow_replacement=False, general_branches=False):
+    if len(scope) < 8 or mol.GetRingInfo().NumRings() < 3 or mol.GetStereoGroups():
+        return None
+    from .mapped_ring_parents import ring_systems
+
+    core = next((system for system in ring_systems(mol) if root in system), frozenset())
+    if not core <= scope or host in core or not any(
+            sum(n.GetIdx() in core for n in mol.GetAtomWithIdx(i).GetNeighbors()) == 4 for i in core):
+        return None
+    atom = mol.GetAtomWithIdx(root)
+    cut = mol.GetBondBetweenAtoms(root, host)
+    if (cut is None or cut.GetBondTypeAsDouble() != 1 or atom.GetAtomicNum() not in {6, 7}
+            or int(cut.GetStereo())):
+        return None
+    if general_branches:
+        if (atom.GetAtomicNum() == 7 and atom.GetTotalValence() != 3
+                or sum(n.GetIdx() in core for n in atom.GetNeighbors()) != 2):
+            return None
+    elif atom.GetIsAromatic() or any(b.GetBondTypeAsDouble() != 1 for b in atom.GetBonds()):
+        return None
+    if any(mol.GetAtomWithIdx(i).GetIsotope() or mol.GetAtomWithIdx(i).GetFormalCharge()
+           or mol.GetAtomWithIdx(i).GetNumRadicalElectrons() for i in scope):
+        return None
+    branch_names = None
+    if general_branches:
+        branch_names = _mapped_spiro_branches(mol, Chem, core, scope, (root, host))
+        if branch_names is None:
+            return None
+    else:
+        for i in scope - core:
+            peripheral = mol.GetAtomWithIdx(i)
+            if (peripheral.GetDegree() != 1 or peripheral.GetNeighbors()[0].GetIdx() not in core
+                    or peripheral.GetAtomicNum() not in {6, 8, 9, 17, 35, 53}):
+                return None
+    if {(i, n.GetIdx()) for i in scope for n in mol.GetAtomWithIdx(i).GetNeighbors()
+            if n.GetAtomicNum() > 1 and n.GetIdx() not in scope} != {(root, host)}:
+        return None
+
+    from .component_mapping import MappedComponent, decorate_component
+    from .formatting import attach_suffix
+
+    ctx = MoleculeContext(mol, Chem)
+    candidates = component_spiro_parent_candidates(ctx, 0, attachment=(root, host), branch_names=branch_names)
+    # Identical unrooted words can use different locants for the free
+    # valence. Compare those locants before rendering the rooted word.
+    eligible = []
+    for item in candidates:
+        if (item.parent_atoms != core or item.render_rank is None
+                or item.render_rank != 0 and not allow_replacement or item.safety is not None):
+            continue
+        locants = dict(item.stereo_locants)
+        if locants.keys() != core or len(set(locants.values())) != len(core):
+            continue
+        eligible.append((item, locants))
+    eligible.sort(key=lambda row: (row[0].sort_key, _locant_key(row[1][root])))
+    for item, locants in eligible:
+        parent = attach_suffix(item.name, suffix, (locants[root],))
+        name = decorate_component(mol, Chem, MappedComponent(
+            parent, tuple(locants.items()), core, embedded_atoms=scope - core,
+            systematic_parent=True,
+        ))
+        if name:
+            return name, tuple(locants.items())
+    return None
+
+
+def _mapped_spiro_branches(mol, Chem, core, scope, attachment):
+    from .component_mapping import mapped_general_branch
+
+    names, owned = {}, set()
+    for i in core:
+        for bond in mol.GetAtomWithIdx(i).GetBonds():
+            j = bond.GetOtherAtomIdx(i)
+            if j in core or (i, j) == attachment:
+                continue
+            atom = mol.GetAtomWithIdx(j)
+            if atom.GetAtomicNum() <= 1 or j not in scope:
+                return None
+            if (bond.GetBondTypeAsDouble() == 2 and atom.GetDegree() == 1
+                    and atom.GetAtomicNum() in {7, 8, 16} and not int(bond.GetStereo())):
+                # The component hydride owns this terminal multiple bond.
+                atoms = frozenset({j})
+            else:
+                text, atoms = mapped_general_branch(mol, Chem, j, i)
+                if not text or any(c.isspace() for c in text):
+                    return None
+                names[i, j] = text
+            if atoms & owned or not atoms <= scope - core:
+                return None
+            owned.update(atoms)
+    return names if owned == scope - core else None
+
+
+def mapped_spiro_carboxamide(mol, Chem, group, scope):
+    """Complete a single exocyclic amide on its numbered spiro assembly."""
+    owner, center, nitrogen = group.owner, group.center, group.ligand
+    if owner < 0 or not mol.GetAtomWithIdx(owner).IsInRing():
+        return None
+    from .branch_rules import collect_subtree
+
+    acid_side = frozenset(collect_subtree(mol, owner, center))
+    parent = _mapped_component_spiro(
+        mol, Chem, owner, center, acid_side, "carboxamide", general_branches=True)
+    if parent is None or acid_side & set(group.atoms):
+        return None
+    parent, locants = parent
+    from .component_mapping import mapped_general_branch
+    from .formatting import format_prefixes
+
+    prefixes, occupied = [], set(acid_side) | set(group.atoms)
+    for atom in mol.GetAtomWithIdx(nitrogen).GetNeighbors():
+        root = atom.GetIdx()
+        if root == center or atom.GetAtomicNum() <= 1:
+            continue
+        text, atoms = mapped_general_branch(mol, Chem, root, nitrogen)
+        if not text or atoms & occupied or any(c.isspace() for c in text):
+            return None
+        prefixes.append(("N", text))
+        occupied |= atoms
+    if occupied != scope:
+        return None
+    prefix = format_prefixes(prefixes, hierarchical_enclosures=True)
+    # The ring's own descriptor precedes the combined prefix sequence.
+    stereo = re.match(r"^\([^()]+\)-", parent)
+    if stereo is not None:
+        name = stereo.group() + join_prefix_parent(prefix, parent[stereo.end():])
+    else:
+        name = join_prefix_parent(prefix, parent)
+    return name, locants
+
+
+def mapped_spiro_ester(mol, Chem, arm, scope):
+    """Join the mapped ester organyl to an original numbered spiro parent."""
+    from .branch_rules import collect_subtree
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+
+    group = arm.group
+    acid_side = frozenset(collect_subtree(mol, group.owner, group.center))
+    if (acid_side & (set(group.atoms) | arm.atoms)
+            or acid_side | set(group.atoms) | arm.atoms != scope):
+        return None
+    parent = _mapped_component_spiro(mol, Chem, group.owner, group.center, acid_side,
+                                    "carboxylate", general_branches=True)
+    if parent is None:
+        return None
+    anion, locants = parent
+    rule = 'P-24/P-65.6.3.3.1'
+    return MethodDecision(f'{arm.name} {anion}', 'mapped-ester', frozenset({group.center}), scope,
+        rule, locants, preference_issues=(SelectionLimitation(
+            'ester-parent-and-method', rule, 'Complete ester parent comparison remains open.'),))
 
 
 def _combined_locants(
@@ -1425,6 +1935,9 @@ def _submol_for_atoms(mol, Chem, atoms: set[int]):
         Chem.SanitizeMol(submol)
     except Exception:
         return None
+    # A spiro component is named as a hydride before the whole assembly
+    # receives its substituent prefixes and principal suffix.
+    submol.SetProp("_nispo_principal_prefix_mode", "1")
     if mol.HasProp(FAST_POLY_BRIDGE_ROUTE_PROP):
         submol.SetProp(FAST_POLY_BRIDGE_ROUTE_PROP, mol.GetProp(FAST_POLY_BRIDGE_ROUTE_PROP))
     sub_to_parent = {sub_idx: parent_idx for parent_idx, sub_idx in parent_to_sub.items()}
@@ -1589,3 +2102,288 @@ def _locant_key_for_text(name: str) -> tuple[tuple[int, str], ...]:
 def _has_unpromoted_component_replacement(spiro_name: str) -> bool:
     replacement = "|".join(_REPLACEMENT_TERMS)
     return bool(re.search(rf"'\-\d+(?:,\d+)*-(?:di|tri|tetra|penta|hexa)?(?:{replacement})", spiro_name))
+
+
+def _complete_spiro_carbonyl_name(mol, core_atoms, locants, prefixes, replacements, parent):
+    """Apply acid or ketone suffixes to a complete, numbered assembly.
+
+    Fragment hydrides are named before the whole assembly gets its suffix.
+    Each promoted site must own its original mapped prefix on that parent.
+    """
+    from .principal_carbonyl import principal_carbonyl_sites
+    from .principal_carboxyl import ring_carboxyl_suffix
+    from .formatting import join_prefix_parent, multiplied_suffix
+
+    if mol.HasProp("_nispo_principal_prefix_mode"):
+        return ""
+    acid = ring_carboxyl_suffix(mol, locants, prefixes, parent)
+    if acid:
+        ending, remaining, _center, _locant = acid
+        return join_prefix_parent(_component_spiro_prefix_text(remaining, replacements), ending)
+    suffix, sites = principal_carbonyl_sites(mol)
+    if suffix != "one" or not sites or len(sites) > 6:
+        return ""
+    positions = []
+    for carbonyl, owner in sites:
+        locant = locants.get(owner, "")
+        if (carbonyl != owner or owner not in core_atoms
+                or not re.fullmatch(r"\d+'{0,2}", locant)
+                or (locant, "oxo") not in prefixes):
+            return ""
+        positions.append(locant)
+    removed = {(locant, "oxo") for locant in positions}
+    remaining = [record for record in prefixes if record not in removed]
+    text = _component_spiro_prefix_text(remaining, replacements)
+    positions.sort(key=_locant_key)
+    ending = multiplied_suffix(len(positions), "one") if len(positions) > 1 else "one"
+    name = f"{parent}-{','.join(positions)}-{ending}"
+    return join_prefix_parent(text, name)
+
+
+@lru_cache(maxsize=1)
+def spiro_sulfamate_query(Chem):
+    return Chem.MolFromSmarts('[S;R;X4](=[O;D1])(=[O;D1])(-[O;R;X2])-[N;R;X3]')
+
+
+def spiro_sulfamate_carbamate(mol, Chem):
+    """Name a saturated monospiro cyclic sulfamate with an N-carbamate."""
+    from .component_mapping import MappedComponent, decorate_component, mapped_general_branch
+    from .formatting import attach_suffix, enclose_name_unit
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+    from .polycyclic_rules import _ring_system_graph, _spiro_parent_sequence_candidates
+
+    matches = mol.GetSubstructMatches(spiro_sulfamate_query(Chem))
+    rings = tuple(map(frozenset, mol.GetRingInfo().AtomRings()))
+    if (len(matches) != 1 or len(rings) != 2 or len(rings[0] & rings[1]) != 1
+            or mol.GetStereoGroups() or any(a.GetIsotope() or a.GetFormalCharge()
+                or a.GetNumRadicalElectrons() or a.GetChiralTag() or a.HasQuery() for a in mol.GetAtoms())):
+        return None
+    sulfur, oxo1, oxo2, oxygen, nitrogen = matches[0]
+    core = rings[0] | rings[1]
+    if (not any({sulfur, oxygen, nitrogen} <= ring for ring in rings)
+            or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in core - {sulfur, oxygen, nitrogen})
+            or any(b.GetBondTypeAsDouble() != 1 and {b.GetBeginAtomIdx(), b.GetEndAtomIdx()} <= core
+                   for b in mol.GetBonds())):
+        return None
+    attachments = [(i, n.GetIdx()) for i in core for n in mol.GetAtomWithIdx(i).GetNeighbors()
+                   if n.GetIdx() not in core | {oxo1, oxo2}]
+    if len(attachments) != 1 or attachments[0][0] != nitrogen:
+        return None
+    carbonyl = mol.GetAtomWithIdx(attachments[0][1])
+    if carbonyl.GetAtomicNum() != 6 or carbonyl.GetDegree() != 3:
+        return None
+    ligands = {b.GetBondTypeAsDouble(): b.GetOtherAtom(carbonyl) for b in carbonyl.GetBonds()
+               if b.GetOtherAtomIdx(carbonyl.GetIdx()) != nitrogen}
+    if set(ligands) != {1, 2} or any(a.GetAtomicNum() != 8 for a in ligands.values()):
+        return None
+    alcohol, oxo = ligands[1], ligands[2]
+    if alcohol.GetDegree() != 2 or oxo.GetDegree() != 1:
+        return None
+    root = next(a.GetIdx() for a in alcohol.GetNeighbors() if a.GetIdx() != carbonyl.GetIdx())
+    word, atoms = mapped_general_branch(mol, Chem, root, alcohol.GetIdx())
+    functional = frozenset({carbonyl.GetIdx(), alcohol.GetIdx(), oxo.GetIdx(), oxo1, oxo2})
+    scope = frozenset(range(mol.GetNumAtoms()))
+    if (not word or atoms & (core | functional) or atoms | core | functional != scope
+            or any(b.GetStereo() or b.HasQuery() for b in mol.GetBonds())):
+        return None
+    candidates = []
+    for parent, sequence in _spiro_parent_sequence_candidates(mol, core, _ring_system_graph(mol, Chem, core)):
+        locants = {idx: i for i, idx in enumerate(sequence, 1)}
+        key = (tuple(sorted(locants[i] for i in (oxygen, sulfur, nitrogen))),
+               tuple(locants[i] for i in (oxygen, sulfur, nitrogen)))
+        spiro = parent.find('spiro[')
+        if spiro < 0:
+            continue
+        replacements = '-'.join(f'{locants[idx]}-{term}' for idx, term in
+                                ((oxygen, 'oxa'), (sulfur, 'thia'), (nitrogen, 'aza')))
+        hydride = attach_suffix(replacements + parent[spiro:], 'carboxylate', (str(locants[nitrogen]),))
+        mapping = tuple((idx, str(loc)) for idx, loc in locants.items())
+        # The two sulfur oxo groups share a mapped locant. Their prefix keeps
+        # the valence explicit without requiring an unlocanted spiro fusion.
+        component = MappedComponent(hydride, mapping, core,
+            ((str(locants[sulfur]), 'oxo'),) * 2, scope - core, systematic_parent=True)
+        text = decorate_component(mol, Chem, component)
+        if text:
+            candidates.append((key, text, mapping))
+    if not candidates:
+        return None
+    _, text, mapping = min(candidates)
+    organyl = enclose_name_unit(word) if word[0].isdigit() else word
+    rule = 'P-24.2.4/P-65.6/P-67.1.2.4'
+    return MethodDecision(organyl + ' ' + text, 'functional-class',
+        frozenset({carbonyl.GetIdx()}), scope, rule, mapping,
+        preference_issues=(SelectionLimitation('spiro-sulfamate', rule,
+            'The spiro junction, sulfamate heteroatoms and N-carbamate are mapped.'),))
+
+
+def numbered_thia_spiro_dioxide(mol, Chem):
+    """Name a monocyclic spiro pair with both oxo groups on a ring sulfur."""
+    from .extended_inventory import selection_inventory
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+    from .polycyclic_rules import _spiro_ring_system_candidate_records
+
+    rings = tuple(map(frozenset, mol.GetRingInfo().AtomRings()))
+    atoms = frozenset(range(mol.GetNumAtoms()))
+    if (len(Chem.GetMolFrags(mol)) != 1 or mol.GetStereoGroups()
+            or any(a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
+                   or a.GetChiralTag() or a.HasQuery() for a in mol.GetAtoms())
+            or any(b.GetStereo() or b.HasQuery() for b in mol.GetBonds())):
+        return None
+    inventory = selection_inventory(mol)
+    if not inventory.supported or inventory.principal:
+        return None
+    cores = set()
+    for sulfur in mol.GetAtoms():
+        if sulfur.GetAtomicNum() != 16 or not sulfur.IsInRing():
+            continue
+        center = sulfur.GetIdx()
+        oxo = {b.GetOtherAtomIdx(center) for b in sulfur.GetBonds()
+               if b.GetBondTypeAsDouble() == 2
+               and b.GetOtherAtom(sulfur).GetAtomicNum() == 8
+               and b.GetOtherAtom(sulfur).GetDegree() == 1}
+        if len(oxo) != 2:
+            continue
+        for left in (ring for ring in rings if center in ring):
+            for right in rings:
+                if len(left & right) != 1:
+                    continue
+                core = left | right
+                if sum(bool(core & ring) for ring in rings) != 2 or any(
+                    b.GetBondTypeAsDouble() != 1 for i in core
+                    for b in mol.GetAtomWithIdx(i).GetBonds() if b.GetOtherAtomIdx(i) in core
+                ):
+                    continue
+                cores.add(core)
+    if len(cores) != 1:
+        return None
+    candidates = _spiro_ring_system_candidate_records(mol, Chem, cores.pop(), max_records=1, render_late=True)
+    if not candidates:
+        return None
+    name, order = candidates[0]
+    rule = 'P-24.2.4/P-64.4'
+    mapping = tuple((i, str(locant)) for locant, i in enumerate(order, 1))
+    return MethodDecision(name, 'substitutive', frozenset(), atoms, rule, mapping,
+        preference_issues=(SelectionLimitation('spiro-parent', rule,
+            'Both sulfur oxo groups use the same numbered spiro framework.'),))
+
+
+def sulfonyl_monospiro_ketone(mol, Chem, inventory=None):
+    """Promote a ring ketone on a saturated monoazaspiro sulfonamide."""
+    from .component_mapping import mapped_general_branch
+    from .extended_inventory import selection_inventory
+    from .formatting import attach_suffix, join_prefix_parent, format_prefixes
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+    from .polycyclic_rules import _ring_system_graph, _spiro_parent_sequence_candidates
+
+    rings = tuple(map(frozenset, mol.GetRingInfo().AtomRings()))
+    if len(rings) != 2 or len(rings[0] & rings[1]) != 1 or mol.GetStereoGroups():
+        return None
+    core = rings[0] | rings[1]
+    if any(a.GetIsotope() or a.GetFormalCharge() or a.GetChiralTag() or a.GetNumRadicalElectrons()
+           for a in mol.GetAtoms()):
+        return None
+    if any(b.GetBondTypeAsDouble() != 1 and
+           {b.GetBeginAtomIdx(), b.GetEndAtomIdx()} <= core for b in mol.GetBonds()):
+        return None
+    inventory = inventory if inventory is not None else selection_inventory(mol)
+    if not inventory.supported or len(inventory.principal) != 1:
+        return None
+    sulfonamide = inventory.principal[0]
+    nitrogen = sulfonamide.ligand
+    ketones = tuple(group for group in inventory.groups if group.kind == "ketone" and group.center in core)
+    if (sulfonamide.kind != "sulfonamide" or nitrogen not in core or len(ketones) != 1
+            or any(mol.GetAtomWithIdx(i).GetAtomicNum() != (7 if i == nitrogen else 6) for i in core)):
+        return None
+    ketone = ketones[0]
+    text, branch = mapped_general_branch(mol, Chem, sulfonamide.center, nitrogen)
+    if (not text or branch & core or branch & set(ketone.atoms)
+            or branch | core | set(ketone.atoms) != frozenset(range(mol.GetNumAtoms()))):
+        return None
+    candidates = _spiro_parent_sequence_candidates(mol, core, _ring_system_graph(mol, Chem, core))
+    names = []
+    for parent, sequence in candidates:
+        locants = {idx: locant for locant, idx in enumerate(sequence, 1)}
+        key = (locants[nitrogen], locants[ketone.center])
+        hydride = attach_suffix(parent, "one", (key[1],))
+        name = join_prefix_parent(format_prefixes([(str(key[0]), text)]), hydride)
+        names.append((key, name, tuple((idx, str(locant)) for idx, locant in locants.items())))
+    if not names:
+        return None
+    _, name, locants = min(names)
+    rule = "P-24/P-64.2"
+    return MethodDecision(name, "substitutive", frozenset({ketone.center}),
+                          frozenset(range(mol.GetNumAtoms())), rule, locants,
+                          preference_issues=(SelectionLimitation(
+                              "spiro-ketone-parent", rule, "The mapped ketone and sulfonyl group are cited."),))
+
+
+@lru_cache(maxsize=2)
+def _sultam_spiro_query(Chem):
+    return Chem.MolFromSmarts(
+        "[S;X4]1(=[O;D1])(=[O;D1])-[N;X3]-[C;X4]2(-[C]-[N;X3]-[C]-[C]-2)"
+        "-[c]2[c][c][c][c][c]-12"
+    )
+
+
+def sultam_spiro_dione(mol, Chem):
+    """Cite carbonyl and sulfur dioxide suffixes on their mapped components."""
+    from .component_mapping import MappedComponent, decorate_component
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+
+    if mol.GetRingInfo().NumRings() != 3 or mol.GetStereoGroups():
+        return None
+    matches = mol.GetSubstructMatches(_sultam_spiro_query(Chem), maxMatches=3)
+    if not matches or len(matches) == 3 or any(
+            a.GetFormalCharge() or a.GetIsotope() or a.GetChiralTag()
+            or a.GetNumRadicalElectrons() or a.HasQuery() for a in iter_atoms(mol)):
+        return None
+    required = frozenset(range(mol.GetNumAtoms()))
+    ring_atoms = frozenset(i for ring in mol.GetRingInfo().AtomRings() for i in ring)
+    rows = []
+    for match in matches:
+        s, o1, o2, n, junction, c2, imide_n, c5, c4, *benzene = match
+        core = frozenset(match) - {o1, o2}
+        if ring_atoms != core:
+            continue
+        carbonyls = []
+        for c in (c2, c5):
+            oxygen = [b.GetOtherAtomIdx(c) for b in mol.GetAtomWithIdx(c).GetBonds()
+                      if b.GetBondTypeAsDouble() == 2 and b.GetOtherAtomIdx(c) not in core
+                      and b.GetOtherAtomIdx(c) not in {o1, o2}
+                      and b.GetOtherAtom(mol.GetAtomWithIdx(c)).GetAtomicNum() == 8
+                      and b.GetOtherAtom(mol.GetAtomWithIdx(c)).GetDegree() == 1]
+            if len(oxygen) != 1:
+                break
+            carbonyls.extend(oxygen)
+        if len(carbonyls) != 2:
+            continue
+        suffix_oxygens = {o1, o2, *carbonyls}
+        if any(bond.GetBondTypeAsDouble() > 1
+               and (bond.GetBeginAtomIdx() in core) != (bond.GetEndAtomIdx() in core)
+               and not ({bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()} & suffix_oxygens)
+               for bond in iter_bonds(mol)):
+            continue
+        mapping = dict(zip((s, n, junction, *benzene, imide_n, c2, c4, c5),
+                           ("1", "2", "3", "3a", "4", "5", "6", "7", "7a",
+                            "1'", "2'", "4'", "5'"), strict=True))
+        names = _mapped_spiro_branches(mol, Chem, core, required, None)
+        if names is None or any(host in {s, junction, c2, c5} for host, _ in names):
+            continue
+        parent = "2H-spiro[1,2-benzothiazole-3,3'-pyrrolidine]-2',5'-dione 1,1-dioxide"
+        prefixes = tuple((mapping[i], text) for (i, _), text in names.items())
+        component = MappedComponent(parent, tuple(mapping.items()), core, prefixes,
+                                    required - core, systematic_parent=True)
+        name = decorate_component(mol, Chem, component)
+        if name:
+            rows.append((name, tuple(mapping.items()), frozenset({c2, c5})))
+    if len({row[0] for row in rows}) != 1:
+        return None
+    name, mapping, centers = rows[0]
+    rule = "P-24/P-64.2/P-62.5"
+    return MethodDecision(name, "substitutive", centers, frozenset(range(mol.GetNumAtoms())),
+                          rule, mapping, preference_issues=(SelectionLimitation(
+                              "spiro-parent", rule, "The imide and sulfur oxide groups occupy distinct mapped sites."),))

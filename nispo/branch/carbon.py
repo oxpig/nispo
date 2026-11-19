@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
+from ..molecule_iteration import iter_atoms, iter_bonds
 from ..branch import BranchRuleSet, BranchRuleSpec
 from ..constants import HALO, MULT, ROOTS
 from ..formatting import format_prefixes as _format_prefixes
@@ -94,7 +95,8 @@ def _with_root_carbon_isotope(mol, idx: int, name: str) -> str:
         return name
     atom = mol.GetAtomWithIdx(idx)
     isotope = atom.GetIsotope()
-    if atom.GetSymbol() == "C" and isotope:
+    from ..isotope_mapping import root_carbon_isotope_is_mapped
+    if atom.GetSymbol() == "C" and isotope and not root_carbon_isotope_is_mapped(name, isotope):
         return f"{name}-{isotope}C"
     return name
 
@@ -116,6 +118,80 @@ def _halogen_prefix(mol, idx: int, parent_idx: int) -> str:
     return f"[{isotope}{symbol}]{name}" if isotope else name
 
 
+def geminal_alkoxy_alkyl_prefix(mol, root, blocked):
+    """Use the mapped carbon prefix when an adjacent carbon has two alkoxy arms."""
+    atom = mol.GetAtomWithIdx(root)
+    if atom.IsInRing() or atom.GetDegree() != 2:
+        return ''
+    child = next((a for a in atom.GetNeighbors() if a.GetIdx() != blocked), None)
+    if (child is None or child.GetAtomicNum() != 6 or child.IsInRing() or child.GetDegree() != 3
+            or child.GetTotalNumHs() != 1
+            or sum(a.GetAtomicNum() == 8 and a.GetDegree() == 2 for a in child.GetNeighbors()) != 2):
+        return ''
+    direct = short_substitutive_carbon_prefix(mol, root, blocked)
+    return direct[0] if direct else ''
+
+
+def short_substitutive_carbon_prefix(mol, root, blocked, atoms=None):
+    """Map a short carbon tree with local alkoxy, aryloxy or cyano arms."""
+    atom = mol.GetAtomWithIdx(root)
+    cut = mol.GetBondBetweenAtoms(root, blocked)
+    if (atom.IsInRing() or atom.GetDegree() < 2
+            or cut is None or cut.GetBondTypeAsDouble() != 1 or cut.HasQuery()
+            or not any(a.GetIdx() != blocked and a.GetAtomicNum() == 6 and not a.IsInRing()
+                       for a in atom.GetNeighbors())):
+        return None
+    atoms = frozenset(collect_subtree(mol, root, blocked)) if atoms is None else atoms
+    if not 4 <= len(atoms) <= 22 or blocked in atoms:
+        return None
+    ethers, nitriles = set(), set()
+    for i in atoms:
+        a = mol.GetAtomWithIdx(i)
+        element = a.GetAtomicNum()
+        if (a.GetFormalCharge() or a.GetIsotope() or a.GetNumRadicalElectrons()
+                or a.HasQuery() or element not in {6, 7, 8, 9, 17, 35, 53}):
+            return None
+        if element == 8:
+            if (a.IsInRing() or a.GetDegree() != 2
+                    or any(b.GetBondTypeAsDouble() != 1 or b.GetOtherAtom(a).GetAtomicNum() != 6
+                           for b in a.GetBonds())):
+                return None
+            ethers.add(i)
+        elif element == 7:
+            if (a.GetDegree() != 1 or a.GetTotalNumHs()
+                    or a.GetBonds()[0].GetBondTypeAsDouble() != 3
+                    or a.GetNeighbors()[0].GetAtomicNum() != 6):
+                return None
+            nitriles.add(a.GetNeighbors()[0].GetIdx())
+    if not (1 <= len(ethers) <= 2 and not nitriles or not ethers and len(nitriles) == 1):
+        return None
+    if {(i, n.GetIdx()) for i in atoms for n in mol.GetAtomWithIdx(i).GetNeighbors()
+        if n.GetAtomicNum() > 1 and n.GetIdx() not in atoms} != {(root, blocked)}:
+        return None
+    carbon, todo = set(), [root]
+    while todo:
+        i = todo.pop()
+        if i in carbon:
+            continue
+        carbon.add(i)
+        todo.extend(a.GetIdx() for a in mol.GetAtomWithIdx(i).GetNeighbors()
+                    if a.GetIdx() in atoms and a.GetAtomicNum() == 6 and not a.IsInRing()
+                    and a.GetIdx() not in nitriles and a.GetIdx() not in carbon)
+    if root in nitriles or not 2 <= len(carbon) <= 10:
+        return None
+    if ethers and any(not any(a.GetIdx() in carbon for a in mol.GetAtomWithIdx(i).GetNeighbors())
+                      for i in ethers):
+        return None
+    if nitriles and not any(a.GetIdx() in carbon for a in
+                            mol.GetAtomWithIdx(next(iter(nitriles))).GetNeighbors()):
+        return None
+    from ..component_mapping import _internally_rooted_carbon_prefix
+
+    name, owned = _internally_rooted_carbon_prefix(
+        mol, Chem, root, blocked, atoms, carbon, allow_branched=True)
+    return (name, owned) if name and owned == atoms else None
+
+
 def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     """Dispatch carbon substituent rules from local structure before rendering.
 
@@ -125,12 +201,65 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     to select the only families that can possibly match.
     """
 
+    from .preferred_acyl import ring_n_attached_ester_ethyl_prefix
+    preferred_ester = ring_n_attached_ester_ethyl_prefix(mol, idx, parent_idx)
+    if preferred_ester:
+        return preferred_ester
+    root_atom = mol.GetAtomWithIdx(idx)
+    if mol.GetAtomWithIdx(parent_idx).GetFormalCharge() == 1:
+        from .carboxyalkyl import onium_carboxyalkyl_prefix
+
+        carboxyalkyl = onium_carboxyalkyl_prefix(mol, Chem, idx, parent_idx)
+        if carboxyalkyl is not None:
+            return carboxyalkyl[0]
+    if any(n.GetAtomicNum() == 7 and mol.GetBondBetweenAtoms(idx, n.GetIdx()).GetBondTypeAsDouble() == 2
+           for n in root_atom.GetNeighbors() if n.GetIdx() != parent_idx):
+        from .carbamimidoyl import carbamimidoyl_prefix
+        amidine = carbamimidoyl_prefix(mol, Chem, idx, parent_idx)
+        if amidine:
+            return amidine
+    from .subordinate_amide_chain import subordinate_amide_chain_prefix
+    subordinate_amide = subordinate_amide_chain_prefix(mol, Chem, idx, parent_idx)
+    if subordinate_amide is not None:
+        return subordinate_amide[0]
+    if mol.GetAtomWithIdx(idx).GetIsotope():
+        # P-82.2 places a descriptor inside the separately named branch.
+        # The mapped carbon-tree writer owns its original isotope atoms and
+        # avoids the compatibility fallback's trailing mass annotation.
+        atoms = frozenset(collect_subtree(mol, idx, parent_idx))
+        if all(mol.GetAtomWithIdx(i).GetAtomicNum() in {1, 6}
+               and not mol.GetAtomWithIdx(i).IsInRing() for i in atoms):
+            from ..component_mapping import mapped_branch
+            text, owned = mapped_branch(mol, Chem, idx, parent_idx)
+            if text and owned == atoms:
+                return text
+    # A halogenated carbon tree may have been rendered as a substituted
+    # methyl despite containing a longer carbon parent. Reuse the P-46
+    # graph frontier before those compatibility producers, but only when it
+    # owns the exact one-cut, nonring halo or hydroxy carbon subtree. Annotated or
+    # unresolved cases remain with their existing mapped routes.
+    root = mol.GetAtomWithIdx(idx)
+    if any(n.GetIdx() != parent_idx and n.GetAtomicNum() == 6 and not n.IsInRing()
+           for n in root.GetNeighbors()):
+        atoms = frozenset(collect_subtree(mol, idx, parent_idx))
+        if (any(mol.GetAtomWithIdx(i).GetAtomicNum() in {9, 17, 35, 53} for i in atoms)
+                and all(mol.GetAtomWithIdx(i).GetAtomicNum() in {6, 8, 9, 17, 35, 53}
+                        and not mol.GetAtomWithIdx(i).IsInRing() for i in atoms)):
+            from ..substituent_selection import mapped_saturated_halo_carbon_prefix
+            preferred = mapped_saturated_halo_carbon_prefix(mol, Chem, idx, parent_idx, atoms)
+            if preferred is not None:
+                text, owned = preferred
+                if text and owned == atoms:
+                    return text
     terminal_methyl = _terminal_methyl_prefix(mol, idx, parent_idx)
     if terminal_methyl:
         return terminal_methyl
     linear_alkyl = _linear_alkyl_prefix(mol, idx, parent_idx)
     if linear_alkyl:
         return _with_root_carbon_isotope(mol, idx, linear_alkyl)
+    short = short_substitutive_carbon_prefix(mol, idx, parent_idx)
+    if short is not None:
+        return short[0]
     if _is_nitrile_carbon(mol, idx):
         return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("nitrile", "cyano"))
     deuterated_methyl = _deuterated_methyl_prefix(mol, idx, parent_idx)
@@ -145,6 +274,23 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     terminal_locanted_chain = _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx, parent_idx)
     if terminal_locanted_chain:
         return _with_root_carbon_isotope(mol, idx, terminal_locanted_chain)
+    # The legacy carbon branch path can be entered without the mapped-branch
+    # dispatcher and reach general-nomenclature resource aliases or omit a
+    # multiple-bond locant. Reuse the complete original-graph P-32/P-46
+    # frontier before that fallback, never an output-name replacement.
+    if (not root.IsInRing() and any(n.GetIdx() != parent_idx and n.GetAtomicNum() == 6
+                                    for n in root.GetNeighbors())):
+        atoms = frozenset(collect_subtree(mol, idx, parent_idx))
+        if (2 <= len(atoms) <= 32
+                and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6
+                        and not mol.GetAtomWithIdx(i).IsInRing() for i in atoms)
+                and any(b.GetBondTypeAsDouble() in {2, 3}
+                        and b.GetBeginAtomIdx() in atoms and b.GetEndAtomIdx() in atoms
+                        for b in mol.GetBonds())):
+            from ..unsaturated_substituent_methods import unsaturated_carbon_substituent
+            unsaturated = unsaturated_carbon_substituent(mol, Chem, idx, parent_idx)
+            if unsaturated is not None and unsaturated.atoms == atoms:
+                return unsaturated.text
     substituted_alkyl = _simple_substituted_alkyl_prefix(mol, idx, parent_idx)
     if substituted_alkyl:
         return _with_root_carbon_isotope(mol, idx, substituted_alkyl)
@@ -175,7 +321,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
                     return _with_root_carbon_isotope(mol, idx, name)
         if _is_isocyano_carbon(mol, idx):
             return _with_root_carbon_isotope(mol, idx, "isocyano")
-        if _is_carboxylate_carbon(mol, idx):
+        if _is_carboxylate_carbon(mol, idx) and _terminal_carboxylato_branch(mol, idx, parent_idx):
             return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("oate", "carboxylato"))
         name = _protected_alkyl_prefix(mol, idx, parent_idx)
         if name:
@@ -184,7 +330,7 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
         if name:
             return _with_root_carbon_isotope(mol, idx, name)
         if ("O", Chem.BondType.DOUBLE) in neighbor_bonds:
-            name = _acyl_halide_prefix(mol, idx)
+            name = _acyl_halide_prefix(mol, idx, parent_idx)
             if name:
                 return _with_root_carbon_isotope(mol, idx, name)
             name = _carbonyl_substituent_prefix(mol, idx, parent_idx)
@@ -236,13 +382,27 @@ def _carbon_branch_prefix(mol, idx: int, parent_idx: int) -> str:
     else:
         if _is_isocyano_carbon(mol, idx):
             return _with_root_carbon_isotope(mol, idx, "isocyano")
-        if _is_carboxylate_carbon(mol, idx):
+        if _is_carboxylate_carbon(mol, idx) and _terminal_carboxylato_branch(mol, idx, parent_idx):
             return _with_root_carbon_isotope(mol, idx, suffix_prefix_term("oate", "carboxylato"))
 
     name = _resource_prefix(mol, idx, parent_idx)
     if name:
         return _with_root_carbon_isotope(mol, idx, name)
     return _with_root_carbon_isotope(mol, idx, _carbon_prefix(mol, idx, parent_idx))
+
+
+def _terminal_carboxylato_branch(mol, idx, parent_idx):
+    """A carboxylato word owns only its C and two terminal O atoms.
+
+    When naming from the anionic oxygen, the carbonyl carbon's other arm
+    remains part of the substituent. It cannot be swallowed by this shortcut.
+    """
+    children = [a for a in mol.GetAtomWithIdx(idx).GetNeighbors()
+                if a.GetIdx() != parent_idx and a.GetAtomicNum() > 1]
+    return (len(children) == 2 and all(a.GetAtomicNum() == 8
+            and not a.GetIsotope() and not a.GetTotalNumHs(includeNeighbors=True)
+            and len([n for n in a.GetNeighbors() if n.GetAtomicNum() > 1]) == 1
+            for a in children))
 
 
 def _terminal_methyl_prefix(mol, idx: int, parent_idx: int) -> str:
@@ -266,7 +426,10 @@ def _linear_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if _path_has_isotopic_hydrogen(mol, chain) or _path_has_assigned_stereo(mol, chain):
         return ""
     root = ROOTS.get(len(chain))
-    return root + "yl" if root else ""
+    if not root:
+        return ""
+    from ..isotope_mapping import locanted_isotope_prefix
+    return locanted_isotope_prefix(mol, tuple((i, str(n)) for n, i in enumerate(chain, 1))) + root + "yl"
 
 
 def _path_has_assigned_stereo(mol, atom_indices: Sequence[int]) -> bool:
@@ -278,7 +441,7 @@ def _path_has_assigned_stereo(mol, atom_indices: Sequence[int]) -> bool:
         bond.GetStereo() != Chem.BondStereo.STEREONONE
         and bond.GetBeginAtomIdx() in atom_set
         and bond.GetEndAtomIdx() in atom_set
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
@@ -392,8 +555,23 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
     chosen path, and side branches must already have branch-prefix coverage.
     """
 
+    # The attachment order is part of the suffix operation. A double bond
+    # needs -ylidene; treating it as an ordinary -yl silently saturates it.
+    # Triple-bond attachments retain their separate constructor.
+    attachment = mol.GetBondBetweenAtoms(idx, parent_idx)
+    if attachment is None or attachment.GetBondType() not in {Chem.BondType.SINGLE, Chem.BondType.DOUBLE}:
+        return ""
     atoms = collect_subtree(mol, idx, parent_idx)
-    if len(atoms) < 4 or len(atoms) > 18:
+    if len(atoms) < 4 or len(atoms) > max(ROOTS):
+        return ""
+    # Long pure-carbon trees have the same bounded endpoint/path problem as
+    # short alkyl groups. Keep the existing cap for functionalized branches.
+    if len(atoms) > 18 and any(
+        mol.GetAtomWithIdx(i).GetAtomicNum() not in {1, 6}
+        or mol.GetAtomWithIdx(i).GetFormalCharge()
+        or mol.GetAtomWithIdx(i).GetNumRadicalElectrons()
+        for i in atoms
+    ):
         return ""
     if any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
         return ""
@@ -404,11 +582,14 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
         for atom_idx in atoms
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
-        and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
         and not _is_nitrile_carbon(mol, atom_idx)
         and not _is_isocyano_carbon(mol, atom_idx)
     }
-    if idx not in carbon_atoms or len(carbon_atoms) < 4:
+    if idx not in carbon_atoms or len(carbon_atoms) < 3:
+        return ""
+    # Leave labelled three-carbon components with the existing mapped
+    # isotope writer. This compatibility path has no local isotope join.
+    if len(carbon_atoms) == 3 and any(mol.GetAtomWithIdx(i).GetIsotope() for i in atoms):
         return ""
     paths = _longest_carbon_paths_through_attachment(mol, carbon_atoms, idx)
     candidates = []
@@ -439,9 +620,8 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
     attached through one end of the chain has only one non-attachment leaf, so
     assigned alkene stereo otherwise falls through to the legacy unlocanted
     ``2-penten-1-yl`` style and may be hoisted as a molecule-level ``(Z)``.
-    Hetero-functional side branches are allowed only when the chosen path has
-    bond stereo but no path atom stereocenters; atom-stereo functional chains
-    are OPSIN-fragile and are better handled by retained functional parents.
+    Functional side branches retain the configurations of their mapped carbon
+    path. The path proof rejects assigned atoms outside that path.
     """
 
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
@@ -489,8 +669,6 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
             continue
         stereo_prefix = _locanted_substituent_path_stereo_prefix(mol, path, atoms)
         if not stereo_prefix:
-            continue
-        if carbon_atoms != atoms and any(piece.endswith(("R", "S")) for piece in stereo_prefix.split(",")):
             continue
         name = _locanted_substituent_path_name(mol, path, atoms, idx, parent_idx)
         if not name:
@@ -574,7 +752,7 @@ def _locanted_substituent_path_name(
     prefixes = []
     for pos, atom_idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(atom_idx)
-        if atom.GetFormalCharge() != 0 or atom.IsInRing() or atom.GetIsotope():
+        if atom.GetFormalCharge() != 0 or atom.IsInRing():
             return ""
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
@@ -592,14 +770,24 @@ def _locanted_substituent_path_name(
     if unsaturation is None:
         return ""
     ene_locs, yne_locs = unsaturation
-    parent = _locanted_substituent_parent(root, ene_locs, yne_locs, attachment_locant)
+    attachment = mol.GetBondBetweenAtoms(attachment_idx, blocked_idx)
+    if attachment is None or attachment.GetBondType() not in {Chem.BondType.SINGLE, Chem.BondType.DOUBLE}:
+        return ""
+    parent = _locanted_substituent_parent(
+        root, ene_locs, yne_locs, attachment_locant,
+        attachment_order=int(attachment.GetBondTypeAsDouble()))
     if not parent:
         return ""
     stereo_prefix = _locanted_substituent_path_stereo_prefix(mol, path, atoms)
     if stereo_prefix is None:
         return ""
     prefix_text = _format_prefixes(prefixes)
-    name = "-".join(part for part in (prefix_text, parent) if part)
+    # P-16.2.4.1: this producer's parent starts with its carbon-chain root.
+    # Internal unsaturation/attachment locants do not put a hyphen between
+    # the last substituent prefix and those initial letters (P-61.3.1).
+    name = prefix_text + parent
+    from ..isotope_mapping import locanted_isotope_prefix
+    name = locanted_isotope_prefix(mol, tuple((i, str(n)) for n, i in enumerate(path, 1))) + name
     return f"({stereo_prefix})-{name}" if stereo_prefix else name
 
 
@@ -624,21 +812,26 @@ def _locanted_substituent_parent(
     ene_locs: Sequence[int],
     yne_locs: Sequence[int],
     attachment_locant: int,
+    *,
+    attachment_order: int = 1,
 ) -> str:
     locant = str(attachment_locant)
+    ending = "ylidene" if attachment_order == 2 else "yl"
+    if root == "eth" and list(ene_locs) == [1] and not yne_locs and attachment_order == 1:
+        return "ethenyl"
     if not ene_locs and not yne_locs:
-        if attachment_locant == 1:
+        if attachment_locant == 1 and attachment_order == 1:
             return root + "yl"
-        return f"{root}an-{locant}-yl"
+        return f"{root}an-{locant}-{ending}"
     if yne_locs and not ene_locs:
         unsat = _modern_unsaturation_parent(root, yne_locs, "yn")
-        return f"{unsat}-{locant}-yl" if unsat else ""
+        return f"{unsat}-{locant}-{ending}" if unsat else ""
     if ene_locs and not yne_locs:
         unsat = _modern_unsaturation_parent(root, ene_locs, "en")
-        return f"{unsat}-{locant}-yl" if unsat else ""
+        return f"{unsat}-{locant}-{ending}" if unsat else ""
     ene = _modern_unsaturation_parent(root, ene_locs, "en")
     yne = _modern_unsaturation_parent("", yne_locs, "yn")
-    return f"{ene}-{yne}-{locant}-yl" if ene and yne else ""
+    return f"{ene}-{yne}-{locant}-{ending}" if ene and yne else ""
 
 
 def _modern_unsaturation_parent(root: str, locants: Sequence[int], suffix: str) -> str:
@@ -671,7 +864,7 @@ def _locanted_substituent_path_stereo_prefix(
             return None
         atom_descriptors.append((locant, f"{locant}{descriptor}"))
     bond_descriptors = []
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         if begin not in atoms or end not in atoms:
@@ -786,6 +979,11 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     branched_alkyl = _retained_branched_alkyl_prefix(mol, idx, parent_idx, heavy)
     if branched_alkyl:
         return branched_alkyl
+    if len(heavy) == 2 and atom.GetTotalNumHs() == 1 and not atom.GetIsotope() and all(
+            mol.GetAtomWithIdx(i).GetAtomicNum() == 8
+            and not mol.GetAtomWithIdx(i).GetIsotope()
+            and _oxygen_prefix(mol, i, idx) == "methoxy" for i in heavy):
+        return "dimethoxymethyl"
     halo_methyl = _halo_methyl_prefix(mol, heavy)
     if halo_methyl:
         return halo_methyl
@@ -818,11 +1016,23 @@ def _simple_substituted_alkyl_prefix(mol, idx: int, parent_idx: int) -> str:
             return ""
         if ring == "phenyl":
             return "benzyl"
-        if ring.endswith("phenyl"):
-            return ring[: -len("phenyl")] + "benzyl"
         if "-" in ring or ring[:1].isdigit() or ring.startswith("("):
             return f"({ring})methyl"
         return ring + "methyl"
+    if (
+        attached.GetAtomicNum() == 8 and not attached.GetFormalCharge()
+        and atom.GetTotalNumHs(includeNeighbors=True) == 2
+        and any(n.GetIdx() != idx and n.IsInRing() for n in attached.GetNeighbors())
+    ):
+        # P-16.5: an O-bound compound ring prefix has its own enclosing
+        # boundary before methyl. Prefer the recursive component writer only
+        # when it proves ownership of the complete original branch.
+        from ..component_mapping import _mapped_branch_recursive, has_annotations
+        atoms = frozenset(collect_subtree(mol, idx, parent_idx))
+        if not has_annotations(mol, atoms):
+            mapped, owned = _mapped_branch_recursive(mol, Chem, idx, parent_idx, atoms)
+            if mapped and owned == atoms:
+                return mapped
     hetero_methyl = _heteroatom_methyl_prefix(mol, attached_idx, idx)
     if hetero_methyl:
         return hetero_methyl
@@ -852,13 +1062,39 @@ def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
         oxy = _oxygen_prefix(mol, hetero_idx, methylene_idx)
         if not oxy or not oxy.endswith("oxy") and oxy != "hydroxy":
             return ""
-        return oxy + "methyl" if oxy != "hydroxy" else "hydroxymethyl"
+        atoms = frozenset(collect_subtree(mol, hetero_idx, methylene_idx))
+        if any(int(mol.GetAtomWithIdx(i).GetChiralTag()) for i in atoms):
+            from ..component_mapping import mapped_branch
+            mapped, owned = mapped_branch(mol, Chem, hetero_idx, methylene_idx)
+            if not mapped or owned != atoms:
+                # For example, a stereogenic phosphorus atom may be third
+                # in the complete replacement chain. That locant cannot
+                # decorate a phosphoryloxymethyl word without its own map.
+                return ""
+            oxy = mapped
+        if oxy == "hydroxy":
+            return "hydroxymethyl"
+        from ..formatting import _prefix_needs_parentheses, enclose_name_unit
+        # The complete O-bound component owns its carbon substituents.
+        # Preserve that unit before attaching the separate methylene carbon.
+        unit = enclose_name_unit(oxy) if _prefix_needs_parentheses(oxy) else oxy
+        return unit + "methyl"
     if atom.GetFormalCharge() != 0:
         return ""
     if atom.GetSymbol() == "N":
         nitrogen_prefix = _nitrogen_prefix(mol, hetero_idx, methylene_idx)
         if not nitrogen_prefix:
             return ""
+        atoms = frozenset(collect_subtree(mol, hetero_idx, methylene_idx))
+        if any(int(mol.GetAtomWithIdx(i).GetChiralTag()) for i in atoms):
+            # This amino component has its own child numbering. A later
+            # ring-branch decorator cannot borrow locants from a longer
+            # replacement chain through the methylene and nitrogen.
+            from ..component_mapping import mapped_branch
+            mapped, owned = mapped_branch(mol, Chem, hetero_idx, methylene_idx)
+            if not mapped or owned != atoms:
+                return ""
+            nitrogen_prefix = mapped
         if nitrogen_prefix.endswith("amino"):
             if _complex_hetero_methyl_prefix(nitrogen_prefix):
                 return f"({nitrogen_prefix})methyl"
@@ -944,7 +1180,9 @@ def _complex_hetero_methyl_prefix(prefix: str) -> bool:
 
 def _terminal_carboxymethyl_prefix(mol, carbonyl_idx: int, methylene_idx: int, parent_idx: int) -> str:
     parent = mol.GetAtomWithIdx(parent_idx)
-    if parent.GetSymbol() == "N":
+    if parent.GetSymbol() == "N" and not (
+            parent.IsInRing() and not parent.GetIsAromatic() and parent.GetTotalValence() == 3
+            and not parent.GetFormalCharge() and not parent.GetIsotope()):
         return ""
     carbonyl = mol.GetAtomWithIdx(carbonyl_idx)
     if carbonyl.GetSymbol() != "C" or carbonyl.GetFormalCharge() != 0 or carbonyl.IsInRing():
@@ -1108,6 +1346,8 @@ def _functionalized_alkyl_name(root: str, group_terms: Sequence[tuple[int, str]]
         return ""
     if len(group_terms) == 1 and group_terms[0][0] == terminal_locant:
         locant, term = group_terms[0]
+        from ..component_vocabulary import preferred_component
+        term = preferred_component(term)
         if "-" in term or "(" in term or ")" in term:
             term = f"({term})"
         return f"{locant}-{term}{root}yl"
@@ -1204,7 +1444,7 @@ def _retained_branched_alkyl_prefix(mol, idx: int, parent_idx: int, heavy: Seque
         if nbr.GetIdx() != idx and nbr.GetAtomicNum() > 1
     ]
     if len(attached_heavy) == 2 and all(_is_terminal_methyl(mol, nbr_idx, attached_idx) for nbr_idx in attached_heavy):
-        return "isobutyl"
+        return "2-methylpropyl"
     if len(attached_heavy) == 3 and all(_is_terminal_methyl(mol, nbr_idx, attached_idx) for nbr_idx in attached_heavy):
         return "neopentyl"
     return ""
@@ -1216,7 +1456,7 @@ def _branch_has_assigned_stereo(mol, idx: int, parent_idx: int) -> bool:
         atom = mol.GetAtomWithIdx(atom_idx)
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             return True
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         if begin in atoms and end in atoms and bond.GetStereo() != Chem.BondStereo.STEREONONE:
@@ -1228,7 +1468,8 @@ def _halo_methyl_prefix(mol, heavy: Sequence[int]) -> str:
     symbols = []
     for nidx in heavy:
         atom = mol.GetAtomWithIdx(nidx)
-        if atom.GetSymbol() not in HALO or atom.GetIsotope():
+        if (atom.GetSymbol() not in HALO or atom.GetIsotope() or atom.GetFormalCharge()
+                or len([a for a in atom.GetNeighbors() if a.GetAtomicNum() > 1]) != 1):
             return ""
         symbols.append(atom.GetSymbol())
     if not symbols or len(set(symbols)) != 1 or len(symbols) > 3:
@@ -1375,7 +1616,10 @@ def _boc_aminoalkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     path = _linear_carbon_chain_to_boc_nitrogen(mol, idx, parent_idx)
     if not path:
         return ""
-    if _path_has_isotopic_hydrogen(mol, path[:-1]):
+    from .preferred_acyl import _ordinary_neutral_graph
+    if (not _ordinary_neutral_graph(mol)
+            or _path_has_isotopic_hydrogen(mol, path[:-1])
+            or _path_has_assigned_stereo(mol, path[:-1])):
         return ""
     parent = mol.GetAtomWithIdx(parent_idx)
     if parent.IsInRing() and not parent.GetIsAromatic() and _has_assigned_stereo(mol):
@@ -1384,9 +1628,9 @@ def _boc_aminoalkyl_prefix(mol, idx: int, parent_idx: int) -> str:
     if not _nitrogen_has_unsubstituted_boc_group(mol, nitrogen_idx, path[-2]):
         return ""
     return {
-        1: "bocaminomethyl",
-        2: "2-bocaminoethyl",
-        3: "3-bocaminopropyl",
+        1: "((tert-butoxycarbonyl)amino)methyl",
+        2: "2-((tert-butoxycarbonyl)amino)ethyl",
+        3: "3-((tert-butoxycarbonyl)amino)propyl",
     }.get(len(path) - 1, "")
 
 
@@ -1399,9 +1643,9 @@ def _path_has_isotopic_hydrogen(mol, atom_indices: Sequence[int]) -> bool:
 
 
 def _has_assigned_stereo(mol) -> bool:
-    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)):
         return True
-    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol))
 
 
 def _linear_carbon_chain_to_boc_nitrogen(mol, idx: int, parent_idx: int) -> tuple[int, ...]:
@@ -1527,7 +1771,7 @@ def _mesyloxymethyl_prefix(mol, idx: int, parent_idx: int) -> str:
     ]
     if len(sulfur_neighbors) != 1:
         return ""
-    return "mesyloxymethyl" if _is_methylsulfonyl_sulfur(mol, sulfur_neighbors[0], oxygen_idx) else ""
+    return "(mesyl)oxymethyl" if _is_methylsulfonyl_sulfur(mol, sulfur_neighbors[0], oxygen_idx) else ""
 
 
 def _is_methylsulfonyl_sulfur(mol, sulfur_idx: int, oxygen_idx: int) -> bool:
@@ -1888,8 +2132,6 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
                 return ""
             if ring == "phenyl":
                 return "benzylidene"
-            if ring.endswith("phenyl"):
-                return ring[: -len("phenyl")] + "benzylidene"
             if "-" in ring or ring[:1].isdigit() or ring.startswith("("):
                 return f"({ring})methylidene"
             return ring + "methylidene"
@@ -1922,6 +2164,7 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
         if all(chains) and all(len(chain) == 1 for chain in chains):
             return "propan-2-ylidene"
         substituent_names = []
+        from ..formatting import enclose_name_unit, prefix_alphabetization_key
         for nidx in heavy:
             symbol = mol.GetAtomWithIdx(nidx).GetSymbol()
             if symbol in HALO:
@@ -1937,13 +2180,26 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
                     break
                 substituent_names.append(f"({ring})" if not ring.startswith("(") else ring)
                 continue
+            oxygen = (_oxygen_prefix(mol, nidx, idx) if symbol == "O"
+                      and not mol.GetAtomWithIdx(nidx).GetNumRadicalElectrons() else "")
+            if oxygen in {"hydroxy", "methoxy", "ethoxy", "propoxy", "butoxy"}:
+                # Separate both ligands on the same ylidene carbon. OPSIN
+                # otherwise allows an aryl group to enter a preceding alkoxy.
+                substituent_names.append(enclose_name_unit(oxygen))
+                continue
             name = substituent_from_root(mol, nidx, idx)
             if not name:
                 substituent_names = []
                 break
-            substituent_names.append(_parenthesize_complex_prefix(name))
+            if name.endswith("carbamoyl") and name != "carbamoyl":
+                # This is one substituted carbamoyl branch. A preceding
+                # prefix belongs to methylidene, never to its N ligand.
+                name = enclose_name_unit(name)
+            else:
+                name = _parenthesize_complex_prefix(name)
+            substituent_names.append(name)
         if substituent_names:
-            return "".join(sorted(substituent_names)) + "methylidene"
+            return "".join(sorted(substituent_names, key=prefix_alphabetization_key)) + "methylidene"
         if any(not chain for chain in chains):
             return ""
     return ""
@@ -1981,8 +2237,20 @@ def _functionalized_ethylidene_substituent_name(mol, substituent_idx: int, ylide
     bond = mol.GetBondBetweenAtoms(substituent_idx, ylidene_idx)
     if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
+    if atom.GetSymbol() in HALO and atom.GetDegree() == 1:
+        # A halogen and methyl attached to the ylidene carbon give a
+        # 1-haloethylidene group. Concatenating halo + methyl + methylidene
+        # instead binds the halogen to a different carbon in the name.
+        return HALO[atom.GetSymbol()]
+    if atom.GetAtomicNum() == 8 and atom.GetDegree() == 1 and atom.GetTotalNumHs() == 1:
+        # Both hydroxy and methyl are attached to the ylidene carbon.
+        # Hydroxymethylmethylidene would move OH to the next carbon.
+        return 'hydroxy'
     if _is_nitrile_carbon(mol, substituent_idx):
         return "cyano"
+    if atom.IsInRing():
+        name = _ring_substituent_prefix(mol, substituent_idx, ylidene_idx)
+        return name if name and name.endswith("yl") else ""
     if atom.GetSymbol() != "C" or atom.IsInRing():
         return ""
     subtree = collect_subtree(mol, substituent_idx, ylidene_idx)
@@ -1991,7 +2259,7 @@ def _functionalized_ethylidene_substituent_name(mol, substituent_idx: int, ylide
     name = substituent_from_root(mol, substituent_idx, ylidene_idx)
     if not name:
         return ""
-    if name in {"carboxy", "carboxylato", "formyl", "carbamyl"}:
+    if name in {"carboxy", "carboxylato", "formyl", "carbamyl", "carbamoyl"}:
         return name
     if name.endswith("oxycarbonyl"):
         return name
@@ -2053,7 +2321,7 @@ def _functionalized_carbon_methylidene_substituent(mol, carbon_idx: int, ylidene
     if not _subtree_has_functional_carbon_evidence(mol, subtree):
         return ""
     name = _carbon_branch_prefix(mol, carbon_idx, ylidene_idx)
-    if name in {"carboxy", "carboxylato", "formyl", "carbamyl"} or name.endswith("oxycarbonyl"):
+    if name in {"carboxy", "carboxylato", "formyl", "carbamyl", "carbamoyl"} or name.endswith("oxycarbonyl"):
         return name
     if not name or not name.endswith("yl") or name.endswith("ylidene"):
         return ""
@@ -2069,7 +2337,7 @@ def _subtree_has_functional_carbon_evidence(mol, atom_indices: set[int]) -> bool
         bond.GetBondType() in {Chem.BondType.DOUBLE, Chem.BondType.TRIPLE}
         and bond.GetBeginAtomIdx() in atom_indices
         and bond.GetEndAtomIdx() in atom_indices
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )
 
 
@@ -2204,12 +2472,9 @@ def _haloethenyl_prefix(mol, idx: int, parent_idx: int) -> str:
         halo_names.append(HALO[nbr.GetSymbol()])
     if len(halo_names) != 2:
         return ""
-    counts = Counter(halo_names)
-    parts = []
-    for name in sorted(counts):
-        count = counts[name]
-        parts.append((MULT.get(count, "") if count > 1 else "") + name)
-    return "2,2-" + "".join(parts) + "ethenyl"
+    # Each distinct characteristic prefix owns its locants. Combining their
+    # words under one locant list makes two different ligands one operation.
+    return _format_prefixes([('2', name) for name in halo_names]) + 'ethenyl'
 
 
 def _ketenyl_prefix(mol, idx: int, parent_idx: int) -> str:

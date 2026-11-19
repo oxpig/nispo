@@ -8,35 +8,47 @@ from functools import lru_cache
 from heapq import nsmallest
 from itertools import combinations
 
+from ..molecule_iteration import iter_atoms, iter_bonds
 from ..branch_rules import branch_prefix
 from ..constants import HALO, MULT, ROOTS
 from ..cycle_utils import ordered_ring, ring_system_extends_core
 from ..formatting import format_prefixes as _format_prefixes
 from ..formatting import join_prefix_parent as _join_prefix_parent
 from ..formatting import preferred_parent_stem as _preferred_parent_stem
-from ..formatting import loc_unsat
+from ..formatting import complete_parent_name as _complete_parent_name
+from ..formatting import loc_unsat, multiplied_suffix
 from ..formatting import _multiplied_prefix_unit_name
 from ..benzimidazole_orientation import preferred_benzimidazole_n1_benzenoid_locant_map
 from ..fused_template_families import (
     generated_fusion_preference as _generated_fusion_preference,
 )
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
+from ..ring.atom_facts import ring_adjustment_atoms
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from ..ring_rules import (
     adjust_ring_parent_for_charge as _adjust_ring_parent_for_charge,
     ring_parent_candidates as _ring_parent_candidates,
 )
 from ..simple_prefixes import simple_external_prefix
-from ..stereochemistry import _has_assigned_bond_stereo, _has_assigned_stereo, assigned_atom_stereochemistry
+from ..stereochemistry import (
+    _has_assigned_bond_stereo,
+    _has_assigned_stereo,
+    assigned_atom_stereochemistry,
+    assigned_bond_stereochemistry,
+)
 from ..substituent_resource_rules import resource_substituent_match as _resource_substituent_match
 from ..template_access import template_record_locants, template_record_mol, template_record_name
 
 _OPSIN_PARSEABLE_RETAINED_PARENT_ALIASES = {
     "4-azachroman-3(4H)-one": "3,4-dihydro-2H-1,4-benzoxazin-3-one",
     "boronicacidpinacolester": "4,4,5,5-tetramethyl-1,3,2-dioxaborolane",
+    "adamantanol": "adamantan-1-ol",
     "mequinol": "4-methoxyphenol",
+    "coumarin": "2H-chromen-2-one",
     "paraben": "4-hydroxybenzoic acid",
-    "xanthin": "purin-2,6(1H,3H,9H)-dione",
+    # The numbered xanthin reference has [nH] at 1, 3 and 7. Using 9H
+    # instead saturates C-8 when a substituent already occupies N-7.
+    "xanthin": "purin-2,6(1H,3H,7H)-dione",
 }
 
 _ELEMENT_RADICAL_PARENT_WORDS = {
@@ -85,6 +97,7 @@ _TERMINAL_RETAINED_PARENT_BY_STEM = {
     "estr": "estrane",
     "furost": "furostane",
     "morphin": "morphinan",
+    "phthalid": "phthalide",
     "poriferast": "poriferastane",
     "prost": "prostane",
     "pterocarp": "pterocarpan",
@@ -96,6 +109,7 @@ _TERMINAL_RETAINED_PARENT_BY_STEM = {
     "spirost": "spirostane",
     "thrombox": "thromboxane",
     "trop": "tropane",
+    "indolizin": "indolizine",
 }
 
 
@@ -111,7 +125,9 @@ def _terminal_retained_parent_name(name: str) -> str:
         return f"{name[:-4]} acid"
     if name.endswith(("ic", "ylic")) and name not in _RETAINED_ACID_PARENT_STEM_EXCEPTIONS:
         return f"{name} acid"
-    return _TERMINAL_RETAINED_PARENT_BY_STEM.get(name, name)
+    # Complete the parent before isotope/hydrogenation decoration or suffix
+    # attachment. The latter operation owns any subsequent vowel elision.
+    return _complete_parent_name(_TERMINAL_RETAINED_PARENT_BY_STEM.get(name, name))
 
 
 def _terminal_retained_charged_parent_name(name: str) -> str:
@@ -293,6 +309,9 @@ def _iter_fused_template_matches(
             if stage_counts is not None:
                 stage_counts["matches"] += len(matches)
             for match in matches:
+                from ..stereochemistry import retained_stereo_is_covered
+                if not retained_stereo_is_covered(mol, template_mol, match):
+                    continue
                 if reject_extra_core_bonds and _match_has_extra_core_bonds(mol, template, match):
                     if stage_counts is not None:
                         stage_counts["rejected_extra_core_bonds"] += 1
@@ -329,7 +348,7 @@ def _atom_neighbor_indices(mol) -> tuple[tuple[int, ...], ...]:
     cached = mol_cache_get(mol, "atom_neighbor_indices")
     if cached is not None:
         return cached
-    neighbors = tuple(tuple(nbr.GetIdx() for nbr in atom.GetNeighbors()) for atom in mol.GetAtoms())
+    neighbors = tuple(tuple(nbr.GetIdx() for nbr in atom.GetNeighbors()) for atom in iter_atoms(mol))
     return mol_cache_set(mol, "atom_neighbor_indices", neighbors)
 
 
@@ -387,9 +406,9 @@ def _subtree_has_cumulated_diene(mol, start_idx: int, blocked_idx: int) -> bool:
 @lru_cache(maxsize=None)
 def _skeletal_replacement_query(template_mol, Chem):
     query = Chem.RWMol()
-    for _atom in template_mol.GetAtoms():
+    for _atom in iter_atoms(template_mol):
         query.AddAtom(Chem.AtomFromSmarts("[#5,#6,#7,#8,#14,#15,#16,#32,#33,#34,#50,#52]"))
-    for bond in template_mol.GetBonds():
+    for bond in iter_bonds(template_mol):
         query.AddBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), Chem.BondType.UNSPECIFIED)
     return query.GetMol()
 
@@ -397,7 +416,7 @@ def _skeletal_replacement_query(template_mol, Chem):
 def _skeletal_replacement_bond_order_mismatch_count(mol, template: dict, match: Sequence[int]) -> int:
     template_mol = template_record_mol(template)
     mismatches = 0
-    for template_bond in template_mol.GetBonds():
+    for template_bond in iter_bonds(template_mol):
         begin = template_bond.GetBeginAtomIdx()
         end = template_bond.GetEndAtomIdx()
         mol_bond = mol.GetBondBetweenAtoms(match[begin], match[end])
@@ -417,7 +436,7 @@ def _skeletal_replacement_bond_order_mismatch_count(mol, template: dict, match: 
 def _skeletal_replacement_unsaturated_hetero_bond_penalty(mol, template: dict, match: Sequence[int]) -> int:
     template_mol = template_record_mol(template)
     penalty = 0
-    for template_bond in template_mol.GetBonds():
+    for template_bond in iter_bonds(template_mol):
         if template_bond.GetIsAromatic() or template_bond.GetBondTypeAsDouble() <= 1.0:
             continue
         begin_atom = mol.GetAtomWithIdx(match[template_bond.GetBeginAtomIdx()])
@@ -474,7 +493,12 @@ def _skeletal_replacement_parent_name(mol, template: dict, match: Sequence[int])
     parent_name = template_record_name(template)
     if parent_name == "gon":
         parent_name = "cyclopenta[a]phenanthren"
-    return _charge_suffixed_replacement_parent_name("-".join(parts) + parent_name, charged_locs)
+    parent_name = "-".join(parts) + parent_name
+    if not charged_locs and _skeletal_replacement_bond_order_mismatch_count(mol, template, match):
+        from rdkit import Chem
+        from ..replacement_hydrogenation import hydrogenated_replacement_parent
+        parent_name = hydrogenated_replacement_parent(mol, Chem, template, match, parent_name)
+    return _charge_suffixed_replacement_parent_name(parent_name, charged_locs)
 
 
 def _charge_suffixed_replacement_parent_name(parent_name: str, charged_locs: Sequence[str]) -> str:
@@ -508,7 +532,7 @@ def _retained_topology_replacement_template_allows_nh(template: dict) -> bool:
         return False
     return any(
         atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0
-        for atom in template_mol.GetAtoms()
+        for atom in iter_atoms(template_mol)
     )
 
 
@@ -524,7 +548,7 @@ def _retained_topology_replacement_parent_name(
     template_mol = template_record_mol(template)
     if (
         not allow_nh_template
-        and any(atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 for atom in template_mol.GetAtoms())
+        and any(atom.GetSymbol() == "N" and atom.GetTotalNumHs() > 0 for atom in iter_atoms(template_mol))
     ):
         return ""
     locants = template_record_locants(template)
@@ -581,6 +605,7 @@ def _skeletal_replacement_sort_key(mol, match: Sequence[int], parent_name: str) 
     )
 
 
+@lru_cache(maxsize=8192)
 def _skeletal_replacement_locant_tuple(parent_name: str) -> tuple[int, ...]:
     grouped = _skeletal_replacement_locants_by_prefix(parent_name)
     locants: list[int] = []
@@ -589,6 +614,7 @@ def _skeletal_replacement_locant_tuple(parent_name: str) -> tuple[int, ...]:
     return tuple(sorted(locants)) or (999,)
 
 
+@lru_cache(maxsize=8192)
 def _skeletal_replacement_prefix_locant_key(parent_name: str) -> tuple[tuple[int, ...], ...]:
     grouped = _skeletal_replacement_locants_by_prefix(parent_name)
     prefix_order = ("aza", "oxa", "thia", "phospha", "selena", "tellura", "bora", "sila", "germa", "stanna", "arsa")
@@ -617,7 +643,7 @@ def _spiro_norbornene_locant_penalty(parent_name: str) -> int:
 def _skeletal_replacement_saturation_penalty(mol, match: Sequence[int], parent_name: str) -> int:
     core_atoms = set(match)
     has_unsaturation = False
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBeginAtomIdx() not in core_atoms or bond.GetEndAtomIdx() not in core_atoms:
             continue
         if bond.GetIsAromatic() or bond.GetBondTypeAsDouble() > 1.0:
@@ -655,7 +681,7 @@ def _skeletal_replacement_saturation_penalty(mol, match: Sequence[int], parent_n
 
 
 def _has_nonaromatic_core_imine(mol, core_atoms: set[int]) -> bool:
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBeginAtomIdx() not in core_atoms or bond.GetEndAtomIdx() not in core_atoms:
             continue
         if bond.GetIsAromatic() or bond.GetBondTypeAsDouble() != 2.0:
@@ -691,10 +717,10 @@ def _has_stereo_evidence(mol, Chem) -> bool:
     cached = mol_cache_get(mol, "has_stereo_evidence")
     if cached is not None:
         return cached
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             return mol_cache_set(mol, "has_stereo_evidence", True)
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return mol_cache_set(mol, "has_stereo_evidence", True)
     return mol_cache_set(mol, "has_stereo_evidence", False)
@@ -703,9 +729,9 @@ def _has_stereo_evidence(mol, Chem) -> bool:
 @lru_cache(maxsize=None)
 def _topology_query(template_mol, Chem):
     query = Chem.RWMol()
-    for atom in template_mol.GetAtoms():
+    for atom in iter_atoms(template_mol):
         query.AddAtom(Chem.AtomFromSmarts(f"[#{atom.GetAtomicNum()}]"))
-    for bond in template_mol.GetBonds():
+    for bond in iter_bonds(template_mol):
         query.AddBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), Chem.BondType.UNSPECIFIED)
     return query.GetMol()
 
@@ -733,10 +759,22 @@ def _template_has_one_ring_system(template_mol) -> bool:
 
 @lru_cache(maxsize=None)
 def _template_is_fully_aromatic(template_mol) -> bool:
-    return all(atom.GetIsAromatic() for atom in template_mol.GetAtoms())
+    return all(atom.GetIsAromatic() for atom in iter_atoms(template_mol))
 
 
 def _hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str:
+    from ..fused_carboline_hydrogenation import preferred_saturated_pyridoindole_parent
+    preferred = preferred_saturated_pyridoindole_parent(mol, template, match)
+    if preferred:
+        return preferred
+    # This consumer separately accommodates N-H references with its suffix
+    # operations. Keep that path authoritative until those operations carry
+    # joint indicated-H evidence; the neutral carbon-H proof cannot replace it.
+    if not any(a.GetAtomicNum() == 7 and a.GetTotalNumHs()
+               for a in iter_atoms(template_record_mol(template))):
+        proved = _proved_hydro_parent_name(mol, template, match)
+        if proved is not None:
+            return proved
     hydro_locs = []
     charged_locs = []
     charged_has_hydrogen = False
@@ -830,7 +868,59 @@ def _is_hydro_locant(locant: str) -> bool:
     return bool(locant) and locant[0].isdigit() and not locant.endswith("a")
 
 
+def _proved_hydro_parent_name(mol, template: dict, match: Sequence[int]) -> str | None:
+    """Return a complete neutral H-state name, or None outside this scope."""
+    # A bounded mapped hydride must express its complete H population.
+    # Subsets of hydro locants are different molecules, not naming options.
+    query = template_record_mol(template)
+    locants = template_record_locants(template)
+    from ..locant_order import writing_locant_key
+    supported = (len(match) == query.GetNumAtoms() <= 24
+        and all(a.IsInRing() and a.GetAtomicNum() in {6, 7, 8, 16}
+                and not a.GetFormalCharge() and not a.GetNumRadicalElectrons()
+                for a in iter_atoms(query))
+        and all(locants.get(j) and writing_locant_key(locants[j]) is not None
+                for j in range(len(match)))
+        and all(not mol.GetAtomWithIdx(i).GetFormalCharge() for i in match))
+    if supported:
+        from ..hydrogen_accommodation import unique_capped_pi_graph
+        from ..preferred_fused import hydrogenated_fused_parent_name
+        core = frozenset(match)
+        hydrogens = tuple(mol.GetAtomWithIdx(i).GetTotalNumHs() + sum(
+            b.GetBondTypeAsDouble() for b in mol.GetAtomWithIdx(i).GetBonds()
+            if b.GetOtherAtomIdx(i) not in core) for i in match)
+        if any(h != int(h) for h in hydrogens):
+            return ''
+        numbers = tuple(a.GetAtomicNum() for a in iter_atoms(query))
+        edges = tuple((b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in iter_bonds(query))
+        if not unique_capped_pi_graph(numbers, edges, tuple(map(int, hydrogens))):
+            return ''
+        parent_name = template_record_name(template)
+        if parent_name in {'coumarone', 'benzo[1,2-b]furan'}:
+            from ..fusion_components import resolve_component
+
+            reference = resolve_component('benzofuran')
+            track = {str(locants[a.GetIdx()]): a.GetAtomicNum() for a in iter_atoms(query)}
+            bonds = frozenset(frozenset((str(locants[b.GetBeginAtomIdx()]),
+                                          str(locants[b.GetEndAtomIdx()]))) for b in iter_bonds(query))
+            if reference is not None and track == dict(reference.label_elements) and bonds == reference.bonds:
+                parent_name = '1-benzofuran'
+        return hydrogenated_fused_parent_name(mol, {
+            'mol': query, 'locants': locants, 'name': parent_name}, match)
+    return None
+
+
 def _partial_hydro_parent_names(mol, template: dict, match: Sequence[int]):
+    from ..fused_carboline_hydrogenation import preferred_saturated_pyridoindole_parent
+    preferred = preferred_saturated_pyridoindole_parent(mol, template, match)
+    if preferred:
+        yield preferred, (0, 0, 0, 0, ())
+        return
+    proved = _proved_hydro_parent_name(mol, template, match)
+    if proved is not None:
+        if proved:
+            yield proved, (0, 0, 0, 0, ())
+        return
     candidate_locs = []
     scored_hydro_atoms = 0
     scored_hydro_total = 0
@@ -1215,12 +1305,12 @@ def _is_generated_benzimidazole_template(template: dict) -> bool:
     locants = template_record_locants(template)
     n_locants = {
         str(locants.get(atom.GetIdx(), ""))
-        for atom in template_mol.GetAtoms()
+        for atom in iter_atoms(template_mol)
         if atom.GetSymbol() == "N"
     }
     if n_locants != {"1", "3"}:
         return False
-    atom_symbols = Counter(atom.GetSymbol() for atom in template_mol.GetAtoms())
+    atom_symbols = Counter(atom.GetSymbol() for atom in iter_atoms(template_mol))
     return atom_symbols["N"] == 2 and atom_symbols["C"] == 7
 
 
@@ -1310,50 +1400,137 @@ def _name_fused_core_match(
     if _match_has_unlocanted_external_substitution(mol, template, match, core_set=core_set):
         cache[cache_key] = ""
         return ""
+    from ..incident_carbonyl_frames import configured_naphthalenone_name
+    incident_name = configured_naphthalenone_name(mol, template, match)
+    if incident_name:
+        cache[cache_key] = incident_name
+        return incident_name
     reverse = {mol_idx: template_idx for template_idx, mol_idx in enumerate(match)}
     parent_name = _terminal_retained_parent_name(parent_name or _adjust_fused_parent_for_charge(mol, template, reverse))
     parent_name = _template_isotope_prefixed_parent_name(mol, template, match, parent_name)
     parent_name = _opsin_parseable_retained_parent_name(parent_name)
-    radical_parent_name = _fused_single_external_element_radical_name(mol, template, match, reverse, parent_name)
+    from ..fused_carboline_hydrogenation import preferred_saturated_pyridoindole_parent
+    if parent_name and preferred_saturated_pyridoindole_parent(mol, template, match) == parent_name:
+        # The graph-backed hydride intentionally cites its 1H reference state;
+        # ordinary substituent attachment does not remove that designation.
+        template = {**template, "preserve_indicated_hydrogen": True}
+    source_template = template
+    from ..ring_parent_selection import record_rendered_ring_facts
+    from ..preferred_fused import preferred_fused_name_locants
+    preferred_name, preferred_locants = preferred_fused_name_locants(mol, template, match)
+    changed_numbering = preferred_locants != template_record_locants(template)
+    template_parent_name = _opsin_parseable_retained_parent_name(
+        _terminal_retained_parent_name(template_record_name(template)))
+    if (preferred_name != template_record_name(template)
+            and parent_name == template_parent_name):
+        # This operation renames and renumbers the bare template. A caller's
+        # skeletal replacements, charge or isotope operations already refer
+        # to its original numbering and must not be replaced by that bare
+        # name. Such composition needs an explicit translation of every
+        # operation; retaining the constructed parent preserves its graph.
+        template = {**template, "name": preferred_name, "locants": preferred_locants}
+        parent_name = preferred_name
+    template_locants = template_record_locants(template)
+    from ..fused_lactam import fused_lactam_seniority, localize_methylidene_stereo
+    localize_lactam_branches = bool(fused_lactam_seniority(mol, template, match, parent_name))
+    # The radical precheck and ordinary writer inspect the same external
+    # bonds. Retain their original order as primitive attachment indices.
+    external_attachments = tuple(
+        (mol_idx, reverse[mol_idx], template_locants.get(reverse[mol_idx]), nbr.GetIdx())
+        for mol_idx in match for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors()
+        if nbr.GetIdx() not in core_set
+    )
+    radical_parent_name = _fused_single_external_element_radical_name(
+        mol, template, match, reverse, parent_name,
+        external_attachments=external_attachments)
     if radical_parent_name:
         cache[cache_key] = radical_parent_name
         return radical_parent_name
     prefixes = []
     prefix_records = []
     template_mol = template_record_mol(template)
-    for mol_idx in match:
-        template_idx = reverse[mol_idx]
-        locant = template_record_locants(template).get(template_idx)
-        for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in core_set:
-                continue
-            if not locant:
-                cache[cache_key] = ""
-                return ""
-            prefix = simple_external_prefix(mol, nidx, mol_idx) or branch_prefix(
-                mol,
-                nidx,
-                mol_idx,
-                assume_simple_external_prefix_miss=True,
-            )
-            if not prefix:
-                cache[cache_key] = ""
-                return ""
-            prefix_records.append((locant, prefix, template_mol.GetAtomWithIdx(template_idx).GetSymbol()))
+    for mol_idx, template_idx, locant, nidx in external_attachments:
+        if not locant:
+            cache[cache_key] = ""
+            return ""
+        prefix = simple_external_prefix(mol, nidx, mol_idx) or branch_prefix(
+            mol,
+            nidx,
+            mol_idx,
+            assume_simple_external_prefix_miss=True,
+        )
+        if not prefix:
+            cache[cache_key] = ""
+            return ""
+        if localize_lactam_branches:
+            prefix = localize_methylidene_stereo(mol, nidx, mol_idx, prefix)
+        from ..principal_carbonyl import localize_acyclic_alkenyl_stereo
+        prefix = localize_acyclic_alkenyl_stereo(mol, nidx, mol_idx, prefix)
+        from ..principal_groups import principal_ring_groups, alcohol_substituent_prefix
+        if principal_ring_groups(mol)[0] == "lactone":
+            prefix = alcohol_substituent_prefix(mol, nidx, mol_idx) or prefix
+        prefix_records.append((locant, prefix, template_mol.GetAtomWithIdx(template_idx).GetSymbol()))
+    alcohol_locant_map, locant_map = {}, {}
     if prefix_records:
+        if "quinon" in template_record_name(source_template) and parent_name.endswith("one"):
+            from ..preferred_fused import preferred_quinone_numbering
+            mapped = preferred_quinone_numbering(mol, source_template, match, prefix_records)
+            translation = {template_locants[i]: loc for i, loc in mapped.items()}
+            prefix_records = [(translation.get(loc, loc), prefix, symbol) for loc, prefix, symbol in prefix_records]
+            template = {**template, "locants": mapped}
+            template_locants = mapped
+        parent_name, alcohol_locant_map = _fused_alcohol_hydro_numbering(mol, parent_name, prefix_records)
+        if alcohol_locant_map:
+            prefix_records = [(alcohol_locant_map.get(loc, loc), prefix, symbol)
+                              for loc, prefix, symbol in prefix_records]
         locant_map = _benzimidazole_n1_benzenoid_prefix_locant_map(template, prefix_records)
         prefixes = [(locant_map.get(locant, locant), prefix) for locant, prefix, _symbol in prefix_records]
     if not prefixes:
         result = _join_prefix_parent("", parent_name)
+        record_rendered_ring_facts(mol, match,
+            {idx: template_locants.get(reverse[idx], "") for idx in match},
+            parent_name, (), result)
         cache[cache_key] = result
         return result
+    from ..principal_carbonyl import (
+        configured_methine_ring_junction, mapped_ring_oxo_suffix,
+        record_cited_ring_suffix, ring_carbonyl_suffix_name, _ring_carbonyl_comparison_sites,
+    )
+    mapping = {idx: template_locants.get(reverse[idx], "") for idx in core_set}
+    def mapped_oxo_citation(name, *, intrinsic=False):
+        if not configured_methine_ring_junction(mol, core_set):
+            return
+        groups = _ring_carbonyl_comparison_sites(mol)
+        group_kinds = {'ketone', 'pseudoketone', 'lactam', 'lactone'}
+        groups = tuple(g for g in groups if g.kind in group_kinds and g.center in core_set)
+        if intrinsic:
+            groups = tuple(
+                g for g in groups if any(
+                    i in reverse and mol.GetAtomWithIdx(i).GetAtomicNum() == 8
+                    and (b := template_mol.GetBondBetweenAtoms(reverse[g.center], reverse[i])) is not None
+                    and b.GetBondTypeAsDouble() == 2
+                    for i in g.atoms if i != g.center))
+        else:
+            groups = tuple(g for g in groups if (mapping[g.center], 'oxo') in prefixes)
+        record_cited_ring_suffix(mol, core_set, name, groups)
+        if groups and changed_numbering:
+            mol_cache_dict(mol, 'rendered_parent_locants')[(name, frozenset(core_set))] = tuple(mapping.items())
+
+    carbonyl_name = ring_carbonyl_suffix_name(
+        mol, core_set, {idx: template_locants.get(reverse[idx], "") for idx in core_set},
+        prefixes, parent_name,
+    )
+    carbonyl_name = carbonyl_name or mapped_ring_oxo_suffix(mol, core_set, mapping, prefixes, parent_name)
+    if carbonyl_name:
+        mapped_oxo_citation(carbonyl_name)
+        cache[cache_key] = carbonyl_name
+        return carbonyl_name
     indicated_h_locs = _matched_fused_indicated_hydrogen_locants(mol, template, reverse)
-    purin_amine_name = _fused_purin_6_amine_name(prefixes, parent_name)
+    purin_amine_name = _fused_purin_6_amine_name(prefixes, parent_name, indicated_h_locs)
     if purin_amine_name:
         cache[cache_key] = purin_amine_name
         return purin_amine_name
-    purin_thioxo_name = _fused_purin_indicated_thioxo_name(prefixes, parent_name)
+    purin_thioxo_name = _fused_purin_indicated_thioxo_name(prefixes, parent_name, indicated_h_locs)
     if purin_thioxo_name:
         cache[cache_key] = purin_thioxo_name
         return purin_thioxo_name
@@ -1365,13 +1542,15 @@ def _name_fused_core_match(
     if suffix_name:
         cache[cache_key] = suffix_name
         return suffix_name
-    parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
+    if not template.get("preserve_indicated_hydrogen"):
+        parent_name = _drop_indicated_hydrogen_segments(parent_name, prefixes)
     suffix_name = (
         _fused_thione_suffix_name(prefixes, parent_name, indicated_h_locs)
         if _may_have_fused_thione_suffix(prefixes)
         else ""
     )
     if suffix_name:
+        mapped_oxo_citation(suffix_name)
         cache[cache_key] = suffix_name
         return suffix_name
     suffix_name = (
@@ -1390,12 +1569,95 @@ def _name_fused_core_match(
     if suffix_name:
         cache[cache_key] = suffix_name
         return suffix_name
+    # Alcohol suffixes on neutral carbon-only fused parents need no tautomer
+    # or indicated-hydrogen adjustment. Exclude all senior carbonyl classes.
+    configured_alcohol = (configured_methine_ring_junction(mol, core_set)
+                          and all(mol.GetAtomWithIdx(idx).GetAtomicNum() in {6, 8} for idx in core_set)
+                          and bool(groups := _ring_carbonyl_comparison_sites(mol))
+                          and all(group.kind == 'alcohol' and group.center in core_set for group in groups))
+    hydroxy_locs = [loc for loc, prefix in prefixes if prefix == "hydroxy"]
+    if (hydroxy_locs and all(loc.isdigit() for loc in hydroxy_locs)
+        and (configured_alcohol or
+             (all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in core_set)
+              and all(not a.GetFormalCharge() and not a.GetIsotope()
+                      and a.GetAtomicNum() in {1, 6, 8, 9, 17, 35, 53} for a in iter_atoms(mol))))
+        and all(b.GetBondTypeAsDouble() == 1 for a in iter_atoms(mol) if a.GetAtomicNum() == 8 for b in a.GetBonds())
+        and sum(a.GetAtomicNum() == 8 and a.GetTotalNumHs(includeNeighbors=True) == 1 for a in iter_atoms(mol)) == len(hydroxy_locs)):
+        parent = _preferred_parent_stem(parent_name)
+        if parent == "decalin":
+            parent = "decahydronaphthalene"
+        locs = sorted(hydroxy_locs, key=int)
+        remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "hydroxy"]
+        if len(locs) == 1:
+            core = parent.removesuffix("e") + f"-{locs[0]}-ol"
+        else:
+            multiplier = MULT.get(len(locs))
+            if not multiplier:
+                cache[cache_key] = ""
+                return ""
+            core = parent + f"-{','.join(locs)}-{multiplied_suffix(len(locs), 'ol')}"
+        result = _join_prefix_parent(_format_prefixes(remaining), core)
+        if not alcohol_locant_map and not locant_map:
+            mapping = {idx: template_locants.get(reverse[idx], "") for idx in match}
+            record_rendered_ring_facts(mol, match, mapping, parent_name, remaining, result,
+                suffix_centers=[idx for idx in match if mapping[idx] in locs], suffix_locants=locs)
+        if configured_methine_ring_junction(mol, core_set):
+            groups = _ring_carbonyl_comparison_sites(mol)
+            record_cited_ring_suffix(mol, core_set, result,
+                [g for g in groups if g.kind == 'alcohol' and mapping.get(g.center) in locs])
+        cache[cache_key] = result
+        return result
+    if (parent_name == template_parent_name and not alcohol_locant_map and not locant_map
+            and "hydro" not in parent_name and any(term == "oxo" for _place, term in prefixes)):
+        from ..extended_inventory import selection_inventory
+
+        principal = selection_inventory(mol).principal
+        if principal and all(group.center not in core_set for group in principal):
+            # Keep the subordinate oxo operation on the original numbered
+            # hydride when a more senior group prevents an annular suffix.
+            from ..branch.ring_substituents import _fused_multi_prefix_hydro
+
+            hydro_prefix = _fused_multi_prefix_hydro(mol, template, reverse, prefix_records)
+            if hydro_prefix:
+                result = hydro_prefix + ("-" if parent_name[0].isdigit() else "") + parent_name
+                cache[cache_key] = result
+                return result
     prefix_text = _format_prefixes(prefixes)
     if not prefix_text:
         cache[cache_key] = ""
         return ""
     result = _join_prefix_parent(prefix_text, parent_name)
+    if parent_name == "1,3-dihydro-2H-indol-2-one":
+        descriptors = []
+        rendered_bonds = []
+        for bond in iter_bonds(mol):
+            inside = [i for i in (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) if i in core_set]
+            descriptor = {"STEREOE": "E", "STEREOTRANS": "E", "STEREOZ": "Z", "STEREOCIS": "Z"}.get(str(bond.GetStereo()))
+            if descriptor and len(inside) == 1:
+                locant = template_locants.get(reverse[inside[0]], "")
+                if locant:
+                    descriptors.append(f"{locant}{descriptor}")
+                    rendered_bonds.append((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), descriptor))
+        if descriptors:
+            result = f"({','.join(sorted(descriptors))})-{result}"
+            # Preserve the original bond identity along with the emitted
+            # component, so whole-molecule decoration does not describe that
+            # same junction again. Only claim ownership when the whole-graph
+            # CIP assignment agrees with the descriptor actually rendered.
+            from rdkit import Chem
+            modern = {frozenset((a, b)): value
+                      for a, b, value in assigned_bond_stereochemistry(mol, Chem)}
+            ownership = mol_cache_dict(mol, "rendered_mapped_branch_bond_stereo")
+            component = frozenset(core_set)
+            for begin, end, descriptor in rendered_bonds:
+                if modern.get(frozenset((begin, end))) == descriptor:
+                    ownership[(begin, end, result, component)] = descriptor
+    mapped_oxo_citation(result, intrinsic=True)
     cache[cache_key] = result
+    if not alcohol_locant_map and not locant_map:
+        record_rendered_ring_facts(mol, match,
+            {idx: template_locants.get(reverse[idx], "") for idx in match},
+            parent_name, prefixes, result)
     return result
 
 
@@ -1417,21 +1679,20 @@ def _fused_single_external_element_radical_name(
     match: Sequence[int],
     reverse: dict[int, int],
     parent_name: str,
+    *,
+    external_attachments=None,
 ) -> str:
-    core_set = set(match)
-    external: list[tuple[str, int, int]] = []
-    locants = template_record_locants(template)
-    for mol_idx in match:
-        template_idx = reverse[mol_idx]
-        locant = locants.get(template_idx, "")
-        for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors():
-            nidx = nbr.GetIdx()
-            if nidx in core_set:
-                continue
-            external.append((locant, nidx, mol_idx))
-    if len(external) != 1:
+    if external_attachments is None:
+        core_set = set(match)
+        locants = template_record_locants(template)
+        external_attachments = tuple(
+            (mol_idx, reverse[mol_idx], locants.get(reverse[mol_idx], ""), nbr.GetIdx())
+            for mol_idx in match for nbr in mol.GetAtomWithIdx(mol_idx).GetNeighbors()
+            if nbr.GetIdx() not in core_set
+        )
+    if len(external_attachments) != 1:
         return ""
-    locant, radical_idx, parent_idx = external[0]
+    parent_idx, _template_idx, locant, radical_idx = external_attachments[0]
     if not locant:
         return ""
     radical = mol.GetAtomWithIdx(radical_idx)
@@ -1459,21 +1720,29 @@ def _is_terminal_element_radical_substituent(mol, atom_idx: int, parent_idx: int
     return not any(nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1 for nbr in atom.GetNeighbors())
 
 
-def _fused_purin_6_amine_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _fused_purin_6_amine_name(
+    prefixes: Sequence[tuple[str, str]], parent_name: str,
+    indicated_h_locs: Sequence[str],
+) -> str:
     parent = _strip_leading_indicated_hydrogen(parent_name)
     if parent not in {"purin", "purine"}:
         return ""
+    # Adenine's usual 9H state is not a default for every matched graph.
+    # Carry the actual mapped tautomer into the suffix construction.
+    if len(indicated_h_locs) != 1 or indicated_h_locs[0] not in {"7", "9"}:
+        return ""
+    hydride = f"{indicated_h_locs[0]}H-purin-6-amine"
     amine_prefixes = [(loc, prefix) for loc, prefix in prefixes if loc == "6" and prefix.endswith("amino")]
     if len(amine_prefixes) != 1:
         return ""
     amine_loc, amine_prefix = amine_prefixes[0]
     if amine_prefix == "amino":
-        amine_core = "9H-purin-6-amine"
+        amine_core = hydride
     else:
         group = amine_prefix.removesuffix("amino")
         if not group:
             return ""
-        amine_core = f"{_format_amide_n_substituent(group)}-9H-purin-6-amine"
+        amine_core = f"{_format_amide_n_substituent(group)}-{hydride}"
     remaining = [(loc, prefix) for loc, prefix in prefixes if (loc, prefix) != (amine_loc, amine_prefix)]
     if any(loc in {"1", "3", "7", "9"} for loc, _prefix in remaining):
         return ""
@@ -1481,7 +1750,10 @@ def _fused_purin_6_amine_name(prefixes: Sequence[tuple[str, str]], parent_name: 
     return _join_prefix_parent(prefix_text, amine_core) if prefix_text else amine_core
 
 
-def _fused_purin_indicated_thioxo_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _fused_purin_indicated_thioxo_name(
+    prefixes: Sequence[tuple[str, str]], parent_name: str,
+    indicated_h_locs: Sequence[str] = (),
+) -> str:
     parent = _strip_leading_indicated_hydrogen(parent_name)
     if parent not in {"purin", "purine"}:
         return ""
@@ -1490,8 +1762,8 @@ def _fused_purin_indicated_thioxo_name(prefixes: Sequence[tuple[str, str]], pare
     thioxo_locs = tuple(
         sorted((loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()), key=int)
     )
-    h_locs = _purin_thioxo_indicated_h_locants(thioxo_locs)
-    if not h_locs:
+    h_locs = tuple(sorted(set(indicated_h_locs), key=_locant_sort_key))
+    if not thioxo_locs or not h_locs:
         return ""
     remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
     if any(loc in {"1", "3", "7", "9"} for loc, _prefix in remaining):
@@ -1500,19 +1772,8 @@ def _fused_purin_indicated_thioxo_name(prefixes: Sequence[tuple[str, str]], pare
     locants = ",".join(thioxo_locs)
     multiplier = MULT.get(len(thioxo_locs), "")
     h_text = ",".join(f"{loc}H" for loc in h_locs)
-    core = f"{locants}-{multiplier}thioxo-{h_text}-{parent}"
+    core = f"{parent}-{locants}({h_text})-{multiplier}thione"
     return _join_prefix_parent(prefix_text, core) if prefix_text else core
-
-
-def _purin_thioxo_indicated_h_locants(thioxo_locs: Sequence[str]) -> tuple[str, ...]:
-    locant_set = set(thioxo_locs)
-    if locant_set == {"2", "6"}:
-        return ("3",)
-    if locant_set == {"6", "8"}:
-        return ("3", "9")
-    if locant_set == {"2", "6", "8"}:
-        return ("3", "7")
-    return ()
 
 
 def _match_has_unlocanted_external_substitution(
@@ -1562,7 +1823,7 @@ def _molecule_has_isotope(mol) -> bool:
     cached = mol_cache_get(mol, "has_isotope")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "has_isotope", any(atom.GetIsotope() for atom in iter_atoms(mol)))
 
 
 def _name_natural_product_topology_match(mol, Chem, template: dict, match: Sequence[int]) -> tuple[str, str] | None:
@@ -1599,7 +1860,7 @@ def _natural_product_extra_double_bond_locs(mol, Chem, template: dict, match: Se
     locants = template_record_locants(template)
     template_mol = template_record_mol(template)
     ene_locs, aromatic_bond_keys = _natural_product_aromatic_unsaturations(mol, template, match)
-    for bond in template_mol.GetBonds():
+    for bond in iter_bonds(template_mol):
         begin = bond.GetBeginAtomIdx()
         end = bond.GetEndAtomIdx()
         mol_begin = match[begin]
@@ -1685,7 +1946,7 @@ def _locanted_template_stereo_prefix(mol, Chem, template: dict, match: Sequence[
 def _locanted_template_bond_stereo(mol, Chem, template: dict, match: Sequence[int]) -> list[tuple[str, str]]:
     locants = template_record_locants(template)
     descriptors = []
-    for bond in template_record_mol(template).GetBonds():
+    for bond in iter_bonds(template_record_mol(template)):
         mol_bond = mol.GetBondBetweenAtoms(match[bond.GetBeginAtomIdx()], match[bond.GetEndAtomIdx()])
         if mol_bond is None or mol_bond.GetBondType() != Chem.BondType.DOUBLE:
             continue
@@ -1726,17 +1987,15 @@ def _fresh_all_atom_stereochemistry(mol, Chem) -> dict[int, str]:
     cached = mol_cache_get(mol, "fresh_all_atom_stereochemistry")
     if cached is not None:
         return cached
-    if not any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if not any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)):
         return mol_cache_set(mol, "fresh_all_atom_stereochemistry", {})
     work = Chem.Mol(mol)
     Chem.AssignStereochemistry(work, cleanIt=True, force=True)
+    from ..local_cip import assigned_chiral_centers
+
     result = {
         int(idx): str(descriptor)
-        for idx, descriptor in Chem.FindMolChiralCenters(
-            work,
-            includeUnassigned=False,
-            useLegacyImplementation=False,
-        )
+        for idx, descriptor in assigned_chiral_centers(work, Chem)
         if descriptor in {"R", "S", "r", "s"}
     }
     return mol_cache_set(mol, "fresh_all_atom_stereochemistry", result)
@@ -1748,6 +2007,24 @@ def _fused_oxo_suffix_name(
     indicated_h_locs: Sequence[str] = (),
 ) -> str:
     oxo_locs = sorted((loc for loc, prefix in prefixes if prefix == "oxo" and loc.isdigit()), key=int)
+    if oxo_locs and _has_fused_hydro_parent_segment(parent_name):
+        hydro_locs = {
+            loc
+            for positions in re.findall(
+                r"(?:^|-)((?:\d+[a-z]?,)*\d+[a-z]?)-(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?hydro",
+                parent_name,
+            )
+            for loc in positions.split(",")
+        }
+        # Direct substitution of explicitly hydrogenated parent positions
+        # needs no additional H at an already saturated lactam nitrogen.
+        # Leave other mancude/H-state cases to the existing suffix grammar.
+        if set(oxo_locs).union(indicated_h_locs) <= hydro_locs:
+            remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
+            stem = parent_name.removesuffix("e") if len(oxo_locs) == 1 else parent_name
+            suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
+            name = f"{stem}-{','.join(oxo_locs)}-{suffix}"
+            return _join_prefix_parent(_format_prefixes(remaining), name)
     if parent_name == "pteridine" and oxo_locs == ["4", "7"]:
         remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "oxo"]
         prefix_text = _format_prefixes(remaining)
@@ -1805,7 +2082,7 @@ def _fused_thione_suffix_name(
 ) -> str:
     thioxo_locs = sorted((loc for loc, prefix in prefixes if prefix == "thioxo" and loc.isdigit()), key=int)
     if (
-        len(thioxo_locs) != 1
+        not thioxo_locs
         or any(prefix == "oxo" for _loc, prefix in prefixes)
         or not indicated_h_locs
         or _has_fused_hydro_parent_segment(parent_name)
@@ -1818,9 +2095,12 @@ def _fused_thione_suffix_name(
     remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "thioxo"]
     prefix_text = _format_prefixes(remaining)
     parent = _strip_leading_indicated_hydrogen(parent_name)
-    leading_h_locs, suffix_h_loc = _fused_oxo_suffix_indicated_h_locants(indicated_h_locs)
-    leading = f"{','.join(f'{loc}H' for loc in leading_h_locs)}-" if leading_h_locs else ""
-    name = f"{leading}{parent}-{thioxo_locs[0]}({suffix_h_loc}H)-thione"
+    # P-58.2: every source-bound added-H position belongs to the suffix
+    # operation. A single arbitrarily selected N-H cannot specify a tautomer
+    # with several pyrrolic nitrogens, and multiple thiones use the same map.
+    h_text = ','.join(f'{loc}H' for loc in sorted(set(indicated_h_locs), key=_locant_sort_key))
+    multiplier = MULT.get(len(thioxo_locs), '') if len(thioxo_locs) > 1 else ''
+    name = f"{parent}-{','.join(thioxo_locs)}({h_text})-{multiplier}thione"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
 
@@ -1883,7 +2163,7 @@ def _fused_oxo_suffix_indicated_h_locants(indicated_h_locs: Sequence[str]) -> tu
         suffix_h_loc = next((loc for loc in locs if loc != "1"), locs[0])
         leading_h_locs = tuple(loc for loc in locs if loc != suffix_h_loc)
         return leading_h_locs, suffix_h_loc
-    return (), locs[0]
+    return locs[1:], locs[0]
 
 
 def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]) -> str:
@@ -1929,9 +2209,16 @@ def _adjust_fused_parent_for_charge(mol, template: dict, reverse: dict[int, int]
             cation_suffix = suffix
             if symbol in {"N", "O"} and atom.GetTotalNumHs() > 0:
                 charged_has_hydrogen = True
-    if len(anion_locs) == 1 and not cation_locs:
-        stem = name[:-1] if name.endswith("e") else name
-        return f"{stem}-{anion_locs[0]}-ide"
+    if anion_locs and not cation_locs:
+        if any(mol.GetAtomWithIdx(idx).GetFormalCharge() < -1 for idx in reverse):
+            return ""
+        parent = _terminal_retained_parent_name(name)
+        locants = ",".join(str(loc) for loc in sorted(anion_locs))
+        if len(anion_locs) == 1:
+            stem = parent[:-1] if parent.endswith("e") else parent
+            return f"{stem}-{locants}-ide"
+        multiplier = MULT.get(len(anion_locs))
+        return f"{parent}-{locants}-{multiplier}ide" if multiplier else ""
     if len(cation_locs) == 1:
         locant = cation_locs[0]
         fused_n_h_cation = (
@@ -1962,6 +2249,18 @@ def _drop_indicated_hydrogen_prefix(name: str) -> str:
 
 
 def _drop_indicated_hydrogen_segments(name: str, prefixes: Sequence[tuple[str, str]]) -> str:
+    # Indicated H in an already suffix-bearing functional parent accommodates
+    # its carbonyl. Ordinary external prefixes do not remove that operation.
+    if re.search(r"^\d+[a-z]?H-.*-\d+(?:,\d+)*-(?:di|tri|tetr)?one$", name):
+        return name
+    # In a hydrogenated heterone the indicated-H position accommodates the
+    # suffix operation; it remains part of the preferred parent name.
+    if "hydro-" in name and re.search(r"\d+H-.*-\d+-one$", name):
+        return name
+    if name.startswith(("1H-indole", "1H-1,3-benzimidazole")):
+        return name
+    if name.startswith("2H-chromen-2-one"):
+        return name
     if "benzimidazole" in name and any(prefix == "oxo" for _, prefix in prefixes):
         return name
     if _preserve_tautomer_sensitive_fused_indicated_hydrogen(name):
@@ -2056,6 +2355,8 @@ class RingNameRecord:
     suffix_graph_class: str = ""
     retained_carbohydrate_substituent_count: int = 0
     suffix_hydrogen_locants: tuple[str, ...] = ()
+    parent_selection: object = None
+    oxo_sites: tuple[tuple[int, int, str], ...] = ()
 
 
 def _named_ring_instance_names(mol, ring: Sequence[int], Chem) -> list[tuple[str, str, tuple[int, ...]]]:
@@ -2113,22 +2414,89 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
     best_name = ""
     best_seq: Sequence[int] = ()
     best_suffix_kind = ""
+    best_oxo_sites = ()
+    best_carbocyclic_principal_oxo = None
+    parent_selection_eligible = False
+    from ..parent_selection import parent_frontier, principal_context, ring_record_facts
+    principal = principal_context(mol)
+    compare_plain_parents = principal is not None and not principal[1]
+    # P-14.4: a principal ring-attached acid is numbered before its
+    # subordinate prefixes. Keep this graph-backed separately from the
+    # historical lowest-substituent-locant ordering below.
+    principal_ring_acids = ()
+    if principal is not None and principal[1] and all(
+            g.kind == 'acid' and g.owner in ring_set for g in principal[1]):
+        from ..extended_inventory import selection_inventory
+        source = selection_inventory(mol).source_frontier
+        if (source.status == 'selected' and not source.unknown_pairs and not source.cycle
+                and tuple(source.groups) == tuple(principal[1])
+                and all(any(host == g.owner and root == g.center and text == 'carboxy'
+                            for host, root, text in external_subs) for g in principal[1])):
+            principal_ring_acids = tuple(principal[1])
+    plain_parent_rows = []
+    selected_parent_facts = None
+    best_alcohol = None
+    best_carbonyl = None
+    best_ring_acid = None
+    from ..principal_carbonyl import (
+        configured_methine_ring_junction, principal_carbonyl_sites, ring_carbonyl_suffix_name,
+    )
+    carbonyl_kind, carbonyl_sites = principal_carbonyl_sites(mol)
+    principal_carbocyclic_centers = (
+        frozenset(center for center, _ in carbonyl_sites if center in ring_set)
+        if (carbonyl_kind == 'one'
+            and all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in ring_set)
+            and configured_methine_ring_junction(mol, ring_set))
+        else frozenset()
+    )
+    # OPSIN 2.9 can invert pyramidal N stereochemistry when the citation
+    # order changes. Retain the tested order for these neutral centers.
+    preserve_n_order = any(
+        mol.GetAtomWithIdx(idx).GetSymbol() == "N"
+        and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
+        and mol.GetAtomWithIdx(idx).GetDegree() == 3
+        and mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        for idx in ring_set
+    )
+    # Every ordinary candidate compares substituent locants first. Alcohol
+    # suffixes have their own numbering priority and must still see all rows.
+    has_hydroxy = any(prefix == "hydroxy" for _, prefix in raw_subs)
+    # This numbered azole retains the hydrogenation state of the source
+    # N=C bond. Keep the skeletal-replacement form as a fallback for rings
+    # that cannot use the graph-proved Hantzsch–Widman name.
+    azole_candidates = [(parent, seq) for parent, seq in candidates
+                        if parent == "4,5-dihydro-1,2-oxazole"]
+    if azole_candidates and not any(word in {"oxo", "hydroxy"} for _, word in raw_subs):
+        candidates = azole_candidates
     for parent_name, seq in candidates:
+        pos = {idx: i + 1 for i, idx in enumerate(seq)}
+        locants = sorted(pos[idx] for idx, _ in raw_subs)
+        if (not compare_plain_parents and not has_hydroxy and not carbonyl_kind
+                and not principal_ring_acids and best_key is not None and locants > best_key[0]):
+            continue
         adjusted_parent = _adjust_ring_parent_for_charge(mol, parent_name, seq, raw_subs)
         if not adjusted_parent:
             continue
         adjusted_parent = _append_ring_parent_isotope_suffixes(mol, adjusted_parent, seq)
         adjusted_parent = _opsin_parseable_retained_parent_name(adjusted_parent)
         if not raw_subs:
-            name = _join_prefix_parent("", adjusted_parent)
+            full_parent = _preferred_parent_stem(adjusted_parent)
+            if full_parent.startswith("cyclo") and re.search(r"-\d+-en$", full_parent):
+                full_parent = re.sub(r"-\d+-en$", "ene", full_parent)
+            elif full_parent.startswith("cyclo") and full_parent.endswith(("en", "yn")):
+                full_parent += "e"
+            name = _join_prefix_parent("", full_parent)
             key = ([], name)
+            if compare_plain_parents:
+                plain_parent_rows.append((key, name, seq, ring_record_facts(
+                    mol, seq, "", raw_subs, name, parent_name=full_parent)))
             if best_key is None or key < best_key:
                 best_key = key
                 best_name = name
                 best_seq = seq
                 best_suffix_kind = ""
+                parent_selection_eligible = True
             continue
-        pos = {idx: i + 1 for i, idx in enumerate(seq)}
         radical_name = _single_ring_external_element_radical_name(mol, adjusted_parent, pos, external_subs)
         if radical_name:
             locants = sorted(pos[idx] for idx, _, _ in external_subs if idx in pos)
@@ -2138,6 +2506,7 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_name = radical_name
                 best_seq = seq
                 best_suffix_kind = ""
+                parent_selection_eligible = False
         prefixes = [
             (_single_ring_substituent_locant(adjusted_parent, pos[idx]), prefix)
             for idx, prefix in raw_subs
@@ -2149,28 +2518,56 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             )
         ]
         indicated_h_locs = _single_ring_indicated_hydrogen_locants(mol, seq, pos)
-        locants = sorted(pos[idx] for idx, _ in raw_subs)
         if not prefixes:
             name = _join_prefix_parent("", adjusted_parent)
             key = (locants, 0, name)
+            if compare_plain_parents:
+                plain_parent_rows.append((key, name, seq, ring_record_facts(
+                    mol, seq, "", raw_subs, name, parent_name=adjusted_parent)))
             if best_key is None or key < best_key:
                 best_key = key
                 best_name = name
                 best_seq = seq
                 best_suffix_kind = ""
+                parent_selection_eligible = True
             continue
-        prefix_text = _format_prefixes(prefixes)
+        from ..ring_rules import omit_monosubstituted_ring_locant
+        omit_attachment = omit_monosubstituted_ring_locant(
+            mol, seq, {idx: str(loc) for idx, loc in pos.items()}, prefixes, Chem)
+        prefix_text = _format_prefixes(prefixes, legacy_complex_order=preserve_n_order,
+                                      omit_locants=omit_attachment)
         if not prefix_text:
             continue
         if not _single_ring_parent_prefixes_supported(adjusted_parent, prefixes):
             continue
-        name = _join_prefix_parent(prefix_text, adjusted_parent)
+        from ..ring_state_parent import monocyclic_oxo_suffix_name
+        oxo_state_handled, oxo_state_name = monocyclic_oxo_suffix_name(mol, Chem, seq, prefixes)
+        if oxo_state_handled and not oxo_state_name:
+            continue
+        name = oxo_state_name if oxo_state_handled else _join_prefix_parent(prefix_text, adjusted_parent)
+        principal_carbonyl_name = (ring_carbonyl_suffix_name(mol, ring_set, pos, prefixes, adjusted_parent)
+                                   if carbonyl_kind == "carbaldehyde" else "")
+        if principal_carbonyl_name:
+            carbonyl_locs = tuple(sorted(pos[owner] for _, owner in carbonyl_sites if owner in ring_set))
+            carbonyl_key = (carbonyl_locs, locants, principal_carbonyl_name)
+            if best_carbonyl is None or carbonyl_key < best_carbonyl[0]:
+                best_carbonyl = (carbonyl_key, principal_carbonyl_name, seq)
+        alcohol_name = _simple_ring_alcohol_suffix_name(mol, seq, prefixes, adjusted_parent)
+        if alcohol_name:
+            alcohol_locs = sorted(int(loc) for loc, prefix in prefixes if prefix == "hydroxy")
+            alcohol_key = (alcohol_locs, locants, alcohol_name)
+            if best_alcohol is None or alcohol_key < best_alcohol[0]:
+                best_alcohol = (alcohol_key, alcohol_name, seq)
         key = (locants, 1, name)
+        if compare_plain_parents:
+            plain_parent_rows.append((key, name, seq, ring_record_facts(
+                mol, seq, "", raw_subs, name, parent_name=adjusted_parent)))
         if best_key is None or key < best_key:
             best_key = key
             best_name = name
             best_seq = seq
             best_suffix_kind = ""
+            parent_selection_eligible = True
         retained_benzene_name = _benzene_retained_parent_name(prefixes, adjusted_parent)
         if retained_benzene_name:
             retained_key = (locants, -1, len(retained_benzene_name), retained_benzene_name)
@@ -2179,7 +2576,8 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_name = retained_benzene_name
                 best_seq = seq
                 best_suffix_kind = ""
-        suffix_name = (
+                parent_selection_eligible = False
+        suffix_name = oxo_state_name if oxo_state_handled else (
             ""
             if adjusted_parent in {"1,3,4-dioxazol-2-one", "azet-2-one"}
             else _single_ring_oxo_suffix_name(prefixes, adjusted_parent, indicated_h_locs)
@@ -2208,12 +2606,29 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_seq = seq
                 best_suffix_kind = "ring_thione_suffix"
         if suffix_name:
+            cited_locs = {loc for loc, prefix in prefixes if prefix == "oxo" and loc.isdigit()}
+            oxo_sites = tuple(
+                (host, root, str(pos[host]))
+                for host, root, word in external_subs
+                if (word == "oxo" and str(pos[host]) in cited_locs
+                    and mol.GetAtomWithIdx(host).GetAtomicNum() == 6
+                    and mol.GetAtomWithIdx(root).GetAtomicNum() == 8
+                    and mol.GetAtomWithIdx(root).GetDegree() == 1
+                    and not mol.GetAtomWithIdx(root).GetFormalCharge()
+                    and mol.GetBondBetweenAtoms(host, root).GetBondTypeAsDouble() == 2)
+            )
             suffix_key = (locants, 0, suffix_name)
             if best_key is None or suffix_key < best_key:
                 best_key = suffix_key
                 best_name = suffix_name
                 best_seq = seq
                 best_suffix_kind = "ring_oxo_suffix"
+                best_oxo_sites = oxo_sites
+            if (principal_carbocyclic_centers
+                    and {host for host, _, _ in oxo_sites} == principal_carbocyclic_centers):
+                oxo_key = (tuple(sorted(int(loc) for _, _, loc in oxo_sites)), suffix_key)
+                if best_carbocyclic_principal_oxo is None or oxo_key < best_carbocyclic_principal_oxo[0]:
+                    best_carbocyclic_principal_oxo = (oxo_key, suffix_name, seq, oxo_sites)
         thione_name = _single_ring_thione_suffix_name(prefixes, adjusted_parent, indicated_h_locs)
         if thione_name:
             thione_key = (locants, 0, thione_name)
@@ -2246,6 +2661,36 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
                 best_name = functional_suffix_name
                 best_seq = seq
                 best_suffix_kind = "ring_functional_suffix"
+        if principal_ring_acids:
+            acid_name = _single_ring_functional_suffix_name(
+                prefixes, adjusted_parent, principal_suffix='carboxylic acid')
+            if acid_name:
+                acid_locs = tuple(sorted(pos[g.owner] for g in principal_ring_acids))
+                acid_key = (acid_locs, tuple(locants), acid_name)
+                if best_ring_acid is None or acid_key < best_ring_acid[0]:
+                    best_ring_acid = (acid_key, acid_name, seq)
+    if compare_plain_parents and plain_parent_rows:
+        legacy_facts = next((row[3] for row in plain_parent_rows
+                             if row[1] == best_name and tuple(row[2]) == tuple(best_seq)), None)
+        if not parent_selection_eligible or best_suffix_kind:
+            legacy_facts = None
+        plain_parent_rows.append((best_key, best_name, best_seq, legacy_facts))
+        frontier = parent_frontier(plain_parent_rows, lambda row: row[3])
+        best_key, best_name, best_seq, selected_parent_facts = min(frontier, key=lambda row: row[0])
+        best_suffix_kind = ""
+        parent_selection_eligible = selected_parent_facts is not None
+    if best_ring_acid is not None:
+        _, best_name, best_seq = best_ring_acid
+        best_suffix_kind = "ring_functional_suffix"
+    elif best_carbonyl is not None:
+        _, best_name, best_seq = best_carbonyl
+        best_suffix_kind = "ring_carbonyl_suffix"
+    elif best_carbocyclic_principal_oxo is not None:
+        _, best_name, best_seq, best_oxo_sites = best_carbocyclic_principal_oxo
+        best_suffix_kind = "ring_oxo_suffix"
+    elif best_alcohol is not None:
+        _, best_name, best_seq = best_alcohol
+        best_suffix_kind = "ring_alcohol_suffix"
     if not best_name:
         return _store_named_ring_instance_records(cache, cache_key, [])
     if not (
@@ -2267,9 +2712,59 @@ def _named_ring_instance_records(mol, ring: Sequence[int], Chem) -> list[RingNam
             _single_ring_suffix_graph_class(mol, best_seq, best_suffix_kind),
             retained_carbohydrate_substituent_count,
             suffix_hydrogen_locants,
+            (selected_parent_facts or ring_record_facts(mol, best_seq, best_suffix_kind, raw_subs, best_name)
+             if parent_selection_eligible or best_suffix_kind in {"ring_alcohol_suffix", "ring_carbonyl_suffix"}
+             else None),
+            best_oxo_sites if best_suffix_kind == "ring_oxo_suffix" else (),
         )
     ]
     return _store_named_ring_instance_records(cache, cache_key, records)
+
+
+def _simple_ring_alcohol_suffix_name(mol, seq, prefixes, parent_name):
+    """Promote alcohols on saturated carbon/amine rings with no senior group.
+
+    P-63.1 uses alcohol suffixes; their locants have numbering priority. Other
+    functional groups and alcohols on other components retain existing routes.
+    """
+    if not parent_name.endswith(("an", "ane", "idin", "idine", "olidin", "olidine", "epan", "epane")):
+        return ""
+    if not any(prefix == "hydroxy" and loc.isdigit() for loc, prefix in prefixes):
+        return ""
+    if not (parent_name.startswith("cyclo") or any(mol.GetAtomWithIdx(idx).GetAtomicNum() == 7 for idx in seq)):
+        return ""
+    if any(mol.GetAtomWithIdx(idx).GetAtomicNum() not in {6, 7} for idx in seq):
+        return ""
+    if any(a.GetFormalCharge() or a.GetAtomicNum() not in {1, 6, 7, 8, 9, 17, 35, 53} for a in iter_atoms(mol)):
+        return ""
+    ring = set(seq)
+    if any(a.GetAtomicNum() == 7 and (a.GetIdx() not in ring or int(a.GetChiralTag()) != 0) for a in iter_atoms(mol)):
+        return ""
+    hydroxy_count = 0
+    for oxygen in (a for a in iter_atoms(mol) if a.GetAtomicNum() == 8):
+        if any(b.GetBondTypeAsDouble() != 1 for b in oxygen.GetBonds()):
+            return ""  # Carbonyls and acid derivatives are senior to alcohols.
+        if oxygen.GetTotalNumHs() == 1:
+            neighbors = [a.GetIdx() for a in oxygen.GetNeighbors() if a.GetAtomicNum() > 1]
+            if len(neighbors) != 1 or neighbors[0] not in ring:
+                return ""
+            hydroxy_count += 1
+        elif oxygen.GetTotalNumHs() or any(a.GetAtomicNum() != 6 for a in oxygen.GetNeighbors()):
+            return ""
+    locs = sorted(int(loc) for loc, prefix in prefixes if prefix == "hydroxy" and loc.isdigit())
+    if not locs or len(locs) != hydroxy_count:
+        return ""
+    remaining = [(loc, prefix) for loc, prefix in prefixes if prefix != "hydroxy"]
+    parent = _preferred_parent_stem(parent_name)
+    if len(locs) == 1:
+        # A substituted parent carries the suffix locant explicitly.
+        core = parent[:-1] + (f"-{locs[0]}-ol" if remaining or not parent_name.startswith("cyclo") else "ol")
+    else:
+        multiplier = MULT.get(len(locs))
+        if not multiplier:
+            return ""
+        core = f"{parent}-{','.join(map(str, locs))}-{multiplied_suffix(len(locs), 'ol')}"
+    return _join_prefix_parent(_format_prefixes(remaining), core)
 
 
 def _store_named_ring_instance_records(cache: dict, cache_key: tuple, records: list[RingNameRecord]) -> list[RingNameRecord]:
@@ -2445,6 +2940,8 @@ _RESOURCE_RING_ALIAS_EQUIVALENTS = {
 
 
 def _append_ring_parent_isotope_suffixes(mol, parent: str, seq: Sequence[int]) -> str:
+    if ring_adjustment_atoms(mol)[1].isdisjoint(seq):
+        return parent
     grouped: dict[tuple[str, int], list[int]] = {}
     for locant, idx in enumerate(seq, start=1):
         atom = mol.GetAtomWithIdx(idx)
@@ -2468,6 +2965,7 @@ _BENZENE_RETAINED_PARENT_BY_PREFIX = {
     "carbamyl": "benzamide",
     "carbamoyl": "benzamide",
     "carboxy": "benzoic acid",
+    "1-hydroxy-2-thiaethenyl": "benzene-1-carbothioic acid",
     "carboxylato": "benzoate",
     "cyano": "benzonitrile",
     "formyl": "benzaldehyde",
@@ -2479,6 +2977,7 @@ _BENZENE_RETAINED_PARENT_BY_PREFIX = {
 
 _BENZENE_RETAINED_PARENT_RANK = {
     "carboxy": 0,
+    "1-hydroxy-2-thiaethenyl": 0,
     "carboxylato": 1,
     "1-azamethylcarbonyl": 2,
     "carbamyl": 2,
@@ -2496,6 +2995,13 @@ _BENZENE_RETAINED_PARENT_RANK = {
 def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
     if parent_name != "benzene":
         return ""
+    # P-22.1.3: the three unsubstituted dimethylbenzene hydrides retain
+    # xylene, with numeric ring locants. Further substitution is excluded.
+    if len(prefixes)==2 and all(text=='methyl' for _,text in prefixes):
+        positions=tuple(sorted(int(loc) for loc,_ in prefixes if loc.isdigit()))
+        if len(positions)==2 and positions[0]==1 and positions[1] in {2,3,4}:
+            return ','.join(map(str,positions))+'-xylene'
+        return ''
     best_key = None
     best_name = ""
     original_prefix_text = _format_prefixes(prefixes)
@@ -2503,6 +3009,9 @@ def _benzene_retained_parent_name(prefixes: Sequence[tuple[str, str]], parent_na
     for index, (loc, prefix) in enumerate(prefixes):
         retained_parent = _BENZENE_RETAINED_PARENT_BY_PREFIX.get(prefix)
         if not retained_parent:
+            continue
+        # P-63.2.3 retains anisole as a PIN only without substitution.
+        if prefix == "methoxy" and len(prefixes) != 1:
             continue
         if loc != "1" and prefix not in _BENZENE_RETAINED_PARENT_REMAP_PREFIXES:
             continue
@@ -2525,6 +3034,7 @@ _BENZENE_RETAINED_PARENT_REMAP_PREFIXES = {
     "carbamyl",
     "carbamoyl",
     "carboxy",
+    "1-hydroxy-2-thiaethenyl",
     "carboxylato",
     "cyano",
     "formyl",
@@ -2571,9 +3081,6 @@ def _benzene_retained_parent_alias_name(name: str) -> str:
         ("2-aminophenol", "2-aminophenol"),
         ("3-aminophenol", "3-aminophenol"),
         ("4-aminophenol", "4-aminophenol"),
-        ("2-methylphenol", "o-cresol"),
-        ("3-methylphenol", "m-cresol"),
-        ("4-methylphenol", "p-cresol"),
         ("2-methoxyphenol", "guaiacol"),
         ("4-methoxyphenol", "mequinol"),
     )
@@ -2600,12 +3107,16 @@ _PREFIX_SENSITIVE_BENZENE_RETAINED_ALIASES = frozenset(
 def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
     if not seq:
         return ""
+    from ..relative_cycle_evidence import native_relative_cycle_evidence
+    relative = native_relative_cycle_evidence(mol, Chem, seq)
+    if relative is not None:
+        return relative.descriptor
     if all(mol.GetAtomWithIdx(idx).GetAtomicNum() == 6 for idx in seq):
         absolute_prefix = _single_carbocycle_locanted_absolute_prefix(mol, seq, Chem, name=name)
         relative_prefix = _single_carbocycle_relative_cis_trans_prefix(mol, seq, Chem)
-        if absolute_prefix and not (
-            relative_prefix and _prefer_relative_carbocycle_prefix_for_complex_name(name, absolute_prefix)
-        ):
+        # A relative face descriptor cannot replace assigned absolute
+        # configuration merely because the enclosing name is long/complex.
+        if absolute_prefix:
             return absolute_prefix
         if relative_prefix:
             return relative_prefix
@@ -2613,7 +3124,7 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") ->
     seq_set = set(seq)
     tagged_atoms = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     ]
     if len(tagged_atoms) < 2:
@@ -2634,7 +3145,7 @@ def _single_ring_stereo_prefix(mol, seq: Sequence[int], Chem, name: str = "") ->
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(locanted_centers, key=lambda item: locants[item[0]])
     )
-    return "" if _stereo_prefixed_name_exceeds_preserve_cap(name, prefix) else prefix
+    return prefix
 
 
 def _single_carbocycle_locanted_absolute_prefix(mol, seq: Sequence[int], Chem, name: str = "") -> str:
@@ -2659,21 +3170,7 @@ def _single_carbocycle_locanted_absolute_prefix(mol, seq: Sequence[int], Chem, n
         f"{locants[idx]}{descriptor}"
         for idx, descriptor in sorted(locanted_centers, key=lambda item: locants[item[0]])
     )
-    return "" if _stereo_prefixed_name_exceeds_preserve_cap(name, prefix) else prefix
-
-
-def _stereo_prefixed_name_exceeds_preserve_cap(name: str, prefix: str) -> bool:
-    if not name or not prefix:
-        return False
-    return len(name) + len(prefix) + 3 > _STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH
-
-
-def _prefer_relative_carbocycle_prefix_for_complex_name(name: str, prefix: str) -> bool:
-    if not name:
-        return False
-    if len(name) + len(prefix) + 3 > 96:
-        return True
-    return name.count("(") > 1
+    return prefix
 
 
 def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) -> str:
@@ -2685,7 +3182,7 @@ def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) 
         return ""
     tagged = [
         atom
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetIdx() in seq_set and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
     ]
     if len(tagged) != 2:
@@ -2699,20 +3196,17 @@ def _single_carbocycle_relative_cis_trans_prefix(mol, seq: Sequence[int], Chem) 
     }
     if substituted_ring_atoms != {atom.GetIdx() for atom in tagged}:
         return ""
-    external_prefixes = [
-        _simple_relative_stereo_external_prefix(mol, atom.GetIdx(), seq_set) for atom in tagged
-    ]
-    if any(not prefix for prefix in external_prefixes):
-        return ""
+    # The face relation depends on the two original attachment bonds, not on
+    # a whitelist of spellings for their independently rendered ligands.
     ring_bonds = [
         bond
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
         if bond.GetBeginAtomIdx() in seq_set and bond.GetEndAtomIdx() in seq_set
     ]
     if any(bond.GetBondType() != Chem.BondType.SINGLE for bond in ring_bonds):
         return ""
-    tags = [atom.GetChiralTag() for atom in tagged]
-    return "cis" if tags[0] == tags[1] else "trans"
+    from ..stereochemistry import relative_monocycle_configuration
+    return relative_monocycle_configuration(mol, Chem, seq)
 
 
 _SIMPLE_RELATIVE_STEREO_SUBSTITUENTS = {
@@ -2881,11 +3375,16 @@ def _single_ring_oxo_suffix_name(
     if not parent:
         parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
     locants = ",".join(sorted(oxo_locs, key=int))
-    if "lambda" in parent_name:
-        suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
+    suffix = "one" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}one"
+    if parent.startswith("cyclo") and parent.endswith("an") and not remaining and len(oxo_locs) == 1:
+        name = parent + "one"
     else:
-        suffix = "on" if len(oxo_locs) == 1 else f"{MULT.get(len(oxo_locs), '')}on"
-    name = f"{parent}-{locants}-{suffix}"
+        if len(oxo_locs) > 1:
+            if parent.endswith(("an", "en", "yn")):
+                parent += "e"
+            elif parent_name.endswith("e") and parent == parent_name[:-1]:
+                parent = parent_name
+        name = f"{parent}-{locants}-{suffix}"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
 
@@ -2986,7 +3485,8 @@ def _single_ring_thione_s_oxide_suffix_name(
     if indicated_h_name:
         name = indicated_h_name + " S-oxide"
         return _join_prefix_parent(prefix_text, name) if prefix_text else name
-    parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    # The consonant-starting thione suffix retains the hydride's terminal e.
+    parent = parent_name
     name = f"{parent}-{loc}-thione S-oxide"
     return _join_prefix_parent(prefix_text, name) if prefix_text else _preferred_parent_stem(name)
 
@@ -3046,7 +3546,8 @@ def _single_ring_thione_suffix_name(
     )
     if indicated_h_name:
         return _join_prefix_parent(prefix_text, indicated_h_name) if prefix_text else indicated_h_name
-    parent = parent_name[:-1] if parent_name.endswith("e") else parent_name
+    # P-16.7.1 elides terminal e before vowels, not before thione.
+    parent = parent_name
     locants = ",".join(sorted(thioxo_locs, key=int))
     suffix = "thione" if len(thioxo_locs) == 1 else f"{MULT.get(len(thioxo_locs), '')}thione"
     name = f"{parent}-{locants}-{suffix}"
@@ -3137,7 +3638,6 @@ _SINGLE_RING_FUNCTIONAL_SUFFIXES = {
     "cyano": "carbonitrile",
     "oxidosulfanyl": "sulfenate",
 }
-_STEREO_PREFIX_PRESERVE_MAX_NAME_LENGTH = 152
 
 _FUSED_FUNCTIONAL_SUFFIXES = _SINGLE_RING_FUNCTIONAL_SUFFIXES
 
@@ -3184,7 +3684,8 @@ _SINGLE_RING_ESTER_SUFFIX_OWNERS = {
 }
 
 
-def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str) -> str:
+def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], parent_name: str,
+                                        *, principal_suffix: str = "") -> str:
     """Promote terminal ring functional groups to OPSIN-stable parent suffixes."""
 
     supports_parent = _supports_single_ring_functional_suffix_parent(parent_name)
@@ -3205,6 +3706,8 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         supports_parent,
         supports_sulfenate_parent=supports_sulfenate_parent,
     ):
+        if principal_suffix and suffix_base != principal_suffix:
+            continue
         suffix_locs = [loc for loc, _prefix in matched]
         matched_set = set(matched)
         remaining = [
@@ -3217,7 +3720,9 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         if not suffix:
             continue
         locants = ",".join(suffix_locs)
-        retained_name = _retained_suffix_parent_alias_with_prefixes(
+        systematic_acid = (principal_suffix == "carboxylic acid"
+                           and suffix_base == "carboxylic acid")
+        retained_name = "" if systematic_acid else _retained_suffix_parent_alias_with_prefixes(
             parent_name,
             suffix_base,
             suffix_locs,
@@ -3227,7 +3732,8 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         if retained_name:
             name = retained_name
         else:
-            suffix_name = _retained_suffix_parent_alias(parent_name, suffix_base, suffix_locs, n_substituent)
+            suffix_name = ("" if systematic_acid else
+                           _retained_suffix_parent_alias(parent_name, suffix_base, suffix_locs, n_substituent))
             if not suffix_name:
                 suffix_name = f"{parent_name}-{locants}-{suffix}"
                 if n_substituent:
@@ -3241,9 +3747,12 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         original_name = _functional_suffix_prefix_baseline(original_name)
         if (
             (
-                len(name) > len(original_name)
+                (len(name) > len(original_name)
+                 and not (suffix_base == "carboxylic acid"
+                          and principal_suffix == "carboxylic acid"))
                 or _tautomer_sensitive_single_ring_suffix_parent(parent_name, remaining)
             )
+            and not (suffix_base == "carboxylate" and parent_name.endswith("ium"))
             and not _allow_simple_functional_suffix_parent(
                 parent_name,
                 suffix_base,
@@ -3257,8 +3766,15 @@ def _single_ring_functional_suffix_name(prefixes: Sequence[tuple[str, str]], par
         key = (len(remaining), len(name), locants, name)
         if best_key is None or key < best_key:
             best_key = key
-            best_name = name
-    if supports_ester_parent:
+            # The legacy spelling is retained above only to preserve this
+            # compatibility producer's existing selection.  Once it has
+            # chosen a pyridine acid derivative, construct the systematic
+            # ring suffix from the same original locant map: the nicotinic,
+            # picolinic and isonicotinic families are not PIN parents.
+            preferred = ('' if systematic_acid else _pyridine_systematic_suffix_name(
+                parent_name, suffix_base, suffix_locs, n_substituent, remaining))
+            best_name = preferred or name
+    if supports_ester_parent and not principal_suffix:
         ester_name = _single_ring_ester_suffix_name(prefixes, parent_name)
         if ester_name:
             ester_key = (0, len(ester_name), _substituent_locant_tuple(ester_name), ester_name)
@@ -3350,6 +3866,8 @@ def _is_fused_functional_suffix_locant(locant: str) -> bool:
 
 
 def _fused_functional_suffix_parent(parent_name: str, suffix_base: str, indicated_h_locs: Sequence[str]) -> str:
+    if suffix_base == "carboxylic acid" and parent_name.startswith("1H-indole"):
+        return parent_name
     if "hydro-" in parent_name:
         return _hydro_fused_functional_suffix_parent(parent_name, suffix_base, indicated_h_locs)
     if suffix_base == "carboxamide" and indicated_h_locs:
@@ -3437,6 +3955,7 @@ def _supports_fused_functional_suffix_parent(parent_name: str) -> bool:
             "indazole",
             "indeno[",
             "indole",
+            "indolizine",
             "isoquinoline",
             "naphthyridine",
             "purine",
@@ -3594,6 +4113,50 @@ _PYRIDINE_RETAINED_SUFFIX_ALIASES = {
         "4": "isonicotinonitrile",
     },
 }
+
+
+def _pyridine_systematic_suffix_name(
+    parent_name: str,
+    suffix_base: str,
+    suffix_locs: Sequence[str],
+    n_substituent: str,
+    remaining: Sequence[tuple[str, str]],
+) -> str:
+    """Construct a preferred pyridine suffix from a proved legacy locant map.
+
+    P-65.1.2.2.2 and P-66 name these acid derivatives systematically.  The
+    existing pyridine numbering map already mirrors positions 5/6 and chooses
+    an orientation for position 4; it must be applied to every ring prefix as
+    well as the principal suffix.  This is a component construction, not a
+    replacement in a completed name.
+    """
+    if parent_name not in {'pyridine', 'pyridin'} or len(suffix_locs) != 1:
+        return ''
+    if suffix_base == 'carboxamide' and not n_substituent:
+        # The compatibility selector still compares this primary amide
+        # against an oxomethane construction by text length.  Keeping its
+        # suffix is better than silently demoting the characteristic group;
+        # systematic primary-amide spelling needs a source-backed selector.
+        return ''
+    if n_substituent and _simple_n_substituent_group(n_substituent) is None:
+        return ''
+    alias, locant_map = _pyridine_retained_suffix_alias_and_locants(
+        suffix_base, suffix_locs[0], remaining)
+    suffix_locant = locant_map.get(suffix_locs[0]) if alias else None
+    if not suffix_locant:
+        return ''
+    remapped = []
+    for locant, prefix in remaining:
+        mapped = locant_map.get(locant)
+        if mapped is None:
+            return ''
+        remapped.append((mapped, prefix))
+    core = f'pyridine-{suffix_locant}-{suffix_base}'
+    if n_substituent:
+        term, n_locants = _simple_n_substituent_group(n_substituent)
+        remapped.extend((locant, term) for locant in n_locants)
+    prefix_text = _format_prefixes(remapped)
+    return _join_prefix_parent(prefix_text, core) if prefix_text else core
 
 
 def _retained_suffix_parent_alias(
@@ -3755,7 +4318,9 @@ def _single_ring_ester_suffix_name(prefixes: Sequence[tuple[str, str]], parent_n
         key = (len(remaining), len(name), locants, name)
         if best_key is None or key < best_key:
             best_key = key
-            best_name = name
+            preferred = _pyridine_systematic_suffix_name(
+                parent_name, 'carboxylate', suffix_locs, '', remaining)
+            best_name = f'{owner} {preferred}' if preferred else name
     return best_name
 
 
@@ -3837,6 +4402,10 @@ def _simple_functional_suffix_parent_name(parent_name: str) -> bool:
         "isothiazole",
         "isoxazole",
         "oxazole",
+        "1,2-oxazole",
+        "1,3-oxazole",
+        "1,2-thiazole",
+        "1,3-thiazole",
         "pyran",
         "pyrazine",
         "pyrazole",
@@ -3879,6 +4448,8 @@ def _simple_functional_suffix_remaining_prefix(prefix: str) -> bool:
 def _supports_single_ring_functional_suffix_parent(parent_name: str) -> bool:
     if parent_name == "benzene":
         return False
+    if parent_name.endswith(("ium", "ide")):
+        return True
     return any(
         stem in parent_name
         for stem in (
@@ -3993,7 +4564,10 @@ def _azanium_name(names: Sequence[str]) -> str:
 
 
 def _pnictogen_hydride_name(names: Sequence[str], parent: str) -> str:
-    return _substituted_onium_name(names, parent)
+    from ..formatting import format_prefixes
+    text = format_prefixes([('', name) for name in names],
+                           omit_locants=True, separate_unlocanted=True)
+    return text + parent if text else ''
 
 
 def _group14_hydride_name(names: Sequence[str], parent: str) -> str:
@@ -4462,3 +5036,37 @@ def _functional_term_score(name: str) -> int:
     for match in re.finditer(r"(?:(di|tri|tetra|penta|hexa))?oxo", name):
         score += multiplier_values.get(match.group(1) or "", 1)
     return score
+
+
+def _fused_alcohol_hydro_numbering(mol, parent_name, prefix_records):
+    """Number a hydrogenated naphthalene alcohol before its hydro prefixes.
+
+    The retained tetralin component fixes hydro positions 1-4; a half-turn of
+    the naphthalene skeleton can give a lower suffix locant (P-59.2.3.2).
+    Keep tagged structures on their existing stereo-numbering routes.
+    """
+    if parent_name == "tetralin":
+        hydro = [1, 2, 3, 4]
+    else:
+        match = re.fullmatch(r"(\d+(?:,\d+)*)-tetrahydro-?naphthalen(?:e)?", parent_name)
+        if not match:
+            return parent_name, {}
+        hydro = [int(loc) for loc in match[1].split(",")]
+    hydroxyls = [loc for loc, prefix, symbol in prefix_records if prefix == "hydroxy" and symbol == "C"]
+    if not hydroxyls or any(not loc.isdigit() for loc in hydroxyls):
+        return parent_name, {}
+    if any(int(a.GetChiralTag()) for a in iter_atoms(mol)) or any(int(b.GetStereo()) for b in iter_bonds(mol)):
+        return parent_name, {}
+    if any(a.GetFormalCharge() or a.GetIsotope() or a.GetNumRadicalElectrons()
+           or a.GetAtomicNum() not in {1, 6, 8, 9, 17, 35, 53} for a in iter_atoms(mol)):
+        return parent_name, {}
+    if any(b.GetBondTypeAsDouble() != 1 for a in iter_atoms(mol) if a.GetAtomicNum() == 8 for b in a.GetBonds()):
+        return parent_name, {}
+    mapping = {str(i): str((i + 3) % 8 + 1) for i in range(1, 9)}
+    mapping.update({"4a": "8a", "8a": "4a"})
+    rotated = sorted(int(mapping[loc]) for loc in hydroxyls)
+    if rotated < sorted(map(int, hydroxyls)):
+        hydro = sorted(int(mapping[str(loc)]) for loc in hydro)
+    else:
+        mapping = {}
+    return f"{','.join(map(str, hydro))}-tetrahydronaphthalene", mapping

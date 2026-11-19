@@ -18491,10 +18491,10 @@ def _unstable_aza_polycycle_alias_penalty(name: str) -> int:
         return 0
     if re.search(r"(?:^|-)\d+(?:,\d+)*-dioxo-.*azaacenaphthen\b", name):
         return 0
-    # A contiguous digit run is one locant. Keep suffix backtracking, but do
-    # not let the repeated group try partitions of the same digit run.
+    # Repeated digit runs require a letter or comma separator. An optional
+    # final bare run preserves the same matches without ambiguous repetition.
     if re.search(
-        r"(?:^|-)(?:\d+(?!\d)[a-z]?,?)*(?:di|tri|tetra|penta)?aza"
+        r"(?:^|-)(?:\d+(?:[a-z],?|,))*(?:\d+)?(?:di|tri|tetra|penta)?aza"
         r"(?:acenaphthen|aceanthren|anthracen|fluoren|phenanthren|as-indacen|s-indacen|azuleno)",
         name,
     ):

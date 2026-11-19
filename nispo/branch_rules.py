@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
+import re
 
 try:
     from rdkit import Chem, RDLogger
@@ -10,6 +11,7 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
+from .molecule_iteration import iter_bonds
 from .branch import BranchRuleSpec, first_branch_name
 from .branch_rendering import (
     branch_render_context,
@@ -18,8 +20,8 @@ from .branch_rendering import (
     select_branch_prefix_text,
 )
 from .constants import HALO, MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
+from .charge_valence import neutral_lambda_locant
 from .formatting import (
-    join_locants as _join_locants,
     substituent_parent_suffix as _substituent_parent_suffix,
     unsaturated_parent as _unsaturated_parent,
 )
@@ -30,6 +32,8 @@ _LEGACY_BRANCH_PREFIX_CACHE_LIMIT = 32768
 _LEGACY_BRANCH_PREFIX_CACHE: OrderedDict[tuple, str] = OrderedDict()
 _LEGACY_BRANCH_PREFIX_CACHE_MISS = object()
 _BRANCH_PREFIX_CACHE_MISS = object()
+_NATIVE_GET_BOND = Chem.Mol.GetBondBetweenAtoms if Chem is not None else None
+_NATIVE_BOND_TYPE = Chem.Bond.GetBondType if Chem is not None else None
 
 
 def can_be_in_parent_skeleton(mol, idx: int) -> bool:
@@ -52,6 +56,10 @@ def can_be_in_parent_skeleton(mol, idx: int) -> bool:
         result = False
     elif symbol == "N" and _is_nitrile_nitrogen(mol, idx):
         result = False
+    elif symbol == "N" and _is_isocyano_nitrogen(mol, idx):
+        # N+≡C− is one N-rooted isocyano branch. A replacement parent
+        # containing N would cite that same N again in the branch word.
+        result = False
     elif symbol == "N" and _is_nitro_nitrogen(mol, idx):
         result = False
     elif symbol == "N" and _is_diazo_nitrogen(mol, idx):
@@ -61,21 +69,23 @@ def can_be_in_parent_skeleton(mol, idx: int) -> bool:
 
 
 def replacement_prefixes(mol, path: Sequence[int]) -> str:
-    grouped: dict[str, list[int]] = defaultdict(list)
+    grouped: dict[str, list[str]] = defaultdict(list)
     for pos, idx in enumerate(path, start=1):
         atom = mol.GetAtomWithIdx(idx)
         symbol = atom.GetSymbol()
         if symbol == "N" and atom.GetFormalCharge() > 0:
-            grouped["azonia"].append(pos)
+            grouped["azonia"].append(str(pos))
         elif symbol in REPLACEMENT:
-            grouped[REPLACEMENT[symbol]].append(pos)
+            grouped[REPLACEMENT[symbol]].append(neutral_lambda_locant(atom, pos) or str(pos))
     parts = []
     for term in sorted(grouped):
         locants = grouped[term]
         if len(locants) == 1:
             parts.append(f"{locants[0]}-{term}")
         else:
-            parts.append(f"{_join_locants(locants)}-{MULT.get(len(locants), '')}{term}")
+            # Path enumeration already supplies numerical locant order, even
+            # when a locant carries a lambda bonding-number annotation.
+            parts.append(f"{','.join(locants)}-{MULT.get(len(locants), '')}{term}")
     return "-".join(parts)
 
 
@@ -86,9 +96,31 @@ def parent_chain_name(mol, path: Sequence[int], as_substituent: bool = False) ->
         return ""
     ene_locs = []
     yne_locs = []
+    # A native bond has one stable type during this pure reader. Read it once
+    # rather than crossing the native boundary three times for each single
+    # bond. Custom getters retain the established observation sequence.
+    native_types = (
+        n > 1
+        and Chem is not None
+        and type(mol) is Chem.Mol
+        and type(path) in (tuple, list)
+        and Chem.Mol.GetBondBetweenAtoms is _NATIVE_GET_BOND
+        and Chem.Bond.GetBondType is _NATIVE_BOND_TYPE
+        and "GetBondBetweenAtoms" not in vars(mol)
+    )
+    if native_types:
+        double, triple, single = Chem.BondType.DOUBLE, Chem.BondType.TRIPLE, Chem.BondType.SINGLE
     for i, (a, b) in enumerate(zip(path, path[1:]), start=1):
         bond = mol.GetBondBetweenAtoms(a, b)
-        if bond.GetBondType() == Chem.BondType.DOUBLE:
+        if native_types:
+            bond_type = bond.GetBondType()
+            if bond_type == double:
+                ene_locs.append(i)
+            elif bond_type == triple:
+                yne_locs.append(i)
+            elif bond_type != single:
+                return ""
+        elif bond.GetBondType() == Chem.BondType.DOUBLE:
             ene_locs.append(i)
         elif bond.GetBondType() == Chem.BondType.TRIPLE:
             yne_locs.append(i)
@@ -167,6 +199,7 @@ def branch_prefix(
             ),
         )
         if prefix:
+            prefix = _localize_attachment_stereo(mol, idx, parent_idx, prefix)
             cache[key] = prefix
             if telemetry is not None:
                 telemetry.branch_prefix_produced[_branch_prefix_telemetry_key(prefix)] += 1
@@ -198,6 +231,7 @@ def branch_prefix(
             prefix = first_branch_name(rule_sets, mol, idx, parent_idx)
         if not prefix and atom.GetAtomicNum() > 1 and not atom.IsInRing() and _subtree_has_ring(mol, idx, parent_idx):
             prefix = _fragment_named_ring_substituent_prefix(mol, idx, parent_idx)
+        prefix = _localize_attachment_stereo(mol, idx, parent_idx, prefix)
         cache[key] = prefix
         if telemetry is not None:
             telemetry_key = _branch_prefix_telemetry_key(prefix)
@@ -216,6 +250,46 @@ def _legacy_branch_prefix_global_cache_get(cache_key: tuple):
     if cached is not _LEGACY_BRANCH_PREFIX_CACHE_MISS:
         _LEGACY_BRANCH_PREFIX_CACHE.move_to_end(cache_key)
     return cached
+
+
+def _localize_attachment_stereo(mol, idx, parent_idx, prefix):
+    """Keep a branch attachment's configuration out of whole-name fallback."""
+    from .component_vocabulary import preferred_component
+    prefix=preferred_component(prefix)
+    atom = mol.GetAtomWithIdx(idx)
+    if (not prefix or not int(atom.GetChiralTag())
+            or atom.GetAtomicNum() != 6 or atom.GetFormalCharge() or atom.GetIsotope()
+            or re.match(r'^\((?:cis|trans)\)-', prefix)):
+        return prefix
+    from .stereochemistry import assigned_atom_stereochemistry
+    descriptor = dict(assigned_atom_stereochemistry(mol, Chem, include_pseudo=True)).get(idx)
+    if descriptor not in {'R', 'S'}:
+        return prefix
+    attachment = re.search(r"-(\d+[a-z']*)-yl$", prefix)
+    locant = attachment[1] if attachment else None
+    ring_neighbors = [a for a in atom.GetNeighbors()
+                      if a.GetIdx() != parent_idx and a.IsInRing()]
+    if locant is None and not atom.IsInRing():
+        if len(ring_neighbors) == 2 and atom.GetTotalNumHs() == 1 and prefix.endswith('methyl'):
+            locant = ''  # The one-carbon parent has one possible atom.
+        elif any(prefix.endswith(root + 'yl') for root in ROOTS.values()):
+            locant = '1'  # An unlocanted alkyl ending introduces valence at 1.
+    if locant is None:
+        return prefix
+    leading = re.match(r"^\((?P<fields>(?:\d+[a-z']*)?[RSrsEZ](?:,(?:\d+[a-z']*)?[RSrsEZ])*)\)-", prefix)
+    fields = leading['fields'].split(',') if leading else []
+    # An embedded child's descriptor does not describe the attachment. Only
+    # the owning prefix's leading stereo group can already contain this site.
+    if (any(field in {'R', 'S', 'r', 's'} for field in fields)
+            or any(re.fullmatch(re.escape(locant) + '[RSrs]', field) for field in fields)):
+        return prefix
+    fields.append(locant + descriptor)
+    def key(field):
+        match = re.match(r"(\d+)([a-z']*)", field)
+        return (int(match[1]), match[2], field[-1]) if match else (0, '', field[-1])
+    fields.sort(key=key)
+    body = prefix[leading.end():] if leading else prefix
+    return '(' + ','.join(fields) + ')-' + body
 
 
 def _legacy_branch_prefix_global_cache_set(cache_key: tuple, prefix: str) -> None:
@@ -264,7 +338,7 @@ def _component_has_assigned_stereo(mol, atoms: tuple[int, ...], parent_bond) -> 
         atom = mol.GetAtomWithIdx(idx)
         if int(atom.GetChiralTag()) != 0:
             return True
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBeginAtomIdx() not in atom_set or bond.GetEndAtomIdx() not in atom_set:
             continue
         if str(bond.GetStereo()) != "STEREONONE":

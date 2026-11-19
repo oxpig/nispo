@@ -1,7 +1,10 @@
-name: Publish to PyPI
+name: Release validation and publication
 
 on:
+  workflow_dispatch:
+  pull_request:
   push:
+    branches: [main]
     tags:
       - "[0-9]*"
 
@@ -26,9 +29,101 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+  validate:
+    name: Installed ${{ matrix.distribution }} / Python ${{ matrix.python }} / RDKit ${{ matrix.rdkit }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: wheel
+            python: "3.12"
+            rdkit: "2026.9.1"
+          - distribution: sdist
+            python: "3.12"
+            rdkit: "2026.9.1"
+          - distribution: wheel
+            python: "3.10"
+            rdkit: "2024.9.6"
+          - distribution: sdist
+            python: "3.10"
+            rdkit: "2024.9.6"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Install the distribution and required test dependencies
+        env:
+          DISTRIBUTION: ${{ matrix.distribution }}
+          RDKIT_VERSION: ${{ matrix.rdkit }}
+        run: |
+          python -m pip install "rdkit==$RDKIT_VERSION" pytest pytest-xdist pytest-timeout
+          if [ "$DISTRIBUTION" = wheel ]; then
+            python -m pip install dist/*.whl
+          else
+            python -m pip install dist/*.tar.gz
+          fi
+          python -m pip check
+      - name: Obtain the pinned OPSIN parser
+        run: |
+          curl --fail --location --retry 3 https://github.com/dan2097/opsin/releases/download/2.9.0/opsin-cli-2.9.0-jar-with-dependencies.jar -o "$RUNNER_TEMP/opsin.jar"
+          echo "c2e29326c281f87b59a05d934d8589adac6e9d17b95b984931b3e739111b360f  $RUNNER_TEMP/opsin.jar" | sha256sum --check
+      - name: Check installed imports and run release contracts outside the checkout
+        env:
+          NISPO_OPSIN_JAR: ${{ runner.temp }}/opsin.jar
+        run: |
+          checks="$RUNNER_TEMP/nispo-release-checks"
+          mkdir -p "$checks" "$GITHUB_WORKSPACE/release-reports"
+          cp -R tests tools pyproject.toml "$checks/"
+          cd "$checks"
+          export PYTHONPATH="$checks/tests:$checks"
+          python - <<'PY'
+          import importlib.metadata
+          from pathlib import Path
+          import nispo, sys
+          assert Path(nispo.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          assert nispo.__version__ == importlib.metadata.version('nispo')
+          PY
+          status=0
+          for mode in full fast; do
+            python -m pytest tests/core tests/integration --nispo-mode="$mode" --require-opsin --timeout=180 --junitxml="$GITHUB_WORKSPACE/release-reports/$mode.xml" || status=1
+          done
+          python -m pytest tests/test_mode_api.py tests/test_default_timeout.py tests/test_parallel_timeout.py tests/test_composition_audit_contract.py tests/test_fast_public_separation.py --require-opsin --timeout=180 --junitxml="$GITHUB_WORKSPACE/release-reports/priority.xml" || status=1
+          python - <<'PY' || status=1
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          reports = Path(os.environ['GITHUB_WORKSPACE']) / 'release-reports'
+          for mode in ('full', 'fast', 'priority'):
+              suites = list(ET.parse(reports / (mode + '.xml')).getroot().iter('testsuite'))
+              tests = sum(int(suite.get('tests', '0')) for suite in suites)
+              skipped = sum(int(suite.get('skipped', '0')) for suite in suites)
+              if not tests or skipped:
+                  raise SystemExit(f'{mode}: expected executed checks without skips; tests={tests}, skipped={skipped}')
+          PY
+          installed="$(python -c 'from pathlib import Path; import nispo; print(Path(nispo.__file__).resolve().parents[1])')"
+          python tools/check_release_acceptance.py "$GITHUB_WORKSPACE/release-reports/acceptance" --source-root "$installed" || status=1
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-${{ matrix.distribution }}-py${{ matrix.python }}-rdkit${{ matrix.rdkit }}
+          path: release-reports/
+
   publish:
     name: Publish distributions
-    needs: build
+    needs: [build, validate]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.event.created == true
     runs-on: ubuntu-latest
     environment:
       name: pypi

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from functools import lru_cache
 
+from .molecule_iteration import iter_atoms
 from .opsin_resource_utils import (
     OpsinTokenRecord,
     iter_opsin_token_records,
@@ -14,7 +15,7 @@ from .resource_manifest import SUBSTITUENT_FAMILY
 from .resource_operations import apply_token_operations
 from .molecule_cache import mol_cache_dict
 from .template_access import template_record_mol, template_record_name
-from .template_match_utils import match_has_extra_core_bonds
+from .template_match_utils import match_has_extra_core_bonds, match_preserves_formal_charges
 
 
 SUBSTITUENT_RESOURCE_FILES = (
@@ -42,11 +43,14 @@ SUPPORTED_SUBSTITUENT_ATTRIBUTES = {
 
 def resource_substituent_prefix(mol, idx: int, parent_idx: int, Chem) -> str:
     template = resource_substituent_match(mol, idx, parent_idx, Chem)
-    return _preferred_resource_substituent_name(template_record_name(template)) if template else ""
+    from .component_vocabulary import preferred_component
+    return preferred_component(_preferred_resource_substituent_name(template_record_name(template))) if template else ""
 
 
 def _preferred_resource_substituent_name(name: str) -> str:
     return {
+        "acetenyl": "ethynyl",
+        "prenyl": "3-methylbut-2-en-1-yl",
         "benzyloxycarbonyl": "cbz",
         "carbbenzoxy": "cbz",
         "carbmethoxy": "methoxycarbonyl",
@@ -86,6 +90,10 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
                 continue
             if match_has_extra_core_bonds(mol, query, match):
                 continue
+            if not match_preserves_formal_charges(mol, query, match):
+                continue
+            if not _match_preserves_attached_atom_states(mol, query, match, parent_idx, Chem):
+                continue
             if template.get("unassigned_root_only") and mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
             if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
@@ -95,6 +103,42 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
                 return template
     cache[cache_key] = None
     return None
+
+
+@lru_cache(maxsize=1024)
+def _attached_token_atom_states(query, Chem):
+    """Evaluate a token's free single valence before comparing atom states.
+
+    An added dummy attachment consumes ordinary implicit H, while retaining
+    explicit bracket H and charged-atom valence. Merely adding one H to every
+    root would incorrectly reject nitro and ammonio tokens.
+    """
+    graph = Chem.RWMol(query)
+    dummy = graph.AddAtom(Chem.Atom(0))
+    graph.AddBond(0, dummy, Chem.BondType.SINGLE)
+    attached = graph.GetMol()
+    try:
+        Chem.SanitizeMol(attached)
+    except (ValueError, RuntimeError):
+        return None
+    return tuple((a.GetTotalNumHs(includeNeighbors=True), a.GetTotalValence(),
+                  a.GetNumRadicalElectrons()) for a in attached.GetAtoms()
+                 if a.GetIdx() != dummy)
+
+
+def _match_preserves_attached_atom_states(mol, query, match, parent_idx, Chem):
+    core = frozenset(match)
+    boundary = {(i, n.GetIdx()) for i in core for n in mol.GetAtomWithIdx(i).GetNeighbors()
+                if n.GetIdx() not in core and n.GetAtomicNum() > 1}
+    if boundary != {(match[0], parent_idx)}:
+        return False
+    expected = _attached_token_atom_states(query, Chem)
+    if expected is None:
+        return False
+    actual = tuple((mol.GetAtomWithIdx(i).GetTotalNumHs(includeNeighbors=True),
+                    mol.GetAtomWithIdx(i).GetTotalValence(),
+                    mol.GetAtomWithIdx(i).GetNumRadicalElectrons()) for i in match)
+    return actual == expected
 
 def _acyclic_carbalkoxy_token_on_ring(template: dict, mol, match: tuple[int, ...]) -> bool:
     name = template_record_name(template)
@@ -365,5 +409,5 @@ def _template_key(mol) -> tuple:
     return (
         mol.GetAtomWithIdx(0).GetSymbol(),
         mol.GetNumAtoms(),
-        tuple(sorted(Counter(atom.GetSymbol() for atom in mol.GetAtoms()).items())),
+        tuple(sorted(Counter(atom.GetSymbol() for atom in iter_atoms(mol)).items())),
     )

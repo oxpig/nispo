@@ -1,0 +1,71 @@
+<!DOCTYPE tokenLists SYSTEM "tokenLists.dtd">
+<tokenLists>
+	<tokenList tagname="group" type="chain" subType="alkaneStem" symbol="a"><!--trivial/treated as trivial-->
+		<token value="C" labels="numeric" usableAsAJoiner="yes">meth</token>
+		<token value="CC" labels="numeric" usableAsAJoiner="yes">eth</token>
+		<token value="CCC" labels="numeric" usableAsAJoiner="yes">prop</token>
+		<token value="CCCC" labels="numeric" usableAsAJoiner="yes">but</token>
+		<token value="CCCCC" labels="numeric" usableAsAJoiner="yes">pent</token>
+		<token value="CCCCCC" labels="numeric" usableAsAJoiner="yes">hex</token>
+		<token value="CCCCCCC" labels="numeric" usableAsAJoiner="yes">hept</token>
+		<token value="CCCCCCCC" labels="numeric" usableAsAJoiner="yes">oct</token>
+		<token value="CCCCCCCCC" labels="numeric" usableAsAJoiner="yes">non</token>
+		<token value="CCCCCCCCCCC" labels="numeric" usableAsAJoiner="yes">undec</token>
+	</tokenList>
+	<tokenList tagname="alkaneStemComponent" symbol="Ï"><!--units-->
+		<token value="1">hen</token>
+		<token value="2">do</token>
+		<token value="3">tri</token>
+		<token value="4">tetr</token>
+		<token value="5">pent</token>
+		<token value="6">hex</token>
+		<token value="7">hept</token>
+		<token value="8">oct</token>
+		<token value="9">non</token>
+	</tokenList>
+	<tokenList tagname="alkaneStemComponent" symbol="Ć"><!--eleven-->
+		<token value="11">undec</token>
+	</tokenList>
+	<tokenList tagname="alkaneStemComponent" symbol="Ð"><!--tens-->
+		<token value="10">dec</token>
+		<token value="20">cos|icos|eicos</token>
+		<token value="30">triacont|tricont</token><!--triacont preferred-->
+		<token value="40">tetracont</token>
+		<token value="50">pentacont</token>
+		<token value="60">hexacont</token>
+		<token value="70">heptacont</token>
+		<token value="80">octacont</token>
+		<token value="90">nonacont</token>
+		<token value="100">decacont</token><!--hect preferred-->
+	</tokenList>
+	<tokenList tagname="alkaneStemComponent" symbol="Ñ"><!--hundreds-->
+		<token value="100">hect</token>
+		<token value="200">dict</token>
+		<token value="300">trict</token>
+		<token value="400">tetract</token>
+		<token value="500">pentact</token>
+		<token value="600">hexact</token>
+		<token value="700">heptact</token>
+		<token value="800">octact</token>
+		<token value="900">nonact</token>
+	</tokenList>
+	<tokenList tagname="alkaneStemComponent" symbol="Ò"><!--thousands-->
+		<token value="1000">kili</token>
+		<token value="2000">dili</token>
+		<token value="3000">trili</token>
+		<token value="4000">tetrali</token>
+		<token value="5000">pentali</token>
+		<token value="6000">hexali</token>
+		<token value="7000">heptali</token>
+		<token value="8000">octali</token>
+		<token value="9000">nonali</token>
+	</tokenList>
+	<!--note that n-,i-,s- are case sensitive due to potential confusion with nitrogen/iodine/sulfur respectively and hence are matched by a regex-->
+	<tokenList tagname="alkaneStemModifier" symbol="n">
+		<token value="normal">normal|normal |normal-</token>
+		<token value="tert">tertiary|tertiary |tertiary-|tert|tert.|tert-|tert.-|t-</token>
+		<token value="iso">iso|iso-</token>
+		<token value="sec">sec|sec.|sec-|sec.-|secondary|secondary |secondary-</token>
+		<token value="neo">neo|neo-</token>
+	</tokenList>
+</tokenLists>

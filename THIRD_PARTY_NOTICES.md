@@ -5,11 +5,12 @@ reference. The package includes OPSIN-derived token resources under:
 
 ```text
 nispo/resources/opsin_tokens/
+nispo/_fast_engine/resources/opsin_tokens/
 ```
 
-Generated fused-template JSON resources in `nispo/resources/` were produced from
-NISPO tooling that used OPSIN-accepted nomenclature/resource information during
-development.
+Generated fused-template JSON resources in `nispo/resources/` and
+`nispo/_fast_engine/resources/` were produced from NISPO tooling that used
+OPSIN-accepted nomenclature/resource information during development.
 
 ## OPSIN
 

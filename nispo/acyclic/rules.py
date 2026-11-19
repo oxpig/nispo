@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
+from ..molecule_iteration import iter_atoms, iter_bonds
 from ..branch_rules import (
     branch_prefix,
     can_be_in_parent_skeleton,
@@ -29,16 +30,16 @@ from ..formatting import alkyl_to_alkoxy as _alkyl_to_alkoxy
 from ..formatting import format_prefixes as _format_prefixes
 from ..formatting import join_prefix_parent as _join_prefix_parent
 from ..formatting import preferred_parent_stem as _preferred_parent_stem
+from ..formatting import complete_parent_name, multiplied_suffix, loc_unsat
 from ..formatting import unsaturated_parent as _unsaturated_parent
 from ..graph_model import graph_view
 from ..molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from ..simple_prefixes import simple_external_prefix
-from ..stereochemistry import assigned_atom_stereochemistry
+from ..stereochemistry import _indexed_bond_stereochemistry, assigned_atom_stereochemistry
 
 
 MAX_ACYCLIC_PARENT_PATHS = 16
 MAX_ACYCLIC_ORIENTATIONS_PER_DESCRIPTOR = 2
-_SATURATED_CHAIN_PARENT_STEMS = frozenset(f"{root}an" for root in ROOTS.values())
 _CHARGE_PRESERVING_PREFIX_TERMS = frozenset(
     (
         "carboxylato",
@@ -63,6 +64,9 @@ class _AcyclicGraphView:
 class AcyclicNameRecord:
     name: str
     stereo_locants: tuple[tuple[int, str], ...] = ()
+    parent_selection: object = None
+    preference_issues: tuple = ()
+    principal_group_centers: frozenset[int] = frozenset()
 
 
 def name_acyclic(mol, allow_ring_atoms: bool = True) -> str:
@@ -135,7 +139,11 @@ def name_acyclic_record(mol, allow_ring_atoms: bool = True) -> AcyclicNameRecord
             if name:
                 return AcyclicNameRecord(name)
 
-    paths = _candidate_parent_paths(mol, allow_ring_atoms=allow_ring_atoms)
+    from ..methoxy_carbon_parent import methoxy_carbon_parent
+
+    ether_path = methoxy_carbon_parent(mol)
+    paths = ((ether_path,) if len(ether_path) in ROOTS else
+             _candidate_parent_paths(mol, allow_ring_atoms=allow_ring_atoms))
     if not paths:
         return AcyclicNameRecord("")
 
@@ -262,7 +270,7 @@ def _name_terminal_acyclic_carbon_charge(mol) -> str:
         return ""
     carbon_charges = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C" and atom.GetFormalCharge() in {-1, 1}
     ]
     if len(carbon_charges) != 1:
@@ -280,7 +288,7 @@ def _name_terminal_acyclic_carbon_charge(mol) -> str:
     view = _acyclic_graph_view(mol)
     allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and not atom.IsInRing()
         and not atom.GetIsotope()
@@ -339,7 +347,7 @@ def _name_terminal_nitronate(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     motifs: list[tuple[int, int, tuple[int, int]]] = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 1 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -383,7 +391,7 @@ def _name_terminal_imine_azanide(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     motifs: list[tuple[int, int]] = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -413,10 +421,10 @@ def _name_terminal_imine_azanide(mol) -> str:
 def _name_aminodiazenide(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
-    if sum(atom.GetFormalCharge() for atom in mol.GetAtoms()) != -1:
+    if sum(atom.GetFormalCharge() for atom in iter_atoms(mol)) != -1:
         return ""
     motifs: list[tuple[int, int, int]] = []
-    for terminal in mol.GetAtoms():
+    for terminal in iter_atoms(mol):
         if terminal.GetSymbol() != "N" or terminal.GetFormalCharge() != -1 or terminal.IsInRing():
             continue
         tidx = terminal.GetIdx()
@@ -492,7 +500,7 @@ def _name_dialkoxy_azanide(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     motifs: list[tuple[int, tuple[int, int]]] = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -549,7 +557,7 @@ def _name_alkoxy_azanide(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     motifs: list[tuple[int, int, int]] = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != -1 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -584,7 +592,7 @@ def _name_terminal_diacyl_azanide(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     records: list[tuple[int, int, int]] = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -619,7 +627,7 @@ def _name_terminal_diacyl_azanide(mol) -> str:
     first, second = records
     carbon_allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     }
     path = _shortest_path_in_allowed_graph(_acyclic_graph_view(mol), first[0], second[0], carbon_allowed)
@@ -636,7 +644,7 @@ def _name_geminal_hydroxy_diphosphonic_acid(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     centers = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -666,7 +674,7 @@ def _name_geminal_hydroxy_diphosphonic_acid(mol) -> str:
     view = _acyclic_graph_view(mol)
     carbon_allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     }
     endpoints = [
@@ -756,7 +764,7 @@ def _name_hydroxy_alkane_diyl_diphosphonic_acid(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     records = []
-    for carbon in mol.GetAtoms():
+    for carbon in iter_atoms(mol):
         if carbon.GetSymbol() != "C" or carbon.GetFormalCharge() != 0 or carbon.IsInRing():
             continue
         cidx = carbon.GetIdx()
@@ -791,7 +799,7 @@ def _name_hydroxy_alkane_diyl_diphosphonic_acid(mol) -> str:
     view = _acyclic_graph_view(mol)
     carbon_allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and not atom.IsInRing()
     }
     first, second = records
@@ -818,7 +826,7 @@ def _name_tris_hydroxy_alkoxy_phosphoryl_amine(mol) -> str:
     if mol.GetRingInfo().NumRings():
         return ""
     records = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() != 0 or nitrogen.IsInRing():
             continue
         if nitrogen.GetTotalNumHs() != 0:
@@ -931,7 +939,7 @@ def _terminal_nitrone_motif(mol) -> tuple[int, int] | None:
     if mol.GetRingInfo().NumRings():
         return None
     motifs = []
-    for nitrogen in mol.GetAtoms():
+    for nitrogen in iter_atoms(mol):
         if nitrogen.GetSymbol() != "N" or nitrogen.GetFormalCharge() <= 0 or nitrogen.IsInRing():
             continue
         nidx = nitrogen.GetIdx()
@@ -979,7 +987,7 @@ def _terminal_nitrone_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]
     view = _acyclic_graph_view(mol)
     allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetSymbol() == "C"
         and not atom.IsInRing()
         and atom.GetFormalCharge() == 0
@@ -1040,7 +1048,7 @@ def _acyclic_functional_profile(mol) -> dict[str, bool]:
     has_c_s_n_thioamide = False
     has_c_sulfone_cumulene = False
     has_protonated_carbonyl = False
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetSymbol() != "C":
             continue
         cidx = atom.GetIdx()
@@ -1107,7 +1115,7 @@ def _name_oxidanium(mol) -> str:
 
 def _oxidanium_motifs(mol) -> list[tuple[int, int]]:
     motifs = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         cidx = atom.GetIdx()
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
             continue
@@ -1115,7 +1123,10 @@ def _oxidanium_motifs(mol) -> list[tuple[int, int]]:
             if nbr.GetSymbol() != "O" or nbr.GetFormalCharge() <= 0:
                 continue
             bond = mol.GetBondBetweenAtoms(cidx, nbr.GetIdx())
-            if bond.GetBondType() == Chem.BondType.DOUBLE:
+            if (bond.GetBondType() == Chem.BondType.DOUBLE
+                    and not nbr.GetIsotope()
+                    and not nbr.IsInRing()
+                    and len([a for a in nbr.GetNeighbors() if a.GetAtomicNum() > 1]) == 1):
                 motifs.append((cidx, nbr.GetIdx()))
     return motifs
 
@@ -1123,7 +1134,7 @@ def _oxidanium_motifs(mol) -> list[tuple[int, int]]:
 def _oxidanium_parent_paths(mol, carbon_idx: int) -> list[tuple[int, ...]]:
     allowed = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if not atom.IsInRing() and can_be_in_parent_skeleton(mol, atom.GetIdx())
     }
     if carbon_idx not in allowed:
@@ -1185,9 +1196,33 @@ def _name_oxidanium_path(mol, path: Sequence[int], carbon_idx: int, oxygen_idx: 
 
 
 def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> AcyclicNameRecord:
+    if _carbon_hydride_scope(mol):
+        # Apply the structural length criterion to decorated carbon trees as
+        # well, while preserving their established annotation/branch writer.
+        # Rendering or complete-parent stereo coverage cannot promote a
+        # shorter chain. There is no earlier suffix or skeletal heteroatom
+        # criterion in this explicitly proved scope.
+        longest = max(map(len, paths), default=0)
+        paths = [path for path in paths if len(path) == longest]
+    isotopic = _fully_modified_linear_hydrocarbon_record(mol, paths)
+    if isotopic is not None:
+        return isotopic
+    preferred = _bluebook_hydrocarbon_record(mol, paths)
+    if preferred is not None:
+        return preferred
     orientations = _oriented_paths_by_quality(mol, paths)
+    source_orientations = _equivalent_parent_numbering_frontier(
+        mol, [path for _descriptor, path in orientations]
+    )
+    orientations = sorted(
+        ((_path_quality_descriptor(mol, path), tuple(path))
+         for path in source_orientations), key=lambda row: row[0]
+    )
     _record_acyclic_filter_stage(mol, "path_facts", len(paths))
     _record_acyclic_filter_stage(mol, "orientation_facts", len(orientations))
+    acid = _render_senior_terminal_acid(mol, orientations)
+    if acid is not None:
+        return acid
     prefer_complete_stereo = _prefer_complete_acyclic_stereo_path(mol)
     first_records: list[AcyclicNameRecord] | None = None
     index = 0
@@ -1198,7 +1233,10 @@ def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> Acyc
             _descriptor, oriented = orientations[index]
             descriptor_orientations.append(oriented)
             index += 1
-        render_set = _acyclic_orientation_render_set(mol, descriptor_orientations)
+        # Parent paths are already capped at MAX_ACYCLIC_PARENT_PATHS; retain
+        # every surviving orientation after source comparison so a renderer
+        # cap cannot discard a tied numbering of the same fixed parent.
+        render_set = tuple(tuple(path) for path in descriptor_orientations)
         _record_acyclic_filter_stage(mol, "orientation_render_set", len(render_set))
         _record_acyclic_filter_stage(
             mol,
@@ -1229,6 +1267,212 @@ def _best_acyclic_record_from_paths(mol, paths: Sequence[Sequence[int]]) -> Acyc
     if first_records:
         return min(first_records, key=lambda record: record.name)
     return AcyclicNameRecord("")
+
+
+def _render_senior_terminal_acid(mol, orientations):
+    """Keep a cited carboxylic acid ahead of an unfunctionalized path."""
+    if not mol.GetRingInfo().NumRings() or not _has_assigned_path_bond_stereo(mol):
+        return None
+    from ..mapped_principal_general import senior_sites
+
+    groups = senior_sites(mol)
+    if len(groups) != 1 or groups[0].kind != 'acid':
+        return None
+    acid = groups[0]
+    for _descriptor, path in orientations:
+        if acid.center in path or acid.owner not in (path[0], path[-1]):
+            continue
+        prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+        if prefixes is None or replacement_prefixes(mol, path):
+            continue
+        name = _terminal_carboxy_suffix_parent_name(mol, path, prefixes)
+        if name:
+            oriented = path if path[0] == acid.owner else tuple(reversed(path))
+            return AcyclicNameRecord(
+                name, _path_stereo_locants(oriented, start=2),
+                principal_group_centers=frozenset({acid.center}),
+            )
+    return None
+
+
+def _fully_modified_linear_hydrocarbon_record(mol, paths):
+    """Use the mapped P-82 writer for a fully isotope-H substituted chain.
+
+    Ordinary carbon-path selection remains authoritative. This adapter admits
+    only a complete unbranched C/H parent with a single hydrogen nuclide and
+    no other annotations. Branched, partially modified and mixed-mass graphs
+    keep their existing component producers and numbering frontiers.
+    """
+    atoms = tuple(mol.GetAtoms())
+    isotope_h = [a for a in atoms if a.GetAtomicNum() == 1 and a.GetIsotope()]
+    if not isotope_h or len({a.GetIsotope() for a in isotope_h}) != 1:
+        return None
+    if (any(a.GetAtomicNum() not in {1, 6} or a.GetFormalCharge()
+            or a.GetNumRadicalElectrons() or int(a.GetChiralTag())
+            or a.GetAtomicNum() == 6 and a.GetIsotope() for a in atoms)
+            or any(int(b.GetStereo()) for b in mol.GetBonds())):
+        return None
+    mass = isotope_h[0].GetIsotope()
+    carbon = {a.GetIdx() for a in atoms if a.GetAtomicNum() == 6}
+    if any(a.GetTotalNumHs(includeNeighbors=True) != sum(
+            n.GetAtomicNum() == 1 and n.GetIsotope() == mass for n in a.GetNeighbors())
+            for a in atoms if a.GetIdx() in carbon):
+        return None
+    if any(len(a.GetNeighbors()) != 1 or a.GetNeighbors()[0].GetIdx() not in carbon
+           for a in isotope_h):
+        return None
+    complete_paths = [path for path in paths if set(path) == carbon]
+    if not complete_paths:
+        return None
+    constitutional = Chem.Mol(mol)
+    for atom in constitutional.GetAtoms():
+        atom.SetIsotope(0)
+    preferred = _bluebook_hydrocarbon_record(constitutional, complete_paths)
+    if preferred is None:
+        return None
+    from ..component_mapping import MappedComponent, decorate_component, hydrogen_bindings
+
+    mapping = hydrogen_bindings(mol, dict(preferred.stereo_locants))
+    if set(mapping) != carbon | {a.GetIdx() for a in isotope_h}:
+        return None
+    component = MappedComponent(preferred.name, tuple(mapping.items()), frozenset(mapping))
+    name = decorate_component(mol, Chem, component)
+    return AcyclicNameRecord(name, preferred.stereo_locants,
+                             preferred.parent_selection) if name else None
+
+
+def _equivalent_parent_numbering_frontier(mol, orientations):
+    """Apply P-82.5.2 only across equivalent simple-hydride orientations."""
+    from ..parent_selection import graph_parent_facts, parent_frontier
+    from ..extended_inventory import selection_inventory
+
+    inventory = selection_inventory(mol)
+    if inventory.supported and inventory.principal:
+        # Suffix and class-priority facts need their owning route's typed
+        # adapter; this generic path resolver proves only ordinary hydride
+        # prefix and replacement facts.
+        return tuple(tuple(path) for path in orientations)
+
+    grouped = {}
+    for path in orientations:
+        grouped.setdefault(frozenset(path), []).append(tuple(path))
+    resolved = []
+    constitutional = Chem.Mol(mol)
+    Chem.RemoveStereochemistry(constitutional)
+    for atom in constitutional.GetAtoms():
+        atom.SetIsotope(0)
+    for _parent_atoms, paths in grouped.items():
+        if len(paths) < 2:
+            resolved.extend(paths)
+            continue
+        facts_rows = []
+        proved = True
+        for path in paths:
+            prefixes = _path_substituent_prefixes(
+                constitutional, path, skip_plain_hydrogen=True
+            )
+            if prefixes is None:
+                proved = False
+                break
+            base_name = _name_from_parent_path(constitutional, path, as_substituent=False)
+            if not base_name:
+                proved = False
+                break
+            mapping = _path_stereo_locants(path)
+            facts = graph_parent_facts(
+                mol, path, mapping, principal_class=(40, 0), kind="chain",
+                replacement=bool(replacement_prefixes(constitutional, path)),
+                prefixes=prefixes, name=base_name, allow_annotations=True,
+            )
+            if facts is None:
+                proved = False
+                break
+            facts_rows.append((path, facts))
+        if not proved or len(facts_rows) != len(paths):
+            # Preserve the prior bounded candidate set when a required
+            # chemical fact is unavailable; do not manufacture an isotope
+            # ordering key from a partial mapping.
+            resolved.extend(paths)
+            continue
+        frontier = parent_frontier(facts_rows, lambda row: row[1])
+        resolved.extend(path for path, _facts in frontier)
+    return tuple(resolved)
+
+
+def _bluebook_hydrocarbon_record(mol, paths):
+    """Select ordinary hydrocarbon parents before asking their renderer.
+
+    Decorated chains retain the existing writer after the structural length
+    filter above; no new annotation/numbering comparison is inferred here.
+    """
+    from ..parent_selection import graph_parent_facts, parent_frontier
+
+    if any(a.GetAtomicNum() not in {1, 6} or a.GetFormalCharge()
+           or a.GetIsotope() or a.GetNumRadicalElectrons() or int(a.GetChiralTag())
+           for a in mol.GetAtoms()) or any(int(b.GetStereo()) for b in mol.GetBonds()):
+        return None
+    structural = []
+    for path in {tuple(p) for p in paths} | {tuple(reversed(p)) for p in paths}:
+        facts = graph_parent_facts(mol, path, _path_stereo_locants(path),
+                                  principal_class=(40, 0))
+        if facts is not None:
+            structural.append((path, facts))
+    if not structural:
+        return (_unrenderable_carbon_parent(paths, 'The carbon-parent comparison is unavailable.')
+                if _carbon_hydride_scope(mol) else None)
+    structural = parent_frontier(structural, lambda item: item[1])
+    records = []
+    for path, _ in structural:
+        prefixes = _path_substituent_prefixes(mol, path, skip_plain_hydrogen=True)
+        if prefixes is None:
+            continue
+        name = _name_from_parent_path(mol, path, as_substituent=False)
+        if not name:
+            continue
+        locants = _path_stereo_locants(path)
+        facts = graph_parent_facts(mol, path, locants, principal_class=(40, 0),
+                                  prefixes=prefixes, name=name)
+        records.append(AcyclicNameRecord(name, locants, facts))
+    records = parent_frontier(records, lambda record: record.parent_selection)
+    if records:
+        return min(records, key=lambda record: record.name)
+    # Ring-containing alternatives belong to their earlier ring/chain and
+    # method comparison. Do not turn a failed acyclic alternative there into
+    # a barrier for a separately supported cyclic parent construction.
+    return (_unrenderable_carbon_parent([path for path, _ in structural])
+            if _carbon_hydride_scope(mol) else None)
+
+
+def _carbon_hydride_scope(mol):
+    """Prove the carbon parent has only ordinary terminal halogen substituents."""
+    cached = mol_cache_get(mol, 'carbon_hydride_scope')
+    if cached is not None:
+        return cached
+    return mol_cache_set(mol, 'carbon_hydride_scope',
+        not mol.GetRingInfo().NumRings()
+        and any(a.GetAtomicNum() == 6 for a in iter_atoms(mol))
+        and all(a.GetAtomicNum() in {1, 6, 9, 17, 35, 53}
+                and not a.GetFormalCharge() and not a.GetNumRadicalElectrons()
+                and (a.GetAtomicNum() in {1, 6}
+                     or (a.GetDegree() == 1 and a.GetTotalValence() == 1
+                         and a.GetNeighbors()[0].GetAtomicNum() == 6
+                         and a.GetBonds()[0].GetBondType() == Chem.BondType.SINGLE))
+                for a in iter_atoms(mol)))
+
+
+def _unrenderable_carbon_parent(paths, reason=''):
+    from ..naming_result import SelectionLimitation
+    from ..number_terms import MAX_CARBON_CHAIN_LENGTH
+
+    lengths = {len(path) for path in paths}
+    if lengths and all(length not in ROOTS for length in lengths):
+        reason = (f'The selected carbon parent requires {max(lengths)} skeletal atoms; '
+                  f'the root vocabulary supports 1–{MAX_CARBON_CHAIN_LENGTH}. '
+                  'A missing root cannot promote a shorter parent.')
+    return AcyclicNameRecord('', preference_issues=(SelectionLimitation(
+        'acyclic-carbon-parent', 'P-21.2.1/P-44.3.2', reason or
+        'The senior carbon-parent frontier has no complete rendering; '
+        'a shorter or less senior candidate does not resolve this limitation.'),))
 
 
 def _rendered_path_stereo_locants(mol, path: Sequence[int]) -> tuple[tuple[int, str], ...]:
@@ -1272,7 +1516,7 @@ def _prefer_complete_acyclic_stereo_path(mol) -> bool:
 
 
 def _has_assigned_path_bond_stereo(mol) -> bool:
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return True
     return False
@@ -1339,7 +1583,7 @@ def _name_ketene(mol) -> str:
 
 def _ketene_motifs(mol) -> list[tuple[int, int, int]]:
     motifs = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         alpha_idx = atom.GetIdx()
         if atom.GetSymbol() != "C" or atom.GetFormalCharge() != 0:
             continue
@@ -1391,7 +1635,7 @@ def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[in
     view = _acyclic_graph_view(mol)
     allowed = [
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if (allow_ring_atoms or not atom.IsInRing())
         and can_be_in_parent_skeleton(mol, atom.GetIdx())
     ]
@@ -1405,31 +1649,43 @@ def _candidate_parent_paths(mol, allow_ring_atoms: bool = True) -> list[tuple[in
         if view.symbols[idx] == "C"
         and not is_carbonyl_carbon(mol, idx)
     ]
+    if _carbon_hydride_scope(mol):
+        # In a carbon tree any internal endpoint can be extended to a leaf.
+        # No earlier suffix/heteroatom criterion is lost; length precedes
+        # unsaturation and numbering. This also retains terminal extensions
+        # regardless of atom order, with one path for an unbranched chain.
+        endpoints = [idx for idx in endpoints
+                     if sum(n in allowed_set for n in view.neighbors[idx]) <= 1]
     if len(endpoints) < 2:
         endpoints = [idx for idx in allowed if view.symbols[idx] == "C"]
     if not endpoints:
         endpoints = allowed
 
     endpoint_groups = _allowed_endpoint_groups(mol, allowed_set, endpoints, view)
-    paths: set[tuple[int, ...]] = set()
-    best_len = 0
+    # Observe path lengths before materializing their atom sequences. The
+    # established length window and top-path cap discard most endpoint pairs
+    # on a longer chain. Their BFS predecessors still have to be observed (so
+    # cycles keep the same neighbor-order tie), but their paths need not be
+    # reconstructed and retained merely to discard them below.
+    pairs = []
     for endpoint_group in endpoint_groups:
-        for a, b in combinations(endpoint_group, 2):
-            path = _shortest_path_in_allowed_graph(view, a, b, allowed_set)
-            if not path:
-                continue
-            path_len = len(path)
-            if path_len > best_len:
-                best_len = path_len
-            paths.add(tuple(path))
-    if not paths:
-        for idx in endpoints:
-            paths.add((idx,))
-    min_len = max(1, best_len - 4)
-    return sorted(
-        (path for path in paths if len(path) >= min_len),
-        key=lambda path: (-len(path), path),
-    )[:MAX_ACYCLIC_PARENT_PATHS]
+        for targets, previous, lengths in _endpoint_shortest_path_trees(
+                view, endpoint_group, allowed_set):
+            pairs.extend((lengths[target], target, previous)
+                         for target in targets if target in previous)
+    if not pairs:
+        return [(idx,) for idx in sorted(endpoints)][:MAX_ACYCLIC_PARENT_PATHS]
+    ordered_lengths = sorted((length for length, _target, _previous in pairs),
+                             reverse=True)
+    min_len = max(1, ordered_lengths[0] - 4)
+    # A path shorter than the current cap's length cannot enter the result.
+    # Keep every pair at the cutoff length: their atom-sequence order is the
+    # existing final tiebreaker, and is applied only after reconstruction.
+    if len(ordered_lengths) >= MAX_ACYCLIC_PARENT_PATHS:
+        min_len = max(min_len, ordered_lengths[MAX_ACYCLIC_PARENT_PATHS - 1])
+    paths = {_reconstruct_path(previous, target)
+             for length, target, previous in pairs if length >= min_len}
+    return sorted(paths, key=lambda path: (-len(path), path))[:MAX_ACYCLIC_PARENT_PATHS]
 
 
 def _allowed_endpoint_groups(
@@ -1483,6 +1739,45 @@ def _shortest_path_in_allowed_graph(
                 return _reconstruct_path(previous, target)
             queue.append(nidx)
     return ()
+
+
+def _endpoint_shortest_path_trees(view, endpoints, allowed_set):
+    """Observe ordered endpoint BFS predecessors and lengths once per start."""
+    endpoints = tuple(endpoints)
+    for position, start in enumerate(endpoints[:-1]):
+        targets = endpoints[position + 1:]
+        remaining = set(targets)
+        previous = {start: None}
+        lengths = {start: 1}
+        queue = [start]
+        for idx in queue:
+            next_length = lengths[idx] + 1
+            for neighbor in view.neighbors[idx]:
+                if neighbor not in allowed_set or neighbor in previous:
+                    continue
+                previous[neighbor] = idx
+                lengths[neighbor] = next_length
+                remaining.discard(neighbor)
+                if not remaining:
+                    break
+                queue.append(neighbor)
+            if not remaining:
+                break
+        yield targets, previous, lengths
+
+
+def _endpoint_shortest_paths(view, endpoints, allowed_set):
+    """Recover all endpoint pairs from one ordered BFS per left endpoint.
+
+    A node's first predecessor is unchanged when a BFS continues past another
+    endpoint. Thus this preserves the previous pairwise shortest paths even
+    on an allowed graph with cycles, including every neighbor-order tie.
+    """
+    for targets, previous, _lengths in _endpoint_shortest_path_trees(
+            view, endpoints, allowed_set):
+        for target in targets:
+            if target in previous:
+                yield _reconstruct_path(previous, target)
 
 
 def _reconstruct_path(previous: dict[int, int | None], target: int) -> tuple[int, ...]:
@@ -1567,7 +1862,7 @@ def _has_formal_charge(mol) -> bool:
     cached = mol_cache_get(mol, "has_formal_charge")
     if cached is not None:
         return cached
-    return mol_cache_set(mol, "has_formal_charge", any(atom.GetFormalCharge() for atom in mol.GetAtoms()))
+    return mol_cache_set(mol, "has_formal_charge", any(atom.GetFormalCharge() for atom in iter_atoms(mol)))
 
 
 def _formal_charge_atom_indices(mol) -> tuple[int, ...]:
@@ -1577,7 +1872,7 @@ def _formal_charge_atom_indices(mol) -> tuple[int, ...]:
     return mol_cache_set(
         mol,
         "formal_charge_atom_indices",
-        tuple(atom.GetIdx() for atom in mol.GetAtoms() if atom.GetFormalCharge()),
+        tuple(atom.GetIdx() for atom in iter_atoms(mol) if atom.GetFormalCharge()),
     )
 
 
@@ -1603,7 +1898,7 @@ def _charge_preserving_prefix_candidate_roots(mol) -> frozenset[tuple[int, int]]
         return cached
     negative_oxygen_atoms = {
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetAtomicNum() == 8 and atom.GetFormalCharge() < 0
     }
     if not negative_oxygen_atoms:
@@ -1814,7 +2109,41 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
         suffix_parent = _terminal_carboxy_suffix_parent_name(mol, path, prefixes)
         if suffix_parent:
             return suffix_parent
-    prefix_text = _format_prefixes(prefixes)
+    omit_prefix_locants = False
+    if (prefixes and not replacement_text and not as_substituent
+            and (not stereo_prefix or len(path) == 1)):
+        from ..component_mapping import MappedComponent
+        from ..locant_presentation import component_prefix_locant_presentation
+        core = frozenset(path)
+        embedded = frozenset(a.GetIdx() for a in mol.GetAtoms()
+                             if (a.GetAtomicNum() > 1 or a.GetIsotope()) and a.GetIdx() not in core)
+        ownership = ()
+        if len(path) <= 2:
+            attachments = [(host, n.GetIdx()) for host in path
+                           for n in mol.GetAtomWithIdx(host).GetNeighbors()
+                           if (n.GetAtomicNum() > 1 or n.GetIsotope()) and n.GetIdx() not in core]
+            if (len(attachments) == len(prefixes)
+                    and all(loc == str(path.index(host) + 1)
+                            for (host, _), (loc, _) in zip(attachments, prefixes))):
+                from ..branch.functional_groups import collect_subtree
+                branches = [frozenset(collect_subtree(mol, root, host)) for host, root in attachments]
+                if (all(not core & branch for branch in branches)
+                        and frozenset().union(*branches) == embedded
+                        and sum(map(len, branches)) == len(embedded)):
+                    ownership = tuple((root, host, branch, text)
+                                      for (host, root), branch, (_, text) in zip(attachments, branches, prefixes))
+        component = MappedComponent(parent, tuple((idx,str(pos)) for pos,idx in enumerate(path,1)),
+            core,tuple(prefixes),embedded,prefix_branch_ownership=ownership)
+        presentation = component_prefix_locant_presentation(mol,Chem,component)
+        omit_prefix_locants = presentation is not None
+        # P-93.2's own descriptor boundary is separate from prefix locants.
+        # The one mapped parent atom has no alternative stereocentre locant;
+        # isotope and substituent-internal descriptors keep their own maps.
+        if (presentation is not None and presentation.rule == 'P-14.3.4.2(a)'
+                and stereo_prefix in {"1R", "1S", "1r", "1s"}):
+            stereo_prefix = stereo_prefix[1:]
+    prefix_text = _format_prefixes(prefixes,omit_locants=omit_prefix_locants,
+                                   separate_unlocanted=omit_prefix_locants)
     if not as_substituent:
         parent = _standalone_saturated_chain_parent(parent)
     if replacement_text:
@@ -1829,9 +2158,7 @@ def _name_from_parent_path(mol, path: Sequence[int], as_substituent: bool) -> st
 
 
 def _standalone_saturated_chain_parent(parent: str) -> str:
-    if parent in _SATURATED_CHAIN_PARENT_STEMS:
-        return parent + "e"
-    return parent
+    return complete_parent_name(parent)
 
 
 def _oxido_suffix_parent_name(
@@ -1873,7 +2200,7 @@ def _hydroxy_suffix_parent_name(
     hydroxy_locs = [loc for loc, prefix in prefixes if prefix == "hydroxy" and loc.isdigit()]
     if not hydroxy_locs:
         return ""
-    if len(hydroxy_locs) > 2:
+    if any(is_carbonyl_carbon(mol, atom.GetIdx()) for atom in iter_atoms(mol) if atom.GetSymbol() == "C"):
         return ""
     if any(mol.GetAtomWithIdx(idx).IsInRing() for idx in path):
         return ""
@@ -1889,15 +2216,22 @@ def _hydroxy_suffix_parent_name(
     if len(hydroxy_locs) == 1:
         core = _mono_hydroxy_suffix_parent(parent, hydroxy_locs[0])
     else:
-        core = f"{parent}-{','.join(hydroxy_locs)}-diol"
+        multiplier = MULT.get(len(hydroxy_locs))
+        if not multiplier:
+            return ""
+        core = f"{complete_parent_name(parent)}-{','.join(hydroxy_locs)}-{multiplied_suffix(len(hydroxy_locs), 'ol')}"
     prefix_text = _format_prefixes(remaining)
     return _join_prefix_parent(prefix_text, core) if prefix_text else core
 
 
 def _mono_hydroxy_suffix_parent(parent: str, locant: str) -> str:
-    if locant == "1":
+    parent = complete_parent_name(parent).removesuffix("e")
+    # P-14.3.4.2 permits omission of locant 1. A compatibility numbering
+    # can put the OH at 2; retain that locant rather than silently reversing
+    # the suffix while leaving the already rendered prefix locants intact.
+    if parent in {"methan", "ethan"} and locant == "1":
         return parent + "ol"
-    return f"{locant}-{parent}ol"
+    return f"{parent}-{locant}-ol"
 
 
 def _join_replacement_parent(replacement_text: str, parent: str) -> str:
@@ -2076,7 +2410,7 @@ def _terminal_carboxy_stereo_prefix(mol, oriented_path: Sequence[int]) -> str:
         for idx, descriptor in assigned
     ]
     bond_descriptors: list[tuple[int, str]] = []
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondType() != Chem.BondType.DOUBLE:
             continue
         stereo = bond.GetStereo()
@@ -2123,20 +2457,7 @@ def _complete_path_stereo_prefix(mol, path: Sequence[int]) -> str:
 def _path_bond_stereo_descriptors(mol, path: Sequence[int]) -> list[tuple[int, str]] | None:
     locants = {idx: pos for pos, idx in enumerate(path, start=1)}
     descriptors: list[tuple[int, str]] = []
-    for bond in mol.GetBonds():
-        if bond.GetBondType() != Chem.BondType.DOUBLE:
-            continue
-        stereo = bond.GetStereo()
-        if stereo == Chem.BondStereo.STEREONONE:
-            continue
-        if stereo in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOTRANS}:
-            descriptor = "E"
-        elif stereo in {Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS}:
-            descriptor = "Z"
-        else:
-            continue
-        begin = bond.GetBeginAtomIdx()
-        end = bond.GetEndAtomIdx()
+    for begin, end, descriptor in _indexed_bond_stereochemistry(mol, Chem):
         if begin not in locants or end not in locants:
             return None
         begin_locant = locants[begin]
@@ -2150,7 +2471,7 @@ def _path_bond_stereo_descriptors(mol, path: Sequence[int]) -> list[tuple[int, s
 
 def _name_thioamide(mol) -> str:
     candidates = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         cidx = atom.GetIdx()
         if atom.GetSymbol() != "C":
             continue
@@ -2160,7 +2481,8 @@ def _name_thioamide(mol) -> str:
         for nbr in atom.GetNeighbors():
             nidx = nbr.GetIdx()
             bond = mol.GetBondBetweenAtoms(cidx, nidx)
-            if nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE:
+            if (nbr.GetSymbol() == "S" and bond.GetBondType() == Chem.BondType.DOUBLE
+                    and _ordinary_thione_sulfur(nbr)):
                 double_s.append(nidx)
             elif nbr.GetSymbol() == "N" and bond.GetBondType() == Chem.BondType.SINGLE:
                 single_n.append(nidx)
@@ -2230,7 +2552,7 @@ def _name_ylidene_dioxosulfane(mol) -> str:
 
 def _single_exocyclic_sulfur_motif(mol, sulfur_predicate=None) -> tuple[int, int] | None:
     motifs = []
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         cidx = atom.GetIdx()
         if atom.GetSymbol() != "C":
             continue
@@ -2239,7 +2561,8 @@ def _single_exocyclic_sulfur_motif(mol, sulfur_predicate=None) -> tuple[int, int
             for nbr in atom.GetNeighbors()
             if nbr.GetSymbol() == "S"
             and mol.GetBondBetweenAtoms(cidx, nbr.GetIdx()).GetBondType() == Chem.BondType.DOUBLE
-            and (sulfur_predicate is None or sulfur_predicate(mol, nbr.GetIdx()))
+            and (sulfur_predicate(mol, nbr.GetIdx()) if sulfur_predicate is not None
+                 else _ordinary_thione_sulfur(nbr))
         ]
         if sulfur:
             if len(sulfur) != 1:
@@ -2248,6 +2571,13 @@ def _single_exocyclic_sulfur_motif(mol, sulfur_predicate=None) -> tuple[int, int
     if len(motifs) != 1:
         return None
     return motifs[0]
+
+
+def _ordinary_thione_sulfur(atom) -> bool:
+    # A pseudoketone =S operation consumes one terminal neutral chalcogen.
+    # Hypervalent sulfur with additional ligands needs its own constructor.
+    return (atom.GetAtomicNum() == 16 and not atom.GetFormalCharge()
+            and atom.GetDegree() == 1 and atom.GetTotalNumHs(includeNeighbors=True) == 0)
 
 
 def _is_dioxosulfane_sulfur(mol, sulfur_idx: int) -> bool:
@@ -2263,7 +2593,7 @@ def _is_dioxosulfane_sulfur(mol, sulfur_idx: int) -> bool:
 
 
 def _thione_parent_paths(mol, thione_idx: int) -> list[tuple[int, ...]]:
-    carbons = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetSymbol() == "C" and not atom.IsInRing()}
+    carbons = {atom.GetIdx() for atom in iter_atoms(mol) if atom.GetSymbol() == "C" and not atom.IsInRing()}
     if thione_idx not in carbons:
         return []
     endpoints = [
@@ -2390,7 +2720,22 @@ def _thioamide_parent_name(mol, carbonyl_idx: int, sulfur_idx: int, nitrogen_idx
         if prefixes is None:
             continue
         prefix_text = _format_prefixes(prefixes)
-        name = root + "anethioamide"
+        ene, yne = [], []
+        for loc, (a, b) in enumerate(zip(path, path[1:]), start=1):
+            order = mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble()
+            if order == 2:
+                ene.append(loc)
+            elif order == 3:
+                yne.append(loc)
+        if ene and yne:
+            parent = loc_unsat(root, ene, 'ene', terminal_e=False) + '-' + loc_unsat('', yne, 'yne', terminal_e=True)
+        elif ene:
+            parent = loc_unsat(root, ene, 'ene', terminal_e=True)
+        elif yne:
+            parent = loc_unsat(root, yne, 'yne', terminal_e=True)
+        else:
+            parent = root + 'ane'
+        name = parent + "thioamide"
         if prefix_text:
             name = prefix_text + name
         key = (-len(path), substituent_locants(mol, path, atoms, nitrogen_idx), name)

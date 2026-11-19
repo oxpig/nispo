@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
+
+from .molecule_iteration import iter_atoms, iter_bonds
+from .graph_model import graph_view
 
 
 _ORGANIC_ROUTE_ELEMENTS = frozenset(
@@ -105,10 +107,17 @@ def build_molecule_facts(
 ) -> MoleculeFacts:
     """Build reusable graph facts from already-centralized molecule views."""
 
-    atoms = tuple(mol.GetAtoms())
-    element_counter = Counter(atom.GetSymbol() for atom in atoms)
-    nonring_heavy_atom_count = sum(1 for atom in atoms if atom.GetAtomicNum() > 1 and not atom.IsInRing())
-    ring_heavy_atom_count = sum(1 for atom in atoms if atom.GetAtomicNum() > 1 and atom.IsInRing())
+    view = graph_view(mol, None)
+    # Features/profile construction has already populated this primitive view.
+    # Reuse it rather than reading the same RDKit atom properties again.
+    atoms = tuple(iter_atoms(mol))
+    element_counter = view.elements
+    nonring_heavy_atom_count = sum(
+        number > 1 and not in_ring for number, in_ring in zip(view.atomic_nums, view.ring_atoms)
+    )
+    ring_heavy_atom_count = sum(
+        number > 1 and in_ring for number, in_ring in zip(view.atomic_nums, view.ring_atoms)
+    )
     element_counts = tuple(
         sorted(
             (symbol, count)
@@ -131,16 +140,16 @@ def build_molecule_facts(
         max_ring_system_ring_count=int(features.get("max_ring_system_ring_count", 0) or 0),
         max_ring_system_cycle_rank=max_cycle_rank,
         all_atoms_in_one_ring_system=bool(features.get("all_atoms_in_one_ring_system", False)),
-        aromatic_atom_count=sum(1 for atom in atoms if atom.GetIsAromatic()),
-        hetero_atom_count=sum(1 for atom in atoms if atom.GetAtomicNum() not in {1, 6}),
+        aromatic_atom_count=sum(view.aromatic_atoms),
+        hetero_atom_count=sum(number not in {1, 6} for number in view.atomic_nums),
         nonhalogen_hetero_atom_count=sum(
-            1 for atom in atoms if atom.GetAtomicNum() not in {1, 6, 9, 17, 35, 53, 85}
+            number not in {1, 6, 9, 17, 35, 53, 85} for number in view.atomic_nums
         ),
         chiral_atom_count=sum(int(atom.GetChiralTag()) != 0 for atom in atoms),
-        formal_charge_atom_count=sum(1 for atom in atoms if atom.GetFormalCharge()),
-        abs_formal_charge_sum=sum(abs(atom.GetFormalCharge()) for atom in atoms),
+        formal_charge_atom_count=sum(bool(charge) for charge in view.formal_charges),
+        abs_formal_charge_sum=sum(abs(charge) for charge in view.formal_charges),
         radical_atom_count=sum(atom.GetNumRadicalElectrons() for atom in atoms),
-        isotope_atom_count=sum(1 for atom in atoms if atom.GetIsotope()),
+        isotope_atom_count=sum(bool(isotope) for isotope in view.isotopes),
         has_spiro_topology=has_spiro_topology,
         has_component_spiro_topology=has_component_spiro_topology,
         has_functional_skeleton_signal=bool(profile.has_functional_skeleton_signal),
@@ -214,7 +223,7 @@ def _may_have_chain_dominant_acyclic_parent(
         return True
     nonring_atoms = frozenset(
         atom.GetIdx()
-        for atom in mol.GetAtoms()
+        for atom in iter_atoms(mol)
         if atom.GetAtomicNum() > 1 and not atom.IsInRing()
     )
     if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in nonring_atoms):
@@ -223,5 +232,5 @@ def _may_have_chain_dominant_acyclic_parent(
         bond.GetBondTypeAsDouble() > 1.0
         and bond.GetBeginAtomIdx() in nonring_atoms
         and bond.GetEndAtomIdx() in nonring_atoms
-        for bond in mol.GetBonds()
+        for bond in iter_bonds(mol)
     )

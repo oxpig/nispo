@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
+import os
+from queue import Empty, Queue
 import subprocess
-import tempfile
+from threading import Lock, Thread
 from pathlib import Path
 from shutil import which
 
@@ -95,7 +98,9 @@ def test_batch_memoizes_duplicate_smiles_within_call(monkeypatch):
     api._BATCH_NAME_CACHE.clear()
     monkeypatch.setattr(api, "_engine", lambda: fake_engine)
 
-    assert api.smiles_to_iupac_batch(["CC", "CC"]) == ["name-1", "name-1"]
+    # The fake engine is local to this process; the default deadline uses a
+    # separate worker and cannot observe this monkeypatch.
+    assert api.smiles_to_iupac_batch(["CC", "CC"], timeout_seconds=None) == ["name-1", "name-1"]
     assert fake_engine.calls == 1
     assert api._BATCH_NAME_CACHE == {}
 
@@ -5447,29 +5452,124 @@ def test_kekulized_generic_polycyclic_pool_roundtrips_with_opsin():
     assert _canonical_smiles(parsed_smiles) == _canonical_smiles(input_smiles)
 
 
-def _opsin_parse_name(name: str) -> str:
-    opsin_jar = Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar"
-    if not opsin_jar.exists():
-        pytest.skip("OPSIN jar is not available")
-    java_executable = _java_executable()
-    if not java_executable:
-        pytest.skip("Java runtime is not available")
+class _OpsinClient:
+    """Keep the CLI warm; each pytest worker owns its own process."""
 
-    with tempfile.TemporaryDirectory() as temp_dir_name:
-        temp_dir = Path(temp_dir_name)
-        names_file = temp_dir / "names.txt"
-        output_file = temp_dir / "opsin.smi"
-        names_file.write_text(name + "\n")
-        completed = subprocess.run(
-            [java_executable, "-jar", str(opsin_jar), "-o", "smi", str(names_file), str(output_file)],
-            check=False,
-            capture_output=True,
+    def __init__(self, java: str, jar: Path):
+        self.process = subprocess.Popen(
+            [java, "-jar", str(jar), "-o", "smi", "-n"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            bufsize=1,
         )
-        if "Unable to locate a Java Runtime" in completed.stderr:
+        self.responses = Queue()
+        self.diagnostics = deque(maxlen=30)
+        self.lock = Lock()
+        self.readers = [
+            Thread(target=self._read_stdout, daemon=True),
+            Thread(target=self._read_stderr, daemon=True),
+        ]
+        for reader in self.readers:
+            reader.start()
+
+    def _read_stdout(self):
+        try:
+            for line in self.process.stdout:
+                self.responses.put(line.rstrip("\r\n"))
+        finally:
+            self.responses.put(None)
+
+    def _read_stderr(self):
+        for line in self.process.stderr:
+            self.diagnostics.append(line.rstrip("\r\n"))
+
+    def parse(self, name: str) -> str:
+        if not name:
+            return ""
+        assert not any(char in name for char in "\r\n"), "OPSIN requires one name per line"
+        with self.lock:
+            try:
+                self.process.stdin.write(name + "\n")
+                self.process.stdin.flush()
+                line = self.responses.get(timeout=60)
+            except (BrokenPipeError, OSError, Empty) as error:
+                self._fail(f"OPSIN did not answer {name!r}: {error}")
+            if line is None:
+                self._fail(f"OPSIN exited while parsing {name!r}")
+            parsed, separator, echoed_name = line.partition("\t")
+            if not separator or echoed_name != name:
+                self._fail(f"OPSIN response out of sequence for {name!r}: {line!r}")
+            return parsed
+
+    def _fail(self, message):
+        self.close()
+        diagnostics = "\n".join(self.diagnostics)
+        if "Unable to locate a Java Runtime" in diagnostics:
             pytest.skip("Java runtime is not available")
-        assert completed.returncode == 0, completed.stderr or completed.stdout
-        return output_file.read_text().strip()
+        raise AssertionError(f"{message}\n{diagnostics}")
+
+    def close(self):
+        if self.process.stdin and not self.process.stdin.closed:
+            try:
+                self.process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+        for reader in self.readers:
+            reader.join(timeout=3)
+        self.process.stdout.close()
+        self.process.stderr.close()
+
+
+_OPSIN_CLIENT = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_opsin_at_session_end():
+    yield
+    global _OPSIN_CLIENT
+    if _OPSIN_CLIENT is not None:
+        _OPSIN_CLIENT.close()
+        _OPSIN_CLIENT = None
+
+
+def _opsin_parse_name(name: str) -> str:
+    # Supplement raw OPSIN only for names whose numbered constitution and
+    # modern CIP constraints have one unique name-only reconstruction.
+    # Raw compatibility is reported separately by the external evaluator.
+    from _name_oracles.numbered_stereo import verify_names
+    proof = verify_names([name]).get(name, {})
+    if proof.get('unique'):
+        return proof['graph']
+    global _OPSIN_CLIENT
+    if _OPSIN_CLIENT is None:
+        opsin_jar = Path(os.environ.get(
+            "NISPO_OPSIN_JAR",
+            Path(__file__).resolve().parents[2] / "benchmark" / "opsin-cli-2.9.0-jar-with-dependencies.jar",
+        ))
+        if not opsin_jar.is_file():
+            pytest.skip("OPSIN jar is not available")
+        java_executable = os.environ.get("JAVA") or _java_executable()
+        if not java_executable:
+            pytest.skip("Java runtime is not available")
+        _OPSIN_CLIENT = _OpsinClient(java_executable, opsin_jar)
+    try:
+        return _OPSIN_CLIENT.parse(name)
+    except BaseException:
+        _OPSIN_CLIENT.close()
+        _OPSIN_CLIENT = None
+        raise
 
 
 def _canonical_smiles(smiles: str) -> str:

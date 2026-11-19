@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import lru_cache
 from itertools import combinations, permutations, product
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .branch_rules import branch_prefix
 from .constants import MULT, REPLACEMENT, ROOTS, SKELETON_ATOMS
 from .engine_flags import FAST_POLY_BRIDGE_ROUTE_PROP
 from .formatting import format_prefixes as _format_prefixes
 from .formatting import join_locants as _join_locants
 from .formatting import join_prefix_parent as _join_prefix_parent
+from .formatting import multiplied_suffix as _multiplied_suffix
 from .molecule_cache import mol_cache_dict, mol_cache_get, mol_cache_set
 from .ring_topology import ring_system_graph as _cached_ring_system_graph
 from .ring_topology import ring_system_topologies as _cached_ring_system_topologies
@@ -70,6 +73,18 @@ def _kekulized_polycyclic_view(mol, Chem):
             return mol
     _sync_polycyclic_view_props(mol, cached)
     return cached
+
+
+def _canonical_bridge_substituent_candidates(mol, Chem, root, host):
+    """Use one aromatic bond assignment and rebase its numbering to the source."""
+    ordered = sorted(range(mol.GetNumAtoms()), key=tuple(Chem.CanonicalRankAtoms(mol)).__getitem__)
+    graph = Chem.RenumberAtoms(mol, ordered)
+    view = _kekulized_polycyclic_view(graph, Chem)
+    if view is graph:
+        return []
+    return _polycyclic_substituent_candidates(
+        view, Chem, ordered.index(root), ordered.index(host), higher_bridges=True,
+        source=(mol, ordered))
 
 
 def _sync_polycyclic_view_props(source, target) -> None:
@@ -140,6 +155,14 @@ def kekulized_polycyclic_parent_candidate_records(
         return cached
 
     kekulized = _kekulized_polycyclic_view(mol, Chem)
+    from .principal_carbonyl import (
+        _ring_carbonyl_comparison_sites, cited_ring_suffix_centers,
+        configured_methine_ring_junction,
+    )
+    if kekulized is not mol and configured_methine_ring_junction(
+            mol, frozenset().union(*mol.GetRingInfo().AtomRings())):
+        mol_cache_set(kekulized, 'source_ring_carbonyl_comparison_sites',
+                      _ring_carbonyl_comparison_sites(mol))
     if limit is not None and limit <= 0:
         return _store_polycyclic_records(mol, cache_key, [])
     seen = set()
@@ -150,11 +173,23 @@ def kekulized_polycyclic_parent_candidate_records(
     def add_unique(records) -> bool:
         for record in records:
             name, seq = record[0], record[1]
+            if kekulized is not mol:
+                from .stereochemistry import transfer_ylidene_junction_stereo
+                if not transfer_ylidene_junction_stereo(kekulized, mol, Chem, name):
+                    continue
             key = (name, seq)
             if key in seen:
                 continue
             seen.add(key)
             unique.append(record)
+            if kekulized is not mol:
+                from .ring_parent_selection import recorded_ring_facts
+                evidence = recorded_ring_facts(kekulized, name, seq)
+                if evidence is not None:
+                    mol_cache_dict(mol, "rendered_parent_selection")[(name, frozenset(seq))] = evidence
+                centers = cited_ring_suffix_centers(kekulized, seq, name)
+                if centers:
+                    mol_cache_dict(mol, 'cited_ring_suffix_centers')[(frozenset(seq), name)] = centers
             if limit is not None and len(unique) >= limit:
                 return True
         return False
@@ -209,42 +244,103 @@ def kekulized_polycyclic_parent_candidate_records(
     return _store_polycyclic_records(mol, cache_key, unique)
 
 
-def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int) -> str:
-    if not _has_polycyclic_substituent_system(mol, Chem, attachment_idx, parent_idx):
+def polycyclic_substituent_prefix(mol, Chem, attachment_idx: int, parent_idx: int, *,
+                                  higher_bridges=False) -> str:
+    if not _has_polycyclic_substituent_system(mol, Chem, attachment_idx, parent_idx,
+                                             higher_bridges=higher_bridges):
         return ""
-    candidates = _polycyclic_substituent_candidates(mol, Chem, attachment_idx, parent_idx)
+    from .benzo_cyclobutane_substituent import mapped_benzo_cyclobutane_substituent
+    mapped = mapped_benzo_cyclobutane_substituent(mol, Chem, attachment_idx, parent_idx)
+    if mapped is not None:
+        return mapped
+    if mol.GetAtomWithIdx(attachment_idx).GetIsAromatic():
+        retained = retained_aza_arene_substituent(mol, Chem, attachment_idx, parent_idx)
+        if retained:
+            return retained
+    candidates = _polycyclic_substituent_candidates(mol, Chem, attachment_idx, parent_idx,
+                                                   higher_bridges=higher_bridges)
     if candidates:
         return min(candidates)[-1]
+    if higher_bridges:
+        candidates = _canonical_bridge_substituent_candidates(mol, Chem, attachment_idx, parent_idx)
+        return min(candidates)[-1] if candidates else ''
 
     kekulized = _kekulized_polycyclic_view(mol, Chem)
     if kekulized is mol and not mol.HasProp("_nispo_kekulized_aromatic_view"):
         return ""
-    candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx)
+    candidates = _polycyclic_substituent_candidates(kekulized, Chem, attachment_idx, parent_idx,
+                                                   higher_bridges=higher_bridges)
     return min(candidates)[-1] if candidates else ""
 
 
-def _has_polycyclic_substituent_system(mol, Chem, attachment_idx: int, parent_idx: int) -> bool:
+def retained_aza_arene_substituent(mol, Chem, attachment, blocked):
+    """Render a two-face retained aza-arene on the existing original ring map."""
+    from .branch_rules import collect_subtree
+    from .mapped_ring_parents import records, ring_systems
+
+    bond = mol.GetBondBetweenAtoms(attachment, blocked)
+    if bond is None or bond.IsInRing() or bond.GetBondTypeAsDouble() != 1 or bond.GetStereo():
+        return ''
+    core = next((system for system in ring_systems(mol) if attachment in system), ())
+    if len(core) != 10 or blocked in core:
+        return ''
+    atoms = [mol.GetAtomWithIdx(i) for i in core]
+    if (sum(atom.GetAtomicNum() == 7 for atom in atoms) not in {1, 2}
+            or any(not atom.GetIsAromatic() or atom.GetAtomicNum() not in {6, 7} for atom in atoms)):
+        return ''
+    scope = frozenset(collect_subtree(mol, attachment, blocked))
+    if blocked in scope or not core <= scope:
+        return ''
+    rows = records(mol, Chem, scope=scope, attachment=attachment, core_filter=core)
+    if len(rows) != 1:
+        return ''
+    row = rows[0]
+    component = row.construction
+    if (row.method != 'retained-fused' or not row.annotation_coverage or not row.hydrogen_budget_proved
+            or component is None or not dict(row.atom_locants).get(attachment)
+            or component.atoms | component.embedded_atoms != scope):
+        return ''
+    return row.name
+
+
+def _has_polycyclic_substituent_system(mol, Chem, attachment_idx: int, parent_idx: int, *,
+                                       higher_bridges=False) -> bool:
+    ranks = range(2, 10) if higher_bridges else (2, 3)
     for topology in _cached_ring_system_topologies(mol, Chem):
-        if attachment_idx in topology.atoms and parent_idx not in topology.atoms and topology.cycle_rank in {2, 3}:
+        if attachment_idx in topology.atoms and parent_idx not in topology.atoms and topology.cycle_rank in ranks:
             return True
     return False
 
 
-def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_idx: int) -> list[tuple]:
+def _polycyclic_substituent_candidates(mol, Chem, attachment_idx: int, parent_idx: int, *,
+                                      higher_bridges=False, source=None) -> list[tuple]:
     candidates = []
     for atoms in _ring_systems(mol, Chem):
         if attachment_idx not in atoms or parent_idx in atoms:
             continue
-        for parent, seq in _polycyclic_parent_sequence_candidates(mol, Chem, atoms):
+        parents = [(parent, seq, 0, 0) for parent, seq in
+                   _polycyclic_parent_sequence_candidates(mol, Chem, atoms)]
+        if higher_bridges and not parents:
+            parents = _secondary_bridge_polycyclic_candidate_records(
+                mol, Chem, atoms, decorate_parent=False)
+        for parent, seq, unsaturation_mismatches, topology_fragility in parents:
             if attachment_idx not in seq:
                 continue
-            name = _name_polycyclic_substituent(mol, Chem, seq, atoms, parent, attachment_idx, parent_idx)
+            if source is None:
+                name = _name_polycyclic_substituent(mol, Chem, seq, atoms, parent, attachment_idx, parent_idx)
+            else:
+                graph, ordered = source
+                name = _name_polycyclic_substituent(graph, Chem, tuple(ordered[i] for i in seq),
+                    {ordered[i] for i in atoms}, parent, ordered[attachment_idx], ordered[parent_idx])
             if name:
                 loc = seq.index(attachment_idx) + 1
                 candidates.append(
                     (
-                        0 if loc == 1 else 1,
+                        topology_fragility,
+                        unsaturation_mismatches,
                         _hetero_locants(mol, seq),
+                        loc,
+                        _unsaturation_contiguity_key(mol, seq),
                         _substituent_locants(mol, seq, atoms),
                         name,
                     )
@@ -269,10 +365,31 @@ def _bicyclic_ring_system_candidate_records(
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 
+    parent_sequences = _bicyclic_parent_sequence_candidates(mol, atoms, graph)
+    suffix_facts = (_principal_polycyclic_alcohol_suffix_facts(mol, frozenset(atoms))
+                    or _simple_bicyclic_oxygen_suffix_facts(mol, frozenset(atoms)))
+    if suffix_facts is None and not mol.HasProp("_nispo_principal_prefix_mode"):
+        from .principal_carbonyl import principal_carbonyl_sites
+        suffix, sites = principal_carbonyl_sites(mol)
+        owners = tuple(owner for _, owner in sites if owner in atoms)
+        if (owners and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in atoms)
+                and all(record[0].endswith(("ane", "ene", "yne")) for record in parent_sequences)
+                and (suffix == "one" or suffix == "carbaldehyde" and len(owners) == len(sites))):
+            suffix_facts = suffix, owners
+    if suffix_facts is not None and parent_sequences:
+        # Principal suffix locants determine the numbering before ordinary
+        # substituents. Do not let downstream name-length heuristics select a
+        # different orientation after the suffix has been rendered.
+        def suffix_locants(record):
+            seq = record[1]
+            return tuple(sorted(seq.index(idx) + 1 for idx in suffix_facts[1]))
+
+        lowest_locants = min(map(suffix_locants, parent_sequences))
+        parent_sequences = [record for record in parent_sequences if suffix_locants(record) == lowest_locants]
     return _decorated_polycyclic_records(
         mol,
         atoms,
-        _bicyclic_parent_sequence_candidates(mol, atoms, graph),
+        parent_sequences,
         max_records=max_records,
         render_late=render_late,
     )
@@ -308,54 +425,15 @@ def _bicyclic_parent_sequence_candidates(
 ) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     candidates = []
     graph_key = _graph_cache_key(graph)
-    base_orient_remaining_paths = (
-        _ring_multiple_bond_count(mol, atoms) == 0
-        and _has_multi_external_substituted_ring_atom(mol, atoms)
-    )
     for a, b in _bridgehead_pair_candidates(graph, atoms, 3):
         paths = _bridge_paths(graph, atoms, a, b, graph_key=graph_key)
         if not paths:
             continue
-        alternate_remaining_paths = (
-            _ring_multiple_bond_count(mol, atoms) == 0
-            and _has_tied_hetero_bridge_orientation_choice(mol, paths)
-        )
-        orient_remaining_paths = base_orient_remaining_paths and not alternate_remaining_paths
-        for seq, bracket in _polybridge_numbering_sequences(
-            paths,
-            orient_remaining_paths=orient_remaining_paths,
-            alternate_remaining_paths=alternate_remaining_paths,
-        ):
+        for seq, bracket in _polybridge_numbering_sequences(paths):
             parent = _bicyclic_parent(mol, seq, bracket)
             if parent:
                 candidates.append((parent, seq, bracket))
     return candidates
-
-
-def _has_tied_hetero_bridge_orientation_choice(mol, paths: Sequence[tuple[int, ...]]) -> bool:
-    """Expose OPSIN-compatible tied-bridge orientations for heterobicycles.
-
-    For saturated von Baeyer systems with equal bridge lengths, reversing every
-    non-leading bridge interior is too restrictive.  OPSIN accepts alternative
-    orientations such as ``2,6,7-trioxabicyclo[2.2.2]octane`` that are needed
-    to assign the lowest heteroatom locants.  Only tied bridge groups with
-    multiple internal hetero atoms get the expanded enumeration.
-    """
-
-    by_length: dict[int, list[tuple[int, ...]]] = defaultdict(list)
-    for path in paths:
-        by_length[len(path)].append(path)
-    for group in by_length.values():
-        if len(group) < 2:
-            continue
-        hetero_internal_count = 0
-        for path in group:
-            for atom_idx in path[1:-1]:
-                if mol.GetAtomWithIdx(atom_idx).GetSymbol() != "C":
-                    hetero_internal_count += 1
-        if hetero_internal_count >= 2:
-            return True
-    return False
 
 
 def _spiro_parent_sequence_candidates(
@@ -403,6 +481,81 @@ def _tricyclic_ring_system_candidate_records(
         return []
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
+    # The independently audited P-23 frontier closes the bounded neutral,
+    # saturated all-carbon rank-three domain.  Feed every tied map to the
+    # normal decorated-parent comparator so suffixes and prefixes can resolve
+    # later criteria.  An incomplete search has no safe partial fallback.
+    source_closed_carbon_core = all(
+        mol.GetAtomWithIdx(idx).GetAtomicNum() == 6
+        and mol.GetAtomWithIdx(idx).GetFormalCharge() == 0
+        and mol.GetAtomWithIdx(idx).GetNumRadicalElectrons() == 0
+        for idx in atoms
+    ) and all(
+        mol.GetBondBetweenAtoms(left, right).GetBondTypeAsDouble() == 1
+        for left, neighbors in graph.items() for right in neighbors if left < right
+    )
+    if source_closed_carbon_core:
+        from .tricyclic_von_baeyer_frontier import tricyclic_von_baeyer_frontier
+        frontier = tricyclic_von_baeyer_frontier(graph)
+        if frontier.status == "incomplete":
+            return []
+        if frontier.status == "complete":
+            parent_sequences = []
+            for numbering in frontier.candidates:
+                root = ROOTS.get(len(numbering.sequence))
+                if not root:
+                    continue
+                a, b, main_bridge, secondary_bridge = numbering.descriptor_lengths
+                left, right = numbering.secondary_attachment_locants
+                secondary = f"{secondary_bridge}^{left},{right}"
+                decorated = _tricyclic_parent(mol, numbering.sequence,
+                                               (a, b, main_bridge, secondary))
+                if decorated:
+                    parent_sequences.append((decorated, numbering.sequence,
+                                             (a, b, main_bridge, secondary)))
+            if not parent_sequences:
+                return []
+            # This source-closed path uses mapped Blue Book facts only. Do not
+            # let OPSIN parsing behavior or the older polycyclic heuristic key
+            # choose among P-23-tied maps.
+            decorated = []
+            for _parent, sequence, bracket in parent_sequences:
+                base_parent = (f"tricyclo[{'.'.join(map(str, bracket))}]"
+                               f"{ROOTS[len(sequence)]}ane")
+                name = _decorate_polycyclic_parent(mol, sequence, atoms, base_parent)
+                if not name:
+                    return []
+                facts = _tricyclic_decorated_parent_facts(
+                    mol, sequence, atoms, base_parent, name)
+                if facts is None:
+                    return []
+                decorated.append((name, tuple(sequence), facts))
+            required = ("principal_class", "suffix_count", "suffix_locants",
+                        "prefix_count", "prefix_locants", "prefix_citation_locants",
+                        "substituent_nonstandard_key", "equivalent_isotope_key",
+                        "stereo_numbering_key")
+            if any(getattr(facts, field) is None
+                   for _name, _sequence, facts in decorated for field in required):
+                return []
+            # These records share one exact physical ring graph and one
+            # complete P-23 descriptor frontier. P-44 ring-type facts are
+            # therefore invariant; compare the mapped downstream locant facts
+            # directly instead of allowing an unknown generic rank-three ring
+            # type to act as either a tie or an arbitrary fallback.
+            def mapped_p14_key(record):
+                facts = record[2]
+                return (facts.suffix_locants, facts.prefix_locants,
+                        facts.prefix_citation_locants,
+                        facts.substituent_nonstandard_key,
+                        facts.equivalent_isotope_key,
+                        facts.stereo_numbering_key)
+            best = min(mapped_p14_key(record) for record in decorated)
+            winners = [record for record in decorated if mapped_p14_key(record) == best]
+            if len({record[0] for record in winners}) != 1:
+                return []
+            return [(name, sequence) for name, sequence, _facts in winners]
+        # Unsupported means the graph lies outside the helper's closed
+        # decomposition domain. Preserve legacy coverage for those cases.
     rings = [set(ring) for ring in mol.GetRingInfo().AtomRings() if set(ring) <= atoms]
     if any(len(left & right) == 1 for left, right in combinations(rings, 2)):
         candidates = _secondary_zero_bridge_tricyclic_candidate_records(mol, atoms, graph)
@@ -557,10 +710,17 @@ def _spiro_ring_system_candidate_records(
     if any(_unsuitable_ring_atom(mol, idx) for idx in atoms):
         return []
 
+    parent_sequences = _spiro_parent_sequence_candidates(mol, atoms, graph)
+    suffix_facts = (_principal_polycyclic_alcohol_suffix_facts(mol, frozenset(atoms))
+                    or _simple_bicyclic_oxygen_suffix_facts(mol, frozenset(atoms)))
+    if suffix_facts and parent_sequences:
+        lowest = min(tuple(sorted(record[1].index(i) + 1 for i in suffix_facts[1])) for record in parent_sequences)
+        parent_sequences = [record for record in parent_sequences
+                            if tuple(sorted(record[1].index(i) + 1 for i in suffix_facts[1])) == lowest]
     return _decorated_polycyclic_records(
         mol,
         atoms,
-        _spiro_parent_sequence_candidates(mol, atoms, graph),
+        parent_sequences,
         max_records=max_records,
         render_late=render_late,
     )
@@ -574,6 +734,13 @@ def _decorated_polycyclic_records(
     max_records: int | None = None,
     render_late: bool = False,
 ) -> list[tuple[str, tuple[int, ...]]]:
+    from .parent_selection import parent_frontier
+    from .ring_parent_selection import rendered_ring_facts
+    structural = [(record, rendered_ring_facts(
+        mol, record[1], {idx: str(j) for j, idx in enumerate(record[1], 1)},
+        record[0], None, record[0], replacement=True,
+    )) for record in parent_sequences]
+    parent_sequences = [record for record, _ in parent_frontier(structural, lambda item: item[1])]
     if render_late and max_records is not None:
         facts = []
         for record in parent_sequences:
@@ -630,6 +797,9 @@ def _decorated_polycyclic_records(
         )
         candidates.append((key, name, tuple(seq)))
     candidates.sort(key=lambda item: item[0])
+    from .ring_parent_selection import recorded_ring_facts
+    candidates = parent_frontier(
+        candidates, lambda row: recorded_ring_facts(mol, row[1], frozenset(row[2])))
     return [(name, seq) for _key, name, seq in candidates]
 
 
@@ -732,6 +902,8 @@ def _secondary_bridge_polycyclic_candidate_records(
     atoms: set[int],
     *,
     max_records: int | None = None,
+    decorate_parent: bool = True,
+    suffix_owner: int | None = None,
 ) -> list[tuple]:
     graph = _ring_system_graph(mol, Chem, atoms)
     if not graph:
@@ -828,13 +1000,16 @@ def _secondary_bridge_polycyclic_candidate_records(
                 if completed is None:
                     continue
                 seq, bracket = completed
-                topology_mismatches = _opsin_bridge_topology_mismatch_count(mol, seq, bracket)
+                # Every multiple-bond edge is part of this numbered graph.
+                # An exact reconstruction also proves its bond endpoints.
+                if _opsin_bridge_topology_mismatch_count(mol, seq, bracket):
+                    continue
                 reused_lower_bridge_endpoints = (
                     _reused_lower_secondary_bridge_endpoint_count(bracket)
                     if use_reused_lower_endpoint_fragility_order
                     else 0
                 )
-                topology_fragility = topology_mismatches + reused_lower_bridge_endpoints
+                topology_fragility = reused_lower_bridge_endpoints
                 if use_large_hetero_bridge_order:
                     key_prefix = (
                         topology_fragility,
@@ -862,6 +1037,11 @@ def _secondary_bridge_polycyclic_candidate_records(
                         ),
                         *_polycyclic_numbering_preference_key(mol, seq, atoms),
                     )
+                if suffix_owner is not None:
+                    # Compare the main ring and bridge before the locant of
+                    # a principal suffix on any equivalent numbered skeleton.
+                    key_prefix = (_blue_book_secondary_bridge_selection_key(bracket),
+                                  seq.index(suffix_owner) + 1, *key_prefix)
                 if route_fast:
                     key = (*key_prefix, tuple(seq))
                     candidates.append((key, tuple(seq), tuple(bracket), topology_fragility))
@@ -885,12 +1065,11 @@ def _secondary_bridge_polycyclic_candidate_records(
                 parent = _generic_polycyclic_parent(mol, seq, bracket)
                 if not parent:
                     continue
-                name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+                name = _decorate_polycyclic_parent(mol, seq, atoms, parent) if decorate_parent else parent
                 if not name:
                     continue
                 key = (*key_prefix, name)
-                unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
-                candidates.append((key, name, tuple(seq), unsaturation_mismatches, topology_fragility))
+                candidates.append((key, name, tuple(seq), 0, topology_fragility))
                 if len(candidates) > candidate_pool_limit:
                     candidates.sort(key=lambda item: item[0])
                     del candidates[candidate_limit:]
@@ -906,15 +1085,14 @@ def _secondary_bridge_polycyclic_candidate_records(
             parent = _generic_polycyclic_parent(mol, seq, bracket)
             if not parent:
                 continue
-            name = _decorate_polycyclic_parent(mol, seq, atoms, parent)
+            name = _decorate_polycyclic_parent(mol, seq, atoms, parent) if decorate_parent else parent
             if not name:
                 continue
             marker = (name, seq)
             if marker in seen:
                 continue
             seen.add(marker)
-            unsaturation_mismatches = _opsin_bridge_unsaturation_mismatch_count(mol, seq, bracket)
-            decorated.append((name, seq, unsaturation_mismatches, topology_fragility))
+            decorated.append((name, seq, 0, topology_fragility))
             if len(decorated) >= candidate_limit:
                 return decorated
         return decorated
@@ -922,6 +1100,93 @@ def _secondary_bridge_polycyclic_candidate_records(
         (name, seq, unsaturation_mismatches, topology_fragility)
         for _key, name, seq, unsaturation_mismatches, topology_fragility in candidates[:candidate_limit]
     ]
+
+
+def mapped_fused_polycycle_yl(mol, Chem, root, host, scope):
+    """Map an edge-fused replacement prefix at a specified attachment."""
+    result = mapped_fused_polycycle_attachment(mol, Chem, root, host, scope)
+    return result[0] if result is not None else ""
+
+
+def mapped_azido_polycycle_yl(mol, Chem, root, host, scope):
+    """Compose a mapped polycyclic prefix with neutral azide in an owned arm."""
+    from .neutral_charge_components import neutral_charge_role_proofs
+
+    if not any(p.kind == 'azido' and set(p.atoms) <= scope for p in neutral_charge_role_proofs(mol)):
+        return ''
+    result = mapped_fused_polycycle_attachment(mol, Chem, root, host, scope,
+                                              nested_azido=True)
+    return result[0] if result is not None else ''
+
+
+def mapped_fused_polycycle_attachment(mol, Chem, root, host, scope, *, nested_azido=False):
+    """Bind one or two free valences to the source ring and numbered map."""
+    from .mapped_ring_parents import ring_systems
+
+    cut = mol.GetBondBetweenAtoms(root, host)
+    if cut is None or cut.GetBondTypeAsDouble() not in {1, 2} or cut.GetStereo():
+        return None
+    suffix = "yl" if cut.GetBondTypeAsDouble() == 1 else "ylidene"
+    core = next((core for core in ring_systems(mol) if root in core), frozenset())
+    if not 16 <= len(core) <= 32 or not core <= scope or host in core:
+        return None
+    rings = [frozenset(r) for r in mol.GetRingInfo().AtomRings() if set(r) <= core]
+    allowed = {6, 7, 8} if nested_azido else {6, 7}
+    if (not 4 <= len(rings) <= 6 or any(not 5 <= len(r) <= 7 for r in rings)
+            or (not nested_azido
+                and any(len(a & b) not in {0, 2} for a, b in combinations(rings, 2)))
+            or any(mol.GetAtomWithIdx(i).GetAtomicNum() not in allowed for i in core)
+            or any(a.GetIsotope() or a.GetNumRadicalElectrons()
+                   for a in (mol.GetAtomWithIdx(i) for i in scope))):
+        return None
+    view = _kekulized_polycyclic_view(mol, Chem)
+    if view is mol or any(int(b.GetStereo()) for b in mol.GetBonds()
+                         if b.GetBeginAtomIdx() in core or b.GetEndAtomIdx() in core):
+        return None
+    from .component_mapping import MappedComponent, decorate_component, mapped_general_branch
+    from .formatting import attach_suffix
+    from .neutral_charge_components import neutral_charge_role_proofs
+
+    charge_atoms = {i for i in scope if mol.GetAtomWithIdx(i).GetFormalCharge()}
+    if charge_atoms:
+        proofs = tuple(p for p in neutral_charge_role_proofs(mol)
+                       if (p.attachment_atom in core or nested_azido and p.kind == 'azido')
+                       and {p.attachment_atom, *p.atoms} <= scope)
+        if charge_atoms != set().union(*(p.charge_atom_ids for p in proofs)):
+            return None
+    branches, occupied = [], set(core)
+    for i in core:
+        for atom in mol.GetAtomWithIdx(i).GetNeighbors():
+            j = atom.GetIdx()
+            if j in core or (i, j) == (root, host):
+                continue
+            if j not in scope:
+                return None
+            name, atoms = mapped_general_branch(mol, Chem, j, i)
+            if not name or atoms & occupied or not atoms <= scope or any(c.isspace() for c in name):
+                return None
+            if nested_azido and any(mol.GetAtomWithIdx(k).GetFormalCharge() for k in atoms):
+                if any(not {p.attachment_atom, *p.atoms} <= atoms for p in proofs
+                       if p.charge_atom_ids & atoms):
+                    return None
+            occupied.update(atoms)
+            branches.append((i, name))
+    if occupied != scope:
+        return None
+
+    candidates = _secondary_bridge_polycyclic_candidate_records(
+        view, Chem, core, max_records=4, decorate_parent=False)
+    for parent, sequence, unsaturation, topology in candidates:
+        if unsaturation or topology:
+            continue
+        locants = {i: str(j) for j, i in enumerate(sequence, 1)}
+        name = decorate_component(mol, Chem, MappedComponent(
+            attach_suffix(parent, suffix, (locants[root],)), tuple(locants.items()), core,
+            tuple((locants[i], name) for i, name in branches), scope - core,
+            systematic_parent=True))
+        if name:
+            return name, tuple(locants.items())
+    return None
 
 
 def _opsin_bridge_unsaturation_mismatch_count(
@@ -1015,7 +1280,7 @@ def _multiple_bond_neighbor_indices_by_atom(mol) -> tuple[tuple[int, ...], ...]:
     if neighbors is not None:
         return neighbors
     grouped: list[list[int]] = [[] for _ in range(mol.GetNumAtoms())]
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetBondTypeAsDouble() <= 1.0:
             continue
         begin = bond.GetBeginAtomIdx()
@@ -1031,7 +1296,7 @@ def _heavy_neighbor_indices_by_atom(mol) -> tuple[tuple[int, ...], ...]:
     if neighbors is None:
         neighbors = tuple(
             tuple(nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetAtomicNum() > 1)
-            for atom in mol.GetAtoms()
+            for atom in iter_atoms(mol)
         )
         mol_cache_set(mol, "polycyclic_heavy_neighbor_indices", neighbors)
     return neighbors
@@ -1042,7 +1307,7 @@ def _bond_orders(mol) -> dict[tuple[int, int], float]:
     if orders is None:
         orders = {
             tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))): bond.GetBondTypeAsDouble()
-            for bond in mol.GetBonds()
+            for bond in iter_bonds(mol)
         }
         mol_cache_set(mol, "polycyclic_bond_orders", orders)
     return orders
@@ -1051,7 +1316,7 @@ def _bond_orders(mol) -> dict[tuple[int, int], float]:
 def _atom_symbols(mol) -> tuple[str, ...]:
     symbols = mol_cache_get(mol, "polycyclic_atom_symbols")
     if symbols is None:
-        symbols = tuple(atom.GetSymbol() for atom in mol.GetAtoms())
+        symbols = tuple(atom.GetSymbol() for atom in iter_atoms(mol))
         mol_cache_set(mol, "polycyclic_atom_symbols", symbols)
     return symbols
 
@@ -1138,9 +1403,9 @@ def _opsin_oriented_polybridge_edges_for_key(bracket: tuple[int | str, ...]) -> 
 
 
 def _has_stereochemical_evidence(mol, Chem) -> bool:
-    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in mol.GetAtoms()):
+    if any(atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for atom in iter_atoms(mol)):
         return True
-    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in mol.GetBonds())
+    return any(bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in iter_bonds(mol))
 
 
 def _secondary_bridge_candidate_limit(rank: int) -> int:
@@ -1220,7 +1485,7 @@ def _use_stereo_hetero_kekulized_macrocycle_bridge_order(
         return False
     if not _has_stereochemical_evidence(mol, Chem):
         return False
-    if any(atom.GetFormalCharge() != 0 for atom in mol.GetAtoms()):
+    if any(atom.GetFormalCharge() != 0 for atom in iter_atoms(mol)):
         return False
 
     symbols = _atom_symbols(mol)
@@ -1420,7 +1685,7 @@ def _ring_multiple_bond_count(mol, atoms: set[int]) -> int:
     if cached is not None:
         return cached
     count = 0
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         left = bond.GetBeginAtomIdx()
         right = bond.GetEndAtomIdx()
         if left in atoms and right in atoms and bond.GetBondTypeAsDouble() > 1.0:
@@ -1751,40 +2016,33 @@ def _numbering_sequences(paths: Sequence[tuple[int, ...]]) -> list[tuple[tuple[i
 def _polybridge_numbering_sequences(
     paths: Sequence[tuple[int, ...]],
     annotate_zero_bridges: bool = False,
-    orient_remaining_paths: bool = False,
-    alternate_remaining_paths: bool = False,
-) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
+) -> list[tuple[tuple[int, ...], tuple[int | str, ...]]]:
     sequences = []
     for oriented_paths in (paths, tuple(tuple(reversed(path)) for path in paths)):
         for ordered in _bridge_path_orderings(oriented_paths):
             first, *remaining = ordered
             first_seq = first[:1] + first[1:-1] + first[-1:]
-            if alternate_remaining_paths:
-                remaining_variants = [
-                    (
-                        tuple(reversed(path[1:-1]))
-                        if index % 2 == 0
-                        else path[1:-1],
-                    )
-                    for index, path in enumerate(remaining)
-                ]
-            elif orient_remaining_paths:
-                remaining_variants = [
-                    (path[1:-1], tuple(reversed(path[1:-1])))
-                    for path in remaining
-                ]
-            else:
-                remaining_variants = [
-                    (tuple(reversed(path[1:-1])),)
-                    for path in remaining
-                ]
+            # The second bridge returns from the far bridgehead to 1; the
+            # main (third) bridge starts at 1. A secondary bridge is numbered
+            # from its higher-numbered attachment (P-23.2.5.2), which in this
+            # four-path topology is the far bridgehead.
+            remaining_variants = [
+                (tuple(reversed(path[1:-1]))
+                 if index == 0 or annotate_zero_bridges and index >= 2
+                 else path[1:-1],)
+                for index, path in enumerate(remaining)
+            ]
             for internals in product(*remaining_variants):
                 seq = first_seq
                 for path_internals in internals:
                     seq += path_internals
                 if len(seq) == len(set(seq)):
                     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
-                    bracket = tuple(_bridge_descriptor(path, pos, annotate_zero_bridges) for path in ordered)
+                    bracket = tuple(
+                        _bridge_descriptor(path, pos, annotate_zero_bridges,
+                                           secondary=annotate_zero_bridges and index >= 3)
+                        for index, path in enumerate(ordered)
+                    )
                     sequences.append((seq, bracket))
     return list(dict.fromkeys(sequences))
 
@@ -1814,10 +2072,12 @@ def _bridge_path_orderings(paths: Sequence[tuple[int, ...]]) -> list[tuple[tuple
     return orderings
 
 
-def _bridge_descriptor(path: Sequence[int], pos: dict[int, int], annotate_zero: bool):
+def _bridge_descriptor(path: Sequence[int], pos: dict[int, int], annotate_zero: bool,
+                       *, secondary: bool = False):
     length = len(path) - 2
-    if length == 0 and annotate_zero:
-        return _zero_bridge_descriptor(pos[path[0]], pos[path[-1]])
+    if secondary or length == 0 and annotate_zero:
+        left, right = sorted((pos[path[0]], pos[path[-1]]))
+        return f"{length}^{left},{right}"
     return length
 
 
@@ -1898,11 +2158,17 @@ def _spiro_numbering_sequences(
 ) -> list[tuple[tuple[int, ...], tuple[int, int]]]:
     ordered_paths = sorted(paths, key=lambda path: (len(path), path))
     sequences = []
-    for first in (ordered_paths[0], tuple(reversed(ordered_paths[0]))):
-        for second in (ordered_paths[1], tuple(reversed(ordered_paths[1]))):
-            seq = first + (spiro_idx,) + second
-            if len(seq) == len(set(seq)):
-                sequences.append((seq, (len(first), len(second))))
+    orders = [ordered_paths]
+    if len(ordered_paths[0]) == len(ordered_paths[1]):
+        # Equal-sized rings permit both choices for the first numbered ring;
+        # unsaturation and later criteria must decide, not input atom order.
+        orders.append(list(reversed(ordered_paths)))
+    for paths_in_order in orders:
+        for first in (paths_in_order[0], tuple(reversed(paths_in_order[0]))):
+            for second in (paths_in_order[1], tuple(reversed(paths_in_order[1]))):
+                seq = first + (spiro_idx,) + second
+                if len(seq) == len(set(seq)):
+                    sequences.append((seq, (len(first), len(second))))
     return sequences
 
 
@@ -1915,13 +2181,14 @@ def _bicyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, int, int]) -> 
         seq,
         f"bicyclo[{'.'.join(str(value) for value in bracket)}]{root}",
         allow_unsaturation=True,
+        consecutive_simple_locants=True,
     )
     if not parent:
         return ""
     return _polycyclic_parent_with_prefixes(mol, seq, parent)
 
 
-def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, ...]) -> str:
+def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int | str, ...]) -> str:
     root = ROOTS.get(len(seq))
     if not root or len(bracket) != 4:
         return ""
@@ -1930,6 +2197,7 @@ def _tricyclic_parent(mol, seq: Sequence[int], bracket: tuple[int, ...]) -> str:
         seq,
         f"tricyclo[{'.'.join(str(value) for value in bracket)}]{root}",
         allow_unsaturation=True,
+        consecutive_simple_locants=True,
     )
     if not parent:
         return ""
@@ -1946,6 +2214,7 @@ def _generic_polycyclic_parent(mol, seq: Sequence[int], bracket: Sequence[int | 
         seq,
         f"{prefix}[{'.'.join(str(value) for value in bracket)}]{root}",
         allow_unsaturation=True,
+        consecutive_simple_locants=True,
     )
     if not parent:
         return ""
@@ -2039,6 +2308,10 @@ def _polycyclic_lambda_locant(mol, idx: int, loc: int) -> str:
         return ""
     if symbol == "N" and atom.GetTotalNumHs() == 0 and atom.GetNumRadicalElectrons():
         return f"{loc}lambda2"
+    if symbol == "P":
+        from .charge_valence import neutral_lambda_locant
+
+        return neutral_lambda_locant(atom, loc)
     if symbol == "S" and atom.GetTotalNumHs() > 0:
         valence = int(atom.GetTotalValence())
         if valence in {4, 6}:
@@ -2074,7 +2347,8 @@ def _polycyclic_replacement_term(mol, idx: int) -> str:
 
 
 def _poly_parent_with_unsaturation(
-    mol, seq: Sequence[int], base: str, allow_unsaturation: bool
+    mol, seq: Sequence[int], base: str, allow_unsaturation: bool,
+    *, consecutive_simple_locants: bool = False,
 ) -> str:
     pos = {idx: loc for loc, idx in enumerate(seq, start=1)}
     ene_locs = []
@@ -2093,7 +2367,8 @@ def _poly_parent_with_unsaturation(
             order = bond.GetBondTypeAsDouble()
             if order == 1.0:
                 continue
-            loc = _bond_locant(pos[idx], pos[nidx], len(seq))
+            loc = _bond_locant(pos[idx], pos[nidx], len(seq),
+                               consecutive_simple_locants=consecutive_simple_locants)
             if order == 2.0:
                 ene_locs.append(loc)
             elif order == 3.0:
@@ -2108,13 +2383,19 @@ def _poly_parent_with_unsaturation(
         return _poly_loc_unsat(base, sorted(ene_locs, key=_unsat_sort_key), "ene")
     if yne_locs and not ene_locs:
         return _poly_loc_unsat(base, sorted(yne_locs, key=_unsat_sort_key), "yne")
-    ene = _poly_loc_unsat(base, sorted(ene_locs, key=_unsat_sort_key), "en", terminal_e=False)
+    ene_root = base + 'a' if len(ene_locs)==1 and len(yne_locs)>1 else base
+    ene = _poly_loc_unsat(ene_root, sorted(ene_locs, key=_unsat_sort_key), "ene", terminal_e=False)
     yne = _poly_loc_unsat("", sorted(yne_locs, key=_unsat_sort_key), "yne", terminal_e=True)
     return ene + "-" + yne
 
 
-def _bond_locant(left: int, right: int, atom_count: int) -> str:
+def _bond_locant(left: int, right: int, atom_count: int,
+                 *, consecutive_simple_locants: bool = False) -> str:
     low, high = sorted((left, right))
+    # P-31.1.1.1: consecutive endpoints use the lower locant; a bond between
+    # nonconsecutive numbered atoms also requires the higher endpoint.
+    if high - low == 1:
+        return str(low)
     return f"{low}({high})"
 
 
@@ -2149,6 +2430,7 @@ def _bridge_unsaturation_preference_key(
 
 def _poly_loc_unsat(root: str, locs: list[str], suffix: str, terminal_e: bool = True) -> str:
     if len(locs) == 1:
+        suffix = suffix[:-1] if not terminal_e and suffix.endswith('e') else suffix
         if not root:
             return f"{locs[0]}-{suffix}"
         return f"{root}-{locs[0]}-{suffix}"
@@ -2181,6 +2463,7 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
     if cache_key in cache:
         return cache[cache_key]
     parent = _append_polycyclic_parent_isotope_suffixes(mol, seq, parent)
+    hydride_parent = parent
     prefixes_by_parent = _polycyclic_external_prefixes_by_parent(mol, core_atom_set)
     if prefixes_by_parent is None:
         cache[cache_key] = ""
@@ -2191,10 +2474,190 @@ def _decorate_polycyclic_parent(mol, seq: Sequence[int], core_atoms: set[int], p
         locant = pos[idx]
         for prefix in prefixes_by_parent.get(idx, ()):
             prefixes.append((locant, prefix))
+    from .principal_carboxyl import ring_carboxyl_suffix
+    acid = ring_carboxyl_suffix(mol, pos, prefixes, parent)
+    if acid:
+        ending, prefixes, center, locant = acid
+        name = _join_prefix_parent(_format_prefixes(prefixes), ending)
+        cache[cache_key] = name
+        from .ring_parent_selection import record_rendered_ring_facts
+        record_rendered_ring_facts(mol, seq, pos, hydride_parent, prefixes, name,
+                                   suffix_centers=(center,), suffix_locants=(locant,),
+                                   replacement=True)
+        return name
+    suffix_facts = (_principal_polycyclic_alcohol_suffix_facts(mol, core_atom_set)
+                    or _simple_bicyclic_oxygen_suffix_facts(mol, core_atom_set))
+    from .principal_carbonyl import mapped_ring_oxo_suffix, ring_carbonyl_suffix_name
+    carbonyl_name = "" if suffix_facts else ring_carbonyl_suffix_name(mol, core_atom_set, pos, prefixes, parent)
+    if not carbonyl_name and not suffix_facts and any(marker in parent for marker in ('bicyclo[', 'tricyclo[')):
+        carbonyl_name = mapped_ring_oxo_suffix(mol, core_atom_set, pos, prefixes, parent, allow_hetero=True)
+    if carbonyl_name:
+        cache[cache_key] = carbonyl_name
+        return carbonyl_name
+    suffix_facts = (_principal_polycyclic_alcohol_suffix_facts(mol, core_atom_set)
+                    or _simple_bicyclic_oxygen_suffix_facts(mol, core_atom_set))
+    # Retained alternatives keep their established renderer. Promote suffixes
+    # here only on the systematically numbered generic polycyclic hydride.
+    suffix_promoted = suffix_facts is not None and any(
+        marker in parent for marker in ("cyclo[", "spiro[", "tricyclo["))
+    if suffix_promoted:
+        suffix, suffix_atoms = suffix_facts
+        suffix_locants = sorted((pos[idx] for idx in suffix_atoms), key=int)
+        suffix_prefix = "oxo" if suffix == "one" else "hydroxy"
+        suffix_positions = set(suffix_locants)
+        prefixes = [
+            (locant, prefix) for locant, prefix in prefixes
+            if not (locant in suffix_positions and prefix == suffix_prefix)
+        ]
+        if len(suffix_locants) == 1:
+            parent = parent[:-1] if parent.endswith("e") else parent
+        else:
+            suffix = _multiplied_suffix(len(suffix_locants), suffix)
+        parent += f"-{','.join(suffix_locants)}-{suffix}"
     prefix_text = _format_prefixes(prefixes)
-    name = _join_prefix_parent(prefix_text, parent) if prefix_text else parent
+    name = (
+        prefix_text + parent if suffix_promoted
+        else _join_prefix_parent(prefix_text, parent)
+    ) if prefix_text else parent
     cache[cache_key] = name
+    from .ring_parent_selection import record_rendered_ring_facts
+    record_rendered_ring_facts(mol, seq, pos, hydride_parent, prefixes, name,
+        suffix_centers=suffix_facts[1] if suffix_promoted else (),
+        suffix_locants=[pos[idx] for idx in suffix_facts[1]] if suffix_promoted else (),
+        replacement=True)
     return name
+
+
+def _tricyclic_decorated_parent_facts(mol, seq, core_atoms, hydride_parent, name):
+    """Build mapped P-14/P-44 facts for the source-closed rank-three route.
+
+    The generic ring-facts cache intentionally declines isotope- and
+    stereochemistry-bearing whole molecules. This bounded consumer has the
+    original sequence and can calculate those annotations on that exact map.
+    """
+    from .parent_selection import graph_parent_facts
+    from .ring_parent_selection import principal_context, ring_type_evidence
+
+    context = principal_context(mol)
+    if context is None:
+        return None
+    principal_class, groups = context
+    core_atoms = frozenset(core_atoms)
+    pos = {idx: str(loc) for loc, idx in enumerate(seq, start=1)}
+    suffix_facts = (_principal_polycyclic_alcohol_suffix_facts(mol, core_atoms)
+                    or _simple_bicyclic_oxygen_suffix_facts(mol, core_atoms))
+    suffix_centers = suffix_facts[1] if suffix_facts else ()
+    if groups and not suffix_centers:
+        return None
+    prefixes_by_parent = _polycyclic_external_prefixes_by_parent(mol, core_atoms)
+    if prefixes_by_parent is None:
+        return None
+    prefixes = [(pos[idx], prefix) for idx in seq
+                for prefix in prefixes_by_parent.get(idx, ())]
+    suffix_locants = [pos[idx] for idx in suffix_centers]
+    if suffix_facts:
+        suffix_prefix = "oxo" if suffix_facts[0] == "one" else "hydroxy"
+        suffix_positions = set(suffix_locants)
+        prefixes = [(locant, prefix) for locant, prefix in prefixes
+                    if not (locant in suffix_positions and prefix == suffix_prefix)]
+    facts = graph_parent_facts(
+        mol, core_atoms, pos, principal_class=principal_class,
+        suffix_centers=suffix_centers, suffix_locants=suffix_locants,
+        prefixes=prefixes, kind="ring", name=name, replacement=True,
+        indicated_h=(), allow_annotations=True)
+    if facts is None:
+        return None
+    ring_type, details, _identity = ring_type_evidence(
+        mol, core_atoms, pos, hydride_parent)
+    # The P-23 frontier already proves every row is a numbering of this same
+    # physical core. Share that identity so P-44 intrinsic type details tie;
+    # numbering-specific locants remain in their dedicated mapped facts.
+    identity = (hydride_parent, tuple(sorted(
+        tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())))
+        for bond in iter_bonds(mol)
+        if bond.GetBeginAtomIdx() in core_atoms and bond.GetEndAtomIdx() in core_atoms)))
+    return replace(facts, ring_type=ring_type, ring_type_details=details,
+                   ring_identity=identity,
+                   numbering_scope=(core_atoms, frozenset(suffix_centers)))
+
+
+def _principal_polycyclic_alcohol_suffix_facts(mol, core_atoms):
+    if mol.HasProp("_nispo_principal_prefix_mode"):
+        return None
+    from .principal_groups import principal_ring_groups
+    kind, sites = principal_ring_groups(mol)
+    core_edges = sum(1 for bond in iter_bonds(mol)
+                     if bond.GetBeginAtomIdx() in core_atoms
+                     and bond.GetEndAtomIdx() in core_atoms)
+    if not kind and core_edges - len(core_atoms) + 1 == 3:
+        from .ring_parent_selection import principal_context
+        context = principal_context(mol)
+        groups = context[1] if context is not None else ()
+        if groups and all(group.kind == "alcohol" for group in groups):
+            kind = "alcohol"
+            sites = tuple(group.center for group in groups)
+    if (kind == "alcohol" and set(sites) <= core_atoms
+            and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in core_atoms)):
+        return "ol", sites
+    return None
+
+
+def _simple_bicyclic_oxygen_suffix_facts(mol, core_atoms: frozenset[int]) -> tuple[str, tuple[int, ...]] | None:
+    """Identify principal ketones/alcohols on saturated bridged/spiro carbobicycles.
+
+    Limit promotion to whole molecules with alkyl/halogen decorations and
+    terminal oxygen groups on the ring. More senior groups and heterocyclic,
+    aromatic, charged or isotopically labelled cases keep their existing rules.
+    """
+    cache = mol_cache_dict(mol, "bicyclic_oxygen_suffix_facts")
+    if core_atoms in cache:
+        return cache[core_atoms]
+    cache[core_atoms] = None
+    if mol.GetRingInfo().NumRings() != 2 or not core_atoms:
+        return None
+    if any(mol.GetAtomWithIdx(idx).GetSymbol() != "C" for idx in core_atoms):
+        return None
+    core_degrees = [
+        sum(neighbor.GetIdx() in core_atoms for neighbor in mol.GetAtomWithIdx(idx).GetNeighbors())
+        for idx in core_atoms
+    ]
+    is_spiro = core_degrees.count(4) == 1 and all(d in {2, 4} for d in core_degrees)
+    if not is_spiro and (core_degrees.count(3) != 2 or any(degree not in {2, 3} for degree in core_degrees)):
+        return None
+    bridgeheads = [idx for idx, degree in zip(core_atoms, core_degrees) if degree == 3]
+    if not is_spiro and mol.GetBondBetweenAtoms(*bridgeheads) is not None:
+        return None  # Fused systems keep their retained/fused suffix rules.
+    if _ring_multiple_bond_count(mol, core_atoms):
+        return None
+    ketones = []
+    alcohols = []
+    for atom in iter_atoms(mol):
+        if (
+            atom.GetSymbol() not in {"H", "C", "O", "F", "Cl", "Br", "I"}
+            or atom.GetFormalCharge() or atom.GetIsotope() or atom.GetNumRadicalElectrons()
+            or atom.GetIsAromatic()
+            or (atom.IsInRing() and atom.GetIdx() not in core_atoms)
+        ):
+            return None
+        if atom.GetSymbol() != "O":
+            continue
+        neighbors = [neighbor for neighbor in atom.GetNeighbors() if neighbor.GetAtomicNum() > 1]
+        if len(neighbors) != 1 or neighbors[0].GetIdx() not in core_atoms:
+            return None
+        carbon_idx = neighbors[0].GetIdx()
+        order = mol.GetBondBetweenAtoms(atom.GetIdx(), carbon_idx).GetBondTypeAsDouble()
+        if order == 2 and atom.GetTotalNumHs() == 0:
+            ketones.append(carbon_idx)
+        elif order == 1 and atom.GetTotalNumHs(includeNeighbors=True) == 1:
+            alcohols.append(carbon_idx)
+        else:
+            return None
+    suffix_atoms = ketones or alcohols
+    if not suffix_atoms or len(suffix_atoms) not in {1, 2, 3, 4, 5, 6}:
+        return None
+    facts = ("one" if ketones else "ol", tuple(suffix_atoms))
+    cache[core_atoms] = facts
+    return facts
 
 
 def _polycyclic_external_prefixes_by_parent(
@@ -2275,11 +2738,15 @@ def _name_polycyclic_substituent(
     prefix_text = _format_prefixes(prefixes)
     name = _join_prefix_parent(prefix_text, suffix) if prefix_text else suffix
     stereo_prefix = _polycyclic_substituent_stereo_prefix(mol, seq, Chem)
-    return f"({stereo_prefix})-{name}" if stereo_prefix else name
+    name = f"({stereo_prefix})-{name}" if stereo_prefix else name
+    from .stereochemistry import apply_mapped_branch_bond_stereochemistry
+    return apply_mapped_branch_bond_stereochemistry(
+        mol, Chem, name, tuple((idx, str(loc)) for idx, loc in pos.items()),
+        external_parent=blocked_idx, attachment_idx=attachment_idx)
 
 
 def _polycyclic_substituent_stereo_prefix(mol, seq: Sequence[int], Chem) -> str:
-    if not seq or (_sequence_has_spiro_center(mol, seq) and _has_assigned_bond_stereo(mol, Chem)):
+    if not seq:
         return ""
     locants = {idx: loc for loc, idx in enumerate(seq, start=1)}
     centers = [
@@ -2329,9 +2796,13 @@ def _polycyclic_numbering_preference_key(mol, seq: Sequence[int], core_atoms: se
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    from .principal_carboxyl import principal_ring_carboxyl_group
+    acid = principal_ring_carboxyl_group(mol)
+    acid_locants = (seq.index(acid[1]) + 1,) if acid and acid[1] in seq else ()
     hetero_locants = _hetero_locants(mol, seq)
     result = (
         hetero_locants,
+        acid_locants,
         _bridge_unsaturation_preference_key(mol, seq, core_atoms),
         _unsaturation_contiguity_key(mol, seq),
         _multi_external_substituent_locants_desc(mol, seq, core_atoms),
@@ -2358,16 +2829,6 @@ def _multi_external_substituent_locants_desc(mol, seq: Sequence[int], core_atoms
             locants.append(-loc)
     cache[cache_key] = tuple(locants)
     return locants
-
-
-def _has_multi_external_substituted_ring_atom(mol, atoms: set[int]) -> bool:
-    neighbors_by_atom = _heavy_neighbor_indices_by_atom(mol)
-    atom_set = frozenset(atoms)
-    for idx in atom_set:
-        external_count = sum(1 for nidx in neighbors_by_atom[idx] if nidx not in atom_set)
-        if external_count >= 2:
-            return True
-    return False
 
 
 def _substituent_locants(mol, seq: Sequence[int], core_atoms: set[int]) -> list[int]:

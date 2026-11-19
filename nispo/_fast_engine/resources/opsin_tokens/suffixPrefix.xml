@@ -1,0 +1,23 @@
+<!DOCTYPE tokenList SYSTEM "tokenLists.dtd">
+<!--
+A limiting list of prefixes that modify the meaning of the following prefixes
+Not all suffixes appear to accept a suffixPrefix
+value is the SMILES for this suffixPrefix
+-->
+<tokenList tagname="suffixPrefix" symbol="¬">
+	<token value="C">carb|carbo|carbox|carbono</token>
+
+	<token value="S=O">sulfon|sulfono</token>
+	<token value="S">sulfin|sulfino</token>
+
+	<token value="[SeH?]=O">selenon|selenono</token>
+	<token value="[SeH?]">selenin|selenino</token>
+
+	<token value="[TeH?]=O">telluron|tellurono</token>
+	<token value="[TeH?]">tellurin|tellurino</token>
+
+	<!--not recommended by IUPAC-->
+	<token value="PO">phosphon|phosphono</token>
+	<token value="[AsH?]O">arson|arsono</token>
+	<token value="[SbH?]O">stibon|stibono</token>
+</tokenList>

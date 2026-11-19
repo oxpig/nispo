@@ -1,0 +1,266 @@
+<!DOCTYPE tokenLists SYSTEM "tokenLists.dtd">
+<tokenLists>
+<!--P-67.1.1 IUPAC 2004 mononuclear acids-->
+<!--These names can be modified by infixes and accept at minimum ic and ate and usually ous/ite suffixes-->
+
+<!--NOTE that unlocanted substitution attempts atoms in the order of the SMILES hence why single bonded O is listed first. A double bonded O replaced by sulfur could be substituted onto! -->
+
+<!--Tokens to which suffixes appleis must have the acid centre (i.e. the atom to which OHs attach) at the start of the SMILES or use the suffixAppliesTo attribute
+This attribute is required for multi-centre acids. Acids containing OH not directly connected to the acid centre e.g. O[OH], should be handled as trivial names-->
+
+	<!--This is the set of acids in which yl denotes an acyl (oyl will be tolerated)-->
+	<tokenList tagname="group" type="nonCarboxylicAcid" subType="ylForAcyl" symbol="·">
+		<token value="[As](O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">arsor</token>
+		<token value="[As](O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">arsen</token><!--deprecated-->
+		<token value="[N+](O)(O)(O)[O-]" usableAsAJoiner="yes"  acceptsAdditiveBonds="yes">azor</token>
+		<token value="[N+](O)(O)(O)[O-]" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">nitror</token><!--deprecated-->
+		<token value="P(O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">phosphor</token>
+		<token value="P(O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">orthophosphor</token><!--deprecated-->
+		<token value="P(O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">ortho-phosphor</token><!--deprecated-->
+		<token value="[Sb](O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">stibor</token>
+		<token value="[Sb](O)(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">antimon</token><!--deprecated-->
+		<token value="S(O)(O)(=O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">sulfur</token>
+
+<!--carbonic acid and some contractions, oyl is correct for some of these-->
+		<token value="C(N)(O)=O" usableAsAJoiner="yes" defaultInID="2">carbam</token>
+		<token value="C(Nc1ccccc1)(O)=O" labels="//1/2/3/4/5/6//" defaultInID="2">carbanil</token>
+		<token value="C(O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">carbon</token>
+		<token value="S(C)(=O)(=O)O" defaultInID="2">mesyl</token>
+		<token value="P(=O)(O)(O)OP(=O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">diphosphor</token>
+		<token value="P(=O)(O)(O)OP(=O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">pyrophosphor</token><!--deprecated-->
+		<token value="P(=O)(O)(O)OP(=O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">pyro-phosphor</token><!--deprecated-->
+		<token value="S(N)(O)(=O)=O" usableAsAJoiner="yes" defaultInID="2">sulfam</token>
+		<token value="S(N)(O)=O" usableAsAJoiner="yes" defaultInID="2">sulfinam</token>
+		<token value="S(N)O" usableAsAJoiner="yes" defaultInID="2">sulfenam</token>
+
+<!-- For acyl: oyl in IUPAC names, but yl in CAS names-->
+		<token value="[AsH2](O)=O" usableAsAJoiner="yes">arsin</token>
+		<token value="[PH2](O)=O" usableAsAJoiner="yes">phosphin</token>
+	</tokenList>
+
+	<!--This is the set of acids in which oyl denotes an acyl (yl is unparsable)-->
+	<tokenList tagname="group" type="nonCarboxylicAcid" subType="ylForNothing" symbol="·">
+		<token value="[AsH](O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">arson</token>
+		<token value="[NH2+](O)[O-]" usableAsAJoiner="yes">azin</token>
+		<token value="[NH+](O)(O)[O-]" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">azon</token>
+		<token value="P(O)(=O)=O">phosphen</token><!--deprecated-->
+		<token value="[PH](O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">phosphon</token>
+		<token value="[SbH2](O)=O" usableAsAJoiner="yes">stibin</token>
+		<token value="[SbH](O)(O)=O" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">stibon</token>
+	</tokenList>
+
+	<!--These two sets of acids do not have their acyl groups named as derivatives of the acid-->
+	<tokenList tagname="group" type="nonCarboxylicAcid" subType="noAcyl" symbol="½">
+	<!--these form preferred IUPAC names-->
+		<token value="[As](=O)(=O)O">arsenen</token><!--CAS only-->
+		<token value="B(O)(O)O">bor</token>
+		<token value="B(O)(O)O">orthobor</token><!--deprecated-->
+		<token value="B(O)(O)O">ortho-bor</token><!--deprecated-->
+		<token value="BO">borin</token>
+		<token value="B(O)O">boron</token>
+		<token value="[Se](O)(O)(=O)=O">selen</token>
+		<token value="[Te](O)(O)(=O)=O">tellur</token>
+
+		<token value="[Cr](=O)(=O)(O)O">chrom</token>
+		<token value="[Cr](=O)(=O)(O)O[Cr](=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">dichrom</token>
+		<token value="[Mn](=O)(=O)(O)O">mangan</token>
+		<token value="[Mn](=O)(=O)(=O)O">permangan</token>
+		<token value="[Tc](=O)(=O)(O)O">technet</token>
+		<token value="[Tc](=O)(=O)(=O)O">pertechnet</token>
+		<token value="[Re](=O)(=O)(O)O">rhen</token>
+		<token value="[Re](=O)(=O)(=O)O">perrhen</token>
+		<token value="[Ru](=O)(=O)(=O)O">perruthen</token>
+
+		<token value="B(O)(O)OB(O)O" labels="1///2/3//" suffixAppliesTo="1,5">dibor</token>
+		<token value="B(O)OBO" labels="1//2/3/" suffixAppliesTo="1,4">diboron</token>
+		<token value="P(=O)(O)OP(=O)O" labels="1///2/3//" suffixAppliesTo="1,5">diphosphon</token>
+		<token value="[As](=O)(O)O[As](=O)O" labels="1///2/3//" suffixAppliesTo="1,5">diarson</token>
+		<token value="[As](=O)(O)(O)O[As](=O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">diarsor</token>
+		<token value="[Sb](=O)(O)O[Sb](=O)O" labels="1///2/3//" suffixAppliesTo="1,5">distibon</token>
+		<token value="[Sb](=O)(O)(O)O[Sb](=O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">distibor</token>
+		<token value="[Te](=O)(=O)(O)O[Te](=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">ditellur</token>
+		<token value="[Se](=O)(=O)(O)O[Se](=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">diselen</token>
+		<token value="S(=O)(=O)(O)OS(=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">disulfur|pyrosulfur|pyro-sulfur</token>
+		<token value="B(O)BO" labels="1//2/" suffixAppliesTo="1,3">hypodiboron</token>
+		<token value="P(=O)(O)P(=O)O" labels="1///2//" suffixAppliesTo="1,4">hypodiphosphon</token>
+		<token value="P(=O)(O)(O)P(=O)(O)O" labels="1////2///" suffixAppliesTo="1,5">hypodiphosphor</token>
+		<token value="[As](=O)(O)[As](=O)O" labels="1///2//" suffixAppliesTo="1,4">hypodiarson</token>
+		<token value="[As](=O)(O)(O)[As](=O)(O)O" labels="1////2///" suffixAppliesTo="1,5">hypodiarsor</token>
+		<token value="[Sb](=O)(O)[Sb](=O)O" labels="1///2//" suffixAppliesTo="1,4">hypodistibon</token>
+		<token value="[Sb](=O)(O)(O)[Sb](=O)(O)O" labels="1////2///" suffixAppliesTo="1,5">hypodistibor</token>
+		<token value="S(=O)(=O)(O)S(=O)(=O)O" labels="1////2///" suffixAppliesTo="1,5">hypodisulfur|dithion</token>
+		<token value="[Se](=O)(=O)(O)[Se](=O)(=O)O" labels="1////2///" suffixAppliesTo="1,5">hypodiselen</token>
+		<token value="[Te](=O)(=O)(O)[Te](=O)(=O)O" labels="1////2///" suffixAppliesTo="1,5">hypoditellur</token>
+		<token value="C(=O)(O)OC(=O)O" labels="1///2/3//" suffixAppliesTo="1,5">dicarbon</token>
+		<token value="[Si](O)(O)(O)O[Si](O)(O)O" labels="1////2/3///" suffixAppliesTo="1,6">disilic</token>
+
+		<token value="P(=O)(O)OP(=O)(O)OP(=O)O" labels="1///2/3///4/5//" suffixAppliesTo="1,5,9">triphosphon</token>
+		<token value="P(=O)(O)(O)OP(=O)(O)OP(=O)(O)O" labels="1////2/3///4/5///" suffixAppliesTo="1,6,10">triphosphor</token>
+		<token value="[Se](=O)(=O)(O)O[Se](=O)(=O)O[Se](=O)(=O)O" labels="1////2/3///4/5///" suffixAppliesTo="1,6,10">triselen</token>
+		<token value="S(=O)(=O)(O)OS(=O)(=O)OS(=O)(=O)O" labels="1////2/3///4/5///" suffixAppliesTo="1,6,10">trisulfur</token>
+		<token value="C(=O)(O)OC(=O)OC(=O)O" labels="1///2/3//4/5//" suffixAppliesTo="1,5,8">tricarbon</token>
+
+		<token value="P(=O)(O)(O)OP(=O)(O)OP(=O)(O)OP(=O)(O)O" labels="1////2/3///4/5///6/7///" suffixAppliesTo="1,6,10,14">tetraphosphor</token>
+		<token value="C(=O)(O)OC(=O)OC(=O)OC(=O)O" labels="1///2/3//4/5//6/7//" suffixAppliesTo="1,5,8,11">tetracarbon</token>
+
+		<token value="S(=O)(=O)(O)SS(=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">trithion</token>
+		<token value="S(=O)(=O)(O)SSS(=O)(=O)O" labels="1////2/3/4///" suffixAppliesTo="1,7">tetrathion</token>
+		<token value="S(=O)(=O)(O)SSSS(=O)(=O)O" labels="1////2/3/4/5///" suffixAppliesTo="1,8">pentathion</token>
+	</tokenList>
+
+	<tokenList tagname="group" type="nonCarboxylicAcid" subType="noAcyl" symbol="½">
+	<!--trivial names -->
+		<token value="S(=O)(=O)(O)c1ccccc1">besyl</token>
+		<token value="S(=O)(=O)(O)c1ccc(Br)cc1">brosyl</token>
+		<token value="[As](O)(=O)(C)C">cacodyl</token>
+		<token value="S(=O)(=O)(O)CCS(=O)(=O)O" labels="////1/2////" suffixAppliesTo="1,7">edisyl</token>
+		<token value="S(=O)(=O)(O)CC">esyl</token>
+		<token value="S(=O)(=O)(O)CCS(=O)(=O)O" labels="////1/2////" suffixAppliesTo="1,7">ethion</token>
+		<token value="[N+]([O-])(O)=NO">hyponitr</token>
+		<token value="S(=O)(=O)(O)CCO">isethion</token>
+		<token value="P(=O)(O)OP(=O)(O)O" suffixAppliesTo="1,5">isohypophosphor</token>
+		<token value="S(=O)(=O)(O)CS(=O)(=O)O" labels="1////2/3///" suffixAppliesTo="1,6">methion</token>
+		<token value="[N+](O)([O-])=C">nitron</token>
+		<token value="S(=O)(=O)(O)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F">nonafl</token>
+		<token value="S(=O)(=O)(O)c1ccc([N+](=O)[O-])cc1">nosyl</token>
+		<token value="C(O)(O)(O)O">orthocarbon|ortho-carbon</token>
+		<token value="C(O)(O)O">orthoform|ortho-form</token>
+		<token value="C(C)(O)(O)O">orthoacet|ortho-acet</token>
+		<token value="C(CC)(O)(O)O">orthopropion|ortho-propion</token>
+		<token value="C(CCC)(O)(O)O">orthobutyr|ortho-butyr</token>
+		<token value="C(C(C)C)(O)(O)O">orthoisobutyr|ortho-isobutyr</token>
+		<token value="C(CCCC)(O)(O)O">orthovaler|ortho-valer</token>
+		<token value="C(CC(C)C)(O)(O)O">orthoisovaler|ortho-isovaler</token>
+		<token value="[Te](O)(O)(O)(O)(O)O">orthotellur|ortho-tellur</token>
+		<token value="B(O)(O)B(O)O" suffixAppliesTo="1,4">hypobor</token>
+		<token value="C(O)(=O)OC(=O)O" suffixAppliesTo="1,5">pyrocarbon|pyro-carbon</token>
+		<token value="S(=O)(=O)(N)O" defaultInID="4">sulfamid</token>
+		<token value="S(O)(O)">sulfoxyl</token>
+		<token value="S(=O)(=O)(O)c1ccc(C)cc1" labels="////1/2,ortho/3,meta/4,para//5/6">tosyl</token>
+		<token value="S(=O)(=O)(O)CC(F)(F)F">tresyl</token>
+	</tokenList>
+
+<!-- a few entirely trivial acid/salts that can be modified by prefixes-->
+	<tokenList tagname="group" type="nonCarboxylicAcid" subType="noAcyl" symbol="G">
+		<token value="NS(=O)(=O)[O-]" functionalIDs="5">amidosulfonate|amidosulfonat</token>
+		<token value="NS(=O)(=O)O" functionalIDs="5">amidosulfonicacid|amidosulfonic acid</token>
+		<token value="[As](O)(O)O" functionalIDs="2,3,4">arsenious|arseniousacid|arsenious acid</token>
+		<token value="C([O-])(O)=O" functionalIDs="2">bicarbonate|bicarbonat</token>
+		<token value="S([O-])(O)(=O)=O" functionalIDs="2">bisulfate|bisulfat</token>
+		<token value="S([O-])(O)=O" functionalIDs="2">bisulfite|bisulfit</token>
+		<token value="[O-]P([O-])(=O)OP(=O)([O-])[O-]" labels="/1///2/3///" functionalIDs="1,3,8,9">diphosphate|diphosphat</token>
+		<token value="[O-]P([O-])OP([O-])[O-]" labels="/1//2/3//" functionalIDs="1,3,6,7">diphosphite|diphosphit</token>
+		<token value="[Se](=O)(O)O[Se](=O)O" labels="1///2/3//" functionalIDs="4,7">diselenious|diseleniousacid|diselenious acid</token>
+		<token value="S(=O)(=O)([O-])OS(=O)(=O)[O-]" labels="1////2/3///" functionalIDs="4,9">disulfate|pyrosulfate|pyro-sulfate|disulfat|pyrosulfat|pyro-sulfat</token>
+		<token value="S(=O)([O-])OS(=O)[O-]" labels="1///2/3//" functionalIDs="3,7">disulfite|disulfit</token>
+		<token value="S(=O)(=O)([O-])S(=O)[O-]" functionalIDs="4,7">pyrosulfite|pyro-sulfite|pyrosulfit|pyro-sulfit</token><!--oddly doesn't seem to be the same as disulfite-->
+		<token value="S(=O)(=O)([O-])S(=O)(=O)[O-]" functionalIDs="4,8">metabisulfate|metabisulfat</token>
+		<token value="S(=O)(=O)([O-])S(=O)[O-]" functionalIDs="4,7">metabisulfite|metabisulfit</token>
+		<token value="O=P(O)(O)OCC(O)CO" labels="////1///2//3" functionalIDs="3,4">glycero-1-phosphate|glycero-1-phosphat</token>
+		<token value="OCC(OP(=O)(O)O)CO" labels="1///2//////3" functionalIDs="7,8">glycero-2-phosphate|glycero-2-phosphat</token>
+		<token value="OCC(O)COP(=O)(O)O" labels="1///2//3////" functionalIDs="9,10">glycero-3-phosphate|glycero-3-phosphat</token>
+		<token value="O=P(O)(O)OC[C@@H](O)CO" labels="////1///2//3" functionalIDs="3,4">sn-glycero-1-phosphate|sn-glycero-1-phosphat</token>
+		<token value="OC[C@@H](OP(=O)(O)O)CO" labels="1///2//////3" functionalIDs="7,8">sn-glycero-2-phosphate|sn-glycero-2-phosphat</token>
+		<token value="OC[C@@H](O)COP(=O)(O)O" labels="1///2//3////" functionalIDs="9,10">sn-glycero-3-phosphate|sn-glycero-3-phosphat</token>
+		<token value="S(=O)([O-])S(=O)[O-]" labels="1///2//" functionalIDs="3,6">hydrosulfite|hydrosulfit</token>
+		<token value="[O-]SC#N" functionalIDs="1">hypothiocyanate|hypothiocyanat</token><!--misspelling-->
+		<token value="OSC#N" functionalIDs="1">hypothiocyanicacid|hypothiocyanic acid</token><!--misspelling-->
+		<token value="[O-]SC#N" functionalIDs="1">hypothiocyanite|hypothiocyanit</token>
+		<token value="OSC#N" functionalIDs="1">hypothiocyanousacid|hypothiocyanous acid</token>
+		<token value="P(=O)([O-])([O-])P(=O)([O-])[O-]" labels="1////2///" functionalIDs="3,4,7,8">hypodiphosphate|hypodiphosphat</token>
+		<token value="P([O-])([O-])P([O-])[O-]" labels="1///2//" functionalIDs="2,3,5,6">hypodiphosphite|hypodiphosphit</token>
+		<token value="P(=O)([O-])([O-])P(=O)([O-])[O-]" labels="1////2///" functionalIDs="3,4,7,8">hypophosphate|hypophosphorate|hypophosphat|hypophosphorat</token>
+		<token value="P(=O)(O)(O)P(=O)(O)O" labels="1////2///" functionalIDs="3,4,7,8">hypophosphoric|hypophosphoricacid|hypophosphoric acid</token><!--hypophosphoric acid by convention refers to hypodiphosphoric acid-->
+		<token value="[PH2](=O)[O-]" functionalIDs="3">hypophosphite|hypophosphorite|hypophosphit|hypophosphorit</token>
+		<token value="[PH2](=O)O" functionalIDs="3">hypophosphorous|hypophosphorousacid|hypophosphorous acid</token>
+		<token value="P(=O)([O-])OP(=O)([O-])[O-]" functionalIDs="3,7,8">isohypophosphate|isohypophosphat</token>
+		<token value="[N+]([O-])([O-])([O-])[O-]" functionalIDs="3,4,5">orthonitrate|ortho-nitrate|orthonitrat|ortho-nitrat</token>
+		<token value="P(=O)([O-])([O-])[O-]" functionalIDs="3,4,5">orthophosphate|ortho-phosphate|orthophosphat|ortho-phosphat</token>
+		<token value="P([O-])([O-])[O-]" functionalIDs="2,3,4">orthophosphite|ortho-phosphite|orthophosphit|ortho-phosphit</token>
+		<token value="[O-]P([O-])(=O)OP(=O)([O-])OP(=O)([O-])OP(=O)([O-])OP(=O)([O-])[O-]" labels="/1///2/3///4/5///6/7///8/9///" functionalIDs="1,3,8,12,16,20,21">pentaphosphate|pentaphosphat</token>
+		<token value="C(=O)([O-])OOC(=O)[O-]" functionalIDs="3,8">peroxodicarbonate|peroxodicarbonat</token>
+		<token value="C(=O)(O)OOC(=O)O" functionalIDs="3,8">peroxodicarbonicacid|peroxodicarbonic acid</token>
+		<token value="C(=O)(O[O-])[O-]" functionalIDs="4,5">peroxocarbonate|peroxocarbonat</token>
+		<token value="C(=O)(OO)O" functionalIDs="4,5">peroxocarbonicacid|peroxocarbonic acid</token>
+		<token value="S(=O)(=O)([O-])OOS(=O)(=O)[O-]" functionalIDs="4,10">persulfate|persulfat</token>
+		<token value="[Xe](=O)(=O)([O-])([O-])([O-])[O-]" functionalIDs="4,5,6,7">perxenate|perxenat</token>
+		<token value="[Xe](=O)(=O)(O)(O)(O)O" functionalIDs="4,5,6,7">perxenicacid|perxenic acid</token>
+		<token value="P([O-])([O-])[O-]" functionalIDs="2,3,4">phosphite|phosphit</token>
+		<token value="P(=O)([O-])([O-])[O-]" functionalIDs="3,4,5">phosphate|phosphoate|phosphat</token>
+		<token value="[O-]P([O-])(=O)OP(=O)([O-])[O-]" labels="/1///2/3///" functionalIDs="1,3,8,9">pyrophosphate|pyro-phosphate|pyrophosphat|pyro-phosphat</token>
+		<token value="[O-]P([O-])OP([O-])[O-]" labels="/1//2/3//" functionalIDs="1,3,6,7">pyrophosphite|pyro-phosphite|pyrophosphit|pyro-phosphit</token>
+		<token value="[Se](=O)(O)O" functionalIDs="3,4">selenious|seleniousacid|selenious acid</token>
+		<token value="[Se](=O)([O-])[O-]" functionalIDs="3,4">selenite|selenit</token>
+		<token value="[Se](=O)(=O)([O-])[O-]" functionalIDs="4,5">selenate|selenoate|selenat</token>
+		<token value="S(=O)([O-])[O-]" functionalIDs="3,4">sulfite|sulfit</token>
+		<token value="S(=O)(=O)([O-])[O-]" functionalIDs="4,5">sulfate|sulfoate|sulfat</token>
+		<token value="S(=O)(=O)(O[O-])[O-]" functionalIDs="5,6">peroxomonosulfate|peroxymonosulfate|peroxomonosulfat|peroxymonosulfat</token>
+		<token value="S(=O)(=O)(OO)O" functionalIDs="5,6">peroxomonosulfuric|peroxomonosulfuricacid|peroxomonosulfuric acid|peroxymonosulfuric|peroxymonosulfuricacid|peroxymonosulfuric acid</token>
+		<token value="[Te](=O)([O-])[O-]" functionalIDs="3,4">tellurite|tellurit</token>
+		<token value="[Te](=O)(=O)([O-])[O-]" functionalIDs="4,5">tellurate|telluroate|tellurat</token>
+		<token value="OS(=O)(=O)C(F)(F)F" functionalIDs="1">triflic|triflicacid|triflic acid</token>
+		<token value="[O-]S(=O)(=O)C(F)(F)F" functionalIDs="1">triflate|triflat</token>
+		<token value="[O-]P([O-])(=O)OP(=O)([O-])OP(=O)([O-])OP(=O)([O-])[O-]" labels="/1///2/3///4/5///6/7///" functionalIDs="1,3,8,12,16,17">tetraphosphate|tetraphosphat</token>
+		<token value="[O-]P([O-])(=O)OP(=O)([O-])OP(=O)([O-])[O-]" labels="/1///2/3///4/5///" functionalIDs="1,3,8,12,13">triphosphate|triphosphat</token>
+
+	<!-- Mononuclear acids that are NOT modified by infixes. They may be modified by prefixes-->
+		<token value="Br(=O)(=O)O" functionalIDs="4">bromic|bromicacid|bromic acid</token>
+		<token value="Br(=O)O" functionalIDs="3">bromous|bromousacid|bromous acid</token>
+		<token value="Cl(=O)(=O)O" functionalIDs="4">chloric|chloricacid|chloric acid</token>
+		<token value="Cl(=O)O" functionalIDs="3">chlorous|chlorousacid|chlorous acid</token>
+		<token value="[F|5](=O)(=O)O" functionalIDs="4">fluoric|fluoricacid|fluoric acid</token>
+		<token value="[F|3](=O)O" functionalIDs="3">fluorous|fluorousacid|fluorous acid</token>
+		<token value="I(=O)(=O)O" functionalIDs="4">iodic|iodicacid|iodic acid</token>
+		<token value="I(=O)O" functionalIDs="3">iodous|iodousacid|iodous acid</token>
+		<token value="BrO" functionalIDs="2">hypobromous|hypobromousacid|hypobromous acid</token>
+		<token value="ClO" functionalIDs="2">hypochlorous|hypochlorousacid|hypochlorous acid</token>
+		<token value="FO" functionalIDs="2">hypofluorous|hypofluorousacid|hypofluorous acid</token>
+		<token value="IO" functionalIDs="2">hypoiodous|hypoiodousacid|hypoiodous acid</token>
+		<token value="I(=O)(=O)(=O)O" functionalIDs="5">metaperiodic|metaperiodicacid|metaperiodic acid</token>
+		<token value="[N+](=O)(O)[O-]" functionalIDs="3">nitric|nitricacid|nitric acid</token>
+		<token value="N(=O)O" functionalIDs="3">nitrous|nitrousacid|nitrous acid</token>
+		<token value="I(=O)(O)(O)(O)(O)O" functionalIDs="3,4,5,6,7">orthoperiodic|orthoperiodicacid|orthoperiodic acid|ortho-periodic acid</token>
+		<token value="[Si](O)(O)(O)O" functionalIDs="2,3,4,5">silicic|silicicacid|silicic acid|orthosilicic|orthosilicicacid|orthosilicic acid|ortho-silicic acid</token>
+		<token value="Br(=O)(=O)(=O)O" functionalIDs="5">perbromic|perbromicacid|perbromic acid</token>
+		<token value="Cl(=O)(=O)(=O)O" functionalIDs="5">perchloric|perchloricacid|perchloric acid</token>
+		<token value="[F|7](=O)(=O)(=O)O" functionalIDs="5">perfluoric|perfluoricacid|perfluoric acid</token>
+		<token value="I(=O)(=O)(=O)O" functionalIDs="5">periodic|periodicacid|periodic acid</token>
+
+		<token value="Br(=O)(=O)[O-]" functionalIDs="4">bromate|bromat</token>
+		<token value="Br(=O)[O-]" functionalIDs="3">bromite|bromit</token>
+		<token value="Cl(=O)(=O)[O-]" functionalIDs="4">chlorate|chlorat</token>
+		<token value="Cl(=O)[O-]" functionalIDs="3">chlorite|chlorit</token>
+		<token value="[F|5](=O)(=O)[O-]" functionalIDs="4">fluorate|fluorat</token>
+		<token value="[F|3](=O)[O-]" functionalIDs="3">fluorite|fluorit</token>
+		<token value="I(=O)(=O)[O-]" functionalIDs="4">iodate|iodat</token>
+		<token value="I(=O)[O-]" functionalIDs="3">iodite|iodit</token>
+		<token value="Br[O-]" functionalIDs="2">hypobromite|hypobromit</token>
+		<token value="Cl[O-]" functionalIDs="2">hypochlorite|hypochlorit</token>
+		<token value="F[O-]" functionalIDs="2">hypofluorite|hypofluorit</token>
+		<token value="I[O-]" functionalIDs="2">hypoiodite|hypoiodit</token>
+		<token value="I(=O)(=O)(=O)[O-]" functionalIDs="5">metaperiodate|metaperiodat</token>
+		<token value="[N+](=O)([O-])[O-]" functionalIDs="3">nitrate|nitrat</token>
+		<token value="N(=O)[O-]" functionalIDs="3">nitrite|nitrit</token>
+		<token value="I(=O)([O-])([O-])([O-])([O-])[O-]" functionalIDs="3,4,5,6,7">orthoperiodate|ortho-periodate|orthoperiodat|ortho-periodat</token>
+		<token value="[Si]([O-])([O-])([O-])[O-]" functionalIDs="2,3,4,5">silicate|orthosilicate|ortho-silicate|silicat|orthosilicat|ortho-silicat</token>
+		<token value="Br(=O)(=O)(=O)[O-]" functionalIDs="5">perbromate|perbromat</token>
+		<token value="Cl(=O)(=O)(=O)[O-]" functionalIDs="5">perchlorate|perchlorat</token>
+		<token value="[F|7](=O)(=O)(=O)[O-]" functionalIDs="5">perfluorate|perfluorat</token>
+		<token value="I(=O)(=O)(=O)[O-]" functionalIDs="5">periodate|periodat</token>
+	</tokenList>
+
+	<!--This is the limiting set of chacolgen acid stems.
+	These differ from the  more commonly used chalcogen stems e.g. sulfuric in that they can be used to unambiguously form acyl groups
+	However the rules for doing so are subtly different than for normal acids hence the need for a different type-->
+	<tokenList tagname="group" type="chalcogenAcidStem" subType="none" symbol="Â">
+		<token value="S(=O)(=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">sulfon</token>
+		<token value="S(=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">sulfin|thion</token>
+		<token value="S" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">sulfen</token>
+		<token value="[SeH2](=O)(=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">selenon</token>
+		<token value="[SeH2](=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">selenin</token>
+		<token value="[SeH2]" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">selenen</token>
+		<token value="[TeH2](=O)(=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">telluron</token>
+		<token value="[TeH2](=O)" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">tellurin</token>
+		<token value="[TeH2]" usableAsAJoiner="yes" acceptsAdditiveBonds="yes">telluren</token>
+	</tokenList>
+</tokenLists>

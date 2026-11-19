@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Mapping
 
+from .molecule_iteration import iter_atoms, iter_bonds
 from .resource_templates import (
     build_exact_biochemical_parent_templates,
     build_exact_unlocanted_resource_templates,
@@ -21,6 +22,8 @@ from .template_index import candidate_templates as _candidate_templates
 from .template_index import molecule_features as _molecule_features
 from .template_index import ring_system_feature_key
 from .template_index import ring_system_with_graph_signature
+from .template_index import _template_coarse_index
+from .template_index import _template_canonical_smiles
 
 _MAX_COMPILED_TEMPLATE_ALIASES_PER_SCAFFOLD = 1
 
@@ -37,6 +40,7 @@ class TemplateRecord:
     source_subtype: str
     stereochemical: bool
     flags: frozenset[str] = frozenset()
+    preferred_iupac_parent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,18 +104,18 @@ class TemplateFeatures:
         unsupported_flags: frozenset[str] = frozenset(),
     ) -> "TemplateFeatures":
         features = dict(_molecule_features(mol, Chem))
-        features["heavy_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
-        features["formal_charge"] = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+        features["heavy_atom_count"] = sum(1 for atom in iter_atoms(mol) if atom.GetAtomicNum() > 1)
+        features["formal_charge"] = sum(atom.GetFormalCharge() for atom in iter_atoms(mol))
         charged_atom_value_counts = features.get("charged_atom_value_counts") or {}
         features["charged_atom_values"] = tuple(sorted(charged_atom_value_counts))
         features["charged_atom_value_counts"] = charged_atom_value_counts
-        features["aromatic_atom_count"] = sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+        features["aromatic_atom_count"] = sum(1 for atom in iter_atoms(mol) if atom.GetIsAromatic())
         features["ring_systems"] = tuple(
             ring_system_with_graph_signature(mol, dict(system), Chem)
             for system in features.get("ring_systems", ())
         )
         features["has_stereochemistry"] = has_stereochemistry or _mol_has_stereochemistry(mol, Chem)
-        features["has_isotope"] = any(atom.GetIsotope() for atom in mol.GetAtoms())
+        features["has_isotope"] = any(atom.GetIsotope() for atom in iter_atoms(mol))
         features["unsupported_flags"] = unsupported_flags
         return cls.from_mapping(features)
 
@@ -127,7 +131,11 @@ class CompiledTemplate:
     runtime: dict
 
 
-_CompiledTemplateIndex = tuple[dict[tuple, tuple[CompiledTemplate, ...]], dict[int, tuple[CompiledTemplate, ...]]]
+_CompiledTemplateIndex = tuple[
+    dict[tuple, tuple[CompiledTemplate, ...]],
+    dict[int, tuple[CompiledTemplate, ...]],
+    frozenset[tuple],
+]
 
 
 @dataclass(frozen=True)
@@ -155,6 +163,7 @@ class TemplateStore:
     def __init__(self, Chem):
         self.Chem = Chem
         self._compiled: dict[int, CompiledTemplate] = {}
+        self._compiled_mol_features: dict[object, TemplateFeatures] = {}
         self._compiled_indexes: dict[int, tuple[tuple[dict, ...], _CompiledTemplateIndex]] = {}
         self._catalog: ParentScaffoldCatalog | None = None
         self._static_retained: tuple[dict, ...] | None = None
@@ -350,7 +359,7 @@ class TemplateStore:
         exact_atom_count: bool = False,
     ) -> tuple[CompiledTemplate, ...]:
         features = features or _molecule_features(mol, self.Chem)
-        pure_ring_templates, other_templates_by_atom_count = self._compiled_template_index(templates)
+        pure_buckets, other_buckets = _template_coarse_index(templates, self.Chem)
         candidates: list[CompiledTemplate] = []
         seen: set[int] = set()
         molecule_charge_counts = features.get("charged_atom_value_counts") or {}
@@ -359,13 +368,12 @@ class TemplateStore:
             for system in features["ring_systems"]
         }
         molecule_ring_system_graph_keys: set[tuple] | None = None
-        graph_index_coarse_keys = {
-            key[:3]
-            for key in pure_ring_templates
-            if len(key) > 3
-        }
         for system in features["ring_systems"]:
             coarse_key = ring_system_feature_key(system)
+            bucket = pure_buckets.get(coarse_key)
+            if bucket is None:
+                continue
+            pure_ring_templates, _, graph_index_coarse_keys = self._compiled_template_index(bucket)
             if coarse_key in graph_index_coarse_keys and not system.get("graph_signature"):
                 system = ring_system_with_graph_signature(mol, system, self.Chem)
             if system.get("graph_signature") and (
@@ -382,13 +390,16 @@ class TemplateStore:
                 seen.add(marker)
                 candidates.append(compiled)
         if exact_atom_count:
+            atom_count = features["atom_count"]
+            bucket = other_buckets.get(atom_count, ())
+            other = self._compiled_template_index(bucket)[1] if bucket else {}
             atom_count_items = (
-                (features["atom_count"], other_templates_by_atom_count.get(features["atom_count"], ())),
+                (atom_count, other.get(atom_count, ())),
             )
         else:
             atom_count_items = (
-                (atom_count, items)
-                for atom_count, items in other_templates_by_atom_count.items()
+                (atom_count, self._compiled_template_index(bucket)[1].get(atom_count, ()))
+                for atom_count, bucket in other_buckets.items()
                 if atom_count <= features["atom_count"]
             )
         for _atom_count, entries in atom_count_items:
@@ -451,6 +462,7 @@ class TemplateStore:
                 key: _preferred_compiled_templates_by_scaffold(value)
                 for key, value in other_templates_by_atom_count.items()
             },
+            frozenset(key[:3] for key in pure_ring_templates if len(key) > 3),
         )
         self._compiled_indexes[cache_key] = (templates, indexed)
         return indexed
@@ -462,16 +474,19 @@ class TemplateStore:
             return cached
         mol = template["mol"]
         record = self._record_for_template(template, key)
+        features = self._compiled_mol_features.get(mol)
+        if features is None:
+            features = TemplateFeatures.from_mol(mol, self.Chem)
+            self._compiled_mol_features[mol] = features
         compiled = CompiledTemplate(
             record=record,
             mol=mol,
-            features=TemplateFeatures.from_mol(
-                mol,
-                self.Chem,
-                has_stereochemistry=record.stereochemical,
+            features=replace(
+                features,
+                has_stereochemistry=record.stereochemical or features.has_stereochemistry,
                 unsupported_flags=record.flags,
             ),
-            scaffold_key=self.Chem.MolToSmiles(mol, canonical=True, isomericSmiles=False),
+            scaffold_key=_template_canonical_smiles(mol, self.Chem, isomeric=False),
             runtime=template,
         )
         self._compiled[key] = compiled
@@ -493,13 +508,20 @@ class TemplateStore:
             source_subtype=str(template.get("source_subtype", "")),
             stereochemical=bool(template.get("stereochemical", False)),
             flags=frozenset(str(flag) for flag in template.get("flags", ())),
+            preferred_iupac_parent=bool(template.get("preferred_iupac_parent", False)),
         )
 
     def _dedupe_templates(self, templates: tuple[dict, ...]) -> tuple[dict, ...]:
         unique = []
         seen: set[tuple[str, str]] = set()
+        name_counts = Counter(template["name"] for template in templates)
         for template in templates:
-            key = (template["name"], self.Chem.MolToSmiles(template["mol"], canonical=True))
+            # A unique name cannot duplicate a (name, graph) pair. Preserve
+            # catalog order and canonicalize only names needing comparison.
+            if name_counts[template["name"]] == 1:
+                unique.append(template)
+                continue
+            key = (template["name"], _template_canonical_smiles(template["mol"], self.Chem))
             if key in seen:
                 continue
             seen.add(key)
@@ -533,7 +555,7 @@ def _preferred_compiled_templates_by_scaffold(
 
 def _compiled_template_alias_preference_key(template: CompiledTemplate) -> tuple:
     name = template.record.name
-    return (_compiled_template_alias_priority(name), len(name), name)
+    return (not template.record.preferred_iupac_parent, _compiled_template_alias_priority(name), len(name), name)
 
 
 def _compiled_template_alias_priority(name: str) -> int:
@@ -568,10 +590,10 @@ def _ring_system_graph_key(features: dict) -> tuple:
 
 
 def _mol_has_stereochemistry(mol, Chem) -> bool:
-    for atom in mol.GetAtoms():
+    for atom in iter_atoms(mol):
         if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             return True
-    for bond in mol.GetBonds():
+    for bond in iter_bonds(mol):
         if bond.GetStereo() != Chem.BondStereo.STEREONONE:
             return True
     return False

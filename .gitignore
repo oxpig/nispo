@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local naming-development ledgers are archived outside the public repository.
+/development/
+/tests/data/acceptance.json
+/tests/data/development_graphs.json

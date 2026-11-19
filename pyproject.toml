@@ -1,6 +1,6 @@
 [project]
 name = "nispo"
-version = "0.1.7"
+version = "0.2.0"
 description = "SMILES to IUPAC naming tool optimized by OPSIN roundtrip benchmarks."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,8 +19,11 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Chemistry",
 ]
 dependencies = [
-  "rdkit>=2023.9",
+  "rdkit>=2024.9.6",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-xdist>=3", "pytest-timeout>=2.4"]
 
 [project.urls]
 Repository = "https://github.com/oxpig/nispo"
@@ -29,6 +32,21 @@ Issues = "https://github.com/oxpig/nispo/issues"
 [build-system]
 requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/core"]
+addopts = "-ra --strict-markers"
+markers = [
+  "core: Focused routine regression contracts.",
+  "corpus: Preserved historical corpus contracts, selected explicitly.",
+  "integration: Bounded external-parser integration checks.",
+  "workers: Process transport and deadline contracts.",
+  "modes(*names): Applicable API modes or fixed cohort membership; selected before execution.",
+  "current_only: Requires the current structured API.",
+  "full_only: Contract targets the full-mode interface.",
+  "fast_only: Contract targets fast-mode delivery.",
+  "public_only: Requires the archived public release.",
+]
 
 [tool.setuptools]
 include-package-data = false
@@ -40,6 +58,12 @@ namespaces = false
 
 [tool.setuptools.package-data]
 nispo = [
+  "resources/bluebook_retained_hydrocarbon_parents.json",
+  "resources/numbered_c60_parent.json",
+  "resources/three_face_aza_numbered_witness.json",
+  "resources/imidazo_quinoline_numbered_witness.json",
+  "resources/general_three_face_numbered_witness_v2.json",
+  "resources/OPSIN_NUMBERING_WITNESS_LICENSE.txt",
   "resources/opsin_tokens/*.xml",
   "resources/generated_fused_template_element_graph_index.json",
   "resources/generated_fused_template_graph_index.json",
@@ -53,6 +77,14 @@ nispo = [
   "resources/opsin_retained_mono_fused_ring_smiles.csv",
   "resources/opsin_retained_mono_fused_ring_templates.json",
   "resources/opsin_test_scaffold_templates.json",
+]
+
+"nispo._fast_engine" = [
+  "LICENSE",
+  "resources/*.json",
+  "resources/*.json.gz",
+  "resources/*.csv",
+  "resources/opsin_tokens/*.xml",
 ]
 
 [tool.setuptools.exclude-package-data]

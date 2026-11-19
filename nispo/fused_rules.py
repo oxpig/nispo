@@ -66,8 +66,10 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
         },
         {
             "name": "bicyclo[2.2.2]octane",
+            # The final SMILES path starts at bridgehead 4; its atoms have
+            # locants 8 then 7 because numbering starts at bridgehead 1.
             "mol": Chem.MolFromSmiles("C12CCC(CC1)CC2"),
-            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8"},
+            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "8", 7: "7"},
         },
         {
             "name": "bicyclo[3.1.1]heptane",
@@ -92,7 +94,10 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
         {
             "name": "3-azabicyclo[3.1.0]hexane",
             "mol": Chem.MolFromSmiles("C1NCC2CC12"),
-            "locants": {3: "1", 0: "2", 1: "3", 2: "4", 5: "5", 4: "6"},
+            # Number consecutively along the longest bridge from 1 to 5.
+            # Swapping only 2/4 without also swapping the bridgeheads changes
+            # the relation of substituents and stereodescriptors.
+            "locants": {3: "1", 2: "2", 1: "3", 0: "4", 5: "5", 4: "6"},
         },
         {
             "name": "2,5-diazabicyclo[2.2.1]heptane",
@@ -132,12 +137,12 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
         {
             "name": "2-azabicyclo[2.2.2]octane",
             "mol": Chem.MolFromSmiles("C12NCC(CC1)CC2"),
-            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8"},
+            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "8", 7: "7"},
         },
         {
             "name": "2-oxabicyclo[2.2.2]octane",
             "mol": Chem.MolFromSmiles("C12OCC(CC1)CC2"),
-            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "7", 7: "8"},
+            "locants": {0: "1", 1: "2", 2: "3", 3: "4", 4: "5", 5: "6", 6: "8", 7: "7"},
         },
         {
             "name": "indoline",
@@ -220,22 +225,23 @@ def build_fused_templates(Chem) -> tuple[dict, ...]:
             "locants": {0: "1", 1: "2", 2: "3", 3: "4", 5: "5", 6: "6", 7: "7", 8: "8", 4: "4a", 9: "8a"},
         },
         {
-            "name": "dibenzofuran",
-            "mol": Chem.MolFromSmiles("C1=CC=CC=2OC3=C(C21)C=CC=C3"),
+            "name": "dibenzo[b,d]furan",
+            "preferred_iupac_parent": True,
+            "mol": Chem.MolFromSmiles("c1cccc2oc3ccccc3c12"),
             "locants": {
                 0: "1",
                 1: "2",
                 2: "3",
                 3: "4",
-                9: "6",
-                10: "7",
-                11: "8",
-                12: "9",
                 4: "4a",
                 5: "5",
                 6: "5a",
-                7: "9a",
-                8: "9b",
+                7: "6",
+                8: "7",
+                9: "8",
+                10: "9",
+                11: "9a",
+                12: "9b",
             },
         },
         {
@@ -481,6 +487,7 @@ FUSED_SUBSTITUENT_STEMS = {
     "phthalazine": "phthalazin",
     "imidazo[1,2-a]pyridine": "imidazo[1,2-a]pyridin",
     "1H-benzimidazole": "1H-benzimidazol",
+    "1H-1,3-benzimidazole": "1H-1,3-benzimidazol",
     "pyrazolo[1,5-a]pyridine": "pyrazolo[1,5-a]pyridin",
     "pyrazolo[1,5-a]pyrimidine": "pyrazolo[1,5-a]pyrimidin",
     "pyrazolo[1,5-b]pyridazine": "pyrazolo[1,5-b]pyridazin",

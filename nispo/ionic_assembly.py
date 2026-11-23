@@ -3,6 +3,7 @@ from collections import Counter
 from dataclasses import dataclass
 from .constants import MULT,ROOTS
 from .formatting import COMPLEX_MULT,prefix_alphabetization_key,enclose_name_unit
+from .ion_multipliers import needs_enclosed_ion_multiplier
 from .ionic_assembly_assessment import (
     IonicComponentEvidence,
     assess_binary_ionic_components,
@@ -207,6 +208,7 @@ def binary_ionic_assembly(fragments,Chem,engine,*,source_atom_maps=None,
         # P-16.3.2(c): a substituted component needs bis/tris even when
         # retained-parent locant omission removes every punctuation clue.
         complex_unit=(component.substituted or component.charge>0 and component.organic
+                      or component.charge < 0 and needs_enclosed_ion_multiplier(name)
                       or any(c.isdigit() or c in '-()[]{}' for c in name))
         multiplier=(COMPLEX_MULT if complex_unit else MULT).get(count)
         if not multiplier:return ''

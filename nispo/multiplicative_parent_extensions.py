@@ -1,11 +1,19 @@
 """Mapped imine, repeated-ring and hydroxylamine parent assemblies."""
 from itertools import product
 from types import SimpleNamespace
+from typing import NamedTuple
 
 from .functional_parent_extensions import side, capped, order
 from .bluebook_lambda_amine_methods import _plain, _out
 from .constants import ROOTS
 from .formatting import enclose_name_unit, format_prefixes
+
+
+class _RingUnit(NamedTuple):
+    identity: str
+    parent: str
+    locant: str
+    has_principal_group: bool = False
 
 
 def unit(mol, Chem, atoms, root):
@@ -36,20 +44,20 @@ def unit(mol, Chem, atoms, root):
                         fragment.GetAtomWithIdx(i).GetAtomicNum()==6 and fragment.GetAtomWithIdx(i).GetIsAromatic() for i in ring)):
                     h=hydroxyls[0].center
                     distance=min((ring.index(local)-ring.index(h))%6,(ring.index(h)-ring.index(local))%6)
-                    return identity,'phenol',str(distance+1)
+                    return _RingUnit(identity, 'phenol', str(distance + 1), True)
         pool = _unit_parent_cache_entry(fragment, Chem, local, kind, compare=kind != 'alcohol')
         if kind != 'alcohol':
             if pool.comparison.reason or pool.comparison.selected is None:
                 return None
             row = pool.comparison.selected
-            return identity, row[1], str(row[2])
+            return _RingUnit(identity, row[1], str(row[2]), True)
         # Alcohol units have one parent family here. Numbering is fixed by
         # the suffix before minimizing the attachment locant.
         rows = pool.rows
         if not rows or len({r[1] for r in rows}) != 1:
             return None
         row = min(rows, key=lambda r: (r[0],int(r[2])))
-        return identity, row[1], str(row[2])
+        return _RingUnit(identity, row[1], str(row[2]), True)
     rings = frozenset(i for ring in fragment.GetRingInfo().AtomRings() for i in ring)
     if rings != frozenset(range(fragment.GetNumAtoms())) or local not in rings:
         return None
@@ -60,7 +68,7 @@ def unit(mol, Chem, atoms, root):
     locants = [dict(zip(r[1],r[2]))[local] for r in rows]
     if not all(s.isdigit() for s in locants):
         return None
-    return identity, rows[0][0], min(locants,key=int)
+    return _RingUnit(identity, rows[0][0], min(locants, key=int))
 
 
 def _assembly_name(parent, locant, bridge):
@@ -70,7 +78,7 @@ def _assembly_name(parent, locant, bridge):
     if parent.endswith(('silane','phosphane','azane','sulfane','oxidane','hydroxylamine')):
         complex_parent = True
     suffix = 'bis('+parent+')' if complex_parent else 'di'+(enclose_name_unit(parent) if '[' in parent else parent)
-    connector = bridge if bridge in {'oxy','sulfanediyl','azanediyl'} else enclose_name_unit(bridge)
+    connector = bridge if bridge in {'oxy', 'sulfanediyl', 'azanediyl', 'diazenediyl'} else enclose_name_unit(bridge)
     return locant+','+locant+"'-"+connector+suffix
 
 
@@ -106,7 +114,8 @@ def repeated_ring_parents(mol, Chem):
             continue
         from .naming_methods import _connector_name, _linear_order
         units = [SimpleNamespace(root=r[1],connector=r[2]) for r in (left,right)]
-        bridge = _connector_name(mol,connector,units)
+        unit_record = left[3]
+        bridge = _connector_name(mol, connector, units, allow_azo=unit_record.has_principal_group)
         path = _linear_order(mol,connector,[left[2],right[2]])
         if path and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in path):
             if len(path) not in ROOTS:
@@ -121,7 +130,7 @@ def repeated_ring_parents(mol, Chem):
             # O is named oxy in P-15.3.2.1 repeated-parent constructions.
             if len(connector) == 1 and mol.GetAtomWithIdx(next(iter(connector))).GetAtomicNum() == 8:
                 bridge = 'oxy'
-            names.add(_assembly_name(left[3][1],left[3][2],bridge))
+            names.add(_assembly_name(unit_record.parent, unit_record.locant, bridge))
     if len(names) != 1:
         return None
     return _out(mol,names.pop(),(),'P-15.3.2.1/P-15.3.2.3',method='multiplicative')
@@ -144,7 +153,7 @@ def imine_assembly(mol, Chem):
             root=c.GetIdx(); blocked=n.GetIdx(); extra=False
         atoms=side(mol,root,blocked)
         row=unit(mol,Chem,atoms,root)
-        if row is None or not row[1].endswith(('acid','phenol','ol')):
+        if row is None or not row.parent.endswith(('acid','phenol','ol')):
             return None
         ends.append((atoms,root,blocked,row,carbon[0].GetIdx(),extra))
     left,right=ends
@@ -160,7 +169,7 @@ def imine_assembly(mol, Chem):
         return None
     group='azanylylidenemethanylylidene' if left[5] else 'azanylylidene'
     bridge=bridge+'bis('+group+')'
-    return _out(mol,_assembly_name(left[3][1],left[3][2],bridge),(),
+    return _out(mol,_assembly_name(left[3].parent,left[3].locant,bridge),(),
                 'P-62.3.1.2/P-15.3',method='multiplicative')
 
 

@@ -223,6 +223,7 @@ def _unsubstituted_carbocycle_prefix(mol, attachment_idx: int, parent_idx: int) 
         for idx in ring
     ):
         return ""
+    labels = []
     for idx in ring:
         atom = mol.GetAtomWithIdx(idx)
         for nbr in atom.GetNeighbors():
@@ -233,16 +234,22 @@ def _unsubstituted_carbocycle_prefix(mol, attachment_idx: int, parent_idx: int) 
                 continue
             if nbr.GetAtomicNum() > 1:
                 return ""
+            if nbr.GetIsotope():
+                labels.append(nbr)
     if len(ring) == 6 and all(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
-        return "phenyl"
-    if any(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
-        return ""
-    for left, right in zip(ring, ring[1:] + ring[:1]):
-        bond = mol.GetBondBetweenAtoms(left, right)
-        if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+        parent = "phenyl"
+    else:
+        if any(mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in ring):
             return ""
-    root = ROOTS.get(len(ring), "")
-    return f"cyclo{root}yl" if root else ""
+        for left, right in zip(ring, ring[1:] + ring[:1]):
+            bond = mol.GetBondBetweenAtoms(left, right)
+            if bond is None or bond.GetBondType() != Chem.BondType.SINGLE:
+                return ""
+        stem = ROOTS.get(len(ring), "")
+        parent = f"cyclo{stem}yl" if stem else ""
+    if parent and labels:
+        return _labelled_monocycle_prefix(mol, attachment_idx, parent_idx, ring_set, labels, parent)
+    return parent
 
 
 _SIMPLE_RING_FAST_SUFFIX_ALIASES = {
@@ -259,6 +266,7 @@ def _unsubstituted_simple_ring_prefix(mol, attachment_idx: int, parent_idx: int)
         return ""
     ring = rings[0]
     ring_set = set(ring)
+    labels = []
     for idx in ring:
         atom = mol.GetAtomWithIdx(idx)
         if atom.GetFormalCharge() != 0 or atom.GetIsotope():
@@ -273,6 +281,8 @@ def _unsubstituted_simple_ring_prefix(mol, attachment_idx: int, parent_idx: int)
                 continue
             if nbr.GetAtomicNum() > 1:
                 return ""
+            if nbr.GetIsotope():
+                labels.append(nbr)
     for bond in iter_bonds(mol):
         if bond.GetBeginAtomIdx() in ring_set and bond.GetEndAtomIdx() in ring_set:
             if bond.GetStereo() != Chem.BondStereo.STEREONONE:
@@ -294,7 +304,26 @@ def _unsubstituted_simple_ring_prefix(mol, attachment_idx: int, parent_idx: int)
         if best_key is None or key < best_key:
             best_key = key
             best = suffix
+    if best and labels:
+        return _labelled_monocycle_prefix(mol, attachment_idx, parent_idx, ring_set, labels, best)
     return best
+
+
+def _labelled_monocycle_prefix(mol, root, blocked, ring, labels, parent):
+    """Preserve the explicit isotope H on an otherwise unsubstituted ring."""
+    atoms = frozenset(ring | {a.GetIdx() for a in labels})
+    if (len({a.GetIsotope() for a in labels}) == 1
+            and len(labels) == sum(mol.GetAtomWithIdx(i).GetTotalNumHs(includeNeighbors=True) for i in ring)
+            and all(a.GetDegree() == 1 and not a.GetFormalCharge()
+                    and not a.GetNumRadicalElectrons() for a in labels)):
+        from ..component_mapping import MappedComponent, decorate_component
+
+        locants = tuple((i, '') for i in sorted(atoms))
+        return decorate_component(mol, Chem, MappedComponent(parent, locants, atoms))
+    from ..mapped_ring_parents import rooted_prefix
+
+    text, owned = rooted_prefix(mol, Chem, root, blocked, atoms)
+    return text if owned == atoms else ''
 
 
 def _fast_simple_ring_suffix_alias(suffix: str) -> str:

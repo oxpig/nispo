@@ -2933,7 +2933,9 @@ def _multiplied_suffix(names: list[str]) -> str:
 def _multiplied_fragment_suffix(name: str, count: int) -> str:
     if count == 1:
         return name
-    if _needs_complex_fragment_multiplier(name):
+    from .ion_multipliers import needs_enclosed_ion_multiplier
+
+    if _needs_complex_fragment_multiplier(name) or needs_enclosed_ion_multiplier(name):
         multiplier = COMPLEX_MULTIPLIERS.get(count, "")
         return f"{multiplier}({name})" if multiplier else ""
     multiplier = MULTIPLIERS.get(count, "")

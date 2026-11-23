@@ -404,10 +404,11 @@ def _mapped_isotope_descriptor_plan(mol, Chem, component, locants, *, skeletal_a
                         and mol.GetAtomWithIdx(i).GetTotalNumHs(includeNeighbors=True)}
             if len(possible) == 1 and set(positions) == possible:
                 locator = ""
-            if _complete_hydrogen_isotope_scope(
+            if not component.prefixes and _complete_hydrogen_isotope_scope(
                     mol, component, locants, entries, mass, skeletal_atoms):
-                # Ordinary components and source-proved assembly skeletons
-                # share P-82.6.1.3 without losing their original atom maps.
+                # P-82.6.2 retains the locants when other groups occupy sites
+                # of the numbered parent. Fully covered unsubstituted scopes
+                # can use P-82.6.1.3.
                 locator = ""
         count = len(positions) > 1 or symbol == "H"
         if (symbol == "H" and len(positions) == 1

@@ -1026,13 +1026,24 @@ def _annotated_method(mol,Chem,trace,status_sink=None):
                     _,name,mapping=frontier[0] if len(frontier)==1 else candidates[0]
                     result=MethodDecision(name,'skeletal-replacement',frozenset(g.center for g in groups),atoms,
                         'P-51.4.1.1',tuple(mapping.items()),tuple(units))
-    elif choice.method == 'multiplicative' and not any(int(b.GetStereo()) for b in iter_bonds(mol)):
+    elif choice.method == 'multiplicative':
         chiral = {a.GetIdx() for a in iter_atoms(mol) if a.GetChiralTag()}
-        if chiral and (not groups or groups[0].kind != 'acid'
-                or not all(mol.GetAtomWithIdx(i).IsInRing() for i in chiral)):
+        stereo_bonds = tuple(b for b in iter_bonds(mol) if b.GetStereo())
+        azo_connector = frozenset()
+        if stereo_bonds:
+            bond = stereo_bonds[0]
+            if (not groups or len(stereo_bonds) != 1 or chiral or bond.IsInRing()
+                    or bond.GetBondTypeAsDouble() != 2
+                    or any(atom.GetAtomicNum() != 7 for atom in (bond.GetBeginAtom(), bond.GetEndAtom()))
+                    or any(a.GetIsotope() for a in iter_atoms(mol))):
+                return None
+            azo_connector = frozenset({bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()})
+        elif chiral and (not groups or groups[0].kind != 'acid'
+                         or not all(mol.GetAtomWithIdx(i).IsInRing() for i in chiral)):
             return None
         multiplicative = _multiplicative_parent_outcome(
-            mol, Chem, groups, atoms, required_stereo_connector=chiral)
+            mol, Chem, groups, atoms, required_stereo_connector=chiral,
+            required_azo_connector=azo_connector)
         result = multiplicative.decision
         if multiplicative.status == 'pending':
             _record_pending(status_sink, 'P-51.3.1/P-82', multiplicative.reason,
@@ -1729,7 +1740,7 @@ def _block_name(element, size, *, outward=False):
             (16, 2): "disulfanediyl", (7, 1): "azanediyl"}.get((element, size), "")
 
 
-def _connector_name(mol, atoms, units):
+def _connector_name(mol, atoms, units, *, allow_azo=False):
     if not atoms or any(mol.GetAtomWithIdx(i).IsInRing() or mol.GetAtomWithIdx(i).GetIsotope()
                         or mol.GetAtomWithIdx(i).GetAtomicNum() not in _LINK_ELEMENTS
                         for i in atoms):
@@ -1778,6 +1789,24 @@ def _connector_name(mol, atoms, units):
     if len(units) != 2:
         return ""
     endpoints = [unit.connector for unit in units]
+    if (allow_azo and len(atoms) == 2 and set(endpoints) == atoms
+            and all(atom.GetAtomicNum() == 7 and atom.GetDegree() == 2
+                    and not atom.GetFormalCharge() and not atom.GetIsotope()
+                    for atom in (mol.GetAtomWithIdx(i) for i in endpoints))):
+        bridge = mol.GetBondBetweenAtoms(*endpoints)
+        if (bridge is not None and bridge.GetBondTypeAsDouble() == 2
+                and all(mol.GetBondBetweenAtoms(unit.root, unit.connector).GetBondTypeAsDouble() == 1
+                        for unit in units)):
+            # P-68.3.1.3.2: this linker connects the two identical functional
+            # parent units. Any E/Z descriptor belongs inside the linker.
+            if not bridge.GetStereo():
+                return "diazenediyl"
+            from rdkit import Chem
+            from .stereochemistry import assigned_bond_stereochemistry
+
+            descriptor = next((value for a, b, value in assigned_bond_stereochemistry(mol, Chem)
+                               if {a, b} == atoms), None)
+            return f"({descriptor})-diazenediyl" if descriptor else ""
     if len(atoms) == 1:
         path = tuple(atoms)
     else:
@@ -2205,7 +2234,7 @@ def _joins_senior_parent(mol, Chem, groups, units, all_atoms, frontier):
 
 
 def _multiplicative_parent_outcome(mol, Chem, groups, all_atoms, *, senior_frontier=None,
-                                   required_stereo_connector=()):
+                                   required_stereo_connector=(), required_azo_connector=()):
     """Classify bounded mapped P-51.3 constructions and unresolved competitors.
 
     A missing rendered decision is not enough to establish that multiplication
@@ -2272,6 +2301,8 @@ def _multiplicative_parent_outcome(mol, Chem, groups, all_atoms, *, senior_front
         if not selected_centers <= required:
             continue
         connector = required_atoms - covered
+        if required_azo_connector and connector != required_azo_connector:
+            continue
         if required_stereo_connector and not (
                 set(required_stereo_connector) <= topology.central_group_atoms <= connector):
             continue
@@ -2291,7 +2322,7 @@ def _multiplicative_parent_outcome(mol, Chem, groups, all_atoms, *, senior_front
             # producer runs first. Leave an unresolved phane domain open.
             if len(ring_systems(mol)) >= 4 and linear_phane_frontier(mol, Chem).mandatory_eligible:
                 continue
-        bridge = _connector_name(mol, connector, units)
+        bridge = _connector_name(mol, connector, units, allow_azo=bool(selected_centers))
         mapped_bridge = False
         if not bridge and groups:
             bridge = _monocyclic_arylene_connector(mol, Chem, connector, units)

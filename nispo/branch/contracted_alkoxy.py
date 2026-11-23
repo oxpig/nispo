@@ -29,7 +29,25 @@ def mapped_contracted_alkoxy(mol, Chem, oxygen_idx, parent_idx):
             or children[0].IsInRing()
             or mol.GetBondBetweenAtoms(oxygen_idx, children[0].GetIdx()).GetBondTypeAsDouble() != 1):
         return None
-    root = children[0].GetIdx()
+    carbon_root = children[0]
+    root = carbon_root.GetIdx()
+
+    # A terminal methyl can carry explicit isotope H atoms. The oxygen and
+    # labelled carbon share one unlocanted alkoxy unit under P-82.2.1.
+    if (carbon_root.GetDegree() > 1 and not carbon_root.GetFormalCharge()
+            and not carbon_root.GetNumRadicalElectrons()
+            and carbon_root.GetTotalNumHs(includeNeighbors=True) == 3):
+        hydrogens = tuple(a for a in carbon_root.GetNeighbors() if a.GetAtomicNum() == 1)
+        if (len(hydrogens) == carbon_root.GetDegree() - 1
+                and any(a.GetIsotope() for a in hydrogens)
+                and all(not a.GetFormalCharge() and not a.GetNumRadicalElectrons()
+                        and a.GetDegree() == 1 for a in hydrogens)):
+            from ..component_mapping import MappedComponent, decorate_component
+
+            atoms = frozenset((oxygen_idx, root, *(a.GetIdx() for a in hydrogens)))
+            locants = tuple((i, '') for i in sorted(atoms))
+            name = decorate_component(mol, Chem, MappedComponent('methoxy', locants, atoms))
+            return (name, atoms) if name else None
 
     # Construct the exact one-cut scope, never an arbitrary subgraph that
     # could overlap the caller's parent or another substituent.

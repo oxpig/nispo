@@ -347,14 +347,16 @@ def _potential_hydrazide_centers(mol):
     return frozenset(centers)
 
 
-def sulfur_hydrazide_prefix(mol, root, blocked, atoms):
-    """P-66.3.2.1: an unsubstituted hydrazinesulfonyl/sulfinyl unit.
+def unsubstituted_hydrazide_prefix(mol, root, blocked, atoms):
+    """P-66.3.2.1: a complete unsubstituted acyl hydrazide substituent.
 
-    This is the carbon-attached sulfur characteristic group, not the reverse
+    This is the acyl-attached characteristic group, not the reverse
     N-attached hydrazido construction of P-66.3.2.3. Other N substitution and
     characteristic-atom annotations keep their unresolved compatibility route.
     """
-    if mol.GetAtomWithIdx(root).GetAtomicNum() != 16:
+    center = mol.GetAtomWithIdx(root)
+    if (center.GetAtomicNum() not in {6, 16}
+            or _bond_order(mol, root, blocked) != 1):
         return None
     site = _ordinary_site(mol, root)
     if site is None:
@@ -369,6 +371,8 @@ def sulfur_hydrazide_prefix(mol, root, blocked, atoms):
     if any(a.GetAtomicNum() > 1 and a.GetIdx() not in set(site.atoms) | {blocked}
            for i in site.atoms for a in mol.GetAtomWithIdx(i).GetNeighbors()):
         return '', frozenset()
+    if center.GetAtomicNum() == 6:
+        return 'hydrazinecarbonyl', atoms
     return ('hydrazinesulfonyl' if len(site.atoms) == 5 else 'hydrazinesulfinyl'), atoms
 
 

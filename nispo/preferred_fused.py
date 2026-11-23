@@ -232,6 +232,8 @@ def special_retained_fused_perimeter(name, edges, size):
 # benzoheterocycle names.  The resource's unlocanted aliases carry the same
 # atom numbering, so only the hydride vocabulary changes here.
 _PREFERRED_BENZO_HETEROCYCLE_HYDRIDES = {
+    'coumaron': '1-benzofuran',
+    'coumarone': '1-benzofuran',
     'benzofuran': '1-benzofuran',
     'isobenzofuran': '2-benzofuran',
     'benzothiophene': '1-benzothiophene',
@@ -542,10 +544,20 @@ def preferred_fused_name_locants(
         hydride = _indazole_substituent_hydride(mol, match, locants)
         if hydride:
             return hydride, locants
-    if substituent and name in {"1H-benzotriazole", "2H-benzotriazole"}:
+    if name in {"benzotriazol", "benzotriazole", "1H-benzotriazole", "2H-benzotriazole"}:
         if _benzotriazole_numbering_is_proved(mol, match, locants):
-            return name.replace("benzotriazole", "1,2,3-benzotriazole"), locants
-    if substituent and name in _PREFERRED_BENZO_HETEROCYCLE_HYDRIDES:
+            core = set(match)
+            sites = [locants[j] for j, i in enumerate(match) if locants[j] in {"1", "2", "3"}
+                     and (mol.GetAtomWithIdx(i).GetTotalNumHs(includeNeighbors=True)
+                          or any(a.GetAtomicNum() > 1 and a.GetIdx() not in core
+                                 for a in mol.GetAtomWithIdx(i).GetNeighbors()))]
+            if len(sites) == 1:
+                if sites[0] == "3":
+                    reverse = {"1": "3", "3": "1", "3a": "7a", "7a": "3a",
+                               "4": "7", "7": "4", "5": "6", "6": "5"}
+                    return "1H-1,2,3-benzotriazole", {i: reverse.get(loc, loc) for i, loc in locants.items()}
+                return f"{sites[0]}H-1,2,3-benzotriazole", locants
+    if name in _PREFERRED_BENZO_HETEROCYCLE_HYDRIDES:
         return _PREFERRED_BENZO_HETEROCYCLE_HYDRIDES[name], locants
     if substituent and name in {"fluoren", "fluorene"}:
         # P-25.1.1/Table 2.7: the retained preferred hydride is

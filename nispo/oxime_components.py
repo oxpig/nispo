@@ -48,7 +48,7 @@ class MethodDecision:
 
 
 def oxime_site(mol, carbon_idx, *, allow_carboxymethyl=False, allow_cyclic_ether=False,
-               allow_substituted_ether=False):
+               allow_substituted_ether=False, subordinate=False):
     """Return a typed neutral C=N-OH/C=N-O-alkyl site, or None.
 
     C=N-N hydrazones, charged iminium species and C=N-O-Ar are outside this
@@ -57,7 +57,8 @@ def oxime_site(mol, carbon_idx, *, allow_carboxymethyl=False, allow_cyclic_ether
     """
     carbon = mol.GetAtomWithIdx(carbon_idx)
     if (carbon.GetAtomicNum() != 6 or carbon.GetFormalCharge()
-            or carbon.GetNumRadicalElectrons() or carbon.IsInRing() and not allow_cyclic_ether):
+            or carbon.GetNumRadicalElectrons()
+            or carbon.IsInRing() and not (allow_cyclic_ether or subordinate)):
         return None
     doubles = [a for a in carbon.GetNeighbors()
                if a.GetAtomicNum() == 7 and _bond_order(mol, carbon_idx, a.GetIdx()) == 2]
@@ -84,7 +85,8 @@ def oxime_site(mol, carbon_idx, *, allow_carboxymethyl=False, allow_cyclic_ether
         if len(heavy) != 1 or heavy[0].GetAtomicNum() != 6:
             return None
         ligand = heavy[0]
-        if (not (allow_substituted_ether and carbon.IsInRing()
+        if (not (subordinate and all(b.GetBondTypeAsDouble() == 1 for b in ligand.GetBonds()))
+                and not (allow_substituted_ether and carbon.IsInRing()
                  and all(b.GetBondTypeAsDouble() == 1 for b in ligand.GetBonds()))
                 and not _simple_alkyl_substituent(mol, ligand.GetIdx(), oxygen.GetIdx())
                 and not (allow_carboxymethyl and _carboxymethyl(mol, ligand, oxygen.GetIdx()))):
@@ -94,7 +96,7 @@ def oxime_site(mol, carbon_idx, *, allow_carboxymethyl=False, allow_cyclic_ether
         atoms = (carbon_idx, nitrogen.GetIdx(), oxygen.GetIdx(), substituent)
     else:
         return None
-    if carbon.IsInRing() and (kind != OximeType.O_ALKYL.value or not all(
+    if carbon.IsInRing() and not subordinate and (kind != OximeType.O_ALKYL.value or not all(
             n.GetAtomicNum() == 6 and n.IsInRing() and _bond_order(mol, carbon_idx, n.GetIdx()) == 1
             for n in carbon.GetNeighbors() if n.GetIdx() != nitrogen.GetIdx())):
         return None
@@ -418,13 +420,14 @@ def method_decision(mol, site, *, principal=True, senior_suffix=False):
     The caller supplies the P-41/P-43 result. This function does not rank a
     candidate suffix against other characteristic groups.
     """
-    found = oxime_site(mol, site.center if hasattr(site, "center") else int(site))
+    found = oxime_site(mol, site.center if hasattr(site, "center") else int(site),
+                       subordinate=senior_suffix or not principal)
     if found is None:
         return MethodDecision(False, "unsupported", "not a neutral acyclic C=N-OH/C=N-O-alkyl site")
     if senior_suffix or not principal:
         if found.kind == OximeType.OXIME.value:
             return MethodDecision(True, "prefix", "P-68.3.1.1.2 subordinate oxime", found, prefix="hydroxyimino")
-        return MethodDecision(False, "unsupported", "P-68.3.1.1.2 subordinate oxime-ether spelling not established here", found)
+        return MethodDecision(True, "prefix", "P-68.3.1.1.2 subordinate oxime ether", found, prefix="alkoxyimino")
     if found.kind == OximeType.OXIME.value:
         return MethodDecision(True, "imine-suffix", "N-hydroxy derivative of imine", found, suffix="imine", prefix="N-hydroxy")
     return MethodDecision(True, "imine-suffix", "alkoxy-substituted imine", found, suffix="imine", prefix="N-alkoxy")
@@ -485,23 +488,33 @@ def _n_oxygen_substituent(mol, Chem, oxygen_idx, nitrogen_idx):
     return (alkoxy, frozenset(set(owned) | {oxygen_idx})) if alkoxy else ("", frozenset())
 
 
-def hydroxyimino_prefix(mol, root, blocked, atoms):
-    """Name the N/O branch as `hydroxyimino` on its C=N parent carbon.
-
-    ``root`` is the original imine N and ``blocked`` is its parent carbon;
-    the C=N edge must remain intact. This helper owns only N and O because
-    the carbon is already included in the selected principal parent.
-    """
-    site = oxime_site(mol, blocked)
-    edge = mol.GetBondBetweenAtoms(root, blocked)
-    if (site is None or site.kind != OximeType.OXIME.value or root != site.nitrogen
-            or edge is None or edge.GetBondTypeAsDouble() != 2
-            or not {site.nitrogen, site.oxygen} <= set(atoms)
-            or any(i not in {site.nitrogen, site.oxygen} and
-                   mol.GetAtomWithIdx(i).GetAtomicNum() != 1 for i in atoms)):
+def oxime_imino_prefix(mol, Chem, root, blocked, atoms):
+    """Bind the selected C=N branch to its N–OH or N–OR descriptor."""
+    site = oxime_site(mol, blocked, subordinate=True)
+    if site is None or root != site.nitrogen or mol.GetAtomWithIdx(root).GetIsotope():
         return "", frozenset()
-    # No E/Z is added from a fragment: this helper carries no stereo annotation.
-    return "hydroxyimino", frozenset((site.nitrogen, site.oxygen))
+    text, owned = _n_oxygen_substituent(mol, Chem, site.oxygen, root)
+    if not text or owned | {root} != atoms:
+        return "", frozenset()
+    from .formatting import enclose_name_unit
+    from .molecule_cache import mol_cache_dict
+    from .stereochemistry import assigned_bond_stereochemistry
+
+    name = (text if text.isalpha() else enclose_name_unit(text)) + "imino"
+    if mol.GetBondBetweenAtoms(root, blocked).GetStereo():
+        label = next((d for a, b, d in assigned_bond_stereochemistry(mol, Chem)
+                      if {a, b} == {root, blocked}), '')
+        if not label:
+            return "", frozenset()
+        if mol.GetAtomWithIdx(blocked).IsInRing():
+            # P-93.5.1.4.2.1(a) places the descriptor on the ring component.
+            claims = mol_cache_dict(mol, 'oxime_parent_bond_stereo')
+            claims[(root, blocked, name, atoms)] = label
+        else:
+            name = f"({label})-{name}"
+            claims = mol_cache_dict(mol, 'rendered_mapped_branch_bond_stereo')
+            claims[(root, blocked, name, atoms | {blocked})] = label
+    return name, atoms
 
 
 def original_cno_stereo(mol, Chem, site):

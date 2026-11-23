@@ -2195,7 +2195,9 @@ def _benzotriazol_1_yloxy_ligand(mol, Chem, oxygen_idx: int, phosphorus_idx: int
         return "", set()
     if any(not mol.GetAtomWithIdx(idx).GetIsAromatic() for idx in component):
         return "", set()
-    return "benzotriazol-1-yloxy", component | {oxygen_idx}
+    annular_neighbors = [a for a in attach.GetNeighbors() if a.GetIdx() in component]
+    locant = '2' if all(a.GetAtomicNum() == 7 for a in annular_neighbors) else '1'
+    return f"({locant}H-1,2,3-benzotriazol-{locant}-yloxy)", component | {oxygen_idx}
 
 
 def _phosphorus_repeated_ligand_text(names: Sequence[str]) -> str:

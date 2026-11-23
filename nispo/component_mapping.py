@@ -505,8 +505,22 @@ def _mapped_stereochemistry_plan(mol, Chem, component, locants,
         if not {a, b} & component.atoms:
             continue
         if not {a, b} <= component.atoms:
-            return None
-        locant = min((locants[a], locants[b]), key=_locant_key)
+            branch = next((row for row in component.prefix_branch_ownership
+                           if {row[0], row[1]} == {a, b} and row[1] in component.atoms), None)
+            if branch is None:
+                return None
+            root, host, owned, text = branch
+            parent_label = mol_cache_get(mol, 'oxime_parent_bond_stereo', {}).get(
+                (root, host, text, owned))
+            branch_claims = mol_cache_get(mol, 'rendered_mapped_branch_bond_stereo', {})
+            if parent_label:
+                locant, descriptor = locants[host], parent_label
+            elif branch_claims.get((root, host, text, owned | {host})) == descriptor:
+                continue
+            else:
+                return None
+        else:
+            locant = min((locants[a], locants[b]), key=_locant_key)
         if not locant:
             return None
         printed = (presentation.stereo_bond_locant(a, b, locant)
@@ -1036,13 +1050,17 @@ def _mapped_general_branch(mol, Chem, root, blocked):
     from .branch_rules import collect_subtree
 
     cut = mol.GetBondBetweenAtoms(root, blocked)
-    if cut is None or int(cut.GetStereo()):
+    if cut is None:
         return '', frozenset()
     atoms = frozenset(collect_subtree(mol, root, blocked))
     if (root not in atoms or blocked in atoms
             or {(i, n.GetIdx()) for i in atoms for n in mol.GetAtomWithIdx(i).GetNeighbors()
                 if n.GetAtomicNum() > 1 and n.GetIdx() not in atoms} != {(root, blocked)}):
         return '', frozenset()
+    if cut.GetStereo():
+        from .oxime_components import oxime_imino_prefix
+
+        return oxime_imino_prefix(mol, Chem, root, blocked, atoms)
     azides = mol_cache_get(mol, 'nested_azido_sites')
     if azides and not atoms.isdisjoint(azides):
         from .nested_azide_methods import compose_azido_branch
@@ -1362,6 +1380,22 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
         short = short_substitutive_carbon_prefix(mol, root, blocked, atoms)
         if short is not None:
             return short
+        if (root_atom.GetHybridization() == Chem.HybridizationType.SP2 and not root_atom.IsInRing()
+                and any(
+                b.GetBondTypeAsDouble() == 2 and b.GetOtherAtom(root_atom).GetAtomicNum() == 7
+                for b in root_atom.GetBonds())):
+            from .oxime_components import oxime_site
+
+            if oxime_site(mol, root, subordinate=True) is not None:
+                name, owned = _mapped_branch_recursive(mol, Chem, root, blocked, atoms)
+                if name and owned == atoms:
+                    return name, owned
+        if len(atoms) == 4 and sorted(mol.GetAtomWithIdx(i).GetAtomicNum() for i in atoms) == [6, 7, 7, 8]:
+            from .hydrazide_components import unsubstituted_hydrazide_prefix
+
+            hydrazide = unsubstituted_hydrazide_prefix(mol, root, blocked, atoms)
+            if hydrazide is not None and hydrazide[0]:
+                return hydrazide
         if (not mapped_cyclic_only and 6 <= len(atoms) <= 15 and not root_atom.IsInRing()
                 and mol.GetAtomWithIdx(blocked).GetAtomicNum() == 7
                 and any(mol.GetAtomWithIdx(i).GetFormalCharge() for i in atoms)
@@ -1588,12 +1622,10 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
     if mol.GetAtomWithIdx(root).GetAtomicNum()==7 and any(
         b.GetBondTypeAsDouble()==2 and b.GetOtherAtom(mol.GetAtomWithIdx(root)).GetAtomicNum()==6
         for b in mol.GetAtomWithIdx(root).GetBonds()):
-        from .oxime_components import oxime_site, hydroxyimino_prefix
-        oxime = oxime_site(mol, blocked)
+        from .oxime_components import oxime_site, oxime_imino_prefix
+        oxime = oxime_site(mol, blocked, subordinate=True)
         if oxime is not None and oxime.nitrogen == root:
-            if has_annotations(mol, atoms):
-                return '', frozenset()
-            return hydroxyimino_prefix(mol,root,blocked,atoms)
+            return oxime_imino_prefix(mol, Chem, root, blocked, atoms)
         from .imine_components import imino_prefix
         return imino_prefix(mol,Chem,root,blocked,atoms)
     if mol.GetAtomWithIdx(root).GetAtomicNum()==8 and any(
@@ -1908,6 +1940,7 @@ def _mapped_branch_recursive(mol, Chem, root, blocked, atoms, *, general_branche
     prefixes = []
     embedded = set()
     proved_ring_atoms = set()
+    prefix_ownership = []
     for pos, idx in enumerate(path, 1):
         for neighbor in mol.GetAtomWithIdx(idx).GetNeighbors():
             n = neighbor.GetIdx()
@@ -1918,13 +1951,15 @@ def _mapped_branch_recursive(mol, Chem, root, blocked, atoms, *, general_branche
             ):
                 return "", frozenset()
             order=mol.GetBondBetweenAtoms(idx,n).GetBondTypeAsDouble()
-            if order != 1 and not (order==2 and neighbor.GetAtomicNum()==8):
+            if order != 1 and not (order == 2 and neighbor.GetAtomicNum() in {7, 8}):
                 return "", frozenset()
             prefix, owned = resolve_branch(mol, Chem, n, idx)
             if not prefix or (general_branches and owned & (carbon | embedded)):
                 return "", frozenset()
             prefixes.append((str(pos), prefix))
             embedded.update(owned)
+            if order == 2:
+                prefix_ownership.append((n, idx, frozenset(owned), prefix))
             proved_ring_atoms.update(mapped_branch_ring_atoms(mol, Chem, n, idx, prefix, owned))
     from .branch_rules import parent_chain_name
 
@@ -1942,6 +1977,7 @@ def _mapped_branch_recursive(mol, Chem, root, blocked, atoms, *, general_branche
         frozenset(embedded),
         systematic_parent=True,
         omit_methyl_prefix_locant=len(path)==1,
+        prefix_branch_ownership=tuple(prefix_ownership),
     )
     if set(mapping)|embedded!=set(atoms):return '',frozenset()
     # P-57.1.2 retains exactly unsubstituted benzyl; P-57.4 consequently
@@ -1994,17 +2030,20 @@ def _internally_rooted_carbon_prefix(mol,Chem,root,blocked,atoms,carbon,*,allow_
         for seq in (path,tuple(reversed(path))):
             mapping={idx:str(j) for j,idx in enumerate(seq,1)};prefixes=[];embedded=set();failed=False
             proved_ring_atoms = set()
+            prefix_ownership = []
             for idx in seq:
                 for n in mol.GetAtomWithIdx(idx).GetNeighbors():
                     other=n.GetIdx()
                     if other not in atoms or other in mapping or n.GetAtomicNum()==1:continue
                     order = mol.GetBondBetweenAtoms(idx, other).GetBondTypeAsDouble()
-                    if order != 1 and not (order == 2 and n.GetAtomicNum() == 8):
+                    if order != 1 and not (order == 2 and n.GetAtomicNum() in {7, 8}):
                         failed = True
                         break
                     text,owned=resolve_branch(mol,Chem,other,idx)
                     if not text or owned&(mapping.keys()|embedded):failed=True;break
                     prefixes.append((mapping[idx],text));embedded.update(owned)
+                    if order == 2:
+                        prefix_ownership.append((other, idx, frozenset(owned), text))
                     proved_ring_atoms.update(mapped_branch_ring_atoms(mol, Chem, other, idx, text, owned))
                 if failed:break
             bindings=hydrogen_bindings(mol,mapping)
@@ -2015,7 +2054,8 @@ def _internally_rooted_carbon_prefix(mol,Chem,root,blocked,atoms,carbon,*,allow_
             elif parent.endswith('e'):parent=parent[:-1]+'-'+loc+'-yl'
             else:continue
             name=decorate_component(mol,Chem,MappedComponent(parent,tuple(bindings.items()),frozenset(bindings),
-                tuple(prefixes),frozenset(embedded),systematic_parent=True))
+                tuple(prefixes),frozenset(embedded),systematic_parent=True,
+                prefix_branch_ownership=tuple(prefix_ownership)))
             iso=isotope_seniority(mol,bindings),substituent_isotopes(mol,bindings)
             stereo=stereo_numbering(mol,bindings)
             if not name or any(v is None for v in iso) or stereo is None:continue

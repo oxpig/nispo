@@ -388,12 +388,12 @@ def _retained_prefix_nature(mol, Chem, root, atoms, text, host, inventory,
         return None
 
     if element == 16 and inventory.supported:
-        from .hydrazide_components import sulfur_hydrazide_prefix
+        from .hydrazide_components import unsubstituted_hydrazide_prefix
         groups = [group for group in inventory.groups
                   if group.kind == 'hydrazide' and group.center == root
                   and group.owner == host and frozenset(group.atoms) == atoms]
         if len(groups) == 1:
-            typed = sulfur_hydrazide_prefix(mol, root, host, atoms)
+            typed = unsubstituted_hydrazide_prefix(mol, root, host, atoms)
             if typed is not None and typed[0] == text and frozenset(typed[1]) == atoms:
                 return 'compound', ('P-66.3.2.1', 'P-16.5.1.3.2'), text
         return None

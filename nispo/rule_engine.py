@@ -613,7 +613,8 @@ class NamingEngine:
                     if spiro is not None:
                         return _commit_general_method(spiro, 'numbered-spiro-dioxide',
                             telemetry=telemetry, result_state=result_state)
-                if name.endswith('formate') and recovery_graph.GetRingInfo().NumRings():
+                if name.endswith('formate') and (
+                        recovery_graph.GetRingInfo().NumRings() or 'oxyimino' in name):
                     from .extended_inventory import selection_inventory
                     from .mapped_ester_general import carboxylate_for_formate
 
@@ -634,6 +635,17 @@ class NamingEngine:
                             if anion is not None and anion.principal_centers == {groups[0].center}:
                                 return _commit_general_method(anion, 'mapped-ring-carboxylate',
                                     telemetry=telemetry, result_state=result_state)
+                if name.endswith('formamide') and 'oxyimino' in name:
+                    from .mapped_principal_general import mapped_principal_decision, senior_sites
+                    from .oxime_components import oxime_site
+
+                    sites = senior_sites(recovery_graph)
+                    if (len(sites) == 1 and sites[0].kind == 'amide' and sites[0].owner >= 0
+                            and oxime_site(recovery_graph, sites[0].owner, subordinate=True)):
+                        amide = mapped_principal_decision(recovery_graph, self._Chem)
+                        if amide is not None and amide.principal_centers == {sites[0].center}:
+                            return _commit_general_method(amide, 'mapped-principal',
+                                telemetry=telemetry, result_state=result_state)
                 if 'tetracyclo[' in name:
                     from .natural_products import mapped_steroid_ketone
 

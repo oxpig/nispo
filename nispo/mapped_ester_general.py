@@ -495,6 +495,15 @@ def mapped_ester_decision(mol, Chem, *, require_parent_proof=False):
         arm, name = min(carbamates, key=lambda option: option[1])
         selected, locants = (arm,), ()
         acid_atoms = scope - arm.atoms - {arm.group.ligand}
+    rule = _RULE
+    if len(selected) == 1 and not require_parent_proof:
+        from .amino_acid_esters import retained_amino_acid_ester
+
+        arm = selected[0]
+        retained = retained_amino_acid_ester(mol, Chem, arm.group, arm.name, arm.atoms)
+        if retained:
+            name = retained
+            rule += '/P-103.2.6'
     roles = (('acid', acid_atoms, locants), *(
         ('O-organyl', arm.atoms | {arm.group.ligand}, ()) for arm in selected))
     centers = frozenset(arm.group.center for arm in selected)
@@ -507,5 +516,5 @@ def mapped_ester_decision(mol, Chem, *, require_parent_proof=False):
             'The name cites a class-9 function. Citation of the other class-9 sites remains open.'),)
     return MethodDecision(
         name, 'functional-class', centers,
-        scope, _RULE, locants, component_roles=roles,
+        scope, rule, locants, component_roles=roles,
         preference_issues=issues)

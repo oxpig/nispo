@@ -2062,7 +2062,8 @@ def _fused_substituent_suffix(parent_name: str, locant: str) -> str:
 _PREFERRED_FUSED_BRANCH_PARENTS = {
     "chinolin": "quinolin",
     "isochinolin": "isoquinolin",
-    "coumaron": "benzofuran",
+    "coumaron": "1-benzofuran",
+    "coumarone": "1-benzofuran",
 }
 
 

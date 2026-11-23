@@ -158,6 +158,39 @@ def _name_hydrazido_fragment(fragment, Chem):
     return name
 
 
+def _substituted_acetohydrazido(mol, Chem, root, blocked, scope):
+    """Map the acyl-side N substituent of a terminally attached hydrazide."""
+    attached = mol.GetAtomWithIdx(root)
+    if attached.GetDegree() != 2 or attached.GetTotalNumHs() != 1 or _order(mol, root, blocked) != 1:
+        return ''
+    proximal = next(a for a in attached.GetNeighbors() if a.GetIdx() != blocked)
+    if proximal.GetAtomicNum() != 7 or proximal.GetDegree() != 3:
+        return ''
+    from .hydrazide_components import _ordinary_site
+    from .component_mapping import mapped_general_branch
+
+    nitrogen = proximal.GetIdx()
+    arms = [a for a in proximal.GetNeighbors() if a.GetIdx() != root and a.GetAtomicNum() == 6]
+    if len(arms) != 2:
+        return ''
+    for arm, ligand in (arms, arms[::-1]):
+        center = arm.GetIdx()
+        site = _ordinary_site(mol, center)
+        if site is None or site.acyl_nitrogen != nitrogen or site.terminal_nitrogen != root:
+            continue
+        methyl = next((a for a in arm.GetNeighbors() if a.GetIdx() not in site.atoms), None)
+        if (methyl is None or methyl.GetAtomicNum() != 6 or methyl.GetTotalNumHs() != 3
+                or _order(mol, center, methyl.GetIdx()) != 1):
+            continue
+        base = frozenset((*site.atoms, methyl.GetIdx()))
+        if not _ordinary_scope(mol, base):
+            return ''
+        word, owned = mapped_general_branch(mol, Chem, ligand.GetIdx(), nitrogen)
+        if word and owned == scope - base:
+            return format_prefixes([('N', word)], hierarchical_enclosures=True) + 'acetohydrazido'
+    return ''
+
+
 def _hydrazido(mol,Chem,root,blocked,scope):
     n=mol.GetAtomWithIdx(root)
     if n.GetAtomicNum()!=7 or n.IsInRing() or n.GetTotalValence()!=3 or _order(mol,root,blocked)!=1:return None
@@ -256,6 +289,9 @@ def branch_prefix(mol,Chem,root,blocked):
                     return nitramide.name[:-1]+'o',scope
     if blocked in scope:return None
     boundary=mol.GetBondBetweenAtoms(root,blocked)
+    substituted = _substituted_acetohydrazido(mol, Chem, root, blocked, scope)
+    if substituted:
+        return substituted, scope
     if (not _ordinary_scope(mol,scope) or boundary is None
             or boundary.GetStereo()!=Chem.BondStereo.STEREONONE):
         # An internal directional single bond can encode geometry at the

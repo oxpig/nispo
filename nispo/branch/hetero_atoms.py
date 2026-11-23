@@ -116,6 +116,13 @@ def _oxygen_prefix(mol, idx: int, parent_idx: int) -> str:
     if not heavy:
         return "hydroxy"
     if len(heavy) == 1:
+        alcohol = mol.GetAtomWithIdx(heavy[0])
+        if alcohol.GetAtomicNum() == 6 and not alcohol.IsInRing() and alcohol.GetChiralTag():
+            from ..component_mapping import mapped_branch
+
+            organyl, owned = mapped_branch(mol, Chem, heavy[0], idx)
+            if organyl and heavy[0] in owned and not owned & {idx, parent_idx}:
+                return _alkyl_to_alkoxy(organyl)
         if _is_nitro_nitrogen(mol, heavy[0]):
             return "nitrooxy"
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "H":
@@ -1335,15 +1342,13 @@ def _imino_prefix(mol, idx: int, parent_idx: int) -> str:
     attached = heavy[0]
     other = mol.GetAtomWithIdx(attached)
     host = mol.GetAtomWithIdx(parent_idx)
-    if (other.GetAtomicNum() == 8 and host.GetAtomicNum() == 6 and host.IsInRing()
-            and mol.GetBondBetweenAtoms(parent_idx, idx).GetStereo() == Chem.BondStereo.STEREONONE):
-        from ..oxime_components import oxime_site
+    if other.GetAtomicNum() == 8 and host.GetAtomicNum() == 6:
+        from ..oxime_components import oxime_imino_prefix
 
-        site = oxime_site(mol, parent_idx, allow_cyclic_ether=True)
-        if site is not None and site.kind == 'oxime-ether' and site.nitrogen == idx:
-            text = branch_prefix(mol, attached, idx)
-            if text:
-                return text + 'imino' if text.isalpha() else f'({text})imino'
+        atoms = frozenset(_mapped_component_atoms(mol, idx, parent_idx))
+        text, _ = oxime_imino_prefix(mol, Chem, idx, parent_idx, atoms)
+        if text:
+            return text
     if (other.GetAtomicNum() == 7 and not other.IsInRing()
             and not (other.GetFormalCharge() or other.GetIsotope())
             and not atom.IsInRing() and not atom.GetIsotope()
@@ -1596,12 +1601,13 @@ def _hydrazone_prefix(mol, idx: int, parent_idx: int) -> str:
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
     if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
         return ""
-    heavy = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
-    if len(heavy) != 1:
+    heavy = [nbr for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx and nbr.GetAtomicNum() > 1]
+    nitrogens = [nbr for nbr in heavy if nbr.GetAtomicNum() == 7]
+    if len(nitrogens) != 1 or len(heavy) > 2:
         return ""
-    distal_n_idx = heavy[0]
-    distal_n = mol.GetAtomWithIdx(distal_n_idx)
-    if distal_n.GetSymbol() != "N" or distal_n.GetFormalCharge() != 0:
+    distal_n = nitrogens[0]
+    distal_n_idx = distal_n.GetIdx()
+    if distal_n.GetFormalCharge() != 0:
         return ""
     n_bond = mol.GetBondBetweenAtoms(idx, distal_n_idx)
     if n_bond is None or n_bond.GetBondType() != Chem.BondType.SINGLE:
@@ -1620,11 +1626,30 @@ def _hydrazone_prefix(mol, idx: int, parent_idx: int) -> str:
     from ..hydrazone_methods import mapped_ylidene_prefix
     from ..formatting import enclose_name_unit
     ylidene = mapped_ylidene_prefix(mol, Chem, imine_carbons[0], distal_n_idx, idx)
+    if not ylidene and len(heavy) == 2 and mol.GetBondBetweenAtoms(imine_carbons[0], distal_n_idx).GetStereo():
+        return ""
     if not ylidene:
         ylidene = _imine_carbon_ylidene(mol, imine_carbons[0], distal_n_idx)
     if not ylidene:
         ylidene = _alkylidene_prefix(mol, imine_carbons[0], distal_n_idx)
-    return enclose_name_unit(ylidene) + "hydrazinyl" if ylidene else ""
+    if not ylidene:
+        return ""
+    if len(heavy) == 1:
+        return enclose_name_unit(ylidene) + "hydrazinyl"
+
+    substituent = next(nbr for nbr in heavy if nbr.GetIdx() != distal_n_idx)
+    root = substituent.GetIdx()
+    if (atom.IsInRing() or substituent.GetAtomicNum() != 6
+            or mol.GetBondBetweenAtoms(root, idx).GetBondType() != Chem.BondType.SINGLE):
+        return ""
+    from ..component_mapping import mapped_general_branch
+    from ..formatting import format_prefixes
+
+    name, owned = mapped_general_branch(mol, Chem, root, idx)
+    if not name or owned & {parent_idx, distal_n_idx, imine_carbons[0]}:
+        return ""
+    prefixes = format_prefixes([("1", name), ("2", ylidene)], hierarchical_enclosures=True)
+    return prefixes.rstrip("-") + "hydrazin-1-yl"
 
 
 def _imino_amino_prefix(mol, idx: int, parent_idx: int) -> str:

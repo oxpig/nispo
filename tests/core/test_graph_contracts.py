@@ -141,6 +141,19 @@ def test_full_cyclic_oxime_ether_preserves_configuration(naming, assert_graphs):
 
 
 @pytest.mark.full_only
+def test_full_nested_stereochemistry_and_hydrazone_preserve_source_graphs(naming, assert_graphs):
+    # SureChEMBL development source, Zenodo 16755947, motif selection seed
+    # 2026112307, filtered TSV lines 1823585, 2259821, and 2914082, respectively.
+    # These are normalized source graphs from the audit of d50dd58.
+    inputs = (
+        r"CO/N=C1\C(=O)N(CCCN2CCN(C)CC2)c2ccc(Cl)cc21",
+        "CCOC(=O)CCN(N=C(C(=O)OCC)c1ccc(F)cc1)C(C)C",
+        "CC[C@@H](C)OC(=O)[C@H](C)NP(=O)(Cc1ccc2sc(C(=O)O)cc2c1)Oc1ccccc1",
+    )
+    assert_graphs(inputs, naming.names(inputs), raw_only=True)
+
+
+@pytest.mark.full_only
 def test_full_sulfur_substituents_are_preserved_on_esters(naming, assert_graphs):
     inputs = (
         "COC(=O)c1ccc(S(F)(F)(F)(F)F)cc1",

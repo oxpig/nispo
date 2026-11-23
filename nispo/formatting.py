@@ -697,7 +697,7 @@ _SOURCE_HYPHENLESS_TOKEN = _is_simple_hyphenless_parent_token
 
 @lru_cache(maxsize=32768)
 def _prefix_needs_parentheses(name: str) -> bool:
-    if name.endswith(('hydrazonamido', 'carbamoylamino')):
+    if name.endswith(('hydrazonamido', 'carbamoylamino', 'oxyimino')):
         return True
     # P-65.2.2 cites the complete thiocyanato substituent as a unit.
     if name == 'thiocyanato':

@@ -4,6 +4,7 @@ from .branch_rules import collect_subtree
 from .formatting import enclose_name_unit
 from .naming_methods import MethodDecision, _Unit, _connector_name, _fragment
 from .naming_result import SelectionLimitation
+from .urea_linkers import urea_link_atoms
 
 
 def linked_carboxylate_scope(mol, groups):
@@ -44,12 +45,14 @@ def linked_carboxylate_decision(mol, Chem, groups, scope):
     path = Chem.GetShortestPath(mol, groups[0].owner, groups[1].owner)
     linker = tuple(i for i in path if i not in cores[0] | cores[1])
     elements = tuple(mol.GetAtomWithIdx(i).GetAtomicNum() for i in linker)
-    if (not linker or (elements != (16, 16) and any(number != 6 for number in elements))
+    urea = urea_link_atoms(mol, linker[0], linker[-1]) if elements == (7, 6, 7) else frozenset()
+    if (not linker or (not urea and elements != (16, 16) and any(number != 6 for number in elements))
             or any(mol.GetAtomWithIdx(i).IsInRing() for i in linker)
             or any(mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble() != 1
                    for a, b in zip(linker, linker[1:]))):
         return None
-    occupied = set(linker)
+    linker_atoms = urea or frozenset(linker)
+    occupied = set(linker_atoms)
     units = []
     for group, core, host in zip(groups, cores, (linker[0], linker[-1]), strict=True):
         attachments = [n.GetIdx() for n in mol.GetAtomWithIdx(host).GetNeighbors() if n.GetIdx() in core]
@@ -101,7 +104,7 @@ def linked_carboxylate_decision(mol, Chem, groups, scope):
     if (occupied != scope or (left.signature, left.parent, left.locant) !=
             (right.signature, right.parent, right.locant)):
         return None
-    bridge = _connector_name(mol, frozenset(linker), units)
+    bridge = _connector_name(mol, linker_atoms, units, allow_urea=bool(urea))
     if not bridge:
         return None
     repeated = ('bis' + enclose_name_unit(left.parent)) if left.substituted else 'di' + left.parent
@@ -110,7 +113,7 @@ def linked_carboxylate_decision(mol, Chem, groups, scope):
     locants = tuple((unit.root, unit.locant) for unit in units)
     roles = tuple(('carboxylate', unit.atoms, ((unit.root, unit.locant),)) for unit in units)
     return MethodDecision(name, 'multiplicative', left.centers | right.centers, scope, rule,
-                          locants, component_roles=(*roles, ('connector', frozenset(linker), ())),
+                          locants, component_roles=(*roles, ('connector', linker_atoms, ())),
                           preference_issues=(SelectionLimitation(
                               'principal-parent-and-method', rule,
                               'The two anion sites and linker are mapped. Complete preferred comparison remains open.'),))

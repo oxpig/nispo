@@ -1381,6 +1381,14 @@ def _compare_unit_parent_rows(possibilities):
         if selected is not None:
             best = selected
             renderings = {(row[1], row[2], row[3], row[4]) for row in best}
+            if len(renderings) > 1:
+                from .prefix_presentation import normalize_enclosing_marks
+
+                renderings = {(normalize_enclosing_marks(word), locant, substituted, owners)
+                              for word, locant, substituted, owners in renderings}
+                if len(renderings) == 1:
+                    word, *_ = next(iter(renderings))
+                    return _UnitParentComparison(selected=(*best[0][:1], word, *best[0][2:]))
         else:
             local_reason = "same-source-rank-unit-parent-renderings:" + local_reason
         if len(renderings) != 1:
@@ -1740,7 +1748,7 @@ def _block_name(element, size, *, outward=False):
             (16, 2): "disulfanediyl", (7, 1): "azanediyl"}.get((element, size), "")
 
 
-def _connector_name(mol, atoms, units, *, allow_azo=False):
+def _connector_name(mol, atoms, units, *, allow_azo=False, allow_urea=False):
     if not atoms or any(mol.GetAtomWithIdx(i).IsInRing() or mol.GetAtomWithIdx(i).GetIsotope()
                         or mol.GetAtomWithIdx(i).GetAtomicNum() not in _LINK_ELEMENTS
                         for i in atoms):
@@ -1789,6 +1797,11 @@ def _connector_name(mol, atoms, units, *, allow_azo=False):
     if len(units) != 2:
         return ""
     endpoints = [unit.connector for unit in units]
+    if allow_urea and len(atoms) == 4:
+        from .urea_linkers import urea_link_atoms
+
+        if urea_link_atoms(mol, *endpoints) == atoms:
+            return "carbonylbis(azanediyl)"
     if (allow_azo and len(atoms) == 2 and set(endpoints) == atoms
             and all(atom.GetAtomicNum() == 7 and atom.GetDegree() == 2
                     and not atom.GetFormalCharge() and not atom.GetIsotope()
@@ -2322,7 +2335,12 @@ def _multiplicative_parent_outcome(mol, Chem, groups, all_atoms, *, senior_front
             # producer runs first. Leave an unresolved phane domain open.
             if len(ring_systems(mol)) >= 4 and linear_phane_frontier(mol, Chem).mandatory_eligible:
                 continue
-        bridge = _connector_name(mol, connector, units, allow_azo=bool(selected_centers))
+        acid_units = bool(groups and groups[0].kind in {'acid', 'sulfonic-acid'})
+        bridge = _connector_name(mol, connector, units, allow_azo=bool(selected_centers), allow_urea=acid_units)
+        if not bridge and acid_units:
+            from .urea_linkers import extended_urea_link
+
+            bridge = extended_urea_link(mol, Chem, connector, units)
         mapped_bridge = False
         if not bridge and groups:
             bridge = _monocyclic_arylene_connector(mol, Chem, connector, units)

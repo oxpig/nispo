@@ -115,7 +115,8 @@ def repeated_ring_parents(mol, Chem):
         from .naming_methods import _connector_name, _linear_order
         units = [SimpleNamespace(root=r[1],connector=r[2]) for r in (left,right)]
         unit_record = left[3]
-        bridge = _connector_name(mol, connector, units, allow_azo=unit_record.has_principal_group)
+        bridge = _connector_name(mol, connector, units, allow_azo=unit_record.has_principal_group,
+                                 allow_urea=unit_record.parent.endswith('acid'))
         path = _linear_order(mol,connector,[left[2],right[2]])
         if path and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in path):
             if len(path) not in ROOTS:

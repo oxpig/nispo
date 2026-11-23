@@ -42,8 +42,8 @@ def characteristic_sulfur_prefix(mol, Chem, root, blocked, atoms):
         return None
     if mol.GetBondBetweenAtoms(root, blocked).GetBondTypeAsDouble() != 1:
         return None
-    from .hydrazide_components import sulfur_hydrazide_prefix
-    hydrazide = sulfur_hydrazide_prefix(mol, root, blocked, atoms)
+    from .hydrazide_components import unsubstituted_hydrazide_prefix
+    hydrazide = unsubstituted_hydrazide_prefix(mol, root, blocked, atoms)
     if hydrazide is not None:
         return hydrazide
     from .sulfinamide_prefix_components import sulfinamide_subordinate_prefix

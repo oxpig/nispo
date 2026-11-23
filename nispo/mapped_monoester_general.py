@@ -154,6 +154,16 @@ def mapped_monoester_decision(mol, Chem):
     if owner is None:
         return None
     organyl, organyl_atoms = owner
+    from .amino_acid_esters import retained_amino_acid_ester
+
+    retained = retained_amino_acid_ester(mol, Chem, group, organyl, organyl_atoms)
+    if retained:
+        rule = 'P-41/P-65.6/P-103.2.3/P-103.2.6'
+        return MethodDecision(retained, 'mapped-monoester', frozenset({group.center}),
+                              frozenset(a.GetIdx() for a in mol.GetAtoms()), rule,
+                              preference_issues=(SelectionLimitation(
+                                  'monoester-parent', rule,
+                                  'The retained amino-acid residue and complete ester arms are mapped.'),))
     if mol.GetAtomWithIdx(group.owner).IsInRing():
         from .mapped_ring_parents import records
         rows = records(mol, Chem, principal=(group,))

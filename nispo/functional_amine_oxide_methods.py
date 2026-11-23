@@ -26,7 +26,7 @@ def _oxide_site(mol, Chem):
     if len(nitrogens) != 1 or len(oxygens) != 1:
         return None
     n, o = nitrogens[0], oxygens[0]
-    if (n.IsInRing() or int(n.GetChiralTag()) or n.GetNumRadicalElectrons()
+    if (int(n.GetChiralTag()) or n.GetNumRadicalElectrons()
             or n.GetIsAromatic() or n.GetTotalValence() != 4
             or n.GetIsotope() or o.GetIsAromatic() or o.GetNumRadicalElectrons()
             or o.GetDegree() != 1 or o.GetTotalValence() != 1):
@@ -49,19 +49,9 @@ def _oxide_site(mol, Chem):
            (a.GetFormalCharge() and a.GetIdx() not in {n.GetIdx(), o.GetIdx()})
            for a in mol.GetAtoms()):
         return None
-    if any(a.GetAtomicNum() not in {1, 6, 7, 8} for a in mol.GetAtoms()):
-        return None
     # Hydrogen isotopes and N labels need separate parent/suffix placement
     # proof. Carbon and nonoxide oxygen labels are handled by mapped components.
     if any(a.GetAtomicNum() == 1 and a.GetIsotope() for a in mol.GetAtoms()):
-        return None
-    rings = mol.GetRingInfo().AtomRings()
-    if len(rings) > 1 or any(
-        len(ring) != 6 or any(
-            mol.GetAtomWithIdx(i).GetAtomicNum() != 6
-            or not mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring
-        ) for ring in rings
-    ):
         return None
     return n.GetIdx(), o.GetIdx()
 
@@ -90,46 +80,30 @@ def _admitted_context(private, oxide_n):
     inventory = selection_inventory(private)
     if not inventory.supported:
         return None
-    allowed = {"amine", "alcohol", "ketone", "acid", "amide"}
-    if any(group.kind not in allowed for group in inventory.groups):
-        return None
     amines = [g for g in inventory.groups if g.kind == "amine"]
     if (not any(g.center == oxide_n for g in amines)
             or len(amines) > 2
             or any(not ordinary_amine(private, g.center) for g in amines)):
         return None
-    # Every nonoxide heteroatom must be assigned to one of the recognized
-    # groups. This excludes untyped ethers, peroxides, nitro groups and salts.
-    covered = {idx for group in inventory.groups for idx in group.atoms}
-    for atom in private.GetAtoms():
-        if atom.GetAtomicNum() in {7, 8} and atom.GetIdx() not in covered:
-            return None
-    counts = {}
-    for group in inventory.groups:
-        counts[group.kind] = counts.get(group.kind, 0) + 1
-    if any(count > 1 for kind, count in counts.items() if kind != "amine"):
-        return None
     return inventory, tuple(amines)
 
 
-def functional_amine_oxide_decision(mol, Chem):
-    """Construct a mapped amine-oxide name, or decline outside proved scope.
+def _mapped_oxide_parent(private, Chem, private_n):
+    from .mapped_ring_parents import parent_facts as ring_facts, records, ring_systems
+    from .parent_selection import parent_frontier
 
-    Admitted graphs contain one neutral tertiary N+–O− oxide, one or more
-    subordinate P-62.5 prefix contexts from the admitted vocabulary, and a
-    chain-based ordinary amine parent. A single aromatic carbon ring is
-    permitted as a mapped branch. Other amines, multiple characteristic sites
-    of one kind, salt contexts, and unsupported parent constructions decline.
-    """
-    site = _oxide_site(mol, Chem)
-    if site is None:
+    n = private.GetAtomWithIdx(private_n)
+    if n.IsInRing():
+        core = next((core for core in ring_systems(private) if private_n in core), ())
+        if (len(core) not in {5, 6, 7} or any(private.GetRingInfo().NumAtomRings(i) != 1 for i in core)
+                or any(a.GetAtomicNum() in {7, 8, 16} and b.GetBondTypeAsDouble() > 1
+                       for child in n.GetNeighbors() for b in child.GetBonds() for a in (b.GetOtherAtom(child),))):
+            return None
+        rows = records(private, Chem, core_filter=core, principal=(), general_branches=True)
+        if len(rows) == 1 and rows[0].annotation_coverage and rows[0].hydrogen_budget_proved:
+            return rows[0], dict(rows[0].atom_locants)[private_n]
         return None
-    nitrogen, oxygen = site
-    private = _neutral_copy(mol, Chem, nitrogen, oxygen)
-    if private is None:
-        return None
-    private_n = next(a.GetIdx() for a in private.GetAtoms()
-                     if a.GetAtomMapNum() == nitrogen + 1)
+
     context = _admitted_context(private, private_n)
     if context is None:
         return None
@@ -137,55 +111,63 @@ def functional_amine_oxide_decision(mol, Chem):
     oxide_amine = next((g for g in amines if g.center == private_n), None)
     if oxide_amine is None:
         return None
-    # The added route owns the additional-group constructions; the older
-    # single-group route keeps its original narrow contract.
-    if len(inventory.groups) <= 1:
-        return None
-
-    from .annotation_transfer import mapped_stereochemistry_equivalent
-    if mapped_stereochemistry_equivalent(mol, private, Chem) is not True:
-        return None
-
     from .amine_components import chain_proposals
-    from .parent_selection import parent_frontier
 
     # In a P-62.5 functional-class name the oxide is senior to these other
     # characteristic groups. Ask the amine parent constructor to enumerate
     # complete mapped amine candidates directly, rather than letting the
     # ordinary inventory choose an acid/amide/ketone suffix first.
     forced = SimpleNamespace(principal=(oxide_amine,))
-    proposals = list(chain_proposals(
-        private, Chem, forced, principal=(oxide_amine,)
-    ))
-    if not proposals:
-        return None
+    proposals = [(row, row.parent_selection) for row in chain_proposals(
+        private, Chem, forced, principal=(oxide_amine,))]
+    hosts = {a.GetIdx() for a in n.GetNeighbors() if a.GetIsAromatic()}
+    for core in ring_systems(private):
+        if len(hosts & core) == 1:
+            proposals.extend((row, ring_facts(private, row, oxide_amine.seniority)) for row in
+                             records(private, Chem, core_filter=core, principal=(oxide_amine,),
+                                     general_branches=True) if row.hydrogen_budget_proved)
     # P-65 carboxy and carbamoyl prefixes keep their carbonyl centers outside
     # the parent skeleton. The typed branch renderer retains their atoms.
     excluded_centers = {
         g.center for g in inventory.groups if g.kind in {"acid", "amide"}
     }
-    proposals = [p for p in proposals
-                 if not excluded_centers.intersection(p.parent_atoms)]
+    proposals = [(row, facts) for row, facts in proposals if facts is not None
+                 and row.annotation_coverage and row.name
+                 and not excluded_centers.intersection(row.parent_atoms)]
     if not proposals:
         return None
-    frontier = parent_frontier(proposals, lambda p: p.parent_selection)
-    names = {p.name for p in frontier if p.annotation_coverage and p.name}
-    if len(names) != 1:
+    frontier = parent_frontier(proposals, lambda option: option[1])
+    if len({row.name for row, _ in frontier}) != 1:
         return None
-    name = next(iter(names))
+    return frontier[0][0], 'N'
+
+
+def functional_amine_oxide_decision(mol, Chem):
+    """Map the preferred functional-class name of one tertiary amine oxide."""
+    site = _oxide_site(mol, Chem)
+    if site is None:
+        return None
+    nitrogen, oxygen = site
+    private = _neutral_copy(mol, Chem, nitrogen, oxygen)
+    if private is None:
+        return None
+    private_n = next(a.GetIdx() for a in private.GetAtoms() if a.GetAtomMapNum() == nitrogen + 1)
+    from .annotation_transfer import mapped_stereochemistry_equivalent
+
+    if mapped_stereochemistry_equivalent(mol, private, Chem) is not True:
+        return None
+    choice = _mapped_oxide_parent(private, Chem, private_n)
+    if choice is None:
+        return None
+    proposal, oxide_locant = choice
     # P-65.2.1.5 and the P-62.5 example use carbamoyl for an amide-derived
     # branch. Older general branch renderers may emit the traditional -yl
     # spelling, so normalize only the typed amide prefix token in this route.
-    if any(g.kind == "amide" for g in inventory.groups):
-        name = name.replace("carbamyl", "carbamoyl")
+    name = proposal.name.replace("carbamyl", "carbamoyl")
     oxide_atom = mol.GetAtomWithIdx(oxygen)
-    oxide_word = (f"N-({oxide_atom.GetIsotope()}O)oxide"
-                  if oxide_atom.GetIsotope() else "N-oxide")
+    oxide_word = (f"{oxide_locant}-({oxide_atom.GetIsotope()}O)oxide"
+                  if oxide_atom.GetIsotope() else f"{oxide_locant}-oxide")
     name += " " + oxide_word
-    candidates = [p for p in frontier if p.name in names and p.annotation_coverage]
-    if not candidates:
-        return None
-    proposal = candidates[0]
 
     private_to_original = {
         a.GetIdx(): a.GetAtomMapNum() - 1 for a in private.GetAtoms()
@@ -242,7 +224,7 @@ def functional_amine_oxide_decision(mol, Chem):
         principal_centers=frozenset({nitrogen}),
         atoms=original_heavy,
         rule=RULE,
-        atom_locants=tuple(atom_locants) + ((oxygen, "N"),),
+        atom_locants=tuple(atom_locants) + ((oxygen, oxide_locant),),
         heterounits=(),
         component_roles=tuple(roles),
     )

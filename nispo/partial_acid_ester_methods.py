@@ -97,16 +97,14 @@ def _simple_alkoxy_component(mol, Chem, ester):
 def _pendant_ester_prefixes(mol, Chem, candidate, esters, alcohols):
     """Project simple pendant –C(O)OR branches from original atom roles.
 
-    Each admitted ester must have a unique saturated all-carbon path from one
-    parent host to the ester carbonyl. The ester must be the terminal carbonyl
-    of that branch; the alcohol-derived side must be a mapped linear alkyl.
+    Each admitted ester has one saturated carbon path beyond the attachment
+    bond and a mapped linear alkyl on the alcohol side.
     """
-    from .branch_rules import parent_chain_name
     from .component_mapping import decorate_component
+    from .constants import ROOTS
     from .formatting import format_prefixes
 
     parent_atoms = frozenset(candidate.parent_atoms)
-    mapping = dict(candidate.atom_locants)
     parent_locant = {atom: str(loc) for atom, loc in candidate.atom_locants}
     records = []
     for ester in esters:
@@ -126,6 +124,9 @@ def _pendant_ester_prefixes(mol, Chem, candidate, esters, alcohols):
         if len(possible) != 1:
             continue
         host, path = possible[0]
+        attachment = mol.GetBondBetweenAtoms(host, path[0]).GetBondTypeAsDouble()
+        if attachment not in {1, 2}:
+            continue
         # The branch is an unbranched carbon path from its attachment root to
         # terminal ester carbonyl. P-46.1.2 prefers the longer substituent
         # chain; the graph restriction proves there is only this chain.
@@ -164,25 +165,23 @@ def _pendant_ester_prefixes(mol, Chem, candidate, esters, alcohols):
         if alkoxy is None:
             continue
         alkoxy_name, alkoxy_atoms = alkoxy
-        branch_name = parent_chain_name(mol, path, as_substituent=True)
-        if not branch_name:
-            continue
-        carbonyl_locant = str(len(path))
-        inner_prefix = format_prefixes([
-            (carbonyl_locant, alkoxy_name),
-            (carbonyl_locant, "oxo"),
-        ])
-        if not inner_prefix:
-            continue
-        complete_name = inner_prefix + branch_name
-        if any(mol.GetAtomWithIdx(idx).GetAtomicNum() != 6
-               for idx in path[:-1]):
-            continue
         oxygen_atoms = frozenset(idx for idx in ester.atoms
                                  if mol.GetAtomWithIdx(idx).GetAtomicNum() == 8)
         component_atoms = frozenset(path) | alkoxy_atoms | oxygen_atoms
         if component_atoms & parent_atoms:
             continue
+        stem = ROOTS.get(len(path))
+        carbonyl_locant = str(len(path))
+        inner_prefix = format_prefixes([
+            (carbonyl_locant, alkoxy_name),
+            (carbonyl_locant, "oxo"),
+        ])
+        if not stem or not inner_prefix:
+            continue
+        # P-29 cites the free valences at C1. The attachment bond lies
+        # outside the saturated path but still determines its ending.
+        suffix = "ylidene" if attachment == 2 else "yl"
+        complete_name = inner_prefix + stem + suffix
         records.append(_PendantEsterPrefix(
             host=host,
             host_locant=parent_locant[host],

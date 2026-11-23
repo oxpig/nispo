@@ -6,9 +6,9 @@ from dataclasses import replace
 def mapped_sulfonyl_prefix(mol, Chem, root, blocked, atoms):
     """Build a bounded ring-SO2- prefix and prove component ownership.
 
-    P-65.3.2.2.2 derives sulfonyl prefixes from sulfonic acids. The current
-    scope covers unannotated simple carbon-ring acid parents, with any
-    independently mapped, unannotated substituents on the ring.
+    P-65.3.2.2.2 derives sulfonyl prefixes from sulfonic acids. A sulfonyl
+    branch on the ring N of a principal carboxylic ester can also carry
+    mapped annotations and use a pyridine component.
 
     Return ``None`` outside this scope and an empty pair for a recognized
     but unproved construction; a successful pair owns exactly ``atoms``.
@@ -134,6 +134,22 @@ def _mapped_methanesulfonamido(mol, sulfur, nitrogen, scope):
     return format_prefixes(prefixes, omit_locants=True) + 'methanesulfonamido', scope
 
 
+def _principal_ester_on_adjacent_ring_carbon(mol, nitrogen):
+    """Bind an exocyclic N-sulfonyl branch to a senior ring carboxylate."""
+    if nitrogen.GetAtomicNum() != 7 or not nitrogen.IsInRing():
+        return False
+    from ..extended_inventory import selection_inventory
+
+    inventory = selection_inventory(mol)
+    if not inventory.supported or len(inventory.principal) != 1:
+        return False
+    group = inventory.principal[0]
+    if group.kind != 'ester' or group.owner < 0:
+        return False
+    bond = mol.GetBondBetweenAtoms(nitrogen.GetIdx(), group.owner)
+    return bond is not None and bond.IsInRing()
+
+
 def _mapped_ring_sulfonyl_component(mol, Chem, root, blocked, atoms, ending):
     sulfur = mol.GetAtomWithIdx(root)
     parent = mol.GetAtomWithIdx(blocked)
@@ -162,10 +178,11 @@ def _mapped_ring_sulfonyl_component(mol, Chem, root, blocked, atoms, ending):
     from ..component_mapping import decorate_component, has_annotations
     from ..mapped_ring_parents import records, ring_systems
     if (frozenset(collect_subtree(mol, root, blocked)) != atoms
-            or blocked in atoms or has_annotations(mol, atoms)
+            or blocked in atoms
             or any(mol.GetAtomWithIdx(i).GetFormalCharge()
                    or mol.GetAtomWithIdx(i).GetNumRadicalElectrons() for i in atoms)):
         return '', frozenset()
+    annotated = has_annotations(mol, atoms)
     ligand = carbon[0].GetIdx()
     ligand_atoms = frozenset(collect_subtree(mol, ligand, root))
     if ligand_atoms | {root, *(a.GetIdx() for a in oxo)} != atoms:
@@ -173,16 +190,24 @@ def _mapped_ring_sulfonyl_component(mol, Chem, root, blocked, atoms, ending):
     core = next((system for system in ring_systems(mol) if ligand in system), None)
     if core is None or not core <= ligand_atoms or len(core) < 3 or len(core) > 8:
         return '', frozenset()
-    if any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in core):
+    elements = sorted(mol.GetAtomWithIdx(i).GetAtomicNum() for i in core)
+    carbon_ring = elements == [6] * len(core)
+    general = annotated or not carbon_ring
+    if general and (ending != 'sulfonyl' or not _principal_ester_on_adjacent_ring_carbon(mol, parent)):
         return '', frozenset()
     core_bonds = [b for b in mol.GetBonds()
                   if b.GetBeginAtomIdx() in core and b.GetEndAtomIdx() in core]
     if (len(core_bonds) != len(core)
             or any(sum(n.GetIdx() in core for n in mol.GetAtomWithIdx(i).GetNeighbors()) != 2 for i in core)):
         return '', frozenset()
-    if len(core) == 6 and all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in core) and all(b.GetIsAromatic() for b in core_bonds):
-        acid_parent = 'benzene'
-    elif all(not mol.GetAtomWithIdx(i).GetIsAromatic() for i in core) and all(b.GetBondTypeAsDouble() == 1 for b in core_bonds):
+    if len(core) == 6 and all(b.GetIsAromatic() for b in core_bonds):
+        if carbon_ring:
+            acid_parent = 'benzene'
+        elif elements == [6, 6, 6, 6, 6, 7]:
+            acid_parent = 'pyridine'
+        else:
+            return '', frozenset()
+    elif carbon_ring and all(b.GetBondTypeAsDouble() == 1 for b in core_bonds):
         from ..constants import ROOTS
         stem = ROOTS.get(len(core))
         if not stem:
@@ -190,7 +215,13 @@ def _mapped_ring_sulfonyl_component(mol, Chem, root, blocked, atoms, ending):
         acid_parent = 'cyclo' + stem + 'ane'
     else:
         return '', frozenset()
-    candidates = records(mol, Chem, scope=ligand_atoms, attachment=ligand, core_filter=core)
+    candidates = records(mol, Chem, scope=ligand_atoms, attachment=ligand,
+                         core_filter=core, general_branches=general)
+    if not candidates and not general and ending == 'sulfonyl':
+        general = _principal_ester_on_adjacent_ring_carbon(mol, parent)
+        if general:
+            candidates = records(mol, Chem, scope=ligand_atoms, attachment=ligand,
+                                 core_filter=core, general_branches=True)
     if len(candidates) != 1:
         return '', frozenset()
     record = candidates[0]
@@ -198,7 +229,14 @@ def _mapped_ring_sulfonyl_component(mol, Chem, root, blocked, atoms, ending):
     if (record.parent != acid_parent or component is None
             or frozenset(record.parent_atoms) != core
             or component.atoms | component.embedded_atoms != ligand_atoms
-            or dict(component.atom_locants).get(ligand) != '1'):
+            or not record.annotation_coverage):
         return '', frozenset()
-    name = decorate_component(mol, Chem, replace(component, parent=acid_parent + ending))
+    locant = dict(component.atom_locants).get(ligand)
+    if not locant or (carbon_ring and locant != '1'):
+        return '', frozenset()
+    # P-14.3.3: a substituted sulfonic acid component cites the sulfur
+    # attachment even when the underlying monosubstituted ring would omit it.
+    cite_locant = not carbon_ring or (general and bool(component.prefixes))
+    suffix = f'-{locant}-{ending}' if cite_locant else ending
+    name = decorate_component(mol, Chem, replace(component, parent=acid_parent + suffix))
     return (name, atoms) if name else ('', frozenset())

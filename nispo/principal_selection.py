@@ -1424,7 +1424,7 @@ class PrincipalSelectionPipeline:
                 from .hydroxylamine_methods import aromatic_amine_decision
                 decision = aromatic_amine_decision(b.mol, b.Chem)
         if (decision is None and view.ring_count
-                and (view.elements['N'] >= 3 or any(view.elements[e] for e in
+                and (any(view.isotopes) or view.elements['N'] >= 3 or any(view.elements[e] for e in
                      ('P', 'As', 'Sb', 'Bi', 'Si', 'Ge', 'Sn', 'Pb', 'B', 'Al', 'Ga', 'In', 'Tl')))):
             from .saturated_heterocycle_methods import saturated_heteromonocycle_decision
             decision = saturated_heteromonocycle_decision(b.mol, b.Chem)

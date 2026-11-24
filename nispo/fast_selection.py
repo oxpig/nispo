@@ -7,6 +7,7 @@ naming. Graph recovery and preferred-name selection are not guaranteed.
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 
 from ._fast_engine import api as _public
 from ._fast_engine.formatting import complete_selected_name
@@ -78,10 +79,119 @@ def _fast_component_branch(mol, _Chem, root, blocked):
     return (name, scope) if name else ('', frozenset())
 
 
-def _shared_component(mol, Chem):
+_EXTENDED_ELEMENTS = re.compile(r'P|B(?!r)|\[(?:Si|Ge|As|Se|Sn|Sb|Te|Pb|Al|Ga|In|Tl)')
+_HALOGEN = re.compile('F|Cl|Br|I')
+_GROUP13 = re.compile(r'B(?!r)|\[(?:Al|Ga|In|Tl)')
+_GROUP14 = re.compile(r'\[(?:Si|Ge|Sn|Pb)')
+_GROUP14_PAIR = re.compile(r'\[(Si|Ge|Sn|Pb)[^]]*\].*?\[\1')
+_N_OR_O = re.compile('[NnOo]')
+
+
+@lru_cache(maxsize=2)
+def _alcohol_site_query(Chem):
+    return Chem.MolFromSmarts('[O;H1;D1;+0]-[#6;!$(C=O)]')
+
+
+def _shared_ring_name(mol, Chem, rings, size, canonical):
+    # The two-unit exception has a central square. All other members have
+    # at least seven faces, including any further fused or pendant rings.
+    if (len(rings) >= 5 and size >= 20 and size >= 4 * (len(rings) - 1)
+            and (len(rings) >= 7 or any(len(r) == 4 for r in rings))):
+        from .polynaphthylenes import polynaphthylene_decision
+
+        decision = polynaphthylene_decision(mol, Chem, rings)
+        return decision.name if decision else ''
+    if len(rings) > 2 or len(rings) == 1 and canonical and 'c' in canonical:
+        return ''
+    ring = rings[0]
+    bare = len(rings) == 1 and len(ring) == size
+    extended = canonical is None or _EXTENDED_ELEMENTS.search(canonical)
+    if bare or extended:
+        element = mol.GetAtomWithIdx(ring[0]).GetAtomicNum()
+        if bare and element != 6 and all(mol.GetAtomWithIdx(i).GetAtomicNum() == element for i in ring):
+            from .saturated_heterocycle_methods import homogeneous_ring_parent
+
+            decision = homogeneous_ring_parent(mol, Chem, ring, element)
+            if decision:
+                return decision.name
+        if extended or bare and any(c in canonical for c in 'NOS'):
+            from .saturated_heterocycle_methods import saturated_heteromonocycle_decision
+
+            decision = saturated_heteromonocycle_decision(mol, Chem)
+            if decision:
+                return decision.name
+    if (len(rings) == 1 and len(ring) in (size, size - 1)
+            and (canonical is None or '=' in canonical or '#' in canonical or _HALOGEN.search(canonical)
+                 or 'O' in canonical or 'S' in canonical)):
+        from .homogeneous_hydrides import simple_carbocycle
+
+        return simple_carbocycle(mol, Chem, ring)
+    return ''
+
+
+def _shared_component(mol, Chem, canonical=None):
     """Try bounded graph scopes with complete shared constructions."""
     size = mol.GetNumHeavyAtoms()
     rings = mol.GetRingInfo().AtomRings()
+    if (canonical is None or ('B' in canonical or '[' in canonical)
+            and (_GROUP13.search(canonical) or rings and 'c' in canonical and _GROUP14.search(canonical))):
+        from .homogeneous_hydrides import organyl_hydride_parent
+
+        name = organyl_hydride_parent(mol, Chem)
+        if name:
+            return name
+    if (not rings and (2 <= size <= 3 or canonical is not None and 'C' not in canonical)
+            and (canonical is None or '=' in canonical or '#' in canonical)):
+        from .homogeneous_hydrides import monounsaturated_chain
+
+        name = monounsaturated_chain(mol)
+        if name:
+            return name
+    if not rings and 2 <= size <= 8 and (canonical is None or _HALOGEN.search(canonical)):
+        from .homogeneous_hydrides import halogenated_short_parent
+
+        name = halogenated_short_parent(mol)
+        if name:
+            return name
+    if not rings and size >= 4 and (canonical is None or '[' in canonical):
+        # Screen for a substituted heavier group-14 chain. The shared method
+        # checks that the nuclei form one path and accounts for every ligand.
+        spelling = canonical if canonical is not None else Chem.MolToSmiles(mol)
+        if _HALOGEN.search(spelling) and _GROUP14_PAIR.search(spelling):
+            from .rules45_97_chains_locants import homogeneous_parent
+
+            decision = homogeneous_parent(mol, Chem)
+            if decision:
+                return decision.name
+    if rings:
+        name = _shared_ring_name(mol, Chem, rings, size, canonical)
+        if name:
+            return name
+    # Every remaining component contains nitrogen or oxygen. In particular,
+    # other hydrocarbons can go directly to the existing fast writer.
+    if canonical is not None and not _N_OR_O.search(canonical):
+        return ''
+    if (len(rings) <= 2 and (canonical is None or canonical.count('O') >= 2)
+            and len(mol.GetSubstructMatches(_alcohol_site_query(Chem), maxMatches=2)) == 2):
+        if len(rings) == 1 and canonical and 'c' in canonical:
+            from .retained_hydrocarbon_derivatives import benzene_polyol
+
+            decision = benzene_polyol(mol, Chem, rings[0])
+            if decision:
+                return decision.name
+        if size >= 5 and (canonical is None or 'S' in canonical or _EXTENDED_ELEMENTS.search(canonical)
+                          or len(rings) == 2):
+            from .multiplicative_parent_extensions import linked_alcohol_decision
+
+            decision = linked_alcohol_decision(mol, Chem)
+            if decision:
+                return decision.name
+        if not rings:
+            from .multiplicative_parent_extensions import straight_polyol
+
+            decision = straight_polyol(mol, Chem, allow_branches=True)
+            if decision:
+                return decision.name
     (sulfur, oxazine, acid, formamidine, carbon_acid, phosphorus,
      azido_acyl, phosphoramidate, polycyclic_azidomethyl, ether) = _component_queries(Chem)
     if rings and size <= 32 and mol.HasSubstructMatch(ring_alkyl_aminium_query(Chem)):
@@ -396,22 +506,41 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
     # hydrogens. Decline those annotated graphs instead of emitting a name
     # for a different molecule. Inspect the parsed graph so byte-string and
     # CX inputs receive the same annotation protection as ordinary text.
-    if any(atom.GetIsotope() or atom.GetNumRadicalElectrons()
-           for atom in mol.GetAtoms()):
-        return unavailable()
     # The fast-engine peroxide writer can neutralize a peroxolate oxygen and
     # describe the counterion as an uncharged fragment. The full writer
     # retains this ionic construction; a fast-only timeout fallback must
     # decline it instead of delivering a different charge/H state.
-    if any(atom.GetAtomicNum() == 8 and atom.GetFormalCharge() == -1
-           and any(neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors())
+    annotated_component = ''
+    if any(atom.GetIsotope() or atom.GetNumRadicalElectrons()
+           or (atom.GetAtomicNum() == 8 and atom.GetFormalCharge() == -1
+               and any(neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()))
            for atom in mol.GetAtoms()):
-        return unavailable()
+        rings = mol.GetRingInfo().AtomRings()
+        if rings and any(a.GetIsotope() for a in mol.GetAtoms()):
+            try:
+                annotated_component = _shared_ring_name(mol, Chem, rings, mol.GetNumHeavyAtoms(), None)
+            except (ValueError, RuntimeError):
+                return unavailable()
+        elif not rings and 2 <= mol.GetNumAtoms() <= 8 and any(
+                a.GetAtomicNum() in (9, 17, 35, 53) for a in mol.GetAtoms()):
+            from .homogeneous_hydrides import halogenated_short_parent
+
+            annotated_component = halogenated_short_parent(mol)
+        if not annotated_component and any(a.GetAtomicNum() == 1 and a.GetIsotope() in (2, 3)
+                                           for a in mol.GetAtoms()):
+            from .oxygen_characteristic_suffixes import hydroxy_hydrogen_parent
+
+            decision = hydroxy_hydrogen_parent(mol, Chem)
+            if decision:
+                annotated_component = decision.name
+        if not annotated_component:
+            return unavailable()
+    canonical = None
     try:
         # Public 0.1.7 can depend on atom traversal. Normalize ordinary SMILES
         # so the writer sees a deterministic graph. Preserve CX metadata on
         # its original graph; canonical SMILES would discard that metadata.
-        if not mol.HasProp('_CXSMILES_Data') and not mol.GetStereoGroups():
+        if not annotated_component and not mol.HasProp('_CXSMILES_Data') and not mol.GetStereoGroups():
             canonical = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
             if smiles is None or canonical != smiles:
                 normalized = Chem.MolFromSmiles(canonical)
@@ -421,11 +550,13 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
         return unavailable()
     oxide = mol.HasSubstructMatch(carbonyl_oxide_query(Chem))
     try:
-        if oxide:
+        if annotated_component:
+            component = annotated_component
+        elif oxide:
             decision = carbonyl_oxide_decision(mol, Chem)
             component = decision.name if decision is not None else ''
         else:
-            component = _shared_component(mol, Chem)
+            component = _shared_component(mol, Chem, canonical)
     except Exception:
         component = ''
     if component:

@@ -93,7 +93,7 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
                                allow_multi_face_n_junction=False,
                                allow_larger_system=False,
                                allow_shared_carbon_junctions=False,
-                               allow_peri_fused=False):
+                               allow_peri_fused=False, polynaphthylene_core=False):
     """Enumerate best embeddings for a bounded 2–6-face catacondensed tree.
 
     Supported face shapes are restricted to finite schematic templates in
@@ -106,7 +106,8 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
     beyond these schematic templates remain outside this constructor. The
     admitted face graph may branch to degree three; numbering also requires a
     connected horizontal row and source-supported numbering starts on the
-    selected uppermost faces.
+    selected uppermost faces. A recognized polynaphthylene may also use the
+    FR-5.1 stretched octagon or decagon and hexagons fused outside the row.
     """
     graph = peripheral_numbering_frontier(
         mol, core_atoms=core_atoms,
@@ -120,7 +121,10 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
     faces = tuple(frozenset(face) for face in graph.ring_faces)
     if len(faces) < 2 or (not allow_larger_system and len(faces) > _MAX_FACES):
         return FusedOrientationFrontier(False, "face count outside bounded two-to-six-face scope", graph)
-    if any(not 3 <= len(face) <= 8 for face in faces):
+    sizes = tuple(map(len, faces))
+    if polynaphthylene_core and (sizes.count(6) != len(sizes) - 1 or not set(sizes) <= {6, 8, 10}):
+        return FusedOrientationFrontier(False, "requires one octagon or decagon with hexagonal arms", graph)
+    if any(not 3 <= size <= 8 and not (polynaphthylene_core and size == 10) for size in sizes):
         return FusedOrientationFrontier(False, "ring size outside illustrated 3–8 templates", graph)
     proved_five_seven_six = (sorted(map(len, faces)) == [5, 6, 7]
                              and _bounded_five_seven_six_oxygen_tree(mol, faces))
@@ -138,6 +142,8 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
         ordinary_shapes = shape_provider
         def shape_provider(size):
             return _nonrow_pentagon_shapes() if size == 5 else ordinary_shapes(size)
+    if polynaphthylene_core:
+        shape_provider = _polynaphthylene_shapes
     if not allow_peri_fused and len(graph.fusion_edges) != len(faces) - 1:
         return FusedOrientationFrontier(False, "face graph is not a tree", graph)
 
@@ -207,7 +213,11 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
                                 allow_shared_carbon_junctions or allow_peri_fused, face_shapes)
     distorted = False
     try:
-        search()
+        if (polynaphthylene_core and _traversal_root is None
+                and not allow_shared_carbon_junctions and not allow_peri_fused):
+            raw.extend(_regular_arm_embeddings(faces, face_cycles, face_adjacency, face_edges))
+        else:
+            search()
         if not raw and allow_larger_system:
             # P-25.3.2.3.2 calls for a smallest ring to be distorted. Search
             # every face of that size and retain ties; atom and face order
@@ -249,6 +259,7 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
 
     branching = any(len(neighbors) > 2 for neighbors in face_adjacency.values())
     evaluated = []
+    longest_row = 0
     for item in unique.values():
         face_centers = {i: _placement_row_axis_center(placement)
                         for i, placement in item["placed"].items()}
@@ -256,8 +267,16 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
                                        face_adjacency, face_edges,
                                        row_eligible=frozenset(i for i, placement in item['placed'].items()
                                            if not placement[0].variant.startswith('pentagon_side_')))
+        if not row_options or len(row_options[0][0]) < longest_row:
+            continue
+        if len(row_options[0][0]) > longest_row:
+            longest_row = len(row_options[0][0])
+            evaluated.clear()  # Row length precedes every quadrant criterion.
+        quadrants = {}
         for row, extent, center in row_options:
-            ur, ll, above = _quadrant_counts(item["coords"], face_centers, faces, center)
+            if center not in quadrants:
+                quadrants[center] = _quadrant_counts(item["coords"], face_centers, faces, center)
+            ur, ll, above = quadrants[center]
             # P-25.3.2.3.3(a-d) ranks row count, upper-right, lower-left,
             # then above-row counts. The rule's furthest-apart vertical-bond
             # instruction identifies the row's bonds; it is metadata, not an
@@ -287,6 +306,7 @@ def fused_orientation_frontier(mol, *, core_atoms=None, _traversal_root=None,
             {i: _placement_row_axis_center(placement)
              for i, placement in record[7]["placed"].items()},
             record[7]["coords"], record[1], record[8],
+            signed_grid_steps=polynaphthylene_core,
             ideal_hex_grid=all(placement[0].variant.startswith(('pentagon_', 'hexagon_'))
                                for placement in record[7]['placed'].values())))
     if winning_orders is None:
@@ -409,6 +429,91 @@ def _shapes(size):
     return ()
 
 
+@lru_cache(maxsize=3)
+def _polynaphthylene_shapes(size):
+    # FR-5.1.1 inserts pairs of horizontal bonds into a hexagonal outline.
+    # Off-row hexagons can also fuse to a horizontal edge (FR-5.1.2).
+    if size == 6:
+        upright, = _shapes(6)
+        return upright, _Shape(6, 'hexagon_point_right', tuple((-y, x) for x, y in upright.vertices))
+    count = (size - 6) // 2
+    width = math.sqrt(3) / 2 + count / 2
+    horizontal = tuple(i - count / 2 for i in range(count + 1))
+    points = ((-width, -0.5), *((x, -1.) for x in horizontal), (width, -0.5),
+              (width, 0.5), *((x, 1.) for x in reversed(horizontal)), (-width, 0.5))
+    standard = _Shape(size, 'horizontal_insert', points)
+    if size == 10:
+        # FR-5.1.2 also allows the transversely extended decagon when
+        # additional rings fuse above/below. Only its central vertical
+        # bonds lie on the bisector shared by the horizontal-row centres.
+        return standard, _Shape(size, 'vertical_insert', tuple((-y, x) for x, y in points))
+    return (standard,)
+
+
+@lru_cache(maxsize=1)
+def _hexagons_by_directed_edge():
+    """Index both regular hexagon templates by fusion vector and side of the edge."""
+    result = {}
+    for shape in _polynaphthylene_shapes(6):
+        for start, (ax, ay) in enumerate(shape.vertices):
+            for step in (1, -1):
+                offsets = tuple((shape.vertices[(start + k * step) % 6][0] - ax,
+                                 shape.vertices[(start + k * step) % 6][1] - ay) for k in range(6))
+                dx, dy = offsets[1]
+                side = dx * -ay - dy * -ax > 0
+                result[round(dx, 7), round(dy, 7), side] = (shape, -ax, -ay, offsets[2:])
+    return result
+
+
+def _regular_arm_embeddings(faces, cycles, adjacency, fusion_edges):
+    """A central polygon's orientation fixes every exterior regular hexagon in its face tree."""
+    center = next(i for i, face in enumerate(faces) if len(face) != 6)
+    order = [center]
+    joins = []
+    for parent in order:
+        for child in sorted(adjacency[parent].difference(order)):
+            edge = _face_adjacent(parent, child, fusion_edges)
+            cycle = cycles[child][0]
+            start = next(i for i, a in enumerate(cycle) if a in edge and cycle[(i + 1) % 6] in edge)
+            a, b, *others = cycle[start:] + cycle[:start]
+            joins.append((parent, child, a, b, others))
+            order.append(child)
+    hexagons = _hexagons_by_directed_edge()
+    disjoint_pairs = [(i, j) for i in range(len(faces)) for j in range(i) if j not in adjacency[i]]
+    for shape in _polynaphthylene_shapes(len(faces[center])):
+        for mapping in _atom_to_vertex_maps(cycles[center][0], shape):
+            coords = {i: shape.vertices[v] for i, v in mapping.items()}
+            placed = {center: (shape, 0., 0.)}
+            for parent, child, a, b, others in joins:
+                ax, ay = coords[a]
+                bx, by = coords[b]
+                dx, dy = bx - ax, by - ay
+                # All templates here are centrally symmetric about their origin.
+                _, px, py = placed[parent]
+                outside = dx * (py - ay) - dy * (px - ax) < 0
+                hexagon, tx, ty, offsets = hexagons[round(dx, 7), round(dy, 7), outside]
+                placed[child] = (hexagon, ax + tx, ay + ty)
+                coords.update((i, (ax + x, ay + y)) for i, (x, y) in zip(others, offsets))
+            # The two convex polygons at each fusion were placed on opposite
+            # sides of their shared bond. Other face pairs must be disjoint.
+            if all(_separate_arm_faces(placed[i], placed[j]) for i, j in disjoint_pairs):
+                yield {'coords': coords, 'placed': placed}
+
+
+def _separate_arm_faces(left, right):
+    shape, x, y = left
+    other, u, v = right
+    # The largest template radius is less than two bond lengths.
+    if abs(u - x) > 4 or abs(v - y) > 4:
+        return True
+    return _separate_translated_polygons(shape.vertices, other.vertices, round(u - x, 10), round(v - y, 10))
+
+
+@lru_cache(maxsize=2048)
+def _separate_translated_polygons(left, right, dx, dy):
+    return _polygons_nonoverlapping(left, tuple((x + dx, y + dy) for x, y in right), None)
+
+
 def _seven_fused_shapes(size):
     if size != 7:
         return _shapes(size)
@@ -499,12 +604,8 @@ def _edge_matched_distortions(size, neighbor_sizes, shape_provider):
 
 
 def _face_cycle_orders(mol, face):
-    adjacency = {i: set() for i in face}
-    for bond in mol.GetBonds():
-        a, b = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        if a in face and b in face:
-            adjacency[a].add(b)
-            adjacency[b].add(a)
+    adjacency = {i: {a.GetIdx() for a in mol.GetAtomWithIdx(i).GetNeighbors() if a.GetIdx() in face}
+                 for i in face}
     if any(len(neighbors) != 2 for neighbors in adjacency.values()):
         return ()
     start = min(face)
@@ -873,13 +974,13 @@ def _row_center(path, faces, face_centers, coords, face_edges):
 def _quadrant_counts(coords, face_centers, faces, center):
     cx, cy = center
     upper_right = lower_left = above = 0.0
-    for face in faces:
+    for i, face in enumerate(faces):
         points = tuple(coords[i] for i in face)
         min_x, max_x = min(p[0] for p in points), max(p[0] for p in points)
         min_y, max_y = min(p[1] for p in points), max(p[1] for p in points)
         cross_x = min_x < cx - _EPS and max_x > cx + _EPS
         cross_y = min_y < cy - _EPS and max_y > cy + _EPS
-        center_x, center_y = face_centers[faces.index(face)]
+        center_x, center_y = face_centers[i]
         if cross_x and cross_y:
             upper_right += 0.25
             lower_left += 0.25
@@ -910,7 +1011,7 @@ def _quadrant_counts(coords, face_centers, faces, center):
 
 
 def _clockwise_perimeter_orders(mol, graph, faces, face_centers, coords,
-                                horizontal_row, row_center, *, ideal_hex_grid=False):
+                                horizontal_row, row_center, *, ideal_hex_grid=False, signed_grid_steps=False):
     """Choose uppermost/rightmost ring by source row levels, then start.
 
     FR-5.3 says that differently sized rings are ranked by their level in the
@@ -949,7 +1050,14 @@ def _clockwise_perimeter_orders(mol, graph, faces, face_centers, coords,
         current = queue.pop(0)
         for neighbor in adjacency[current] & above:
             if neighbor not in levels:
-                levels[neighbor] = levels[current] + 1
+                # FR-5.3 compares levels in an idealised grid. A sideways
+                # fusion on an off-row arm stays at its current level. An
+                # inward bend can equally step back down toward the row.
+                step = 1
+                if signed_grid_steps:
+                    dy = face_centers[neighbor][1] - face_centers[current][1]
+                    step = int(dy > _EPS) - int(dy < -_EPS)
+                levels[neighbor] = levels[current] + step
                 queue.append(neighbor)
     if above - set(levels):
         return ()

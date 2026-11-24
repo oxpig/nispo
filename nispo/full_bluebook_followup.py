@@ -2890,6 +2890,58 @@ def select(mol, Chem):
     charged = any(a.GetFormalCharge() for a in iter_atoms(mol))
     if any(a.GetNumRadicalElectrons() for a in iter_atoms(mol)):
         return added_hydrogen_ring_radical(mol, Chem)
+    if numbers[1] and numbers[8] and numbers[6]:
+        from .oxygen_characteristic_suffixes import hydroxy_hydrogen_parent
+
+        decision = hydroxy_hydrogen_parent(mol, Chem)
+        if decision:
+            return decision
+    if (numbers[6] and 7 not in numbers and 8 not in numbers
+            and (any(numbers[z] == 1 for z in (5, 13, 31, 49, 81)) or mol.GetRingInfo().NumRings()
+                 and any(numbers[z] == 1 for z in (14, 32, 50, 82)))):
+        from .homogeneous_hydrides import organyl_hydride_parent
+
+        name = organyl_hydride_parent(mol, Chem)
+        if name:
+            return _decision(mol, name, (), 'P-14.3.4.2(a)/P-68.1.5.2.1/P-68.2.6.1')
+    if (2 <= mol.GetNumAtoms() <= 8 and not mol.GetRingInfo().NumRings()
+            and any(numbers[z] for z in (9, 17, 35, 53))):
+        from .homogeneous_hydrides import halogenated_short_parent
+
+        name = halogenated_short_parent(mol)
+        if name:
+            return _decision(mol, name, (), 'P-14.3.4.2(a,b,d)/P-31.1.2')
+    if numbers[6] and mol.GetRingInfo().NumRings() == 1:
+        ring = mol.GetRingInfo().AtomRings()[0]
+        if len(ring) == numbers[6] and mol.GetNumAtoms() <= len(ring) + 1:
+            from .homogeneous_hydrides import simple_carbocycle
+
+            name = simple_carbocycle(mol, Chem, ring)
+            if name:
+                centers = [a.GetNeighbors()[0].GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum() in (8, 16)]
+                return _decision(mol, name, centers, 'P-14.3.4.2(c,d)/P-31.1.3')
+        if len(ring) == 6 and numbers[8] >= 2:
+            from .retained_hydrocarbon_derivatives import benzene_polyol
+
+            result = benzene_polyol(mol, Chem, ring)
+            if result:
+                return result
+    if (numbers[6] and numbers[8] >= 2 and (mol.GetRingInfo().NumRings() == 2
+            and (len(numbers) == 2 or any(numbers[z] for z in (9, 17, 35, 53)))
+            or len(numbers) == 3 and (any(numbers[z] for z in (16, 34, 52))
+                                    or any(numbers[z] == 1 for z in (14, 15, 32, 33, 50, 51, 82, 83)))
+            or mol.GetRingInfo().NumRings() == 2 and any(numbers[z] for z in (16, 34, 52)))):
+        from .multiplicative_parent_extensions import linked_alcohol_decision
+
+        result = linked_alcohol_decision(mol, Chem)
+        if result is not None:
+            return result
+    if numbers[6] and numbers[8] >= 2 and len(numbers) == 2 and not mol.GetRingInfo().NumRings():
+        from .multiplicative_parent_extensions import straight_polyol
+
+        result = straight_polyol(mol, Chem, allow_branches=True)
+        if result is not None:
+            return result
     if charged:
         if numbers[7] and numbers[16]:
             result = amine_sulfide(mol, Chem)
@@ -2912,6 +2964,25 @@ def select(mol, Chem):
                     or iminium_with_substituted_imine(mol, Chem)
                     or monoiminium_with_imines(mol, Chem) or iminium(mol, Chem))
         return None
+    if len(numbers) == 1 and (not numbers[6] or 2 <= numbers[6] <= 3):
+        if not numbers[6] and mol.GetRingInfo().NumRings() == 1:
+            from .saturated_heterocycle_methods import homogeneous_ring_parent
+
+            ring = mol.GetRingInfo().AtomRings()[0]
+            result = homogeneous_ring_parent(mol, Chem, ring, next(iter(numbers)))
+            if result is not None:
+                return result
+        from .homogeneous_hydrides import monounsaturated_chain
+
+        name = monounsaturated_chain(mol)
+        if name:
+            return _decision(mol, name, (), 'P-14.3.4.2(d)/P-31.1.2')
+    if numbers[6] >= 20 and mol.GetRingInfo().NumRings() >= 5:
+        from .polynaphthylenes import polynaphthylene_decision
+
+        result = polynaphthylene_decision(mol, Chem, mol.GetRingInfo().AtomRings())
+        if result is not None:
+            return result
     if numbers[7] >= 3 and numbers[6]:
         result = imidic_hydrazide(mol, Chem)
         if result:

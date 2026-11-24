@@ -166,6 +166,120 @@ def _descriptor(mol, item):
     return "(" + ",".join(parts) + ")"
 
 
+_HYDROXY_H_RULE = 'P-63.1.2/P-82.2.2.2/P-82.3/P-82.5'
+
+
+def _hydroxy_hydrogen_chain(mol, Chem, atoms, hydrogens, scope):
+    from .naming_methods import MethodDecision, NamingMethodStatus
+
+    oxygens = [a for a in atoms if a.GetAtomicNum() == 8]
+    if len(oxygens) == 2:
+        from .isotope_diol_methods import isotope_diol_outcome
+
+        outcome = isotope_diol_outcome(mol, Chem)
+        return outcome.decision if outcome.status == NamingMethodStatus.COMPLETE else None
+    if len(oxygens) != 1 or any(a.GetAtomicNum() not in (1, 6, 8) for a in atoms):
+        return None
+    from .multiplicative_parent_extensions import _alcohol_stereo, _chain_alcohol_unit
+
+    oxygen, = oxygens
+    host = next((a.GetIdx() for a in oxygen.GetNeighbors() if a.GetAtomicNum() == 6), None)
+    stereo = _alcohol_stereo(mol, Chem, {a.GetIdx() for a in atoms if a.GetChiralTag()})
+    if host is None or stereo is None:
+        return None
+    row = _chain_alcohol_unit(mol, scope - hydrogens, None, *stereo, allow_branches=True)
+    if row is None:
+        return None
+    group = OxygenSuffixGroup('alcohol', host, (('hydroxyl_oxygen', oxygen.GetIdx()),), tuple(hydrogens))
+    stem = row.parent.removesuffix('ol')
+    if stem == 'ethan-1-':  # P-82.6.1.1 retains the omitted locant of ethanol.
+        stem = 'ethan'
+    prefix = '(' + ','.join(f'{i}{d}' for i, d in row.stereo) + ')-' if row.stereo else ''
+    name = prefix + stem + _descriptor(mol, group) + 'ol'
+    return MethodDecision(name, 'substitutive', frozenset({host}), scope, _HYDROXY_H_RULE)
+
+
+def hydroxy_hydrogen_parent(mol, Chem):
+    """Prove D/T on hydroxyl oxygen of a carbon chain or a monocyclic carbon parent."""
+    from .constants import ROOTS
+    from .naming_methods import MethodDecision
+    from .retained_hydrocarbon_derivatives import ring_pendants, ring_substitution
+
+    atoms = tuple(mol.GetAtoms())
+    hydrogens = {a.GetIdx() for a in atoms if a.GetAtomicNum() == 1}
+    if not hydrogens or any(atoms[i].GetIsotope() not in (2, 3) or atoms[i].GetDegree() != 1
+                             for i in hydrogens):
+        return None
+    labelled_oxygen = {atoms[i].GetNeighbors()[0].GetIdx() for i in hydrogens}
+    if any(atoms[i].GetAtomicNum() != 8 or atoms[i].GetTotalValence() != 2
+           or atoms[i].GetTotalNumHs(includeNeighbors=True) != 1 for i in labelled_oxygen):
+        return None
+    if (mol.GetStereoGroups() or len(Chem.GetMolFrags(mol)) != 1
+            or any(a.GetAtomicNum() not in (1, 6, 8, 9, 17, 35, 53) or a.GetFormalCharge()
+                   or a.GetNumRadicalElectrons() or a.HasQuery() for a in atoms)
+            or any(b.HasQuery() for b in mol.GetBonds())):
+        return None
+    labels = {a.GetIdx() for a in atoms if a.GetIsotope()}
+    if any(atoms[i].GetAtomicNum() != 8 for i in labels - hydrogens):
+        return None
+    scope = frozenset(range(len(atoms)))
+    rings = mol.GetRingInfo().AtomRings()
+    if not rings:
+        return _hydroxy_hydrogen_chain(mol, Chem, atoms, hydrogens, scope)
+    if len(rings) != 1 or any(atoms[i].GetAtomicNum() != 6 for i in rings[0]):
+        return None
+    ring = rings[0]
+    core = frozenset(ring)
+    if len(ring) not in ROOTS or any(a.GetChiralTag() and a.GetIdx() not in core for a in atoms):
+        return None
+    aromatic = len(ring) == 6 and all(atoms[i].GetIsAromatic() for i in ring)
+    if any(b.GetStereo() for b in mol.GetBonds()):
+        return None
+    if not aromatic and any(mol.GetBondBetweenAtoms(i, j).GetBondType() != Chem.BondType.SINGLE
+                            for i, j in zip(ring, ring[1:] + ring[:1])):
+        return None
+    parts = ring_pendants(mol, Chem, core, branch_isotopes=labels)
+    if parts is None or any(p.kind not in ('', 'alcohol') for p in parts):
+        return None
+    hydroxyls = [p for p in parts if p.kind]
+    if not labelled_oxygen <= {p.root for p in hydroxyls}:
+        return None
+    phenol = aromatic and len(hydroxyls) == 1
+    parent = 'benzene' if aromatic else 'cyclo' + ROOTS[len(ring)] + 'ane'
+    if phenol:
+        oh, = hydroxyls
+        if not labels <= oh.atoms:
+            return None
+        # P-82.2.5 attaches the descriptor to the one-word retained name.
+        h, = hydrogens
+        mass = atoms[oh.root].GetIsotope()
+        oxygen_locant = f'{mass}O' if mass else 'O'
+        descriptor = f'{oxygen_locant}-{atoms[h].GetIsotope()}H' + (f',{mass}O' if mass else '')
+        parent = '(' + descriptor + ')phenol'
+        parts = [p for p in parts if p != oh]
+    candidates = []
+    starts = {p.host for p in hydroxyls}
+    for direction in (ring, ring[::-1]):
+        for j, first in enumerate(direction):
+            if first not in starts:
+                continue
+            mapping = {a: str(k) for k, a in enumerate(direction[j:] + direction[:j], 1)}
+            entry = ring_substitution(parent, mapping, parts, omit_single=not aromatic,
+                                      annotated_graph=None if phenol else mol, branch_isotopes=not phenol)
+            if entry is not None:
+                rank, name, centers = entry
+                candidates.append((rank, name, centers, mapping))
+    if not candidates:
+        return None
+    best = min(row[0] for row in candidates)
+    winners = [row for row in candidates if row[0] == best]
+    if len({row[1] for row in winners}) != 1:
+        return None
+    _, name, centers, mapping = winners[0]
+    return MethodDecision(name, 'substitutive', frozenset(starts) if phenol else centers, scope,
+                          _HYDROXY_H_RULE, tuple(mapping.items()))
+
+
 def oxygen_ending(mol, Chem, parent, groups, locants=(), *, suffix=None):
     """Render a proven oxygen-modified suffix and return its owned atom IDs.
 

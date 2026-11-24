@@ -50,6 +50,8 @@ _BIPHENYL = re.compile(
 _PLAIN_BIPHENYL_LIGAND = re.compile(r"\(([2-6]-phenylphenyl)\)(?=amino\b)")
 _PHENYLALKYL = re.compile(r"(?<![\w,'])(?:2-\(phenyl\)ethyl|3-\(phenyl\)propyl)\b")
 _FIXED_HYDROGEN = re.compile(r"[0-9]+[a-z]?(?:,[0-9]+[a-z]?)*H")
+_FUSION_SIDE = r"(?:[a-z]{1,4}|[a-z][1-9][0-9]*)"
+_FUSION_SIDES = re.compile(rf"{_FUSION_SIDE}(?:,{_FUSION_SIDE})*")
 _STEREODESCRIPTOR = re.compile(
     r"(?:(?:[0-9]+[a-z']*)?[RSZErs](?:\*)?)"
     r"(?:,(?:[0-9]+[a-z']*)?[RSZErs](?:\*)?)*|cis|trans"
@@ -294,7 +296,7 @@ def _structural_bracket(raw, before):
         return True
     # Fusion of hydrocarbon components can omit all numerical locants;
     # [a], [cd], and [a,e] remain structural descriptors in that case.
-    if re.fullmatch(r"[a-z]{1,4}(?:,[a-z]{1,4})*", raw) and re.search(r"[a-z]$", before):
+    if _FUSION_SIDES.fullmatch(raw) and re.search(r"[a-z]$", before):
         return True
     if (re.search(r"[a-z]$", before)
             and re.fullmatch(r"[0-9,.'^:;\-]+(?:[a-z]{1,4}'*(?:[0-9,.'^:;\-]+[a-z]{1,4}'*)*)?",

@@ -361,15 +361,16 @@ def select_annotated_saturated_prefix(mol, Chem, root, attachment, atoms):
             if member is None:
                 return "", frozenset()
             text, owned = mapped_branch(mol, Chem, member, host)
-            if not text or set(owned) != group or embedded & set(owned):
+            group_scope = hydrogen_bindings(mol, dict.fromkeys(group, ''))
+            if not text or set(owned) != set(group_scope) or embedded & set(owned):
                 return "", frozenset()
             embedded.update(owned)
             prefixes.append((mapping[host], text))
-        if set(mapping) | embedded != set(scope):
+        bindings = hydrogen_bindings(mol, mapping)
+        if set(bindings) | embedded != set(scope):
             return "", frozenset()
         parent = (ROOTS[len(path)] + "yl" if method == 1 else
                   ROOTS[len(path)] + "an-" + mapping[root] + "-yl")
-        bindings = hydrogen_bindings(mol, mapping)
         text = decorate_component(mol, Chem, MappedComponent(
             parent, tuple(bindings.items()), frozenset(bindings), tuple(prefixes),
             frozenset(embedded), systematic_parent=True))

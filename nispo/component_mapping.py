@@ -325,13 +325,16 @@ def _complete_hydrogen_isotope_scope(mol, component, locants, entries, mass,
     return bool(actual) and actual == expected
 
 
-def _mapped_isotope_descriptor_plan(mol, Chem, component, locants, *, skeletal_atoms=None):
+def _mapped_isotope_descriptor_plan(mol, Chem, component, locants, *, skeletal_atoms=None,
+                                    sole_hydrogen_atoms=()):
     """Build descriptor text and original-atom facts in one typed pass.
 
     Ordinary isotope-bearing atoms in ``component.atoms`` retain their source
     IDs beside the exact grouping/locant decisions used by the renderer.
     ``isotope_descriptor_parts`` remain renderable by the legacy writer, but
     have no primary atom claim unless a higher-level role record supplies it.
+    A producer can identify explicit H atoms that are the sole hydrogen on
+    their host. Their single substitution needs no count under P-82.2.1.
     """
     if skeletal_atoms is None and component.assembly_isotope_evidence is not None:
         from .assembly_isotopes import AssemblyIsotopeEvidence
@@ -412,7 +415,7 @@ def _mapped_isotope_descriptor_plan(mol, Chem, component, locants, *, skeletal_a
                 locator = ""
         count = len(positions) > 1 or symbol == "H"
         if (symbol == "H" and len(positions) == 1
-                and (symbol, mass) in omit_single_count):
+                and ((symbol, mass) in omit_single_count or entries[0][0] in sole_hydrogen_atoms)):
             count = False
         if labelling:
             # Source P-83.1/.2 counts/locants describe a substance, rather

@@ -42,6 +42,8 @@ from .formatting import (COMPLEX_MULT, format_prefixes, multiplied_suffix, join_
 
 _FUNCTIONS = frozenset({"acid", "amide", "ester", "nitrile"})
 _LINK_ELEMENTS = frozenset({6, 7, 8, 16})
+_LINK_HYDRIDES = {14: 'silane', 32: 'germane', 50: 'stannane', 82: 'plumbane',
+                  15: 'phosphane', 33: 'arsane', 51: 'stibane', 83: 'bismuthane'}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1748,7 +1750,70 @@ def _block_name(element, size, *, outward=False):
             (16, 2): "disulfanediyl", (7, 1): "azanediyl"}.get((element, size), "")
 
 
-def _connector_name(mol, atoms, units, *, allow_azo=False, allow_urea=False):
+def _mononuclear_linker(mol, scope, center, count=2):
+    """A heterohydride or chalcogen oxo group joining equivalent carbon ports."""
+    atom = mol.GetAtomWithIdx(center)
+    element = atom.GetAtomicNum()
+    if element not in {16, 34, 52} and element not in _LINK_HYDRIDES:
+        return ''
+    if center not in scope or any(mol.GetAtomWithIdx(i).GetIsotope() or mol.GetAtomWithIdx(i).GetChiralTag()
+            or mol.GetAtomWithIdx(i).GetNumRadicalElectrons() for i in scope):
+        return ''
+    outside = [b for b in atom.GetBonds() if b.GetOtherAtomIdx(center) not in scope]
+    if count not in (2, 3, 4) or len(outside) != count or any(b.GetBondTypeAsDouble() != 1 or b.GetStereo()
+            or b.GetOtherAtom(atom).GetAtomicNum() != 6 for b in outside):
+        return ''
+    inside = [b for b in atom.GetBonds() if b.GetOtherAtomIdx(center) in scope]
+    if element in {16, 34, 52}:
+        from .chalcogen_oxide_methods import _OXIDE_PREFIX
+
+        if count != 2 or atom.GetTotalNumHs() or len(inside) != len(scope) - 1 or len(inside) > 2:
+            return ''
+        # S=O and [S+]-[O-] (and their Se/Te analogues) are two valence
+        # representations of the same oxide. Balance every formal charge
+        # locally and leave protonated and ionic functions to their own rules.
+        balance = atom.GetFormalCharge()
+        for bond in inside:
+            oxygen = bond.GetOtherAtom(atom)
+            if (oxygen.GetAtomicNum() != 8 or oxygen.GetDegree() != 1 or oxygen.GetTotalNumHs()
+                    or (bond.GetBondTypeAsDouble(), oxygen.GetFormalCharge()) not in {(2, 0), (1, -1)}):
+                return ''
+            balance += oxygen.GetFormalCharge()
+        if balance:
+            return ''
+        if not inside:
+            return {16: 'sulfanediyl', 34: 'selanediyl', 52: 'tellanediyl'}[element]
+        return _OXIDE_PREFIX.get((element, len(inside)), ('', ''))[1]
+
+    from rdkit import Chem
+    from .component_mapping import mapped_general_branch
+
+    expected_valence = 4 if element in {14, 32, 50, 82} else 3
+    if (atom.IsInRing() or atom.GetTotalValence() != expected_valence
+            or any(mol.GetAtomWithIdx(i).GetFormalCharge() for i in scope)):
+        return ''
+    remaining = set(scope) - {center}
+    groups = []
+    for bond in inside:
+        root = bond.GetOtherAtomIdx(center)
+        if bond.GetBondTypeAsDouble() != 1 or mol.GetAtomWithIdx(root).GetAtomicNum() != 6:
+            return ''
+        text, owned = mapped_general_branch(mol, Chem, root, center)
+        if not text or not owned <= remaining or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in owned):
+            return ''
+        groups.append(('', text))
+        remaining.difference_update(owned)
+    if remaining:
+        return ''
+    ending = {2: 'diyl', 3: 'triyl', 4: 'tetrayl'}[count]
+    return format_prefixes(groups, omit_locants=True, hierarchical_enclosures=True) + _LINK_HYDRIDES[element] + ending
+
+
+def _connector_name(mol, atoms, units, *, functional_units=False, allow_urea=False):
+    if functional_units and 2 <= len(units) <= 4 and len({u.connector for u in units}) == 1:
+        bridge = _mononuclear_linker(mol, atoms, units[0].connector, len(units))
+        if bridge:
+            return bridge
     if not atoms or any(mol.GetAtomWithIdx(i).IsInRing() or mol.GetAtomWithIdx(i).GetIsotope()
                         or mol.GetAtomWithIdx(i).GetAtomicNum() not in _LINK_ELEMENTS
                         for i in atoms):
@@ -1802,7 +1867,7 @@ def _connector_name(mol, atoms, units, *, allow_azo=False, allow_urea=False):
 
         if urea_link_atoms(mol, *endpoints) == atoms:
             return "carbonylbis(azanediyl)"
-    if (allow_azo and len(atoms) == 2 and set(endpoints) == atoms
+    if (functional_units and len(atoms) == 2 and set(endpoints) == atoms
             and all(atom.GetAtomicNum() == 7 and atom.GetDegree() == 2
                     and not atom.GetFormalCharge() and not atom.GetIsotope()
                     for atom in (mol.GetAtomWithIdx(i) for i in endpoints))):
@@ -1885,6 +1950,10 @@ def _central_connector(mol, Chem, scope, ports, arms):
     from .multifunctional_parent import _paths
 
     count = len(ports)
+    if count == 2 and ports[0] == ports[1]:
+        bridge = _mononuclear_linker(mol, scope, ports[0])
+        if bridge:
+            return bridge + arms
     suffix = {2: 'diyl', 3: 'triyl', 4: 'tetrayl'}.get(count)
     if suffix is None:
         return ''
@@ -2336,7 +2405,7 @@ def _multiplicative_parent_outcome(mol, Chem, groups, all_atoms, *, senior_front
             if len(ring_systems(mol)) >= 4 and linear_phane_frontier(mol, Chem).mandatory_eligible:
                 continue
         acid_units = bool(groups and groups[0].kind in {'acid', 'sulfonic-acid'})
-        bridge = _connector_name(mol, connector, units, allow_azo=bool(selected_centers), allow_urea=acid_units)
+        bridge = _connector_name(mol, connector, units, functional_units=bool(selected_centers), allow_urea=acid_units)
         if not bridge and acid_units:
             from .urea_linkers import extended_urea_link
 
@@ -2609,7 +2678,8 @@ def _alcohol_unit(fragment, local_root):
     for p in (path,tuple(reversed(path))):
         locs=tuple(sorted(p.index(g.center)+1 for g in groups))
         loc=p.index(local_root)+1
-        name=_alcohol_suffix(ROOTS[len(p)]+'ane',list(map(str,locs)))
+        name = (attach_suffix('methane', multiplied_suffix(len(groups), 'ol'), ())
+                if len(p) == 1 else _alcohol_suffix(ROOTS[len(p)]+'ane',list(map(str,locs))))
         facts = graph_parent_facts(fragment, p, {i: str(j) for j, i in enumerate(p, 1)},
                                    principal_class=groups[0].seniority,
                                    suffix_centers=[g.center for g in groups],

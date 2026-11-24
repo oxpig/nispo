@@ -270,6 +270,12 @@ def _catalog():
 @lru_cache(maxsize=2048)
 def resolve_component(name):
     name = _INDICATED.sub('', name)
+    if name.endswith(('naphthylene', 'naphthyleno')):
+        from .polynaphthylenes import fusion_component
+
+        component = fusion_component(name)
+        if component is not None:
+            return component
     if name.endswith(('aleno', 'apheno', 'aceno')):
         name = name[:-1] + 'e'
     # P-25.3.5 treats the numbered benzoheterocycle as one component.

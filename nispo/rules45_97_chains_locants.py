@@ -11,7 +11,7 @@ import re
 
 from .bluebook_lambda_amine_methods import _plain, _out, _sanitize
 from .component_mapping import MappedComponent, decorate_component, mapped_branch
-from .constants import MULT, ROOTS
+from .constants import HALO, MULT, ROOTS
 from .formatting import (attach_suffix, enclose_name_unit, format_prefixes,
                          multiply_component, prefix_alphabetization_key)
 from .molecule_iteration import iter_atoms, iter_bonds
@@ -112,24 +112,35 @@ def _hydride(sequence):
 
 def homogeneous_parent(mol,Chem):
     """P-21.2.2: count the complete homogeneous skeletal path."""
-    if not _plain_graph(mol,Chem,{6,*_HYDRIDES}):
+    halogens = {9, 17, 35, 53}
+    if not _plain_graph(mol,Chem,{6,*_HYDRIDES,*halogens}):
         return None
-    hetero={a.GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum()!=6}
+    hetero={a.GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum() in _HYDRIDES}
     if len(hetero)<2 or len({mol.GetAtomWithIdx(i).GetAtomicNum() for i in hetero})!=1:
         return None
     element=mol.GetAtomWithIdx(next(iter(hetero))).GetAtomicNum()
+    # Halo substituents on group-14 hydrides do not introduce a more senior
+    # characteristic group. Other families can have acid/functional rules.
+    if element not in {14,32,50,82} and any(a.GetAtomicNum() in halogens for a in iter_atoms(mol)):
+        return None
     # Dinuclear O/S links have peroxide/ether functional-class rules. Longer
     # homogeneous chains and the other parent-hydride families use P-21.2.2.
     if element in {8,16,34,52} and len(hetero)<3:
         return None
     path=_path(mol,hetero)
-    if (not path or any(mol.GetAtomWithIdx(i).IsInRing() or
-            mol.GetAtomWithIdx(i).GetTotalValence()!=_VALENCE[element] for i in path)
-            or any(_order(mol,a,b)!=1 for a,b in zip(path,path[1:]))):
+    if not path or any(mol.GetAtomWithIdx(i).IsInRing() or
+                       mol.GetAtomWithIdx(i).GetTotalValence()!=_VALENCE[element] for i in path):
         return None
     parent=_hydride(tuple(element for _i in path))
     if not parent:
         return None
+    orders = tuple(_order(mol, a, b) for a, b in zip(path, path[1:]))
+    if any(order != 1 for order in orders):
+        if element not in {14,32,50,82} or orders not in {(2,), (3,)}:
+            return None
+        # The only bond of a dinuclear hydride has no printed ene/yne locant,
+        # including when substituent locants are required on that hydride.
+        parent = parent[:-3] + ('ene' if orders == (2,) else 'yne')
     choices=[]
     for seq in (path,path[::-1]):
         used=set(hetero); prefixes=[]
@@ -137,7 +148,10 @@ def homogeneous_parent(mol,Chem):
             for a in mol.GetAtomWithIdx(i).GetNeighbors():
                 if a.GetIdx() in hetero:
                     continue
-                row=_carbon_branch(mol,Chem,a.GetIdx(),i)
+                if a.GetAtomicNum() in halogens and a.GetDegree() == 1:
+                    row = HALO[a.GetSymbol()], frozenset({a.GetIdx()})
+                else:
+                    row=_carbon_branch(mol,Chem,a.GetIdx(),i)
                 if row is None or used&row[1] or _order(mol,i,a.GetIdx())!=1:
                     break
                 prefixes.append((str(j),row[0]));used.update(row[1])

@@ -352,6 +352,8 @@ def _restored_parent(mol, Chem, bindings, substitutions):
         owned.update(sub.atoms)
     scope = core | owned
     valences = {6:4, 7:3, 8:2, 13:3, 14:4, 16:2, 32:4, 34:2, 50:4, 52:2, 82:4}
+    if independent_branch:
+        valences.update({5:3, 15:3, 31:3, 33:3, 49:3, 51:3, 81:3, 83:3})
     for idx in scope:
         atom = mol.GetAtomWithIdx(idx)
         if (atom.GetNumRadicalElectrons() or atom.HasQuery()

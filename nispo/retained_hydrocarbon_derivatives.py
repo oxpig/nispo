@@ -19,6 +19,16 @@ class _Pendant:
     atoms: frozenset[int]
     kind: str
     prefix: str
+    # Descending nuclear charge, then mass for P-82.2.2.2. Rendering uses
+    # the independent order of element symbols required by P-82.3.
+    nuclides: tuple = ()
+
+    @property
+    def isotope_descriptor(self):
+        if not self.nuclides:
+            return ''
+        symbols = sorted((symbol, mass) for _, mass, symbol in self.nuclides)
+        return '(' + ','.join(f'{mass}{symbol}' for symbol, mass in symbols) + ')'
 
 
 _RANK={'acid':(7,0),'amide':(11,0),'nitrile':(14,0),'aldehyde':(15,0),'ketone':(16,0),
@@ -33,12 +43,13 @@ def _frame(text):
     return Chem.MolFromSmiles(text)
 
 
-def _numbering_key(mapping,suffix_parts,prefix_parts):
-    from .formatting import prefix_alphabetization_key
+def _numbering_key(mapping,suffix_parts,prefix_parts, *, branch_isotopes=False):
+    from .formatting import _ISOTOPE_DESCRIPTOR, prefix_alphabetization_key
     from .parent_selection import locant_set
     locs=sorted((mapping[p.host] for p in suffix_parts),key=lambda value:locant_set((value,)))
-    prefixes=[(mapping[p.host],p.prefix) for p in prefix_parts]
-    grouped={name:[loc for loc,text in prefixes if text==name] for _loc,name in prefixes}
+    prefixes=[(mapping[p.host],p.isotope_descriptor + p.prefix if p.nuclides else p.prefix) for p in prefix_parts]
+    chemical = [(loc, _ISOTOPE_DESCRIPTOR.sub('', name)) for loc, name in prefixes] if branch_isotopes else prefixes
+    grouped={name:[loc for loc,text in chemical if text==name] for _loc,name in chemical}
     citation=tuple(locant_set(grouped[name]) for name in sorted(grouped,key=prefix_alphabetization_key))
     return (locant_set(locs),locant_set([loc for loc,_text in prefixes]),citation),locs,prefixes
 
@@ -105,6 +116,189 @@ def _pendant(mol,Chem,root,host,atoms):
         text,owned=mapped_branch(mol,Chem,root,host)
         if text and owned==atoms:return _Pendant(root,host,atoms,'',text)
     return None
+
+
+def _isotopic_pendant(mol, Chem, root, host, atoms):
+    """Assign the isotope to its actual characteristic group or mapped branch."""
+    from .annotated_substituent_selection import select_annotated_saturated_prefix
+    from .formatting import alkyl_to_alkoxy
+
+    atom = mol.GetAtomWithIdx(root)
+    bond = mol.GetBondBetweenAtoms(root, host)
+    if len(atoms) == 1 and atom.GetAtomicNum() != 6:
+        plain = _pendant(mol, Chem, root, host, atoms)
+        if not plain or bond.GetBondType() != (Chem.BondType.DOUBLE if plain.kind == 'ketone'
+                                               else Chem.BondType.SINGLE):
+            return None
+        return _Pendant(root, host, atoms, plain.kind, plain.prefix,
+                        ((atom.GetAtomicNum(), atom.GetIsotope(), atom.GetSymbol()),))
+    if bond.GetBondType() != Chem.BondType.SINGLE:
+        return None
+    if (atom.GetAtomicNum() in (8, 16) and len(atoms) == 2 and atom.GetTotalValence() == 2
+            and atom.GetTotalNumHs(includeNeighbors=True) == 1):
+        h = mol.GetAtomWithIdx(next(i for i in atoms if i != root))
+        if (h.GetAtomicNum() == 1 and h.GetIsotope() and h.GetDegree() == 1
+                and h.GetNeighbors()[0].GetIdx() == root and not h.GetFormalCharge()):
+            kind, prefix = ('alcohol', 'hydroxy') if atom.GetAtomicNum() == 8 else ('thiol', 'sulfanyl')
+            nuclides = tuple((a.GetAtomicNum(), a.GetIsotope(), a.GetSymbol()) for a in (atom, h) if a.GetIsotope())
+            return _Pendant(root, host, atoms, kind, prefix, nuclides)
+    alkoxy = atom.GetAtomicNum() == 8
+    if alkoxy:
+        if atom.GetDegree() != 2 or atom.GetIsotope() or atom.GetTotalNumHs():
+            return None
+        anchor = next(n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() != host)
+        scope = atoms - {root}
+    else:
+        anchor, scope = root, atoms
+    proof = select_annotated_saturated_prefix(mol, Chem, anchor, root if alkoxy else host, scope)
+    if not proof or not proof[0] or proof[1] != scope:
+        return None
+    return _Pendant(root, host, atoms, '', alkyl_to_alkoxy(proof[0]) if alkoxy else proof[0])
+
+
+def ring_pendants(mol, Chem, core, *, branch_isotopes=frozenset(), scope=None):
+    """Identify every group attached to a single numbered ring system."""
+    from .functional_parent_extensions import side
+    from .component_mapping import mapped_general_branch
+
+    used = set(core)
+    parts = []
+    for host in core:
+        for bond in mol.GetAtomWithIdx(host).GetBonds():
+            root = bond.GetOtherAtomIdx(host)
+            if root in core or scope is not None and root not in scope:
+                continue
+            atoms = side(mol, root, host)
+            if used & atoms or scope is not None and not atoms <= scope:
+                return None
+            if branch_isotopes.intersection(atoms):
+                part = _isotopic_pendant(mol, Chem, root, host, atoms)
+                if part is None:
+                    return None
+                parts.append(part)
+                used.update(atoms)
+                continue
+            part = _pendant(mol, Chem, root, host, atoms)
+            if bond.GetBondType() == Chem.BondType.DOUBLE:
+                if all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in atoms):
+                    from .branch.carbon import _alkylidene_prefix
+
+                    text = _alkylidene_prefix(mol, root, host)
+                    part = _Pendant(root, host, atoms, '', text) if text else None
+                elif part is None or part.kind != 'ketone':
+                    return None
+                if part is None:
+                    return None
+            elif bond.GetBondType() != Chem.BondType.SINGLE:
+                return None
+            if part is None and all(mol.GetAtomWithIdx(i).GetAtomicNum() in {6, 9, 17, 35, 53}
+                                    for i in atoms):
+                text, owned = mapped_general_branch(mol, Chem, root, host)
+                if text and owned == atoms:
+                    part = _Pendant(root, host, atoms, '', text)
+            if part is None:
+                return None
+            parts.append(part)
+            used.update(atoms)
+    return parts if len(used) == (len(scope) if scope is not None else mol.GetNumAtoms()) else None
+
+
+def ring_substitution(parent, mapping, parts, *, omit_single=False, annotated_graph=None,
+                      branch_isotopes=False):
+    """Rank suffixes, then prefixes on a permissible original-atom numbering."""
+    from .formatting import attach_suffix, format_prefixes, multiplied_suffix
+
+    principal = min((_RANK[p.kind] for p in parts if p.kind), default=None)
+    suffix_parts = [p for p in parts if p.kind and _RANK[p.kind] == principal]
+    ordinary_suffixes = suffix_parts
+    if branch_isotopes and suffix_parts:
+        # Modification count comes first. Each group here has one heavy
+        # characteristic atom and at most one independently modified H site.
+        best = max((len(p.nuclides), p.nuclides) for p in suffix_parts)
+        suffix_parts = [p for p in suffix_parts if (len(p.nuclides), p.nuclides) == best]
+    prefix_parts = [p for p in parts if p not in suffix_parts]
+    key, locants, prefixes = _numbering_key(mapping, suffix_parts, prefix_parts, branch_isotopes=branch_isotopes)
+    if len(ordinary_suffixes) != len(suffix_parts):
+        # P-82.5.1 keeps the unmodified compound's numbering. P-82.2.2.2
+        # changes which OH is written as a suffix. Isotopes break the
+        # remaining ties below after all equally senior sites are numbered.
+        ordinary_prefixes = [p for p in parts if p not in ordinary_suffixes]
+        key = _numbering_key(mapping, ordinary_suffixes, ordinary_prefixes, branch_isotopes=True)[0]
+    omit = omit_single and len(parts) == 1
+    if suffix_parts:
+        suffix = multiplied_suffix(len(suffix_parts), _SUFFIX[suffix_parts[0].kind])
+        if not suffix:
+            return None
+        parent = attach_suffix(parent, suffix, () if omit else locants)
+        first = suffix_parts[0]
+        if first.nuclides:
+            from .constants import MULT
+            from .formatting import enclose_name_unit
+
+            local = first.isotope_descriptor + _SUFFIX[first.kind]
+            if len(suffix_parts) > 1:
+                local = MULT[len(suffix_parts)] + enclose_name_unit(local)
+            parent = parent[:-len(suffix)] + local
+    if annotated_graph is not None:
+        from rdkit import Chem
+        from .component_mapping import MappedComponent, decorate_component
+        from .parent_annotations import isotope_numbering_key, stereo_numbering
+
+        isotope_key = isotope_numbering_key(annotated_graph, mapping, include_substituent_groups=branch_isotopes)
+        stereo_key = stereo_numbering(annotated_graph, mapping)
+        if isotope_key is None or stereo_key is None or (not stereo_key and any(
+                annotated_graph.GetAtomWithIdx(i).GetChiralTag() for i in mapping)):
+            return None
+        key += (isotope_key, stereo_key)
+        core = frozenset(mapping)
+        component = MappedComponent(parent, tuple(mapping.items()), core, prefixes=tuple(prefixes),
+                                    embedded_atoms=frozenset(range(annotated_graph.GetNumAtoms())) - core,
+                                    systematic_parent=True)
+        name = decorate_component(annotated_graph, Chem, component)
+        if not name:
+            return None
+    else:
+        prefix = format_prefixes(prefixes, omit_locants=omit, hierarchical_enclosures=True)
+        # The known ring word starts either with its own locants or with a
+        # letter. A later suffix locant does not split the prefix from this word.
+        name = prefix + ('-' if prefix and parent[0].isdigit() else '') + parent
+    exocyclic = {'acid', 'amide', 'nitrile', 'aldehyde'}
+    centers = frozenset(p.root if p.kind in exocyclic else p.host for p in suffix_parts)
+    return key, name, centers
+
+
+def benzene_polyol(mol, Chem, ring):
+    """P-63.1.2 for multiple phenolic hydroxyls and subordinate acyclic prefixes."""
+    if (len(ring) != 6 or mol.GetRingInfo().NumRings() != 1 or mol.GetStereoGroups()
+            or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 or not mol.GetAtomWithIdx(i).GetIsAromatic()
+                   for i in ring)):
+        return None
+    centers = set()
+    for atom in mol.GetAtoms():
+        if atom.GetIsotope() or atom.GetFormalCharge() or atom.GetNumRadicalElectrons() or atom.GetChiralTag() or atom.HasQuery():
+            return None
+        if atom.GetAtomicNum() == 8 and atom.GetDegree() == 1 and atom.GetTotalNumHs() == 1:
+            host = atom.GetNeighbors()[0].GetIdx()
+            if host in ring:
+                centers.add(host)
+    if len(centers) < 2 or any(b.GetStereo() or b.HasQuery() for b in mol.GetBonds()):
+        return None
+    core = frozenset(ring)
+    parts = ring_pendants(mol, Chem, core)
+    if parts is None or any(p.kind not in ('', 'alcohol') for p in parts):
+        return None
+    numberings = []
+    for order in (ring, ring[::-1]):
+        for start, atom in enumerate(order):
+            if atom in centers:
+                seq = order[start:] + order[:start]
+                numberings.append((tuple(i for i, idx in enumerate(seq, 1) if idx in centers), seq))
+    best = min(locs for locs, _ in numberings)
+    rows = [ring_substitution('benzene', {idx: str(i) for i, idx in enumerate(seq, 1)}, parts)
+            for locs, seq in numberings if locs == best]
+    from .naming_methods import MethodDecision
+    _, name, centers = min(rows)
+    return MethodDecision(name, 'substitutive', centers, frozenset(range(mol.GetNumAtoms())), 'P-63.1.2/P-14.4')
 
 
 def _aryl_substituted_retained_frame(mol, Chem, core):

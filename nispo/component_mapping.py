@@ -1389,7 +1389,7 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
                 for b in root_atom.GetBonds())):
             from .oxime_components import oxime_site
 
-            if oxime_site(mol, root, subordinate=True) is not None:
+            if oxime_site(mol, root) is not None:
                 name, owned = _mapped_branch_recursive(mol, Chem, root, blocked, atoms)
                 if name and owned == atoms:
                     return name, owned
@@ -1633,7 +1633,7 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
         b.GetBondTypeAsDouble()==2 and b.GetOtherAtom(mol.GetAtomWithIdx(root)).GetAtomicNum()==6
         for b in mol.GetAtomWithIdx(root).GetBonds()):
         from .oxime_components import oxime_site, oxime_imino_prefix
-        oxime = oxime_site(mol, blocked, subordinate=True)
+        oxime = oxime_site(mol, blocked)
         if oxime is not None and oxime.nitrogen == root:
             return oxime_imino_prefix(mol, Chem, root, blocked, atoms)
         from .imine_components import imino_prefix

@@ -1,6 +1,6 @@
-"""Typed isotope evidence for a free hydroxy prefix on a mapped polyol.
+"""Typed isotope evidence for a free hydroxy prefix on a mapped host.
 
-The host carbon and its ordinary parent locant are an attachment fact. The
+The host atom and its parent locant are an attachment fact. The
 hydroxy oxygen and any explicit O-bound isotope hydrogen form a separate
 component scope with no invented parent locants for O or H.
 """
@@ -40,7 +40,7 @@ class HydroxyPrefixDecoration:
     rule: str = RULE
 
 
-def polyol_hydroxy_isotope_prefix(
+def hydroxy_isotope_prefix(
     mol,
     Chem,
     *,
@@ -61,14 +61,16 @@ def polyol_hydroxy_isotope_prefix(
     try:
         if (not isinstance(host_atom_id, int) or isinstance(host_atom_id, bool)
                 or not isinstance(oxygen_atom_id, int) or isinstance(oxygen_atom_id, bool)
-                or not isinstance(host_locant, str) or not host_locant.isdigit()
-                or int(host_locant) < 1 or not isinstance(component_id, str)
+                or not isinstance(host_locant, str) or not isinstance(component_id, str)
                 or not component_id):
             return None
         host = mol.GetAtomWithIdx(host_atom_id)
         oxygen = mol.GetAtomWithIdx(oxygen_atom_id)
         bond = mol.GetBondBetweenAtoms(host_atom_id, oxygen_atom_id)
-        if (host.GetAtomicNum() != 6 or oxygen.GetAtomicNum() != 8 or bond is None
+        if not ((host.GetAtomicNum() == 6 and host_locant.isdigit() and int(host_locant) >= 1)
+                or (host.GetAtomicNum() == 7 and host_locant == "N")):
+            return None
+        if (oxygen.GetAtomicNum() != 8 or bond is None
                 or bond.GetBondTypeAsDouble() != 1.0 or oxygen.GetFormalCharge()
                 or oxygen.GetNumRadicalElectrons() or int(oxygen.GetChiralTag())
                 or oxygen.GetTotalValence() != 2 or host.GetIsotope() < 0
@@ -155,3 +157,6 @@ def polyol_hydroxy_isotope_prefix(
         )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         return None
+
+
+polyol_hydroxy_isotope_prefix = hydroxy_isotope_prefix

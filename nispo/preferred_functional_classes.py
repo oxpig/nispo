@@ -412,6 +412,11 @@ def acidic_boron_acyloxy(mol, Chem):
         used.update(atoms)
     if len(hydroxyls) not in {1, 2} or not acyl_count or used != set(range(mol.GetNumAtoms())):
         return None
+    if acyl_count == 1 and b.GetDegree() == len(hydroxyls) + 1:
+        # One carboxylic linkage to an inorganic boric or boronic acid.
+        # A B-C substituent or a second condensation changes that scope.
+        from .bluebook_hydride_assembly_methods import mixed_anhydride_decision
+        return mixed_anhydride_decision(mol, Chem)
     parent = 'borinic acid' if len(hydroxyls) == 1 else 'boronic acid'
     text = format_prefixes(rows, omit_locants=True, hierarchical_enclosures=True)
     return _out(mol, text + parent, (b.GetIdx(),), 'P-65.7.6.1/P-68.1.4.1/P-41')

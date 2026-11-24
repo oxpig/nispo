@@ -6,15 +6,96 @@ SSSR count, name-length preference or structural parser selects a numbering.
 """
 from itertools import permutations, product
 
-from .constants import MULT, ROOTS
+from .constants import MULT, ROOTS, STANDARD_REPLACEMENTS, STANDARD_REPLACEMENT_VALENCE
 
-_ELEMENTS = ((8, 'oxa'), (16, 'thia'), (7, 'aza'))
 RULES = {
     'skeletal-replacement-von-Baeyer': ('P-51.4.2.2', 'P-23.2.1/P-23.2.3',
                                       'P-23.3.2.1', 'P-23.3.2.2'),
     'skeletal-replacement-spiro': ('P-51.4.2.3', 'P-24.2.1',
                                  'P-24.2.4.1.2(a)', 'P-24.2.4.1.2(b)'),
 }
+
+
+def replacement_locants(sequence, numbers):
+    """P-24.2.4.1.2 first compares all replacement locants, then each element."""
+    positions = {}
+    for loc, atom in enumerate(sequence, 1):
+        z = numbers[atom]
+        if z != 6:
+            positions.setdefault(z, []).append(loc)
+    ordered = tuple(tuple(positions[z]) for z, _, _ in STANDARD_REPLACEMENTS if z in positions)
+    return tuple(sorted(n for sites in ordered for n in sites)), ordered
+
+
+def replacement_prefix(numbers, ordered):
+    elements = set(numbers)
+    terms = (term for z, term, _ in STANDARD_REPLACEMENTS if z in elements)
+    parts = []
+    for term, locants in zip(terms, ordered, strict=True):
+        multiplier = '' if len(locants) == 1 else MULT.get(len(locants))
+        if multiplier is None:
+            return None
+        parts.append(','.join(map(str, locants)) + '-' + multiplier + term)
+    return '-'.join(parts)
+
+
+def free_spiro_core(rings):
+    """Return the atoms of a connected tree of cycles sharing single, distinct atoms."""
+    if len(rings) < 2:
+        return frozenset()
+    union, junctions = set(), set()
+    vertices = [set(r) for r in rings]
+    for i, ring in enumerate(vertices):
+        for other in vertices[:i]:
+            shared = ring & other
+            if len(shared) > 1 or shared & junctions:
+                return frozenset()
+            junctions.update(shared)
+        union.update(ring)
+    if len(junctions) != len(rings) - 1:
+        return frozenset()
+    pending = [vertices[0]]
+    unseen = vertices[1:]
+    while pending:
+        block = pending.pop()
+        adjacent = [v for v in unseen if v & block]
+        pending.extend(adjacent)
+        unseen = [v for v in unseen if not v & block]
+    return frozenset() if unseen else frozenset(union)
+
+
+def bare_spiro_name(mol, Chem, rings):
+    """Select an unannotated saturated spiro parent with no external branches."""
+    if (sum(map(len, rings)) != mol.GetNumAtoms() + len(rings) - 1
+            or len(free_spiro_core(rings)) != mol.GetNumAtoms()
+            or mol.GetStereoGroups()
+            or any(a.GetIsotope() or a.GetChiralTag() for a in mol.GetAtoms())
+            or any(b.GetBondTypeAsDouble() != 1 or b.GetStereo() for b in mol.GetBonds())):
+        return ''
+    if len(rings) == 2:
+        row = next(skeletons(mol), None)
+        return row[0] if row else ''
+    if all(a.GetAtomicNum() == 6 for a in mol.GetAtoms()):
+        from .polyspiro_methods import polyspiro_decision
+        decision = polyspiro_decision(mol, Chem)
+    else:
+        from .heteropolyspiro_methods import heteropolyspiro_decision
+        decision = heteropolyspiro_decision(mol, Chem)
+    return decision.name if decision else ''
+
+
+def substituted_spiro_name(mol, Chem, rings):
+    """Decorate a proved spiro core after checking every principal site on the original graph."""
+    from .mapped_ring_parents import records
+    from .ring_state_parent import _inventory
+
+    core = free_spiro_core(rings)
+    if not core:
+        return ''
+    rows = records(mol, Chem, core_filter=core, general_branches=True)
+    if len(rows) != 1 or rows[0].principal_centers != {g.center for g in _inventory(mol, Chem).principal}:
+        return ''
+    return rows[0].name
 
 
 def _theta_orders(graph):
@@ -58,9 +139,9 @@ def _spiro_orders(graph):
 def skeletons(graph):
     """Yield fixed numbered hydrides of a capped, unannotated complete core."""
     size = graph.GetNumAtoms()
-    if size not in ROOTS or any(a.GetAtomicNum() not in {6, 7, 8, 16}
+    if size not in ROOTS or any(a.GetAtomicNum() not in STANDARD_REPLACEMENT_VALENCE
             or a.GetFormalCharge() or a.GetNumRadicalElectrons()
-            or a.GetTotalValence() != {6: 4, 7: 3, 8: 2, 16: 2}[a.GetAtomicNum()]
+            or a.GetTotalValence() != STANDARD_REPLACEMENT_VALENCE[a.GetAtomicNum()]
             for a in graph.GetAtoms()):
         return
     numbers = tuple(a.GetAtomicNum() for a in graph.GetAtoms())
@@ -75,43 +156,36 @@ def skeletons(graph):
     if graph.GetNumBonds() - size + 1 != 2:
         return
     options = []
-    for method, orders in (('von-Baeyer', () if multiple else _theta_orders(adjacency)),
+    for method, orders in (('von-Baeyer', _theta_orders(adjacency) if not multiple and max(map(len, adjacency.values())) == 3
+                            and set(numbers) <= {6, 7, 8, 16} else ()),
                            ('spiro', _spiro_orders(adjacency))):
         for seq, descriptor in orders:
             if len(seq) != size or len(set(seq)) != size:
                 continue
-            by_element = tuple(tuple(j for j, i in enumerate(seq, 1) if numbers[i] == n)
-                               for n, _ in _ELEMENTS)
-            key = (tuple(sorted(j for locations in by_element for j in locations)), by_element)
-            parts = []
-            for (_, term), locations in zip(_ELEMENTS, by_element):
-                if not locations:
-                    continue
-                if len(locations) > 1 and len(locations) not in MULT:
-                    break
-                parts.append(','.join(map(str, locations)) + '-' +
-                             (MULT[len(locations)] if len(locations) > 1 else '') + term)
-            else:
-                parent = '-'.join(parts) + ('bicyclo' if method == 'von-Baeyer' else 'spiro')
-                parent += '[' + '.'.join(map(str, descriptor)) + ']' + ROOTS[size] + 'ane'
-                inverse = {i: j for j, i in enumerate(seq)}
-                edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
-                              for b in graph.GetBonds())
-                row = (parent, tuple(seq), tuple(map(str, range(1, size + 1))),
-                       tuple(numbers[i] for i in seq), edges, not multiple, key,
-                       'skeletal-replacement-' + method)
-                if multiple:
-                    from .localized_bicyclic_states import LocalizedBicyclicState
-                    from .unsaturated_ring_parents import UnsaturationState
+            key = replacement_locants(seq, numbers)
+            prefix = replacement_prefix(numbers, key[1])
+            if prefix is None:
+                continue
+            parent = prefix + ('bicyclo' if method == 'von-Baeyer' else 'spiro')
+            parent += '[' + '.'.join(map(str, descriptor)) + ']' + ROOTS[size] + 'ane'
+            inverse = {i: j for j, i in enumerate(seq)}
+            edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
+                          for b in graph.GetBonds())
+            row = (parent, tuple(seq), tuple(map(str, range(1, size + 1))),
+                   tuple(numbers[i] for i in seq), edges, not multiple, key,
+                   'skeletal-replacement-' + method)
+            if multiple:
+                from .localized_bicyclic_states import LocalizedBicyclicState
+                from .unsaturated_ring_parents import UnsaturationState
 
-                    left, right = sorted(inverse[i] + 1 for i in (
-                        multiple[0].GetBeginAtomIdx(), multiple[0].GetEndAtomIdx()))
-                    state = LocalizedBicyclicState(key[0], tuple(
-                        graph.GetAtomWithIdx(i).GetTotalNumHs() for i in seq),
-                        UnsaturationState(((left, right, 2),), (left,), (left,), ()),
-                        von_baeyer=False)
-                    row += (state,)
-                options.append(row)
+                left, right = sorted(inverse[i] + 1 for i in (
+                    multiple[0].GetBeginAtomIdx(), multiple[0].GetEndAtomIdx()))
+                state = LocalizedBicyclicState(key[0], tuple(
+                    graph.GetAtomWithIdx(i).GetTotalNumHs() for i in seq),
+                    UnsaturationState(((left, right, 2),), (left,), (left,), ()),
+                    von_baeyer=False)
+                row += (state,)
+            options.append(row)
     if options:
         best = min(row[6] for row in options)
         seen = set()

@@ -89,10 +89,20 @@ def _build_core_graph(mol,Chem,core):
     except (ValueError,RuntimeError):return None
     graph=Chem.RWMol();inverse={i:j for j,i in enumerate(original)}
     capped_hydrogens = {}
+    spiro_core = None
     for i in original:
         source=mol.GetAtomWithIdx(i);number=source.GetAtomicNum()
-        if (number not in _VALENCE and not (hw_chalcogen_core and number in {34, 52})
-                or source.GetFormalCharge()):return None
+        if source.GetFormalCharge():
+            return None
+        if number not in _VALENCE and not (hw_chalcogen_core and number in {34, 52}):
+            from .constants import STANDARD_REPLACEMENT_VALENCE
+            from .heteropolycyclic_parents import free_spiro_core
+            if spiro_core is None:
+                rings = [r for r in mol.GetRingInfo().AtomRings() if set(r) <= core]
+                spiro_core = free_spiro_core(rings)
+            if (spiro_core != core or number not in STANDARD_REPLACEMENT_VALENCE
+                    or source.GetTotalValence() != STANDARD_REPLACEMENT_VALENCE[number]):
+                return None
         atom=Chem.Atom(number)
         capped=source.GetTotalNumHs(includeNeighbors=True)+sum(b.GetBondTypeAsDouble()
             for b in source.GetBonds() if b.GetOtherAtomIdx(i) not in core and mol.GetAtomWithIdx(b.GetOtherAtomIdx(i)).GetAtomicNum()>1)
@@ -399,6 +409,16 @@ def _local_skeletons(graph, Chem, source_aromatic, force_locants):
             from .heterodispiro_parents import skeletons as heterodispiro_skeletons
             for skeleton in heterodispiro_skeletons(graph, Chem):
                 yield (skeleton[0], tuple(skeleton[1]), *skeleton[2:])
+            return
+        from .polyspiro_frontier import MAX_RINGS
+        if 4 <= graph.GetNumBonds() - graph.GetNumAtoms() + 1 <= MAX_RINGS:
+            from .heteropolyspiro_methods import heteropolyspiro_parent_proposals
+            for row in heteropolyspiro_parent_proposals(graph, Chem).proposals:
+                inverse = {i: j for j, i in enumerate(row.sequence)}
+                edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
+                              for b in _fixed_graph_bonds(graph))
+                yield (row.name, row.sequence, tuple(loc for _, loc in row.atom_locants),
+                       row.atomic_numbers, edges, True, row.criteria_key, 'skeletal-replacement-polyspiro')
             return
         from .heteropolycyclic_parents import skeletons as heteropolycyclic_skeletons
         for skeleton in heteropolycyclic_skeletons(graph):

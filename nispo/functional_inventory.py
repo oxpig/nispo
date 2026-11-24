@@ -720,7 +720,7 @@ def _inventory_build(mol, *, extended=False, subordinate_thioxo=()):
                     if site is not None and site.carbon == idx and site.imino == nitrogen.GetIdx():
                         continue
             from .oxime_components import oxime_site
-            oxime = oxime_site(mol, idx, allow_carboxymethyl=extended, allow_cyclic_ether=extended)
+            oxime = oxime_site(mol, idx)
             if oxime is not None:
                 amino = next((n for n in neighbors if n.GetAtomicNum() == 7
                               and order[n.GetIdx()] == 1 and not n.IsInRing()

@@ -641,7 +641,7 @@ class NamingEngine:
 
                     sites = senior_sites(recovery_graph)
                     if (len(sites) == 1 and sites[0].kind == 'amide' and sites[0].owner >= 0
-                            and oxime_site(recovery_graph, sites[0].owner, subordinate=True)):
+                            and oxime_site(recovery_graph, sites[0].owner)):
                         amide = mapped_principal_decision(recovery_graph, self._Chem)
                         if amide is not None and amide.principal_centers == {sites[0].center}:
                             return _commit_general_method(amide, 'mapped-principal',
@@ -794,14 +794,14 @@ class NamingEngine:
                         construction.rule,
                         'One original +1 component and one -1 component are constructed in a 1:1 salt; preferred component naming remains unresolved.')
             if not name:
-                from .oxime_components import cyclic_oxime_ether_name
+                from .oxime_components import cyclic_oxime_name
 
-                name = cyclic_oxime_ether_name(recovery_graph, self._Chem)
+                name = cyclic_oxime_name(recovery_graph, self._Chem)
                 if name:
                     _record_general_construction(
-                        result_state, 'general:cyclic-oxime-ether', 'cyclic-oxime-ether',
+                        result_state, 'general:cyclic-oxime', 'cyclic-oxime',
                         'P-68.3.1.1.2/P-93.4.2.1.3',
-                        'The mapped ring and oxime ether preserve the original attachment and configuration; preferred parent and method comparisons remain unresolved.')
+                        'The ring numbering and oxime groups preserve the original attachment and configuration. Preferred parent and method comparisons remain unresolved.')
             if not name:
                 from .mapped_ring_construction import mapped_substituted_ring
 

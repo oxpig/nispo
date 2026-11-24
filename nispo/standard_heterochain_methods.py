@@ -18,24 +18,13 @@ from dataclasses import dataclass
 from itertools import combinations
 
 from .component_mapping import MappedComponent, decorate_component, fully_covered, mapped_branch
-from .constants import MULT, ROOTS
+from .constants import MULT, ROOTS, STANDARD_REPLACEMENTS as _ELEMENTS, STANDARD_REPLACEMENT_VALENCE as _VALENCES
 from .formatting import (attach_suffix, complete_parent_name, multiplied_suffix,
                          prefix_alphabetization_key, unsaturated_parent)
 from .replacement_eligibility import acyclic_replacement_eligibility, _TERMINAL_ELEMENTS
 
 
 RULE = "P-51.4.1.1-P-51.4.1.4/P-15.4.1.1-P-15.4.1.2/P-15.4.3/P-44.3/P-44.4/P-45.2"
-# P-15.4.1.2 element order; these are standard bonding numbers, not guessed
-# oxidation states. Halogens remain outside this acyclic skeletal vocabulary.
-_ELEMENTS = (
-    (8, "oxa", 2), (16, "thia", 2), (34, "selena", 2), (52, "tellura", 2),
-    (7, "aza", 3), (15, "phospha", 3), (33, "arsa", 3),
-    (51, "stiba", 3), (83, "bisma", 3),
-    (14, "sila", 4), (32, "germa", 4), (50, "stanna", 4), (82, "plumba", 4),
-    (5, "bora", 3), (13, "alumina", 3), (31, "galla", 3),
-    (49, "inda", 3), (81, "thalla", 3),
-)
-_VALENCES = {number: valence for number, _term, valence in _ELEMENTS} | {6: 4}
 _HALOGENS = {9: "fluoro", 17: "chloro", 35: "bromo", 53: "iodo"}
 _NON_SKELETAL_HETEROUNITS = frozenset((6, *_HALOGENS))
 

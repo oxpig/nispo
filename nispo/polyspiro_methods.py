@@ -1,4 +1,4 @@
-"""Whole-parent proposal API for bounded linear polyspiro hydrocarbon cores."""
+"""Whole-parent proposal API for saturated polyspiro hydrocarbon cores."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -63,7 +63,7 @@ def polyspiro_parent_proposals(mol, Chem=None) -> PolyspiroMethodResult:
             descriptor=numbering.descriptor,
             spiro_atoms=numbering.spiro_atoms,
             spiro_locants=numbering.spiro_locants,
-            rule="P-24.2.2.1/P-24.2.2.2"))
+            rule="P-24.2.2/P-24.2.3"))
     return PolyspiroMethodResult("complete", frontier.reason, tuple(proposals))
 
 
@@ -105,7 +105,7 @@ def polyspiro_decision(mol, Chem=None) -> PolyspiroMethodDecision | None:
     return PolyspiroMethodDecision(
         name=next(iter(names)), method="substitutive",
         principal_centers=frozenset(), atoms=heavy,
-        rule="P-24.2.0/P-24.2.2/P-24.2.2.1/P-24.2.2.2",
+        rule="P-24.2.0/P-24.2.2/P-24.2.3",
         atom_locants=base_map,
         component_roles=(("polyspiro-parent", heavy, base_map),),
         equivalent_atom_locants=tuple(dict.fromkeys(mapped)))

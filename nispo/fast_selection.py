@@ -85,6 +85,7 @@ _GROUP13 = re.compile(r'B(?!r)|\[(?:Al|Ga|In|Tl)')
 _GROUP14 = re.compile(r'\[(?:Si|Ge|Sn|Pb)')
 _GROUP14_PAIR = re.compile(r'\[(Si|Ge|Sn|Pb)[^]]*\].*?\[\1')
 _N_OR_O = re.compile('[NnOo]')
+_INORGANIC_ACID = re.compile(r'\[(?:As|Sb|Si|Cl\+|Br\+|I\+)')
 
 
 @lru_cache(maxsize=2)
@@ -93,6 +94,17 @@ def _alcohol_site_query(Chem):
 
 
 def _shared_ring_name(mol, Chem, rings, size, canonical):
+    if len(rings) >= 2 and (canonical is None or 'c' not in canonical):
+        ring_size = sum(map(len, rings)) - len(rings) + 1
+        name = ''
+        if ring_size == size and (canonical is None or '=' not in canonical):
+            from .heteropolycyclic_parents import bare_spiro_name
+            name = bare_spiro_name(mol, Chem, rings)
+        elif ring_size < size and (len(rings) >= 4 or canonical is None or _EXTENDED_ELEMENTS.search(canonical)):
+            from .heteropolycyclic_parents import substituted_spiro_name
+            name = substituted_spiro_name(mol, Chem, rings)
+        if name:
+            return name
     # The two-unit exception has a central square. All other members have
     # at least seven faces, including any further fused or pendant rings.
     if (len(rings) >= 5 and size >= 20 and size >= 4 * (len(rings) - 1)
@@ -171,6 +183,21 @@ def _shared_component(mol, Chem, canonical=None):
     # other hydrocarbons can go directly to the existing fast writer.
     if canonical is not None and not _N_OR_O.search(canonical):
         return ''
+    could_be_oxime = canonical is None or ('N' in canonical and 'O' in canonical and '=' in canonical)
+    if could_be_oxime:
+        from .oxime_components import fast_oxime_name, oxime_query
+        if mol.HasSubstructMatch(oxime_query(Chem)):
+            name = fast_oxime_name(mol, Chem)
+            if name:
+                return name
+    if (canonical is None or 'O' in canonical and
+            (canonical.count('=') >= 2 or '=' in canonical and
+             ('P' in canonical or 'B' in canonical or '#' in canonical
+              or '[' in canonical and _INORGANIC_ACID.search(canonical)))):
+        from .bluebook_hydride_assembly_methods import mixed_anhydride_decision
+        decision = mixed_anhydride_decision(mol, Chem, fast_only=True)
+        if decision:
+            return decision.name
     if (len(rings) <= 2 and (canonical is None or canonical.count('O') >= 2)
             and len(mol.GetSubstructMatches(_alcohol_site_query(Chem), maxMatches=2)) == 2):
         if len(rings) == 1 and canonical and 'c' in canonical:
@@ -232,7 +259,7 @@ def _shared_component(mol, Chem, canonical=None):
         name = bounded_ester_name(mol, Chem)
         if name:
             return name
-    if size <= 48 and mol.HasSubstructMatch(_amidoxime_query(Chem)):
+    if could_be_oxime and size <= 48 and mol.HasSubstructMatch(_amidoxime_query(Chem)):
         decision = amidoxime_decision(mol, Chem)
         if decision is not None:
             return decision.name
@@ -526,13 +553,16 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
             from .homogeneous_hydrides import halogenated_short_parent
 
             annotated_component = halogenated_short_parent(mol)
-        if not annotated_component and any(a.GetAtomicNum() == 1 and a.GetIsotope() in (2, 3)
+        if not annotated_component and any(a.GetAtomicNum() == 1 and a.GetIsotope() in (1, 2, 3)
                                            for a in mol.GetAtoms()):
-            from .oxygen_characteristic_suffixes import hydroxy_hydrogen_parent
+            from .oxime_components import isotopic_hydroxy_oxime_name
 
-            decision = hydroxy_hydrogen_parent(mol, Chem)
-            if decision:
-                annotated_component = decision.name
+            annotated_component = isotopic_hydroxy_oxime_name(mol, Chem)
+            if not annotated_component:
+                from .oxygen_characteristic_suffixes import hydroxy_hydrogen_parent
+                decision = hydroxy_hydrogen_parent(mol, Chem)
+                if decision:
+                    annotated_component = decision.name
         if not annotated_component:
             return unavailable()
     canonical = None

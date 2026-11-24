@@ -980,6 +980,33 @@ class PrincipalSelectionPipeline:
         view = graph_view(b.mol, b.Chem)
         counts = method_bond_counts(b.mol, b.Chem)
         decision = None
+        if (view.ring_count >= 2 and 0 < view.elements['C'] < view.atom_count
+                and not any(view.aromatic_atoms)):
+            rings = view.atom_rings
+            if sum(map(len, rings)) == view.atom_count + len(rings) - 1 and not any(view.isotopes):
+                from .heteropolycyclic_parents import bare_spiro_name
+                name = bare_spiro_name(b.mol, b.Chem, rings)
+            elif (len(rings) >= 4 or
+                  set(view.elements) - {'C', 'H', 'N', 'O', 'S', 'F', 'Cl', 'Br', 'I'}):
+                from .heteropolycyclic_parents import substituted_spiro_name
+                name = substituted_spiro_name(b.mol, b.Chem, rings)
+            else:
+                name = ''
+            if name:
+                return PrincipalDecision(stage, PrincipalRequirement('heterocyclic-spiro'),
+                    output_name=name, direct_route='skeletal-replacement:P-24.2.4.1.2')
+        if counts[6, 7, 2] and counts[7, 8, 1] and counts[1, 8, 1] and any(view.isotopes):
+            from .oxime_components import isotopic_hydroxy_oxime_name
+            name = isotopic_hydroxy_oxime_name(b.mol, b.Chem)
+            if name:
+                return PrincipalDecision(stage, PrincipalRequirement('isotopic-oxime'),
+                    output_name=name, direct_route='substitutive:P-68.3.1.1.2/P-82.6.2')
+        if view.ring_count and counts[6, 7, 2] and counts[7, 8, 1]:
+            from .oxime_components import cyclic_oxime_name
+            name = cyclic_oxime_name(b.mol, b.Chem)
+            if name:
+                return PrincipalDecision(stage, PrincipalRequirement('cyclic-oxime'),
+                    output_name=name, direct_route='substitutive:P-68.3.1.1.2')
         if any(view.isotopes):
             from .bluebook_general_methods import (isotopic_benzene_suffix_decision, isotopic_formate_decision,
                 isotopic_halomethane_decision, isotopic_methoxybenzene_decision, isotopic_phenylketone_decision)

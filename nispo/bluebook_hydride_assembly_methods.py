@@ -4,6 +4,7 @@ Every producer accounts for the original atoms and declines competing classes
 or annotations outside its proven scope.
 """
 from collections import Counter
+from functools import lru_cache
 from itertools import product
 import re
 
@@ -523,64 +524,360 @@ def linear_dianhydride_decision(mol, Chem):
     return _decision(mol, results[0], (), 'P-65.7.2/P-65.7.6.1/P-41', method='functional-class')
 
 
-def mixed_anhydride_decision(mol, Chem):
-    """Two monobasic acid residues, including cyanic and chalcogen acids."""
-    if not _plain(mol, Chem) or any(a.GetAtomicNum() == 1 for a in mol.GetAtoms()):
+@lru_cache(maxsize=2)
+def mixed_anhydride_query(Chem):
+    endpoint = '[$([C,S,Se,Te,N]=[O,S,Se,Te;D1]),$(C#[N;D1]),B,Si,P,As,Sb,Cl,Br,I]'
+    return Chem.MolFromSmarts('[O,S,Se,Te;D2;!R;+0](-' + endpoint + ')-' + endpoint)
+
+
+# P-67.1.1.1. Keys give the central element, oxo groups and acid OH groups
+# in the hydrolysed residue. Hydrogens directly on the central atom are
+# checked separately, distinguishing, for example, arsonic and arsoric acid.
+_OXOACID_WORDS = {
+    (5, 0, 1): 'borinic', (5, 0, 2): 'boronic', (5, 0, 3): 'boric',
+    (6, 1, 2): 'carbonic', (7, 1, 1): 'nitrous', (7, 2, 1): 'nitric',
+    (14, 0, 4): 'silicic',
+    (16, 1, 2): 'sulfurous', (16, 2, 2): 'sulfuric',
+    (34, 1, 2): 'selenous', (34, 2, 2): 'selenic',
+    (52, 1, 2): 'tellurous', (52, 2, 2): 'telluric',
+}
+for _element, _stem in ((15, 'phosph'), (33, 'ars'), (51, 'stib')):
+    for _oxo, _endings in ((0, ('inous', 'onous', 'orous')), (1, ('inic', 'onic', 'oric'))):
+        for _oh, _ending in enumerate(_endings, 1):
+            _OXOACID_WORDS[_element, _oxo, _oh] = _stem + _ending
+
+
+def _mononuclear_acid(atom, bridge=None):
+    """Recognize an entire acid residue around its center, including ionic oxo bonds."""
+    z = atom.GetAtomicNum()
+    oxo = hydroxyl = negative = 0
+    for bond in atom.GetBonds():
+        other = bond.GetOtherAtom(atom)
+        if other.GetIdx() == bridge:
+            hydroxyl += 1
+            continue
+        if other.GetAtomicNum() != 8 or other.GetDegree() != 1 or other.GetNumRadicalElectrons():
+            return None
+        charge, order, h = other.GetFormalCharge(), bond.GetBondTypeAsDouble(), other.GetTotalNumHs()
+        if (charge, order, h) == (0, 1, 1):
+            hydroxyl += 1
+        elif (charge, order, h) == (0, 2, 0):
+            oxo += 1
+        elif (charge, order, h) == (-1, 1, 0):
+            oxo += 1
+            negative += 1
+        else:
+            return None
+    if atom.GetFormalCharge() != negative or not hydroxyl:
         return None
-    results = []
-    for bridge in mol.GetAtoms():
-        if bridge.GetAtomicNum() not in {8, 16, 34, 52} or bridge.GetDegree() != 2 or bridge.IsInRing():
+    hydrogens = 3 - hydroxyl if z in (5, 15, 33, 51) else 0
+    if atom.GetTotalNumHs() != hydrogens:
+        return None
+    if z in (17, 35, 53) and oxo and hydroxyl == 1:
+        from .fragment_rules import OXOANIONS
+        acid = OXOANIONS.get((atom.GetSymbol(), oxo + hydroxyl, 0, hydroxyl), '')
+        word = acid.removesuffix(' acid')
+    else:
+        word = _OXOACID_WORDS.get((z, oxo, hydroxyl))
+    return (word, hydroxyl - 1) if word else None
+
+
+def _acid_end(mol, atom, bridge):
+    """Identify the acyl atom and count its uncondensed acid hydroxyl groups."""
+    z = atom.GetAtomicNum()
+    if z in (5, 14, 17, 33, 35, 51, 53):
+        residue = _mononuclear_acid(atom, bridge)
+        if residue or z != 5:
+            return residue[1] if residue else None
+    hydrogens = atom.GetTotalNumHs(includeNeighbors=True)
+    single, double, triple = [], [], []
+    for bond in atom.GetBonds():
+        other = bond.GetOtherAtom(atom)
+        if other.GetIdx() == bridge:
             continue
-        left, right = bridge.GetNeighbors()
-        if any(not _single(mol, bridge.GetIdx(), atom.GetIdx()) for atom in (left, right)):
+        order = bond.GetBondTypeAsDouble()
+        if order not in (1, 2, 3):
+            return None
+        (single, double, triple)[int(order)-1].append(other)
+    free = sum(a.GetAtomicNum() == 8 and a.GetDegree() == 1 and a.GetTotalNumHs() == 1 for a in single)
+    carbon = sum(a.GetAtomicNum() == 6 for a in single)
+    if (not atom.GetFormalCharge() and not triple
+            and all(a.GetDegree() == 1 and a.GetAtomicNum() in {8, 16, 34, 52} for a in double)):
+        if z == 6 and len(double) == 1 and free + carbon + hydrogens == 1 and len(single) == free + carbon:
+            return free
+        if any(a.GetAtomicNum() != 8 for a in double):
+            return None
+        if z == 5 and not double and free + carbon == len(single) == 2:
+            return free
+        if z == 15 and len(double) <= 1 and free + carbon == len(single) and len(single) + hydrogens == 2:
+            return free
+        if z in {16, 34, 52} and 1 <= len(double) <= 2 and len(single) + hydrogens == 1:
+            if free + carbon == len(single) or (len(single) == 1 and single[0].GetAtomicNum() == 7):
+                return free
+        if z == 7 and len(double) == 1 and not single and not hydrogens:
+            return 0
+    if z == 6 and len(triple) == 1 and triple[0].GetAtomicNum() == 7 and not double and not single:
+        return 0
+    if (z == 7 and atom.GetFormalCharge() == 1 and len(double) == len(single) == 1 and not triple
+            and double[0].GetAtomicNum() == single[0].GetAtomicNum() == 8 and single[0].GetFormalCharge() == -1):
+        return 0
+    return None
+
+
+def _alkane_acid_paths(mol, center, owner, carbon_acid):
+    """Longest saturated paths from a terminal acid site, preserving numbering ties."""
+    paths = []
+    pending = [([center, owner] if carbon_acid else [owner], center)]
+    while pending:
+        path, previous = pending.pop()
+        while True:
+            last = path[-1]
+            outward = [a.GetIdx() for a in mol.GetAtomWithIdx(last).GetNeighbors()
+                       if a.GetIdx() != previous and a.GetAtomicNum() == 6]
+            if not outward:
+                paths.append(path)
+                break
+            if (not carbon_acid and last == owner and len(outward) > 1
+                    or any(not _single(mol, last, i) for i in outward)):
+                return ()
+            pending.extend((path + [i], last) for i in outward[1:])
+            previous = last
+            path.append(outward[0])
+    longest = max(map(len, paths))
+    return [p for p in paths if len(p) == longest] if longest in ROOTS else ()
+
+
+def _organic_acid_prefixes(mol, Chem, center, acid_group, path):
+    """Account for terminal hetero substituents and alkyl branches on this path."""
+    terminal = {(6, 3): 'methyl', (7, 2): 'amino', (8, 1): 'hydroxy',
+                (9, 0): 'fluoro', (17, 0): 'chloro', (35, 0): 'bromo', (53, 0): 'iodo'}
+    owned = set(path) | acid_group
+    branches = []
+    for loc, host in enumerate(path, 1):
+        if host == center:
             continue
-        # Ordinary C(=O)–O–C(=O) anhydrides already have a mapped writer.
-        def ordinary_acyl(atom):
-            return (atom.GetAtomicNum() == 6 and any(n.GetAtomicNum() == 8 and n.GetDegree() == 1
-                    and mol.GetBondBetweenAtoms(atom.GetIdx(), n.GetIdx()).GetBondTypeAsDouble() == 2
-                    for n in atom.GetNeighbors()))
-        if bridge.GetAtomicNum()==8 and ordinary_acyl(left) and ordinary_acyl(right):
+        for neighbor in mol.GetAtomWithIdx(host).GetNeighbors():
+            idx = neighbor.GetIdx()
+            if idx in owned:
+                continue
+            if not _single(mol, host, idx):
+                return None
+            label = terminal.get((neighbor.GetAtomicNum(), neighbor.GetTotalNumHs()))
+            if label and neighbor.GetDegree() == 1:
+                branch = {idx}
+            elif neighbor.GetAtomicNum() == 6:
+                label, branch = mapped_branch(mol, Chem, idx, host)
+                if (not label or branch & owned or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6
+                        or mol.GetAtomWithIdx(i).IsInRing()
+                        or any(b.GetBondTypeAsDouble() != 1 for b in mol.GetAtomWithIdx(i).GetBonds())
+                        for i in branch)):
+                    return None
+            else:
+                return None
+            branches.append((loc, label))
+            owned.update(branch)
+    return branches if len(owned) == mol.GetNumAtoms() else None
+
+
+def _simple_organic_acid_word(mol, Chem, center):
+    """Number a single alkane, benzene or pyridine directly from its acid attachment."""
+    atom = mol.GetAtomWithIdx(center)
+    element = atom.GetAtomicNum()
+    if element not in (6, 16, 34, 52):
+        return ''
+    double = tuple(sorted(b.GetOtherAtom(atom).GetAtomicNum() for b in atom.GetBonds()
+                          if b.GetBondTypeAsDouble() == 2))
+    groups = {(6, (8,)): 'carboxylic', (6, (16,)): 'carbothioic', (6, (34,)): 'carboselenoic',
+              (6, (52,)): 'carbotelluroic', (16, (8,)): 'sulfinic', (16, (8, 8)): 'sulfonic',
+              (34, (8,)): 'seleninic', (34, (8, 8)): 'selenonic',
+              (52, (8,)): 'tellurinic', (52, (8, 8)): 'telluronic'}
+    suffix = groups.get((element, double))
+    if not suffix or any(a.GetFormalCharge() or a.GetIsotope() for a in mol.GetAtoms()):
+        return ''
+    owners = [a.GetIdx() for a in atom.GetNeighbors() if a.GetAtomicNum() == 6]
+    if not owners:
+        if element == 6 and atom.GetTotalNumHs() == 1 and mol.GetNumAtoms() == 3:
+            return 'formic' if double == (8,) else 'methane' + suffix[5:]
+        return ''
+    if len(owners) != 1:
+        return ''
+    owner = owners[0]
+    rings = mol.GetRingInfo().AtomRings()
+    nitrogen = None
+    if rings:
+        if len(rings) != 1 or len(rings[0]) != 6 or owner not in rings[0]:
+            return ''
+        ring = rings[0]
+        if any(not mol.GetAtomWithIdx(i).GetIsAromatic() or mol.GetAtomWithIdx(i).GetAtomicNum() not in (6, 7)
+               for i in ring):
+            return ''
+        ns = [i for i in ring if mol.GetAtomWithIdx(i).GetAtomicNum() == 7]
+        if len(ns) > 1:
+            return ''
+        nitrogen = ns[0] if ns else None
+        start = ring.index(nitrogen if ns else owner)
+        paths = [tuple(ring[(start + direction * j) % 6] for j in range(6)) for direction in (1, -1)]
+    else:
+        paths = _alkane_acid_paths(mol, center, owner, element == 6)
+        if not paths:
+            return ''
+
+    acid_group = {center, *(a.GetIdx() for a in atom.GetNeighbors() if a.GetIdx() != owner)}
+    tagged = {a.GetIdx() for a in mol.GetAtoms() if a.GetChiralTag()}
+    descriptors = {}
+    if tagged:
+        from .stereochemistry import assigned_atom_stereochemistry
+        descriptors = dict(assigned_atom_stereochemistry(mol, Chem, include_pseudo=True))
+        if tagged != descriptors.keys():
+            return ''
+    choices = []
+    for path in paths:
+        loc = {i: j for j, i in enumerate(path, 1)}
+        positions = _organic_acid_prefixes(mol, Chem, center, acid_group, path)
+        if positions is None or not tagged <= loc.keys():
+            return ''
+        if rings:
+            base = 'pyridine' if nitrogen is not None else 'benzene'
+            if base == 'benzene' and suffix == 'carboxylic':
+                word = 'benzoic'
+            else:
+                site = '-' + str(loc[owner]) + '-' if positions or nitrogen is not None else ''
+                word = base + site + suffix
+        elif suffix == 'carboxylic':
+            word = 'acetic' if len(path) == 2 else ROOTS[len(path)] + 'anoic'
+        elif element == 6:
+            word = ROOTS[len(path)] + 'ane' + suffix[5:]
+        else:
+            site = '-1-' if len(path) > 2 or (positions and len(path) > 1) else ''
+            word = ROOTS[len(path)] + 'ane' + site + suffix
+        prefixes = [(str(n), term) for n, term in positions]
+        acetic = not rings and word == 'acetic'
+        if acetic and len({term for _, term in positions}) > 1:
+            return ''  # Let the retained-acid writer decide prefix/locant boundaries.
+        prefix = format_prefixes(prefixes, omit_locants=acetic)
+        text = prefix + word
+        if descriptors:
+            from .stereochemistry import _prepend_stereochemical_descriptors
+            text = _prepend_stereochemical_descriptors(text, [
+                str(loc[i]) + descriptors[i] for i in sorted(tagged, key=loc.get)])
+        key = (loc[owner], -len(positions), tuple(sorted(n for n, _ in positions)),
+               tuple(sorted((prefix_alphabetization_key(t), n) for n, t in positions)))
+        choices.append((key, text))
+    best = min(key for key, _ in choices)
+    words = {text for key, text in choices if key == best}
+    return words.pop() if len(words) == 1 else ''
+
+
+def _mixed_acid_word(fragment, Chem, center, free, *, fast_only):
+    """Name the acid produced at this site, preserving alcohols and ring heteroatoms."""
+    atom = fragment.GetAtomWithIdx(center)
+    z = atom.GetAtomicNum()
+    if fragment.GetNumAtoms() == atom.GetDegree() + 1:
+        residue = _mononuclear_acid(atom)
+        if residue and residue[1] == free and not any(a.GetIsotope() for a in fragment.GetAtoms()):
+            return residue[0]
+    if z == 6 and any(b.GetBondTypeAsDouble() == 3 for b in atom.GetBonds()):
+        return 'cyanic' if fragment.GetNumAtoms() == 3 and not any(a.GetIsotope() for a in fragment.GetAtoms()) else ''
+    simple_word = _simple_organic_acid_word(fragment, Chem, center)
+    if simple_word or fast_only:
+        return simple_word
+    if any(a.GetIsotope() for a in fragment.GetAtoms()):
+        return ''  # Labelled acid components require the isotope-aware derivative writer.
+    # An independent free acid elsewhere in a residue changes the principal
+    # group. A phenolic/alcoholic OH does not.
+    for a in fragment.GetAtoms():
+        if a.GetIdx() == center or a.GetAtomicNum() not in {5, 6, 15, 16, 34, 52}:
             continue
-        def acid_endpoint(atom):
-            if atom.GetAtomicNum() == 6:
-                return any(n.GetDegree() == 1 and (
-                    n.GetAtomicNum() in {8, 16, 34, 52}
-                    and mol.GetBondBetweenAtoms(atom.GetIdx(), n.GetIdx()).GetBondTypeAsDouble() == 2
-                    or n.GetAtomicNum() == 7
-                    and mol.GetBondBetweenAtoms(atom.GetIdx(), n.GetIdx()).GetBondTypeAsDouble() == 3)
-                    for n in atom.GetNeighbors())
-            if atom.GetAtomicNum() in {16, 34, 52}:
-                return any(n.GetAtomicNum() == 8 and n.GetDegree() == 1
-                           and mol.GetBondBetweenAtoms(atom.GetIdx(), n.GetIdx()).GetBondTypeAsDouble() == 2
-                           for n in atom.GetNeighbors())
-            return (atom.GetAtomicNum() == 15 and atom.GetTotalValence() == 3
-                    and not atom.IsInRing() and all(n.GetIdx() == bridge.GetIdx()
-                    or n.GetAtomicNum() == 6 for n in atom.GetNeighbors()))
-        if not acid_endpoint(left) or not acid_endpoint(right):
-            continue
-        copy = Chem.RWMol(mol)
-        copy.RemoveBond(bridge.GetIdx(), right.GetIdx())
-        copy.GetAtomWithIdx(bridge.GetIdx()).SetAtomicNum(8)
-        cap = copy.AddAtom(Chem.Atom(8))
-        copy.AddBond(right.GetIdx(), cap, Chem.BondType.SINGLE)
-        bridge_copy = copy.GetAtomWithIdx(bridge.GetIdx())
-        bridge_copy.SetNumExplicitHs(0)
-        bridge_copy.SetNoImplicit(False)
-        split = _sanitize(copy, Chem)
-        if split is None:
-            continue
-        fragments = Chem.GetMolFrags(split, asMols=True, sanitizeFrags=True)
-        if len(fragments) != 2:
-            continue
-        acid_names = [_capped_acid_name(fragment, Chem) for fragment in fragments]
-        if any(not name for name in acid_names) or acid_names[0] == acid_names[1]:
-            continue
-        words = sorted((name[:-5] for name in acid_names), key=prefix_alphabetization_key)
-        modifier = {8: '', 16: 'thio', 34: 'seleno', 52: 'telluro'}[bridge.GetAtomicNum()]
-        results.append(_decision(mol, ' '.join(words) + ' ' + modifier + 'anhydride',
-                                 (left.GetIdx(), right.GetIdx()), 'P-65.7.2/P-41',
-                                 method='functional-class'))
-    return results[0] if len(results) == 1 else None
+        if (any(n.GetAtomicNum() == 8 and n.GetDegree() == 1 and n.GetTotalNumHs() for n in a.GetNeighbors())
+                and (a.GetAtomicNum() != 6 or any(b.GetBondTypeAsDouble() == 2 and
+                     b.GetOtherAtom(a).GetAtomicNum() in {8, 16, 34, 52} for b in a.GetBonds()))):
+            return ''
+    from .api import mol_to_iupac
+    from .acid_derivative_methods import _anhydride_acid_name
+    name = mol_to_iupac(fragment)
+    if any(a.GetChiralTag() for a in fragment.GetAtoms()) or any(b.GetStereo() for b in fragment.GetBonds()):
+        from .component_mapping import _general_branch_stereo_is_cited
+        if not _general_branch_stereo_is_cited(fragment, Chem, range(fragment.GetNumAtoms()), name):
+            return ''
+    return _anhydride_acid_name(re.sub(r' (?:O|S|Se|Te)-acid$', ' acid', name))
+
+
+def mixed_anhydride_decision(mol, Chem, *, fast_only=False):
+    """Hydrolyse one acyclic bridge and cite its complete acid residues alphabetically."""
+    matches = mol.GetSubstructMatches(mixed_anhydride_query(Chem))
+    if not matches or mol.GetStereoGroups() or len(Chem.GetMolFrags(mol)) != 1:
+        return None
+    sites = []
+    for bridge, left, right in matches:
+        free = tuple(_acid_end(mol, mol.GetAtomWithIdx(i), bridge) for i in (left, right))
+        if None not in free:
+            sites.append((left, bridge, right, free))
+    if len(sites) != 1:
+        return None
+    left, bridge, right, free = sites[0]
+    if all(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in (left, right)) and not any(
+            a.GetAtomicNum() == 6 for a in mol.GetAtoms()):
+        return None  # Exclusively inorganic residues have their own P-67 method order.
+    if (mol.GetAtomWithIdx(bridge).GetIsotope()
+            or any(mol.GetAtomWithIdx(i).GetChiralTag() for i in (left, bridge, right))
+            or any(a.GetNumRadicalElectrons() or a.HasQuery() or a.GetAtomicNum() == 1 for a in mol.GetAtoms())
+            or any(b.HasQuery() for b in mol.GetBonds())):
+        return None
+    # Keep the hydrolysis equivalent under reversal of the two endpoints.
+    rw = Chem.RWMol(mol)
+    rw.RemoveBond(bridge, right)
+    rw.ReplaceAtom(bridge, Chem.Atom(8))
+    cap = rw.AddAtom(Chem.Atom(8))
+    rw.AddBond(right, cap, Chem.BondType.SINGLE)
+    split = _sanitize(rw, Chem)
+    if split is None:
+        return None
+    maps = []
+    fragments = Chem.GetMolFrags(split, asMols=True, fragsMolAtomMapping=maps)
+    if len(fragments) != 2:
+        return None
+    stereo_atoms, stereo_bonds = {}, {}
+    if any(a.GetChiralTag() for a in mol.GetAtoms()) or any(b.GetStereo() for b in mol.GetBonds()):
+        from .stereochemistry import assigned_atom_stereochemistry, assigned_bond_stereochemistry
+        stereo_atoms = dict(assigned_atom_stereochemistry(mol, Chem, include_pseudo=True))
+        stereo_bonds = {frozenset((a, b)): di for a, b, di in assigned_bond_stereochemistry(mol, Chem)}
+    words, roles = [], []
+    for frag, ids in zip(fragments, maps, strict=True):
+        center = left if left in ids else right
+        extra = free[0] if center == left else free[1]
+        central_atom = frag.GetAtomWithIdx(ids.index(center))
+        if (any(a.GetFormalCharge() for a in frag.GetAtoms())
+                and not (central_atom.GetDegree() + 1 == frag.GetNumAtoms()
+                         and _mononuclear_acid(central_atom))):
+            # Accept internally charge-separated acid residues (e.g. nitro),
+            # never an anion, cation, or betaine named as a neutral acid.
+            nitro = {i for match in frag.GetSubstructMatches(_nitro_query(Chem)) for i in match}
+            if any(a.GetFormalCharge() and a.GetIdx() not in nitro for a in frag.GetAtoms()):
+                return None
+        if stereo_atoms or stereo_bonds:
+            if ({ids[i]: di for i, di in assigned_atom_stereochemistry(frag, Chem, include_pseudo=True)}
+                    != {i: di for i, di in stereo_atoms.items() if i in ids}
+                    or {frozenset((ids[a], ids[b])): di for a, b, di in assigned_bond_stereochemistry(frag, Chem)}
+                    != {ab: di for ab, di in stereo_bonds.items() if ab <= set(ids)}):
+                return None
+        word = _mixed_acid_word(frag, Chem, ids.index(center), extra, fast_only=fast_only)
+        if not word:
+            return None
+        words.append(word)
+        roles.append(('acid:' + str(len(words)), frozenset(ids) - {bridge, cap}, ()))
+    if words[0] == words[1]:
+        return None
+    words.sort(key=prefix_alphabetization_key)
+    modifier = {8: '', 16: 'thio', 34: 'seleno', 52: 'telluro'}[mol.GetAtomWithIdx(bridge).GetAtomicNum()]
+    ending = ('mono' if any(free) else '') + modifier + 'anhydride'
+    roles.append(('bridge', frozenset({bridge}), ()))
+    return _decision(mol, ' '.join([*words, ending]), (left, right), 'P-65.7.2/P-41', roles,
+                     method='functional-class')
+
+
+@lru_cache(maxsize=2)
+def _nitro_query(Chem):
+    return Chem.MolFromSmarts('[N+](=[O;D1])-[O-;D1]')
 
 
 def substituted_diaryloxy_multiplication(mol, Chem):

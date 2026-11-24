@@ -4,16 +4,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .molecule_iteration import iter_atoms, iter_bonds
-from .constants import MULT, ROOTS
+from .constants import MULT, ROOTS, STANDARD_REPLACEMENT_VALENCE
+from .heteropolycyclic_parents import replacement_locants, replacement_prefix
 from .naming_methods import MethodDecision
 from .polyspiro_frontier import PolyspiroNumbering, polyspiro_parent
 
 
-RULE = ("P-24.2.2/P-24.2.4.1.1/P-24.2.4.1.2(a)-(b)/"
+RULE = ("P-24.2.2/P-24.2.3/P-24.2.4.1.1/P-24.2.4.1.2(a)-(b)/"
         "P-15.4.1.2/P-15.4.2.1/P-51.4.2.3")
 MAX_SKELETAL_ATOMS = 60
-_ALLOWED_VALENCE = {6: 4, 7: 3, 8: 2, 16: 2}
-_ELEMENTS = ((8, "oxa"), (16, "thia"), (7, "aza"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +57,7 @@ def _unsupported(reason: str) -> HeteropolyspiroRecognition:
 
 
 def recognize_heteropolyspiro(mol, Chem=None) -> HeteropolyspiroRecognition:
-    """Recognize the complete neutral, saturated, mixed CNOS linear-chain core.
+    """Recognize a neutral, saturated mixed-carbon graph for spiro numbering.
 
     Carbon capping is private and strictly isomorphic: only atomic numbers are
     replaced in a graph with identical atom/bond indices, for hydrocarbon
@@ -75,19 +74,19 @@ def recognize_heteropolyspiro(mol, Chem=None) -> HeteropolyspiroRecognition:
             or mol.GetStereoGroups()):
         return _unsupported("requires a bounded complete heavy-atom graph without explicit hydrogen atoms")
     atoms = tuple(iter_atoms(mol))
-    if any(atom.GetAtomicNum() not in _ALLOWED_VALENCE
+    if any(atom.GetAtomicNum() not in STANDARD_REPLACEMENT_VALENCE
            or atom.GetFormalCharge() or atom.GetNumRadicalElectrons()
-           or atom.GetTotalValence() != _ALLOWED_VALENCE[atom.GetAtomicNum()]
+           or atom.GetTotalValence() != STANDARD_REPLACEMENT_VALENCE[atom.GetAtomicNum()]
            or atom.GetIsotope() or atom.GetIsAromatic()
            or int(atom.GetChiralTag())
            for atom in atoms):
-        return _unsupported("requires neutral ordinary-valence unannotated C/N/O/S atoms")
+        return _unsupported("requires neutral standard-valence unannotated skeletal atoms")
     if any(bond.GetBondTypeAsDouble() != 1 or bond.GetStereo()
            or int(bond.GetBondDir()) != 0 for bond in iter_bonds(mol)):
         return _unsupported("requires saturated single bonds without stereo or direction annotations")
     numbers = tuple(atom.GetAtomicNum() for atom in atoms)
     if 6 not in numbers or not any(number != 6 for number in numbers):
-        return _unsupported("requires both skeletal carbon and at least one N/O/S replacement atom")
+        return _unsupported("requires both skeletal carbon and at least one skeletal replacement atom")
 
     rw = Chem.RWMol()
     for _atom in atoms:
@@ -101,29 +100,6 @@ def recognize_heteropolyspiro(mol, Chem=None) -> HeteropolyspiroRecognition:
         return _unsupported("isomorphic carbon topology could not be sanitized")
     return HeteropolyspiroRecognition("recognized", "complete bounded mixed-carbon heteropolyspiro graph",
                                       topology, numbers)
-
-
-def _hetero_key(sequence: tuple[int, ...], numbers: tuple[int, ...]):
-    by_element = tuple(
-        tuple(locant for locant, atom_id in enumerate(sequence, 1)
-              if numbers[atom_id] == atomic_number)
-        for atomic_number, _prefix in _ELEMENTS
-    )
-    all_locants = tuple(sorted(locant for group in by_element for locant in group))
-    return (all_locants, by_element)
-
-
-def _replacement_prefix(seniority_locants: tuple[tuple[int, ...], ...]) -> str | None:
-    parts = []
-    for (_atomic_number, prefix), locants in zip(_ELEMENTS, seniority_locants):
-        if not locants:
-            continue
-        count = len(locants)
-        if count > 1 and count not in MULT:
-            return None
-        multiplier = MULT[count] if count > 1 else ""
-        parts.append(",".join(map(str, locants)) + "-" + multiplier + prefix)
-    return "-".join(parts)
 
 
 def _descriptor_text(numbering: PolyspiroNumbering) -> str:
@@ -149,14 +125,10 @@ def heteropolyspiro_parent_proposals(mol, Chem=None) -> HeteropolyspiroResult:
     if frontier.status != "complete":
         return HeteropolyspiroResult("unsupported",
                                      "carbon-capped topology: " + frontier.reason)
-    if any(numbers[atom_id] != 6 for candidate in frontier.candidates
-           for atom_id in candidate.spiro_atoms):
-        return HeteropolyspiroResult("unsupported", "heteroatom spiro junction is outside ordinary valence")
-
     options = []
     for candidate in frontier.candidates:
-        key = _hetero_key(candidate.sequence, numbers)
-        prefix = _replacement_prefix(key[1])
+        key = replacement_locants(candidate.sequence, numbers)
+        prefix = replacement_prefix(numbers, key[1])
         if prefix is None:
             continue
         n_spiro = len(candidate.spiro_atoms)

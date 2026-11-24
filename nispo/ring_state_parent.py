@@ -742,15 +742,34 @@ def _build_inventory(mol, Chem):
     # group atom; original element and isotope indices survive in all maps.
     copy = Chem.Mol(mol)
     converted = set()
+    spiro_core = None
     recognition_changed = False
     for atom in iter_atoms(copy):
         recognition_changed |= bool(atom.GetIsotope())
         atom.SetIsotope(0)
-        if atom.GetAtomicNum() in {16, 34, 52} and atom.IsInRing() and atom.GetTotalValence()==2:
-            if atom.GetAtomicNum() in {34, 52}:
+        number = atom.GetAtomicNum()
+        if number in {16, 34, 52} and atom.IsInRing() and atom.GetTotalValence()==2:
+            if number in {34, 52}:
                 converted.add(atom.GetIdx())
             atom.SetAtomicNum(8)
             recognition_changed = True
+        elif number in {5, 13, 14, 15, 31, 32, 33, 49, 50, 51, 81, 82, 83} and atom.IsInRing():
+            from .constants import STANDARD_REPLACEMENT_VALENCE
+            from .heteropolycyclic_parents import free_spiro_core
+            if spiro_core is None:
+                spiro_core = free_spiro_core(mol.GetRingInfo().AtomRings())
+            if (atom.GetIdx() in spiro_core and not atom.GetFormalCharge() and not atom.GetNumRadicalElectrons()
+                    and atom.GetTotalValence() == STANDARD_REPLACEMENT_VALENCE[number]
+                    and all(b.GetBondTypeAsDouble() == 1 and (b.GetOtherAtomIdx(atom.GetIdx()) in spiro_core
+                            or b.GetOtherAtom(atom).GetAtomicNum() == 6) for b in atom.GetBonds())):
+                # A standard skeletal replacement is a spectator for suffix
+                # recognition. Render its actual element on the original core.
+                converted.add(atom.GetIdx())
+                atom.SetAtomicNum(6)
+                atom.SetNumExplicitHs(0)
+                atom.SetNoImplicit(False)
+                atom.UpdatePropertyCache()
+                recognition_changed = True
     # The peroxide-carbonyl exception is proved on the actual input graph.
     # A recognition copy can otherwise fabricate the proof by erasing isotope
     # labels or replacing ring chalcogens with oxygen. In that case the old
@@ -996,7 +1015,8 @@ def _ring_degrees(size, edges):
 @lru_cache(maxsize=512)
 def _saturated_ring_hydrogens(numbers, edges):
     degree = _ring_degrees(len(numbers), edges)
-    return tuple(_HW_VALENCE[n] - degree[i] for i, n in enumerate(numbers))
+    from .constants import STANDARD_REPLACEMENT_VALENCE
+    return tuple(STANDARD_REPLACEMENT_VALENCE[n] - degree[i] for i, n in enumerate(numbers))
 
 
 def _annular_sulfur_dioxide(mol, sulfur, core):
@@ -1407,7 +1427,9 @@ def _render_once(ctx, skeleton, reference, inventory, *, principal=None, scope=N
             return ()
         h, indicated, deltas = expected, (), (0,) * len(seq)
     elif saturated:
-        if any(n in {34, 52} for n in numbers) and not _simple_hw_cycle(numbers, edges):
+        if (any(n in {34, 52} for n in numbers) and not _simple_hw_cycle(numbers, edges)
+                and (len(skeleton) <= 7 or skeleton[7] not in {
+                    'skeletal-replacement-spiro', 'skeletal-replacement-dispiro', 'skeletal-replacement-polyspiro'})):
             return ()
         expected = _saturated_ring_hydrogens(tuple(numbers), tuple(edges))
         if kind == 'acid' and 16 in numbers and _simple_hw_cycle(numbers, edges):
@@ -1504,7 +1526,15 @@ def _render_once(ctx, skeleton, reference, inventory, *, principal=None, scope=N
         # Saturation supplies the N–H before the substituent loses it. The
         # original capped H vector still has to prove all four hydro locants.
         demand.clear()
-    if absolute is not None:
+    if (saturated and len(skeleton) > 7 and skeleton[7] in {
+            'skeletal-replacement-spiro', 'skeletal-replacement-dispiro', 'skeletal-replacement-polyspiro'}):
+        # The saturated standard-valence core already passed the exact
+        # hydrogen budget. It has no annular pi bonds to accommodate.
+        from .hydrogen_accommodation import HydrogenAccommodation
+        if any(demand[i] > h[i] for i in range(len(seq))):
+            return ()
+        states = (HydrogenAccommodation((), (), (), (), (), (), ()),)
+    elif absolute is not None:
         if any(demand[i] > h[i] for i in range(len(seq))):
             return ()
         from .hydrogen_accommodation import HydrogenAccommodation
@@ -1704,6 +1734,9 @@ def _finish_ring_state(plan, numbering_frontier=None):
         ending = attach_suffix(hydride, multiplied_suffix(len(sites), suffix), () if omit else (locant_text,))
         if kind=='yl' and parent=='benzene':ending='phenyl'
         elif kind=='yl' and omit:ending=parent.removesuffix('ane')+'yl'
+        elif (kind == 'ylidene' and omit and parent.startswith('cyclo')
+              and parent.endswith('ane') and saturated and all(n == 6 for n in numbers)):
+            ending = parent[:-3] + 'ylidene'
         elif (kind == 'yl' and len(sites) == 1 and tuple(suffix_locs) == ('1',)
               and parent.startswith('cyclo') and parent.endswith('ane')
               and saturated and all(n == 6 for n in numbers)

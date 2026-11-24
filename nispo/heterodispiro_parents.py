@@ -4,7 +4,8 @@ The hydrocarbon P-24 frontier is established first. Heteroatom replacement
 then selects among only that source-tied frontier, retaining original atom IDs.
 """
 
-from .constants import MULT
+from .constants import STANDARD_REPLACEMENT_VALENCE
+from .heteropolycyclic_parents import replacement_locants, replacement_prefix
 from .dispiro_frontier import dispiro_frontier
 
 RULES = {
@@ -13,19 +14,17 @@ RULES = {
         "P-24.2.4.1.2(b)", "P-51.4.2.3",
     )
 }
-_ELEMENTS = ((8, "oxa"), (16, "thia"), (7, "aza"))
-_ALLOWED = {6: 4, 7: 3, 8: 2, 16: 2}
 
 
 def _carbon_capped_graph(graph, Chem):
     """Return a clean isomorphic all-carbon graph with the same atom indices."""
     if graph.GetNumAtoms() != graph.GetNumHeavyAtoms() or graph.GetNumAtoms() < 7:
         return None, "requires a complete heavy-atom core without explicit H atoms"
-    if any(atom.GetAtomicNum() not in _ALLOWED
+    if any(atom.GetAtomicNum() not in STANDARD_REPLACEMENT_VALENCE
            or atom.GetFormalCharge() or atom.GetNumRadicalElectrons()
-           or atom.GetTotalValence() != _ALLOWED[atom.GetAtomicNum()]
+           or atom.GetTotalValence() != STANDARD_REPLACEMENT_VALENCE[atom.GetAtomicNum()]
            for atom in graph.GetAtoms()):
-        return None, "only neutral ordinary-valence C/N/O/S cores are supported"
+        return None, "requires standard-valence neutral skeletal atoms"
     if any(bond.GetBondTypeAsDouble() != 1 for bond in graph.GetBonds()):
         return None, "only saturated single-bonded cores are supported"
     numbers = tuple(atom.GetAtomicNum() for atom in graph.GetAtoms())
@@ -43,33 +42,6 @@ def _carbon_capped_graph(graph, Chem):
     except Exception:
         return None, "the isomorphic all-carbon capped graph is not a valid saturated skeleton"
     return (capped, numbers), None
-
-
-def _replacement_metadata(sequence, numbers):
-    by_element = tuple(
-        tuple(position for position, atom_idx in enumerate(sequence, 1)
-              if numbers[atom_idx] == atomic_number)
-        for atomic_number, _ in _ELEMENTS
-    )
-    all_hetero_locants = tuple(sorted(
-        position for locants in by_element for position in locants
-    ))
-    # P-24.2.4.1.2(a): compare the heteroatom locant set without regard to
-    # element; (b): then compare locants in O > S > N seniority order.
-    return all_hetero_locants, by_element
-
-
-def _replacement_prefix(by_element):
-    parts = []
-    for (_, term), locants in zip(_ELEMENTS, by_element):
-        if not locants:
-            continue
-        count = len(locants)
-        if count > 1 and count not in MULT:
-            return None
-        multiplier = MULT[count] if count > 1 else ""
-        parts.append(",".join(map(str, locants)) + "-" + multiplier + term)
-    return "-".join(parts)
 
 
 def _descriptor_text(candidate):
@@ -101,15 +73,10 @@ def skeletons(graph, Chem=None):
     if frontier.status != "complete":
         return
 
-    # A degree-four heteroatom is not an ordinary-valence N/O/S spiro junction.
-    if any(candidate.sequence and any(numbers[idx] != 6 for idx in candidate.spiro_atoms)
-           for candidate in frontier.candidates):
-        return
-
     options = []
     for candidate in frontier.candidates:
-        key = _replacement_metadata(candidate.sequence, numbers)
-        prefix = _replacement_prefix(key[1])
+        key = replacement_locants(candidate.sequence, numbers)
+        prefix = replacement_prefix(numbers, key[1])
         if prefix is None:
             continue
         parent = (prefix + "dispiro[" + _descriptor_text(candidate) + "]"

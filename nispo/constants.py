@@ -145,3 +145,15 @@ REPLACEMENT = {
 }
 HALO = {"F": "fluoro", "Cl": "chloro", "Br": "bromo", "I": "iodo"}
 SKELETON_ATOMS = {"C", *REPLACEMENT}
+
+
+# P-15.4.1.2 in decreasing seniority, with the standard bonding number.
+STANDARD_REPLACEMENTS = (
+    (8, "oxa", 2), (16, "thia", 2), (34, "selena", 2), (52, "tellura", 2),
+    (7, "aza", 3), (15, "phospha", 3), (33, "arsa", 3),
+    (51, "stiba", 3), (83, "bisma", 3),
+    (14, "sila", 4), (32, "germa", 4), (50, "stanna", 4), (82, "plumba", 4),
+    (5, "bora", 3), (13, "alumina", 3), (31, "galla", 3),
+    (49, "inda", 3), (81, "thalla", 3),
+)
+STANDARD_REPLACEMENT_VALENCE = {z: valence for z, _, valence in STANDARD_REPLACEMENTS} | {6: 4}

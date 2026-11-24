@@ -99,19 +99,48 @@ def chain_proposals(mol, Chem, inventory, *, principal=None, scope=None):
     from .stereochemistry import assigned_atom_stereochemistry
 
     groups = tuple(inventory.principal if principal is None else principal)
-    if not principal_scope(mol, groups):
+    if not principal_scope(mol, groups) or (scope is not None and any(g.center not in scope for g in groups)):
         return
     sites = {group.center: _site(mol, group) for group in groups}
     if any(value is None for value in sites.values()):
         return
-    carbon = {
-        atom.GetIdx() for atom in mol.GetAtoms()
-        if atom.GetAtomicNum() == 6 and not atom.IsInRing()
-        and (scope is None or atom.GetIdx() in scope)
-    }
-    for path in _paths(mol, carbon):
-        for seq in (path, tuple(reversed(path))):
-            if not set(sites) <= set(seq):
+    # Only the carbon component bearing the imine can supply its chain.
+    # For an unbranched component, number the whole chain from its preferable
+    # end(s) before naming any O arm. Singletons and other disconnected chains
+    # would lose the suffix or shorten the parent.
+    carbon = set()
+    stack = [groups[0].center]
+    adjacency = {}
+    while stack:
+        idx = stack.pop()
+        if idx in carbon:
+            continue
+        carbon.add(idx)
+        others = [a.GetIdx() for a in mol.GetAtomWithIdx(idx).GetNeighbors()
+                  if a.GetAtomicNum() == 6 and not a.IsInRing()
+                  and (scope is None or a.GetIdx() in scope)]
+        adjacency[idx] = others
+        stack.extend(i for i in others if i not in carbon)
+    if not sites.keys() <= carbon:
+        return
+    if all(len(row) <= 2 for row in adjacency.values()):
+        current = next(i for i in adjacency if len(adjacency[i]) <= 1)
+        path = []
+        previous = None
+        while current is not None:
+            path.append(current)
+            previous, current = current, next((n for n in adjacency[current] if n != previous), None)
+        paths = (tuple(path),)
+    else:
+        paths = _paths(mol, carbon)
+    for path in paths:
+        if not sites.keys() <= set(path):
+            continue
+        orientations = dict.fromkeys((tuple(path), tuple(reversed(path))))
+        positions = {seq: tuple(sorted(seq.index(i) for i in sites)) for seq in orientations}
+        lowest = min(positions.values())
+        for seq in orientations:
+            if positions[seq] != lowest:
                 continue
             carbon_mapping = {idx: str(pos) for pos, idx in enumerate(seq, 1)}
             mapping = dict(carbon_mapping)
@@ -122,7 +151,7 @@ def chain_proposals(mol, Chem, inventory, *, principal=None, scope=None):
 
             prefixes, embedded, failed = [], set(), False
             # Site atoms are traversed from the mapped C/N atoms. The special
-            # N-O operation owns O and its complete simple alkyl branch.
+            # N-O operation owns O and its complete substituent.
             for idx, locant in tuple(mapping.items()):
                 for neighbor in mol.GetAtomWithIdx(idx).GetNeighbors():
                     root = neighbor.GetIdx()
@@ -202,8 +231,8 @@ def chain_proposals(mol, Chem, inventory, *, principal=None, scope=None):
             if not name or len(name) > 260:
                 continue
             if geometry:
-                geometry.sort()
-                name = "(" + ",".join(text for _, text in geometry) + ")-" + name
+                from .stereochemistry import _prepend_stereochemical_descriptors
+                name = _prepend_stereochemical_descriptors(name, [text for _, text in sorted(geometry)])
             facts = graph_parent_facts(
                 mol, seq, mapping, principal_class=groups[0].seniority,
                 suffix_centers=tuple(sites), suffix_locants=locants,

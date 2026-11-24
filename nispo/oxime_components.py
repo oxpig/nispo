@@ -346,113 +346,19 @@ def oxime_ether_oxy_prefix(mol, Chem, root, host, atoms):
     site = oxime_site(mol, carbons[0])
     if site is None or site.oxygen != root or site.oxygen_substituent != host:
         return None
-    from .branch_rules import parent_chain_name
-    from .component_mapping import MappedComponent, decorate_component, mapped_general_branch
-    from .formatting import attach_suffix, prefix_alphabetization_key
-    from .multifunctional_parent import _paths
     from .nitrogen_acid_derivatives import _local_configuration
-    from .parent_selection import locant_set
+    from .ylidene_components import carbon_ylidene
 
-    carbon = site.center
     if {(i, a.GetIdx()) for i in atoms for a in mol.GetAtomWithIdx(i).GetNeighbors()
         if a.GetAtomicNum() > 1 and a.GetIdx() not in atoms} != {(root, host)}:
         return None
-    graph = Chem.Mol(mol)
-    # The C=N descriptor belongs to the aminooxy unit, outside the
-    # independently numbered ylidene fragment. Keep its original E/Z below.
-    graph.GetBondBetweenAtoms(carbon, site.nitrogen).SetStereo(Chem.BondStereo.STEREONONE)
-    geometry = _local_configuration(mol, Chem, carbon, site.nitrogen)
-    if geometry is None:
+    scope = atoms - {root, site.nitrogen}
+    geometry = _local_configuration(mol, Chem, site.center, site.nitrogen)
+    component = carbon_ylidene(mol, Chem, site.center, site.nitrogen, scope)
+    if component is None or geometry is None:
         return None
-    if mol.GetAtomWithIdx(carbon).IsInRing():
-        from .constants import ROOTS
-        from .mapped_ring_parents import records
-
-        scope = atoms - {root, site.nitrogen}
-        if (len(scope) in ROOTS and any(scope == frozenset(r) for r in mol.GetRingInfo().AtomRings())
-                and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6
-                        and not mol.GetAtomWithIdx(i).GetIsotope()
-                        and mol.GetAtomWithIdx(i).GetTotalNumHs() == 2 for i in scope - {carbon})
-                and not mol.GetAtomWithIdx(carbon).GetIsotope()):
-            return _aminooxy_prefix(mol, Chem, site, atoms,
-                                    'cyclo' + ROOTS[len(scope)] + 'ylidene', scope, geometry)
-        rows = records(graph, Chem, scope=scope, attachment=carbon, principal=(),
-                       general_branches=True)
-        if len(rows) != 1 or rows[0].construction is None:
-            return None
-        component = rows[0].construction
-        if component.atoms | component.embedded_atoms != scope:
-            return None
-        if any(mol.GetAtomWithIdx(i).GetChiralTag() for i in scope):
-            from .component_mapping import _general_branch_stereo_is_cited
-            from .stereochemistry import assigned_atom_stereochemistry
-            original = dict(assigned_atom_stereochemistry(mol, Chem, include_pseudo=True))
-            rendered = dict(assigned_atom_stereochemistry(graph, Chem, include_pseudo=True))
-            if (any(original.get(i) != rendered.get(i) for i in scope)
-                    or not _general_branch_stereo_is_cited(mol, Chem, scope, rows[0].name)):
-                return None
-        return _aminooxy_prefix(mol, Chem, site, atoms, rows[0].name, scope, geometry)
-    if any(mol.GetAtomWithIdx(i).GetChiralTag() for i in atoms):
-        return None
-    core = {carbon}
-    stack = [carbon]
-    while stack:
-        idx = stack.pop()
-        for a in mol.GetAtomWithIdx(idx).GetNeighbors():
-            if (a.GetAtomicNum() == 6 and not a.IsInRing() and a.GetIdx() in atoms
-                    and a.GetIdx() not in core):
-                core.add(a.GetIdx())
-                stack.append(a.GetIdx())
-    if len(core) > 16:
-        return None
-    paths = [path for path in _paths(mol, core) if carbon in path]
-    if not paths:
-        return None
-    longest = max(map(len, paths))
-    best = []
-    for path in paths:
-        if len(path) != longest:
-            continue
-        for seq in dict.fromkeys((path, path[::-1])):
-            mapping = {idx: str(i) for i, idx in enumerate(seq, 1)}
-            framework = set(seq) | {root, site.nitrogen}
-            occupied, prefixes = set(framework), []
-            ports = ((idx, a.GetIdx()) for idx in seq for a in mol.GetAtomWithIdx(idx).GetNeighbors()
-                     if a.GetIdx() not in framework and a.GetAtomicNum() > 1)
-            complete = True
-            for idx, other in ports:
-                text, owned = mapped_general_branch(mol, Chem, other, idx)
-                if not text or owned & occupied or not owned <= atoms:
-                    complete = False
-                    break
-                occupied.update(owned)
-                prefixes.append((mapping[idx], text))
-            if not complete or occupied != atoms:
-                continue
-            parent = parent_chain_name(mol, seq)
-            ylidene = attach_suffix(parent, 'ylidene', (mapping[carbon],))
-            if not ylidene:
-                continue
-            body = decorate_component(graph, Chem, MappedComponent(
-                ylidene, tuple(mapping.items()), frozenset(seq), tuple(prefixes),
-                frozenset(atoms - set(seq) - {root, site.nitrogen}), systematic_parent=True))
-            if not body:
-                continue
-            orders = [mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble() for a, b in zip(seq, seq[1:])]
-            key = (int(mapping[carbon]), -sum(order > 1 for order in orders),
-                   tuple(i for i, order in enumerate(orders, 1) if order > 1),
-                   locant_set(loc for loc, _ in prefixes),
-                   locant_set(loc for loc, _ in sorted(
-                       prefixes, key=lambda item: prefix_alphabetization_key(item[1]))))
-            best.append((key, body, frozenset(seq)))
-    if not best:
-        return None
-    lowest = min(key for key, _, _ in best)
-    winners = [(body, seq) for key, body, seq in best if key == lowest]
-    if len({body for body, _ in winners}) != 1:
-        return None
-    body, seq = winners[0]
-    return _aminooxy_prefix(mol, Chem, site, atoms, body, seq, geometry)
+    body, mapping = component
+    return _aminooxy_prefix(mol, Chem, site, atoms, body, dict(mapping).keys(), geometry)
 
 
 def _aminooxy_prefix(mol, Chem, site, atoms, body, seq, geometry):
@@ -569,10 +475,15 @@ def oxime_imino_prefix(mol, Chem, root, blocked, atoms):
     if not text or owned | {root} != atoms:
         return "", frozenset()
     from .formatting import enclose_name_unit
+    name = (text if text.isalpha() else enclose_name_unit(text)) + "imino"
+    return imino_prefix_configuration(mol, Chem, root, blocked, name, atoms)
+
+
+def imino_prefix_configuration(mol, Chem, root, blocked, name, atoms):
+    """Keep exocyclic C=N geometry with its numbered ring or chain prefix."""
     from .molecule_cache import mol_cache_dict
     from .stereochemistry import assigned_bond_stereochemistry
 
-    name = (text if text.isalpha() else enclose_name_unit(text)) + "imino"
     if mol.GetBondBetweenAtoms(root, blocked).GetStereo():
         label = next((d for a, b, d in assigned_bond_stereochemistry(mol, Chem)
                       if {a, b} == {root, blocked}), '')
@@ -580,7 +491,7 @@ def oxime_imino_prefix(mol, Chem, root, blocked, atoms):
             return "", frozenset()
         if mol.GetAtomWithIdx(blocked).IsInRing():
             # P-93.5.1.4.2.1(a) places the descriptor on the ring component.
-            claims = mol_cache_dict(mol, 'oxime_parent_bond_stereo')
+            claims = mol_cache_dict(mol, 'exocyclic_parent_bond_stereo')
             claims[(root, blocked, name, atoms)] = label
         else:
             name = f"({label})-{name}"

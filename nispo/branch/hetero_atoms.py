@@ -1658,7 +1658,7 @@ def _hydrazone_prefix(mol, idx: int, parent_idx: int) -> str:
         return ""  # These nitrogen isotope roles need their own descriptor map.
     from ..hydrazone_methods import mapped_ylidene_prefix
     from ..formatting import enclose_name_unit
-    ylidene = mapped_ylidene_prefix(mol, Chem, imine_carbons[0], distal_n_idx, idx)
+    ylidene = mapped_ylidene_prefix(mol, Chem, imine_carbons[0], distal_n_idx, idx, general=True)
     if not ylidene and len(heavy) == 2 and mol.GetBondBetweenAtoms(imine_carbons[0], distal_n_idx).GetStereo():
         return ""
     if not ylidene:

@@ -513,7 +513,7 @@ def _mapped_stereochemistry_plan(mol, Chem, component, locants,
             if branch is None:
                 return None
             root, host, owned, text = branch
-            parent_label = mol_cache_get(mol, 'oxime_parent_bond_stereo', {}).get(
+            parent_label = mol_cache_get(mol, 'exocyclic_parent_bond_stereo', {}).get(
                 (root, host, text, owned))
             branch_claims = mol_cache_get(mol, 'rendered_mapped_branch_bond_stereo', {})
             if parent_label:
@@ -1060,6 +1060,13 @@ def _mapped_general_branch(mol, Chem, root, blocked):
             or {(i, n.GetIdx()) for i in atoms for n in mol.GetAtomWithIdx(i).GetNeighbors()
                 if n.GetAtomicNum() > 1 and n.GetIdx() not in atoms} != {(root, blocked)}):
         return '', frozenset()
+    order = cut.GetBondTypeAsDouble()
+    if (order == 2 and mol.GetAtomWithIdx(root).GetAtomicNum() == 7
+            and any(a.GetAtomicNum() == 7 for a in mol.GetAtomWithIdx(root).GetNeighbors())):
+        from .hydrazone_methods import hydrazinylidene_prefix
+        result = hydrazinylidene_prefix(mol, Chem, root, blocked, atoms)
+        if result[0]:
+            return result
     if cut.GetStereo():
         from .oxime_components import oxime_imino_prefix
 
@@ -1077,7 +1084,6 @@ def _mapped_general_branch(mol, Chem, root, blocked):
             if rooted and "oxo" in rooted and "-one-" not in rooted:
                 return rooted, atoms
         return text, atoms
-    order = cut.GetBondTypeAsDouble()
     if order == 1 and atom.GetAtomicNum() == 7 and not atom.IsInRing() and atom.GetDegree() == 2:
         from .sulfonylguanidine import mapped_sulfonylguanidino_prefix
 

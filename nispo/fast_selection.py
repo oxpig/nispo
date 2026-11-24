@@ -17,6 +17,7 @@ from .amine_cation_components import ring_alkyl_aminium, ring_alkyl_aminium_quer
 from .carbonyl_oxide_methods import carbonyl_oxide_decision, carbonyl_oxide_query
 from .fast_parent_construction import (bounded_ester_name, bounded_fused_carbonyl_name,
                                        principal_acid_name, repaired_parent_name)
+from .functional_class_queries import amide_query, hydrazone_query, lactone_query, urea_query
 from .locant_presentation import placement_proof_scope
 from .naming_result import NamingResult, SelectionLimitation
 from .prefix_presentation import (normalize_enclosing_marks, numbered_biphenyl_ligand,
@@ -183,6 +184,34 @@ def _shared_component(mol, Chem, canonical=None):
     # other hydrocarbons can go directly to the existing fast writer.
     if canonical is not None and not _N_OR_O.search(canonical):
         return ''
+    if canonical is None or 'N' in canonical and '=' in canonical:
+        if ((canonical is None or canonical.count('N') >= 2 and ('N=' in canonical or '=N' in canonical))
+                and mol.HasSubstructMatch(hydrazone_query(Chem))):
+            from .hydrazone_methods import hydrazone_parent_decision
+            decision = hydrazone_parent_decision(mol, Chem)
+            if decision:
+                return decision.name
+        if ((canonical is None or 'S' in canonical or 'Te' in canonical)
+                and (size <= 20 and len(rings) <= 1 or canonical is None
+                     or '[Se' in canonical or '[Te' in canonical)
+                and mol.HasSubstructMatch(amide_query(Chem))):
+            from .chalcogen_amide_parents import chalcogen_amide_decision
+            decision = chalcogen_amide_decision(mol, Chem)
+            if decision:
+                return decision.name
+        if ((canonical is None or 'O' in canonical and canonical.count('N') >= 2)
+                and mol.HasSubstructMatch(urea_query(Chem))):
+            from .urea_methods import urea_decision
+            decision = urea_decision(mol, Chem)
+            if decision:
+                return decision.name
+    if (rings and (canonical is None or ('O' in canonical or 'o' in canonical)
+            and '=' in canonical) and size <= sum(map(len, rings)) + 8
+            and mol.HasSubstructMatch(lactone_query(Chem))):
+        from .lactone_parents import lactone_decision
+        decision = lactone_decision(mol, Chem)
+        if decision:
+            return decision.name
     could_be_oxime = canonical is None or ('N' in canonical and 'O' in canonical and '=' in canonical)
     if could_be_oxime:
         from .oxime_components import fast_oxime_name, oxime_query
@@ -543,12 +572,23 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
                and any(neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()))
            for atom in mol.GetAtoms()):
         rings = mol.GetRingInfo().AtomRings()
-        if rings and any(a.GetIsotope() for a in mol.GetAtoms()):
+        isotopic = any(a.GetIsotope() for a in mol.GetAtoms())
+        if isotopic and mol.HasSubstructMatch(hydrazone_query(Chem)):
+            from .hydrazone_methods import hydrazone_parent_decision
+            decision = hydrazone_parent_decision(mol, Chem)
+            if decision:
+                annotated_component = decision.name
+        elif isotopic and mol.HasSubstructMatch(urea_query(Chem)):
+            from .urea_methods import urea_decision
+            decision = urea_decision(mol, Chem)
+            if decision:
+                annotated_component = decision.name
+        if not annotated_component and rings and isotopic:
             try:
                 annotated_component = _shared_ring_name(mol, Chem, rings, mol.GetNumHeavyAtoms(), None)
             except (ValueError, RuntimeError):
                 return unavailable()
-        elif not rings and 2 <= mol.GetNumAtoms() <= 8 and any(
+        elif not annotated_component and not rings and 2 <= mol.GetNumAtoms() <= 8 and any(
                 a.GetAtomicNum() in (9, 17, 35, 53) for a in mol.GetAtoms()):
             from .homogeneous_hydrides import halogenated_short_parent
 

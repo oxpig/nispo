@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .functional_class_queries import ylidene_urea_query
+
 from .molecule_iteration import iter_atoms, iter_bonds
 from .component_mapping import mapped_branch
 from .formatting import format_prefixes, multiply_component, prefix_alphabetization_key
@@ -17,29 +19,50 @@ _PARENT_BY_CORE_CHALCOGEN = {
 
 
 def urea_decision(mol, Chem):
-    decision = _bounded_urea_decision(mol, Chem)
-    if decision is not None:
-        return decision
+    if not mol.HasSubstructMatch(ylidene_urea_query(Chem)):
+        decision = _bounded_urea_decision(mol, Chem)
+        if decision is not None:
+            return decision
     from .extended_inventory import selection_inventory
 
-    inventory = selection_inventory(mol)
+    from .functional_class_queries import urea_query
+    matches = mol.GetSubstructMatches(urea_query(Chem), maxMatches=2)
+    if len(matches) != 1:
+        return None
+    _, _, chalcogen, _ = matches[0]
+    element = mol.GetAtomWithIdx(chalcogen).GetAtomicNum()
+    graph = mol
+    if element != 8:
+        # The oxygen analogue proves the underlying urea site. A competing
+        # acid derivative can change seniority on functional replacement.
+        graph = Chem.Mol(mol)
+        atom = graph.GetAtomWithIdx(chalcogen)
+        atom.SetAtomicNum(8)
+        atom.SetIsotope(0)
+        try:
+            Chem.SanitizeMol(graph)
+        except (RuntimeError, ValueError):
+            return None
+    inventory = selection_inventory(graph)
     if (not inventory.supported or inventory.source_frontier.status != 'selected'
             or len(inventory.principal) != 1 or inventory.principal[0].kind != 'urea'):
         return None
     group = inventory.principal[0]
+    if graph is not mol and any(g.kind not in {'urea', 'imine', 'amine', 'alcohol', 'ether', 'ketone'}
+                                for g in inventory.groups):
+        return None
     nitrogens = tuple(i for i in group.atoms if mol.GetAtomWithIdx(i).GetAtomicNum() == 7)
     if len(nitrogens) != 2 or any(mol.GetAtomWithIdx(i).IsInRing() for i in nitrogens):
         return None  # A ring N can require the heterocyclic carboxamide construction.
-    return _mapped_urea_substituents(mol, Chem, group, nitrogens)
+    return _mapped_urea_substituents(mol, Chem, group, nitrogens, element)
 
 
-def _mapped_urea_substituents(mol, Chem, group, nitrogens):
-    from .component_mapping import mapped_general_branch
+def _mapped_urea_substituents(mol, Chem, group, nitrogens, element):
+    from .component_mapping import MappedComponent, _mapped_isotope_descriptor_plan, hydrogen_bindings, mapped_general_branch
     from .naming_result import SelectionLimitation
 
-    core = frozenset(group.atoms)
-    if (mol.GetStereoGroups() or any(a.GetIsotope() or a.GetFormalCharge()
-                                    or a.GetNumRadicalElectrons() for a in iter_atoms(mol))
+    core = frozenset(hydrogen_bindings(mol, dict.fromkeys(group.atoms, '')))
+    if (mol.GetStereoGroups() or any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in iter_atoms(mol))
             or any(int(mol.GetAtomWithIdx(i).GetChiralTag()) for i in core)):
         return None
     owned = set(core)
@@ -51,30 +74,63 @@ def _mapped_urea_substituents(mol, Chem, group, nitrogens):
             root = bond.GetOtherAtomIdx(i)
             if root == group.center or mol.GetAtomWithIdx(root).GetAtomicNum() == 1:
                 continue
-            if bond.GetBondType() != Chem.BondType.SINGLE:
+            if bond.GetBondType() == Chem.BondType.DOUBLE and mol.GetAtomWithIdx(root).GetAtomicNum() == 6:
+                from .branch_rules import collect_subtree
+                from .hydrazone_methods import mapped_ylidene_prefix
+                if any(a.GetAtomicNum() not in {1, 6} for a in mol.GetAtomWithIdx(root).GetNeighbors()
+                       if a.GetIdx() != i):
+                    return None
+                text = mapped_ylidene_prefix(mol, Chem, root, i, general=True)
+                atoms = frozenset(collect_subtree(mol, root, i))
+            elif bond.GetBondType() == Chem.BondType.SINGLE:
+                text, atoms = mapped_general_branch(mol, Chem, root, i)
+            else:
                 return None
-            text, atoms = mapped_general_branch(mol, Chem, root, i)
             if not text or atoms & owned:
                 return None
             prefixes.append(text)
             owned.update(atoms)
             branch_roles.append(('N-substituent', atoms, ()))
         by_nitrogen[i] = tuple(prefixes)
-    heavy = frozenset(a.GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum() > 1)
-    if owned != heavy:
+    required = frozenset(a.GetIdx() for a in iter_atoms(mol) if a.GetAtomicNum() > 1 or a.GetIsotope())
+    if owned != required:
         return None
     # The two equivalent N sites can be numbered either way. The first
     # criterion is the lowest set of locants, then the citation-order set.
     options = []
+    labelled = any(mol.GetAtomWithIdx(i).GetIsotope() for i in core)
     for first, second in (nitrogens, nitrogens[::-1]):
         locants = ((first, 'N'), (second, "N'"))
         prefixes = [(locant, text) for idx, locant in locants for text in by_nitrogen[idx]]
         ordered = sorted(prefixes, key=lambda p: (prefix_alphabetization_key(p[1]), p[0]))
         key = (tuple(sorted(loc for loc, _ in prefixes)), tuple(loc for loc, _ in ordered))
-        options.append((key, format_prefixes(prefixes, hierarchical_enclosures=True), locants))
-    _, prefix, locants = min(options)
-    return MethodDecision(prefix + 'urea', 'substitutive', frozenset({group.center}), heavy,
-                          'P-41/P-66.1.6.1', locants,
+        parent, rule = _PARENT_BY_CORE_CHALCOGEN[element]
+        if labelled:
+            mapping = hydrogen_bindings(mol, dict.fromkeys(group.atoms, '') | dict(locants))
+            component = MappedComponent(parent, tuple(mapping.items()), core, tuple(prefixes))
+            plan = _mapped_isotope_descriptor_plan(mol, Chem, component, mapping)
+            if plan is None or not plan[0]:
+                continue
+            parts, claims = plan
+            # In plain text, e.g. "13C,N'-15N" can be read as two
+            # locants for nitrogen. Identify the unique urea carbon when
+            # the same descriptor also needs a locanted nuclide.
+            if mol.GetAtomWithIdx(group.center).GetIsotope() and any(
+                    loc for _, symbol, _, _, loc in claims if symbol != 'C'):
+                parts = ('C-' + parts[0], *parts[1:])
+            parent = '(' + ','.join(parts) + ')' + parent
+            # After ordinary locants tie, put the labelled N at the lower
+            # locant, then the heavier isotope if both are modified.
+            from .parent_annotations import isotope_numbering_key
+            # Unlocanted carbon and oxygen have fixed positions in both
+            # orientations. N precedes N' in this retained parent's series.
+            key += (isotope_numbering_key(mol, mapping, locant_series=lambda locs: tuple(sorted(locs))),)
+        options.append((key, format_prefixes(prefixes, hierarchical_enclosures=True) + parent, locants))
+    if not options:
+        return None
+    _, name, locants = min(options)
+    return MethodDecision(name, 'substitutive', frozenset({group.center}), required,
+                          'P-41/' + rule, locants,
                           component_roles=(('urea-core', core, locants), *branch_roles),
                           preference_issues=(SelectionLimitation('urea-substitution', 'P-66.1.6.1',
                               'The principal urea and all N substituents are mapped.'),))

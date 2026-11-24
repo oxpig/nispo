@@ -147,45 +147,56 @@ def skeletons(graph):
     numbers = tuple(a.GetAtomicNum() for a in graph.GetAtoms())
     if 6 not in numbers or not any(n != 6 for n in numbers):
         return
+    rank = graph.GetNumBonds() - size + 1
+    if rank not in {2, 3}:
+        return
     multiple = tuple(b for b in graph.GetBonds() if b.GetBondTypeAsDouble() != 1)
-    if multiple and (len(multiple) != 1 or multiple[0].GetBondTypeAsDouble() != 2
-                     or any(a.GetAtomicNum() != 6
-                            for a in (multiple[0].GetBeginAtom(), multiple[0].GetEndAtom()))):
+    if (rank == 2 and multiple and (len(multiple) != 1 or multiple[0].GetBondTypeAsDouble() != 2)
+            or any(b.GetBondTypeAsDouble() not in (2, 3) or b.GetBeginAtom().GetAtomicNum() != 6
+                   or b.GetEndAtom().GetAtomicNum() != 6 for b in multiple)):
         return
     adjacency = {a.GetIdx(): {n.GetIdx() for n in a.GetNeighbors()} for a in graph.GetAtoms()}
-    if graph.GetNumBonds() - size + 1 != 2:
-        return
+    if rank == 3:
+        from .tricyclic_von_baeyer_frontier import tricyclic_von_baeyer_frontier
+        frontier = tricyclic_von_baeyer_frontier(adjacency)
+        if frontier.status != 'complete':
+            return
+        frames = ((n.sequence, n.bridge_descriptor, 'von-Baeyer') for n in frontier.candidates)
+    else:
+        theta = not multiple and max(map(len, adjacency.values())) == 3 and set(numbers) <= {6, 7, 8, 16}
+        orders = _theta_orders(adjacency) if theta else ()
+        frames = ((seq, stem + '[' + '.'.join(map(str, lengths)) + ']', method)
+                  for method, stem, variants in (('von-Baeyer', 'bicyclo', orders), ('spiro', 'spiro', _spiro_orders(adjacency)))
+                  for seq, lengths in variants)
     options = []
-    for method, orders in (('von-Baeyer', _theta_orders(adjacency) if not multiple and max(map(len, adjacency.values())) == 3
-                            and set(numbers) <= {6, 7, 8, 16} else ()),
-                           ('spiro', _spiro_orders(adjacency))):
-        for seq, descriptor in orders:
-            if len(seq) != size or len(set(seq)) != size:
-                continue
-            key = replacement_locants(seq, numbers)
-            prefix = replacement_prefix(numbers, key[1])
-            if prefix is None:
-                continue
-            parent = prefix + ('bicyclo' if method == 'von-Baeyer' else 'spiro')
-            parent += '[' + '.'.join(map(str, descriptor)) + ']' + ROOTS[size] + 'ane'
-            inverse = {i: j for j, i in enumerate(seq)}
-            edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
-                          for b in graph.GetBonds())
-            row = (parent, tuple(seq), tuple(map(str, range(1, size + 1))),
-                   tuple(numbers[i] for i in seq), edges, not multiple, key,
-                   'skeletal-replacement-' + method)
-            if multiple:
-                from .localized_bicyclic_states import LocalizedBicyclicState
-                from .unsaturated_ring_parents import UnsaturationState
+    for seq, descriptor, method in frames:
+        if len(seq) != size or len(set(seq)) != size:
+            continue
+        key = replacement_locants(seq, numbers)
+        prefix = replacement_prefix(numbers, key[1])
+        if prefix is None:
+            continue
+        parent = prefix + descriptor + ROOTS[size] + 'ane'
+        inverse = {i: j for j, i in enumerate(seq)}
+        edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
+                      for b in graph.GetBonds())
+        row = (parent, tuple(seq), tuple(map(str, range(1, size + 1))),
+               tuple(numbers[i] for i in seq), edges, not multiple, key,
+               'skeletal-replacement-' + method)
+        if multiple:
+            from .localized_bicyclic_states import LocalizedBicyclicState
+            from .unsaturated_ring_parents import UnsaturationState
 
-                left, right = sorted(inverse[i] + 1 for i in (
-                    multiple[0].GetBeginAtomIdx(), multiple[0].GetEndAtomIdx()))
-                state = LocalizedBicyclicState(key[0], tuple(
-                    graph.GetAtomWithIdx(i).GetTotalNumHs() for i in seq),
-                    UnsaturationState(((left, right, 2),), (left,), (left,), ()),
-                    von_baeyer=False)
-                row += (state,)
-            options.append(row)
+            bonds = tuple(sorted((*sorted((inverse[b.GetBeginAtomIdx()] + 1, inverse[b.GetEndAtomIdx()] + 1)),
+                                  int(b.GetBondTypeAsDouble())) for b in multiple))
+            state = LocalizedBicyclicState(key[0], tuple(
+                graph.GetAtomWithIdx(i).GetTotalNumHs() for i in seq),
+                UnsaturationState(bonds, tuple(a for a, _, _ in bonds),
+                                  tuple(a for a, _, order in bonds if order == 2),
+                                  tuple(a for a, _, order in bonds if order == 3)),
+                von_baeyer=method == 'von-Baeyer')
+            row += (state,)
+        options.append(row)
     if options:
         best = min(row[6] for row in options)
         seen = set()

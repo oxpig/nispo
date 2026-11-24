@@ -1,14 +1,9 @@
-"""Mapped, bounded hydrazone naming by substitution on hydrazine (P-68.3.1.2.2).
-
-This producer accepts neutral acyclic C=N-N graphs with a saturated linear
-carbon ylidene skeleton and simple carbon substituents on hydrazine N-1. It
-returns a complete mapped ``MethodDecision`` and admits reciprocal two-arm
-azines. Ring parents, heteroatom branches, and competing characteristic groups
-are left to other routes.
-"""
+"""Mapped hydrazine parents and subordinate ylidene groups (P-68.3.1.2)."""
 
 from dataclasses import dataclass
 from functools import lru_cache
+
+from .functional_class_queries import hydrazone_query
 
 from .molecule_iteration import iter_atoms, iter_bonds
 from .naming_methods import MethodDecision
@@ -34,13 +29,16 @@ def _sites(mol):
     for carbon in iter_atoms(mol):
         c = carbon.GetIdx()
         if (carbon.GetAtomicNum() != 6 or carbon.GetFormalCharge()
-                or carbon.GetNumRadicalElectrons() or carbon.IsInRing()):
+                or carbon.GetNumRadicalElectrons()):
             continue
         imine_ns = [a for a in carbon.GetNeighbors()
                     if a.GetAtomicNum() == 7 and _order(mol, c, a.GetIdx()) == 2]
         if len(imine_ns) != 1:
             continue
         n2 = imine_ns[0]
+        if any(a.GetAtomicNum() not in {1, 6} for a in carbon.GetNeighbors()
+               if a.GetIdx() != n2.GetIdx()):
+            continue  # Hydrazides and amidrazones have distinct functional parents.
         terminal_ns = [a for a in n2.GetNeighbors()
                        if a.GetAtomicNum() == 7 and _order(mol, n2.GetIdx(), a.GetIdx()) == 1]
         if len(terminal_ns) != 1:
@@ -154,6 +152,23 @@ def principal_scope(mol, groups=None):
 
 
 def _ylidene_component(mol, Chem, site):
+    from .branch_rules import collect_subtree
+    from .ylidene_components import carbon_ylidene
+
+    carbon, nitrogen = site.carbon, site.imine_nitrogen
+    if not mol.GetAtomWithIdx(carbon).IsInRing():
+        linear = _linear_ylidene(mol, Chem, site)
+        if linear is not None:
+            return linear
+    scope = frozenset(collect_subtree(mol, carbon, nitrogen))
+    component = carbon_ylidene(mol, Chem, carbon, nitrogen, scope, terminal_contraction=True)
+    if component is None:
+        return None
+    name, mapping = component
+    return name, scope, mapping, dict(mapping)[carbon]
+
+
+def _linear_ylidene(mol, Chem, site):
     """Return mapped linear carbon ylidene name and ownership, or decline."""
     from .branch_rules import parent_chain_name
     from .component_mapping import (MappedComponent, decorate_component,
@@ -297,7 +312,7 @@ def _ylidene_geometry(mol, Chem, site, yname, yloc):
     return stereo + "-" + yname
 
 
-def mapped_ylidene_prefix(mol, Chem, carbon, nitrogen, terminal_nitrogen=None):
+def mapped_ylidene_prefix(mol, Chem, carbon, nitrogen, terminal_nitrogen=None, *, general=False):
     """Reuse the mapped carbon writer for a subordinate C=N prefix.
 
     P-68.3.1.2.2 uses the same ylidene unit when a more senior group owns
@@ -306,7 +321,10 @@ def mapped_ylidene_prefix(mol, Chem, carbon, nitrogen, terminal_nitrogen=None):
     """
     site = HydrazoneSite(carbon, nitrogen,
                          nitrogen if terminal_nitrogen is None else terminal_nitrogen)
-    unit = _ylidene_component(mol, Chem, site)
+    carbonyl_derived = all(a.GetAtomicNum() in {1, 6} for a in mol.GetAtomWithIdx(carbon).GetNeighbors()
+                           if a.GetIdx() != nitrogen)
+    unit = (_ylidene_component(mol, Chem, site) if general and carbonyl_derived
+            else _linear_ylidene(mol, Chem, site))
     if unit is None:
         return None
     name, _atoms, _mapping, locant = unit
@@ -432,29 +450,218 @@ def _azine_decision(mol, Chem, sites):
                           tuple(locants), (), tuple(roles))
 
 
-def hydrazone_decision(mol, Chem):
+def _principal_substituents(mol, n_atoms):
+    # Halogens, ethers and aromatic heteroatoms can occur in a substituent.
+    # Other characteristic groups require their own seniority comparison.
+    for atom in iter_atoms(mol):
+        if atom.GetIdx() in n_atoms or atom.GetAtomicNum() in {1, 6, 9, 17, 35, 53}:
+            continue
+        if atom.GetIsAromatic() and atom.GetAtomicNum() in {7, 8, 16}:
+            continue
+        if (atom.GetAtomicNum() in {8, 16} and atom.GetDegree() == 2
+                and all(b.GetBondTypeAsDouble() == 1
+                        and b.GetOtherAtom(atom).GetAtomicNum() == 6 for b in atom.GetBonds())):
+            continue
+        return False
+    return True
+
+
+def _hydrazine_end(mol, Chem, site, parent):
+    """Map one N–N unit, its isotope hydrogens, and all terminal N substituents."""
+    from .component_mapping import MappedComponent, _mapped_isotope_descriptor_plan, hydrogen_bindings, mapped_general_branch
+    from .formatting import enclose_name_unit, format_prefixes
+
+    first, second = site.imine_nitrogen, site.terminal_nitrogen
+    if any(mol.GetAtomWithIdx(i).GetChiralTag() for i in (first, second)):
+        return None
+    mapping = hydrogen_bindings(mol, {first: '1', second: '2'})
+    occupied, words = set(mapping), []
+    for atom in mol.GetAtomWithIdx(second).GetNeighbors():
+        root = atom.GetIdx()
+        if root in mapping:
+            continue
+        if atom.GetAtomicNum() != 6 or _order(mol, root, second) != 1:
+            return None
+        word, atoms = mapped_general_branch(mol, Chem, root, second)
+        if not word or atoms & occupied or site.carbon in atoms:
+            return None
+        occupied.update(atoms)
+        words.append(word)
+    prefixes = tuple(('2', word) for word in words)
+    component = MappedComponent(parent, tuple(mapping.items()), frozenset(mapping), prefixes)
+    plan = _mapped_isotope_descriptor_plan(mol, Chem, component, mapping)
+    if plan is None:
+        return None
+    if parent == 'hydrazinylidene' and len(words) == 1 and not plan[0]:
+        prefix = words[0] if words[0].isalpha() else enclose_name_unit(words[0])
+    else:
+        prefix = format_prefixes(prefixes, hierarchical_enclosures=True)
+    label = '(' + ','.join(plan[0]) + ')' if plan[0] else ''
+    return prefix + label + parent, frozenset(occupied), tuple(mapping.items())
+
+
+def _diylidene_frames(mol, Chem, centers, link):
+    from .branch_rules import parent_chain_name
+    from .mapped_ring_parents import ring_systems, skeletons
+    from .rooted_carbon_parents import carbon_paths
+
+    if any(mol.GetAtomWithIdx(i).IsInRing() for i in centers):
+        for ring in ring_systems(mol):
+            if not centers <= ring or not ring <= link:
+                continue
+            for hydride, seq, locants, _, _, saturated, key, *_ in skeletons(mol, Chem, ring):
+                if saturated:
+                    yield hydride, dict(zip(seq, locants)), (key,), ()
+        return
+    for path in carbon_paths(mol, centers, link):
+        for seq in (path, path[::-1]):
+            orders = [_order(mol, a, b) for a, b in zip(seq, seq[1:])]
+            parent = parent_chain_name(mol, seq)
+            if parent:
+                yield (parent, {i: str(n) for n, i in enumerate(seq, 1)},
+                       (-len(seq), -sum(o > 1 for o in orders), -orders.count(2)),
+                       (tuple(i for i, o in enumerate(orders, 1) if o > 1),
+                        tuple(i for i, o in enumerate(orders, 1) if o == 2)))
+
+
+def _bis_hydrazone_decision(mol, Chem, sites):
+    """Identical hydrazine units joined by a mapped dicarbonyl-derived connector."""
+    from .component_mapping import MappedComponent, decorate_component, hydrogen_bindings, mapped_general_branch
+    from .formatting import attach_suffix, enclose_name_unit, prefix_alphabetization_key
+    from .parent_annotations import isotope_numbering_key, stereo_numbering
+    from .parent_selection import locant_key, locant_set
+
+    nitrogens = {i for site in sites for i in (site.imine_nitrogen, site.terminal_nitrogen)}
+    centers = frozenset(site.carbon for site in sites)
+    if (len(nitrogens) != 4 or len(centers) != 2 or mol.GetStereoGroups()
+            or not _principal_substituents(mol, nitrogens)
+            or any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in iter_atoms(mol))):
+        return None
+    ends = [_hydrazine_end(mol, Chem, site, 'hydrazine') for site in sites]
+    if (not all(ends) or ends[0][0] != ends[1][0] or ends[0][1] & ends[1][1]
+            or any(centers & atoms for _, atoms, _ in ends)):
+        return None
+    # Multiplicative nomenclature requires identical repeated units, including
+    # their isotopes and configurations, before numbering the connector.
+    if len({Chem.MolFragmentToSmiles(mol, atomsToUse=sorted(atoms)) for _, atoms, _ in ends}) != 1:
+        return None
+    scope = frozenset(range(mol.GetNumAtoms()))
+    link = scope - ends[0][1] - ends[1][1]
+    options = []
+    for parent, skeleton, frame_key, pi_key in _diylidene_frames(mol, Chem, centers, link):
+        mapping = hydrogen_bindings(mol, skeleton)
+        occupied, prefixes = set(mapping), []
+        for i, loc in skeleton.items():
+            for atom in mol.GetAtomWithIdx(i).GetNeighbors():
+                root = atom.GetIdx()
+                if root not in link or root in occupied:
+                    continue
+                word, atoms = mapped_general_branch(mol, Chem, root, i)
+                if word and atoms <= link and not atoms & occupied:
+                    occupied.update(atoms)
+                    prefixes.append((loc, word))
+        if occupied != link:
+            continue
+        positions = sorted((skeleton[i] for i in centers), key=locant_key)
+        omit = len(skeleton) == 2 and not prefixes
+        parent = attach_suffix(parent, 'diylidene', () if omit else tuple(positions))
+        if not parent:
+            continue
+        # The connector cites C=N configurations at their carbon locants.
+        # The N atoms still belong to the end units, which cite their isotopes.
+        imines = {site.imine_nitrogen: skeleton[site.carbon] for site in sites}
+        stereo_map = mapping | imines
+        component = MappedComponent(parent, tuple(stereo_map.items()), frozenset(stereo_map),
+            tuple(prefixes), link - set(mapping), systematic_parent=True, local_isotope_atoms=frozenset(imines))
+        connector = decorate_component(mol, Chem, component)
+        if not connector:
+            continue
+        stereo_key = stereo_numbering(mol, stereo_map)
+        isotope_key = isotope_numbering_key(mol, mapping)
+        if stereo_key is None or isotope_key is None:
+            continue
+        citation = sorted(prefixes, key=lambda p: (prefix_alphabetization_key(p[1]), locant_key(p[0])))
+        key = (frame_key, locant_set(positions), pi_key, locant_set(loc for loc, _ in prefixes),
+               tuple(locant_key(loc) for loc, _ in citation), isotope_key, stereo_key)
+        options.append((key, connector, tuple(mapping.items())))
+    if not options:
+        return None
+    lowest = min(key for key, _, _ in options)
+    winners = {word: mapping for key, word, mapping in options if key == lowest}
+    if len(winners) != 1:
+        return None
+    connector, mapping = winners.popitem()
+    if not connector.isalpha():
+        connector = enclose_name_unit(connector)
+    parent = ends[0][0]
+    repeated = 'dihydrazine' if parent == 'hydrazine' else 'bis' + enclose_name_unit(parent)
+    roles = tuple(('hydrazine', atoms, locants) for _, atoms, locants in ends)
+    return MethodDecision("1,1'-" + connector + repeated, 'multiplicative', centers, scope,
+        'P-68.3.1.2.2/P-15.3', mapping, component_roles=(*roles, ('diylidene', link, mapping)))
+
+
+def hydrazinylidene_prefix(mol, Chem, root, host, atoms):
+    """Account for the N-N side of a carbonyl-derived hydrazone on a senior parent."""
+    from .oxime_components import imino_prefix_configuration
+
+    other = [n.GetIdx() for n in mol.GetAtomWithIdx(root).GetNeighbors()
+             if n.GetIdx() != host and n.GetAtomicNum() == 7]
+    if len(other) != 1:
+        return '', frozenset()
+    site = HydrazoneSite(host, root, other[0])
+    if site not in _sites(mol):
+        return '', frozenset()
+    end = _hydrazine_end(mol, Chem, site, 'hydrazinylidene')
+    if end is None or end[1] != atoms:
+        return '', frozenset()
+    return imino_prefix_configuration(mol, Chem, root, host, end[0], atoms)
+
+
+def hydrazone_parent_decision(mol, Chem):
+    sites = _sites(mol)
+    if not sites:
+        return None
+    decision = hydrazone_decision(mol, Chem, sites=sites)
+    if decision is not None or not mol.GetRingInfo().NumRings():
+        return decision
+    from .extended_inventory import selection_inventory
+    from .mapped_ring_parents import records
+
+    inventory = selection_inventory(mol)
+    groups = inventory.principal
+    if (not inventory.supported or not groups or
+            any(g.kind not in {'acid', 'amide', 'nitrile', 'ketone', 'alcohol'} for g in groups)):
+        return None
+    scope = frozenset(range(mol.GetNumAtoms()))
+    centers = frozenset(g.center for g in groups)
+    rows = [r for r in records(mol, Chem, principal=groups, general_branches=True)
+            if r.principal_centers == centers and r.hydrogen_budget_proved and r.annotation_coverage
+            and r.construction is not None and r.construction.atoms | r.construction.embedded_atoms == scope]
+    if not rows or len({row.name for row in rows}) != 1:
+        return None
+    row = rows[0]
+    return MethodDecision(row.name, 'substitutive', centers, scope, 'P-41/P-68.3.1.2.2', row.atom_locants,
+                          preference_issues=row.preference_issues)
+
+
+def hydrazone_decision(mol, Chem, *, sites=None):
     """Construct a bounded mapped hydrazone/azine name, or return ``None``."""
     from .component_mapping import (MappedComponent, decorate_component,
-                                    mapped_branch, hydrogen_bindings)
-    from .stereochemistry import _indexed_bond_stereochemistry
+                                    hydrogen_bindings)
 
-    sites = _sites(mol)
+    if sites is None:
+        sites = _sites(mol)
     if len(sites) == 2:
-        azine = _azine_decision(mol, Chem, sites)
-        if azine is not None:
-            return azine
-        return None
+        if sites[0].imine_nitrogen == sites[1].terminal_nitrogen:
+            return _azine_decision(mol, Chem, sites)
+        return _bis_hydrazone_decision(mol, Chem, sites)
     if len(sites) != 1 or mol.GetStereoGroups():
         return None
     site = sites[0]
     n_atoms = {site.imine_nitrogen, site.terminal_nitrogen}
     if any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in iter_atoms(mol)):
         return None
-    # Do not supersede a senior characteristic group. The supported hydrazone
-    # scope is otherwise C/H/N only; explicit imine N-N atoms are mapped below.
-    if any(a.GetAtomicNum() == 8 for a in iter_atoms(mol)):
-        return None
-    if any(a.GetAtomicNum() not in {1, 6, 7} for a in iter_atoms(mol)):
+    if not _principal_substituents(mol, n_atoms):
         return None
     # Exactly one C=N-N centre remains after the bounded two-arm azine
     # operation above; connected higher hydrazone families remain separate.
@@ -469,12 +676,6 @@ def hydrazone_decision(mol, Chem):
     yname = _ylidene_geometry(mol, Chem, site, yname, yloc)
     if yname is None:
         return None
-    # All carbon atoms must belong to the single linear ylidene skeleton.
-    if any(mol.GetAtomWithIdx(i).GetIsotope() for i in n_atoms):
-        return None
-    if any(nb.GetAtomicNum() == 1 and nb.GetIsotope()
-           for i in n_atoms for nb in mol.GetAtomWithIdx(i).GetNeighbors()):
-        return None
     if any(a.IsInRing() for a in (mol.GetAtomWithIdx(i) for i in n_atoms)):
         return None
     prefixes = []
@@ -485,15 +686,9 @@ def hydrazone_decision(mol, Chem):
                  if a.GetIdx() != site.imine_nitrogen and a.GetAtomicNum() > 1]:
         if mol.GetBondBetweenAtoms(site.terminal_nitrogen, root).GetBondTypeAsDouble() != 1:
             return None
-        branch, owned = mapped_branch(mol, Chem, root, site.terminal_nitrogen)
+        from .component_mapping import mapped_general_branch
+        branch, owned = mapped_general_branch(mol, Chem, root, site.terminal_nitrogen)
         if not branch or owned & (embedded | n_atoms):
-            return None
-        if any(mol.GetAtomWithIdx(i).GetAtomicNum() not in {1, 6}
-               or mol.GetAtomWithIdx(i).IsInRing() for i in owned):
-            return None
-        if any(b.GetBondTypeAsDouble() != 1
-               for b in iter_bonds(mol)
-               if b.GetBeginAtomIdx() in owned and b.GetEndAtomIdx() in owned):
             return None
         embedded.update(owned)
         branch_names.append(branch)
@@ -527,16 +722,18 @@ def hydrazone_decision(mol, Chem):
         # P-14.3.4.4: the two hydrazine sites are equivalent for a sole
         # ylidene substituent. A child carbon locant does not force a parent
         # nitrogen locant. P-16.5 retains the child's enclosing marks.
-        prefixes = [("", yname)]
         nmap = hydrogen_bindings(mol, {
             site.terminal_nitrogen: "2", site.imine_nitrogen: "1",
         })
+        # A parent isotope can distinguish the two attachment sites.
+        locant = "1" if any(mol.GetAtomWithIdx(i).GetIsotope() for i in nmap) else ""
+        prefixes = [(locant, yname)]
     parent_atoms = frozenset(nmap)
     parent_name = "hydrazine"
     component = MappedComponent(parent_name, tuple(nmap.items()), parent_atoms,
                                 tuple(prefixes), frozenset(embedded),
                                 systematic_parent=True,
-                                prefix_mode='locanted' if branch_roles else 'unlocanted')
+                                prefix_mode='locanted' if prefixes[0][0] else 'unlocanted')
     parent_graph = Chem.Mol(mol)
     edge = parent_graph.GetBondBetweenAtoms(site.carbon, site.imine_nitrogen)
     if edge is not None:

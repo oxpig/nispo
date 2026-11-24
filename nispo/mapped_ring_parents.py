@@ -407,9 +407,11 @@ def _local_skeletons(graph, Chem, source_aromatic, force_locants):
             return
         if graph.GetNumBonds() - graph.GetNumAtoms() + 1 == 3:
             from .heterodispiro_parents import skeletons as heterodispiro_skeletons
-            for skeleton in heterodispiro_skeletons(graph, Chem):
+            dispiro = tuple(heterodispiro_skeletons(graph, Chem))
+            for skeleton in dispiro:
                 yield (skeleton[0], tuple(skeleton[1]), *skeleton[2:])
-            return
+            if dispiro:
+                return
         from .polyspiro_frontier import MAX_RINGS
         if 4 <= graph.GetNumBonds() - graph.GetNumAtoms() + 1 <= MAX_RINGS:
             from .heteropolyspiro_methods import heteropolyspiro_parent_proposals
@@ -511,11 +513,7 @@ def _local_skeletons(graph, Chem, source_aromatic, force_locants):
             if size not in ROOTS:
                 return
             for numbering in tricyclic.candidates:
-                a, b, main_bridge, secondary_bridge = numbering.descriptor_lengths
-                left, right = numbering.secondary_attachment_locants
-                secondary = f'{secondary_bridge}^{left},{right}'
-                parent = (f'tricyclo[{a}.{b}.{main_bridge}.{secondary}]'
-                          f'{ROOTS[size]}ane')
+                parent = numbering.bridge_descriptor + ROOTS[size] + 'ane'
                 order = numbering.sequence
                 inverse = {idx: j for j, idx in enumerate(order)}
                 edges = tuple((inverse[b.GetBeginAtomIdx()], inverse[b.GetEndAtomIdx()])
@@ -537,7 +535,7 @@ def _site(mol,group,core=None):
 
 
 def records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=None,
-            nitrogen_attachment=None,ester_arms=(),general_branches=False):
+            nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False):
     # Parent orientations repeatedly request the same original rooted scope.
     # Cache immutable witnesses on the API-owned molecule, never globally or
     # on a capped fragment with different CIP priorities.
@@ -552,12 +550,13 @@ def records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=Non
             core_filter = None
     key=(None if scope is None else frozenset(scope),attachment,
          None if core_filter is None else frozenset(core_filter),principal,nitrogen_attachment,
-         ester_arms,general_branches)
+         ester_arms,general_branches,local_inventory)
     cache=mol_cache_dict(mol,'mapped_ring_records')
     if key not in cache:
         cache[key]=_records(mol,Chem,scope=scope,attachment=attachment,core_filter=core_filter,
                             principal=principal,nitrogen_attachment=nitrogen_attachment,
-                            ester_arms=ester_arms,general_branches=general_branches)
+                            ester_arms=ester_arms,general_branches=general_branches,
+                            local_inventory=local_inventory)
     return cache[key]
 
 
@@ -668,7 +667,7 @@ def _fast_rooted_carbon_ring(mol, scope, attachment, core, principal, nitrogen_a
 
 
 def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=None,
-             nitrogen_attachment=None,ester_arms=(),general_branches=False):
+             nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False):
     from .naming_context import MoleculeContext
     if mol.GetStereoGroups() or any(a.GetNumRadicalElectrons()
         or int(a.GetChiralTag()) and a.GetAtomicNum()!=6 for a in iter_atoms(mol)):return ()
@@ -686,7 +685,7 @@ def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=No
     ctx=MoleculeContext(mol,Chem);inventory=_inventory(mol,Chem)
     if not inventory.supported:
         if (attachment is None or scope is None or not general_branches
-                or not mol_cache_get(mol, 'numbered_polycycle_recovery')):
+                or not (local_inventory and principal == () or mol_cache_get(mol, 'numbered_polycycle_recovery'))):
             return ()
         # A numbered annular parent can own an unsupported group outside
         # this branch. Admit a group-free branch only after local recognition.
@@ -765,7 +764,7 @@ def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=No
                 _records, mol, Chem, scope=scope, attachment=attachment,
                 core_filter=core_filter, principal=principal,
                 nitrogen_attachment=nitrogen_attachment,ester_arms=ester_arms,
-                general_branches=general_branches)
+                general_branches=general_branches, local_inventory=local_inventory)
         if not candidates or len({r.parent for r in candidates})!=1:continue
         def numbering(record):
             key=record.numbering_key

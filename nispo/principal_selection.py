@@ -913,7 +913,16 @@ class PrincipalSelectionPipeline:
 
         decision = sulfinamide_decision(b.mol, b.Chem)
         if decision is None:
-            return self._sulfinamide_barrier(recognition)
+            pending = self._sulfinamide_barrier(recognition)
+            from .molecule_cache import mol_cache_get
+            alternative = mol_cache_get(b.mol, 'configured_mixed_oxyamide_alternative')
+            if alternative is not None:
+                # The suffix writer declined. Keep its outstanding class
+                # requirement while returning the mapped general construction.
+                return replace(pending, output_name=alternative.name,
+                    direct_route='general:configured-oxyamide-prefixes', preference_fallback=True,
+                    atom_locants=alternative.atom_locants, preference_issues=alternative.preference_issues)
+            return pending
         heavy = frozenset(atom.GetIdx() for atom in iter_atoms(b.mol)
                           if atom.GetAtomicNum() > 1)
         roles = tuple(frozenset(atoms) for _role, atoms, _mapping
@@ -1007,6 +1016,36 @@ class PrincipalSelectionPipeline:
             if name:
                 return PrincipalDecision(stage, PrincipalRequirement('cyclic-oxime'),
                     output_name=name, direct_route='substitutive:P-68.3.1.1.2')
+        if counts[6, 7, 2] and view.elements['N'] >= 2:
+            if counts[7, 7, 1]:
+                from .hydrazone_methods import hydrazone_parent_decision, hydrazone_query
+                if b.mol.HasSubstructMatch(hydrazone_query(b.Chem)):
+                    decision = hydrazone_parent_decision(b.mol, b.Chem)
+            if decision is None and (counts[6, 8, 2] or counts[6, 16, 2] or counts[6, 34, 2] or counts[6, 52, 2]):
+                from .urea_methods import urea_decision, ylidene_urea_query
+                if b.mol.HasSubstructMatch(ylidene_urea_query(b.Chem)):
+                    decision = urea_decision(b.mol, b.Chem)
+        if (decision is None and view.elements['N'] >= 2
+                and (counts[6, 16, 2] or counts[6, 34, 2] or counts[6, 52, 2]) and any(view.isotopes)):
+            from .functional_class_queries import urea_query
+            if b.mol.HasSubstructMatch(urea_query(b.Chem)):
+                from .urea_methods import urea_decision
+                decision = urea_decision(b.mol, b.Chem)
+        if (decision is None and view.elements['N'] and counts[8, 16, 2] + counts[8, 34, 2]
+                + counts[8, 52, 2] and (view.elements['Se'] or view.elements['Te']
+                or counts[8, 16, 2] < 2 * view.elements['S'])):
+            from .chalcogen_amide_parents import chalcogen_amide_decision
+            decision = chalcogen_amide_decision(b.mol, b.Chem)
+        if (decision is None and view.ring_count and view.elements['O']
+                and (counts[6, 16, 2] or counts[6, 34, 2] or counts[6, 52, 2]
+                     or view.ring_count >= 2 and counts[6, 8, 2] and counts[6, 8, 1] >= 2)):
+            from .lactone_parents import lactone_decision
+            decision = lactone_decision(b.mol, b.Chem)
+        if decision is not None:
+            return PrincipalDecision(stage, PrincipalRequirement('substitutive-parent',
+                tuple(sorted(decision.principal_centers)), decision.method),
+                output_name=decision.name, direct_route=decision.method + ':' + decision.rule,
+                atom_locants=decision.atom_locants, comparison=decision, preference_issues=decision.preference_issues)
         if any(view.isotopes):
             from .bluebook_general_methods import (isotopic_benzene_suffix_decision, isotopic_formate_decision,
                 isotopic_halomethane_decision, isotopic_methoxybenzene_decision, isotopic_phenylketone_decision)

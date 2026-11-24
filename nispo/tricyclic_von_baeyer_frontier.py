@@ -26,6 +26,12 @@ class TricyclicNumbering:
     secondary_attachment_locants: tuple[int, int]
     descriptor_lengths: tuple[int, int, int, int]
 
+    @property
+    def bridge_descriptor(self):
+        a, b, main, secondary = self.descriptor_lengths
+        left, right = self.secondary_attachment_locants
+        return f'tricyclo[{a}.{b}.{main}.{secondary}^{left},{right}]'
+
 
 @dataclass(frozen=True, slots=True)
 class TricyclicFrontier:
@@ -270,9 +276,9 @@ def tricyclic_von_baeyer_frontier(
 ) -> TricyclicFrontier:
     """Return all P-23-tied maps or an explicit unsupported/incomplete state.
 
-    ``adjacency`` is an unlabeled ring-skeleton graph; the caller must already
-    have established that every vertex is neutral saturated carbon and every
-    edge is a single bond. The accepted topology is a simple biconnected graph
+    ``adjacency`` is the carbon topology before skeletal replacement or
+    localized unsaturation. The caller validates valences and applies those
+    operations to the tied maps. The accepted topology is a simple biconnected graph
     with cycle rank three, decomposable exactly into a main simple cycle and two
     internally disjoint bridge paths (either may be a direct edge, i.e. a
     zero-length bridge). This closure includes all such decompositions in the

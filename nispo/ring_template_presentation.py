@@ -122,13 +122,15 @@ def purine_attachment_hydride(mol, match, locants, attachment):
 
 _FUSED_LACTAM_TEMPLATE = re.compile(
     r"(?:(?:\d+,\d+-dihydro-)?\d+H-)?"
-    r"(?P<base>pyrazolo\[3,4-c\]isoquinolin|pyrazolo\[3,4-d\]pyrimidin|1,4-benzoxazin)"
+    r"(?P<base>pyrazolo\[3,4-c\]isoquinolin|pyrazolo\[3,4-d\]pyrimidin|"
+    r"imidazo\[4,5-c\]pyridin|1,4-benzoxazin)"
     r"-(?P<oxo>\d+)(?:\(\d+H\))?-one$"
 )
 _FUSED_LACTAM_HYDRO_STATES = {
     "pyrazolo[3,4-c]isoquinolin": ("5", "4,5-dihydro-3H-", ("2", "3", "4"), {"3"}),
     "pyrazolo[3,4-d]pyrimidin": ("4", "4,5-dihydro-1H-", ("1", "2", "5", "7"), {"1", "5"}),
     "1,4-benzoxazin": ("3", "2,3-dihydro-4H-", ("4",), set()),
+    "imidazo[4,5-c]pyridin": ("4", "4,5-dihydro-3H-", ("1", "3", "5"), {"3", "5"}),
 }
 
 
@@ -153,6 +155,9 @@ def fused_lactam_substituent_presentation(mol, parent, match, locants, attachmen
     if base == "pyrazolo[3,4-d]pyrimidin" and (
             attachment == "1" or any(loc == "1" for loc, _, _ in records)):
         nh = nh - {"1"}
+    if base == "imidazo[4,5-c]pyridin" and (
+            attachment == "5" or any(loc == "5" for loc, _, _ in records)):
+        nh = nh - {"5"}
     if any(by_locant[i].GetAtomicNum() != 7 or by_locant[i].GetFormalCharge()
            or by_locant[i].GetTotalNumHs() != int(i in nh) for i in nitrogens):
         return ""

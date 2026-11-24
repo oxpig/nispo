@@ -26,6 +26,33 @@ def sulfur_suffix(kind):
     return SULFUR_SUFFIXES.get(kind, "")
 
 
+def sulfonamide_ylidene_root(mol, sulfur, nitrogen):
+    """Recognize a terminal N-ylidene with geometry on its carbon chain."""
+    from rdkit import Chem
+
+    atom = mol.GetAtomWithIdx(nitrogen)
+    cut = mol.GetBondBetweenAtoms(sulfur, nitrogen)
+    if (atom.IsInRing() or atom.GetDegree() != 2 or atom.GetTotalValence() != 3
+            or atom.GetFormalCharge() or atom.GetIsotope() or atom.GetTotalNumHs()
+            or cut is None or cut.GetBondTypeAsDouble() != 1):
+        return None
+    carbon = next(a for a in atom.GetNeighbors() if a.GetIdx() != sulfur)
+    bond = mol.GetBondBetweenAtoms(nitrogen, carbon.GetIdx())
+    if (carbon.GetAtomicNum() != 6 or carbon.IsInRing() or carbon.GetDegree() != 2
+            or carbon.GetFormalCharge() or carbon.GetIsotope()
+            or carbon.GetTotalNumHs(includeNeighbors=True) != 1
+            or bond.GetBondTypeAsDouble() != 2 or bond.GetStereo()):
+        return None
+    continuation = next(a for a in carbon.GetNeighbors() if a.GetIdx() != nitrogen)
+    if (continuation.GetAtomicNum() == 6 and not continuation.IsInRing()
+            and mol.GetBondBetweenAtoms(carbon.GetIdx(), continuation.GetIdx()).GetBondTypeAsDouble() == 1
+            and any(b.GetStereo() in {Chem.BondStereo.STEREOE, Chem.BondStereo.STEREOZ,
+                                      Chem.BondStereo.STEREOCIS, Chem.BondStereo.STEREOTRANS}
+                    for b in continuation.GetBonds())):
+        return carbon.GetIdx()
+    return None
+
+
 def sulfonamide_n_sites(mol, group):
     """Return validated non-sulfonyl neighbours of a sulfonamide N.
 
@@ -44,7 +71,8 @@ def sulfonamide_n_sites(mol, group):
     heavy = []
     for bond in nitrogen.GetBonds():
         if bond.GetBondTypeAsDouble() != 1:
-            return None
+            ylidene = sulfonamide_ylidene_root(mol, group.center, group.ligand)
+            return (ylidene,) if ylidene is not None else None
         other = bond.GetOtherAtom(nitrogen)
         if other.GetIdx() == group.center:
             continue

@@ -2694,14 +2694,14 @@ class PhosphorusAcidParentRule:
             return
         phosphorus = phosphorus_atoms[0]
         pidx = phosphorus.GetIdx()
-        phosphine_oxide_name = _single_center_phosphine_oxide_name(mol, self._Chem, pidx, atom_set)
-        if phosphine_oxide_name:
+        oxide_name = _single_center_phosphorus_oxide_name(mol, self._Chem, pidx, atom_set)
+        if oxide_name:
             yield NameCandidate(
-                phosphine_oxide_name,
+                oxide_name,
                 self.family,
                 self.priority,
                 parent_atoms=atom_set,
-                sort_key=(len(phosphine_oxide_name), phosphine_oxide_name),
+                sort_key=(len(oxide_name), oxide_name),
             )
         phosphine_sulfide_name = _single_center_phosphine_sulfide_name(mol, self._Chem, pidx, atom_set)
         if phosphine_sulfide_name:
@@ -3129,7 +3129,7 @@ class OrganophosphorusOxideParentRule:
             yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
 
 
-def _single_center_phosphine_oxide_name(mol, Chem, pidx: int, atom_set: set[int]) -> str:
+def _single_center_phosphorus_oxide_name(mol, Chem, pidx: int, atom_set: set[int]) -> str:
     phosphorus = mol.GetAtomWithIdx(pidx)
     ligand_names = []
     ligand_atom_sets = []
@@ -3178,7 +3178,17 @@ def _single_center_phosphine_oxide_name(mol, Chem, pidx: int, atom_set: set[int]
     ):
         return ""
     ligand_text = _phosphine_oxide_ligand_text(ligand_names)
-    return ligand_text + "phosphine oxide" if ligand_text else ""
+    if not ligand_text:
+        return ""
+    if not phosphorus_hydrogens and all(n.GetAtomicNum() == 6 or (
+            n.GetAtomicNum() == 8 and mol.GetBondBetweenAtoms(pidx, n.GetIdx()).GetBondTypeAsDouble() == 2
+            ) for n in phosphorus.GetNeighbors()):
+        from .group15_mononuclear_methods import recognize_group15_mononuclear
+
+        recognition = recognize_group15_mononuclear(mol)
+        if recognition.status == "supported" and recognition.complex_ligands:
+            return ligand_text + "-lambda5-phosphanone"
+    return ligand_text + "phosphine oxide"
 
 
 def _single_center_phosphine_sulfide_name(mol, Chem, pidx: int, atom_set: set[int]) -> str:
@@ -8471,7 +8481,9 @@ class SulfonamideRetainedParentRule:
                 continue
             imino_substituent = _sulfonamide_imino_n_substituent(mol, self._Chem, nitrogen_idx, sulfur_idx)
             if imino_substituent:
-                name = f"N-({imino_substituent}){base}"
+                from .formatting import enclose_name_unit
+
+                name = f"N-{enclose_name_unit(imino_substituent)}{base}"
                 yield NameCandidate(name, self.family, self.priority, sort_key=(len(name), name))
                 continue
             if _sulfonamide_defer_to_sulfonohydrazide(mol, self._Chem, nitrogen_idx, sulfur_idx):
@@ -15068,6 +15080,15 @@ def _sulfonamide_imino_n_substituent(mol, Chem, nitrogen_idx: int, sulfur_idx: i
     ]
     if len(imine_carbons) != 1:
         return ""
+    carbon_idx = imine_carbons[0]
+    carbon = mol.GetAtomWithIdx(carbon_idx)
+    if not carbon.IsInRing() and carbon.GetTotalNumHs(includeNeighbors=True) == 1:
+        from .branch.carbon import _terminal_locanted_acyclic_substituent_chain_prefix
+
+        chain = _terminal_locanted_acyclic_substituent_chain_prefix(
+            mol, carbon_idx, nitrogen_idx, attachment_order=2)
+        if chain:
+            return chain
     return _imino_carbon_retained_substituent(mol, imine_carbons[0], nitrogen_idx)
 
 

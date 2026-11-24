@@ -85,6 +85,21 @@ def characteristic_sulfur_prefix(mol, Chem, root, blocked, atoms):
     roots = sulfonamide_n_sites(mol, group)
     if roots is None:
         return '', frozenset()
+    if (sulfur.GetTotalValence() == 6 and not sulfur.GetTotalNumHs(includeNeighbors=True)
+            and all(a.GetDegree() == 1 for a in oxo)
+            and not nitrogen[0].IsInRing()
+            and nitrogen[0].GetTotalValence() == 3
+            and nitrogen[0].GetTotalNumHs(includeNeighbors=True) == 2 - len(roots)
+            and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in roots)):
+        from .carboxamide_prefixes import acyl_amide_ligands
+        from .component_mapping import _record_branch_ring_atoms
+
+        built = acyl_amide_ligands(mol, Chem, nidx, roots, atoms - characteristic, general=True)
+        if built is not None:
+            text, rings = built
+            name = text + 'sulfamoyl'
+            _record_branch_ring_atoms(mol, Chem, root, blocked, name, atoms, rings)
+            return name, atoms
     prefixes, embedded = [], set()
     for child in roots:
         text, owned = mapped_branch(mol, Chem, child, nidx)

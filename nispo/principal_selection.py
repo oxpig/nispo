@@ -1474,6 +1474,11 @@ class PrincipalSelectionPipeline:
             from .amino_acid_esters import retained_amino_acid_ester_decision
 
             decision = retained_amino_acid_ester_decision(b.mol, b.Chem)
+        if (decision is None and view.elements['P'] and view.elements['N'] >= 3
+                and view.elements['O'] >= 5):
+            from .fused_hydrogen_state import benzimidazole_imino_ester_decision
+
+            decision = benzimidazole_imino_ester_decision(b.mol, b.Chem)
         if decision is None and view.elements['O'] and (view.elements['P'] or view.elements['S']):
             from .oxoacid_ester_methods import oxoacid_ester_decision
 

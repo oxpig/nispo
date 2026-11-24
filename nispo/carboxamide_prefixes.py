@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 
-def mapped_n_substituted_carbamoyl(mol, Chem, root, host, nitrogen, ligand=None):
+def mapped_n_substituted_carbamoyl(mol, Chem, root, host, nitrogen, ligand=None,
+                                  *, oxalyl=None, scope=None):
     """Construct an ordinary carbamoyl unit on an existing C/N/O parent cut.
 
     The branch writer has already identified C=O and its nitrogen. Zero, one
@@ -13,7 +14,9 @@ def mapped_n_substituted_carbamoyl(mol, Chem, root, host, nitrogen, ligand=None)
     """
     carbon = mol.GetAtomWithIdx(root)
     amine = mol.GetAtomWithIdx(nitrogen)
-    parent = mol.GetAtomWithIdx(host)
+    outer_root, outer_host = oxalyl[:2] if oxalyl else (root, host)
+    parent = mol.GetAtomWithIdx(outer_host)
+    ring_host = parent.GetAtomicNum() == 6 and parent.IsInRing()
     cut = mol.GetBondBetweenAtoms(root, host)
     ligands = tuple(a.GetIdx() for a in amine.GetNeighbors() if a.GetIdx() != root)
     if (carbon.IsInRing() or carbon.GetDegree() != 3 or carbon.GetTotalValence() != 4
@@ -41,46 +44,125 @@ def mapped_n_substituted_carbamoyl(mol, Chem, root, host, nitrogen, ligand=None)
             or {a.GetIdx() for a in carbon.GetNeighbors()} != {host, nitrogen, oxygen[0]}
             or mol.GetBondBetweenAtoms(root, nitrogen).GetBondTypeAsDouble() != 1):
         return None
-    core = frozenset({root, oxygen[0], nitrogen})
+    core = {root, oxygen[0], nitrogen}
+    if oxalyl:
+        core.update((outer_root, oxalyl[2]))
     if any(a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
            or int(a.GetChiralTag()) for a in (carbon, amine, mol.GetAtomWithIdx(oxygen[0]))):
         return None
 
     from .branch.functional_groups import collect_subtree
-    from .component_mapping import mapped_branch, mapped_branch_ring_atoms
 
     # The outer branch already collects this directed carbonyl cut. Its
     # non-ring C and N and their exact neighbor sets leave separate ligand
     # components. Reuse that scope; each mapped child independently proves
     # its own cut and the complete union below must account for every atom.
-    scope = frozenset(collect_subtree(mol, root, host))
+    scope = (frozenset(collect_subtree(mol, outer_root, outer_host))
+             if scope is None else frozenset(scope))
     owned = scope - core
     atoms = tuple(mol.GetAtomWithIdx(i) for i in owned)
-    if (host in scope or not core <= scope
-            or any(a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
-                   for a in atoms)):
+    if (outer_host in scope or not core <= scope
+            or any(a.GetIsotope() or a.GetNumRadicalElectrons() for a in atoms)):
         return None
+    charged = {a.GetIdx() for a in atoms if a.GetFormalCharge()}
+    if charged:
+        if not ring_host:
+            return None
+        from .neutral_charge_components import neutral_charge_role_proofs
+
+        covered = set().union(*(proof.charge_atom_ids for proof in neutral_charge_role_proofs(mol)
+                                if set(proof.atoms) <= owned))
+        if charged != covered:
+            return None
     if any(any(a.GetIdx() in scope for a in group.GetAtoms()) for group in mol.GetStereoGroups()):
         return None
+    built = acyl_amide_ligands(mol, Chem, nitrogen, ligands, owned, general=ring_host)
+    if built is None:
+        return None
+    prefix, witnessed = built
     rings = frozenset(a.GetIdx() for a in atoms if a.IsInRing())
+    text = prefix + ('oxamoyl' if oxalyl else 'carbamoyl')
+    if rings <= witnessed and not oxalyl:
+        _record_carbamoyl_construction(mol, Chem, root, host, text, scope, rings)
+    elif ring_host:
+        from .component_mapping import _record_branch_ring_atoms
+
+        _record_branch_ring_atoms(mol, Chem, outer_root, outer_host, text, scope, witnessed)
+    else:
+        return None
+    return text, scope
+
+
+def acyl_amide_ligands(mol, Chem, nitrogen, ligands, owned, *, general=False):
+    """Compose the N ligands of carbamoyl, oxamoyl or sulfamoyl."""
+    from .branch.functional_groups import collect_subtree
+    from .component_mapping import (
+        _general_branch_stereo_is_cited, mapped_branch, mapped_branch_ring_atoms,
+    )
+
     embedded, witnessed, units = set(), set(), []
     for child in ligands:
         name, mapped = mapped_branch(mol, Chem, child, nitrogen)
         mapped = frozenset(mapped)
-        if (not name or child not in mapped or mapped & (core | {host} | embedded)
-                or not mapped <= owned):
+        if not name and general:
+            # The compatibility writer can construct a complete carbon ligand
+            # when one of its pendant rings has no preferred mapped parent.
+            # Keep its annotations and its exact graph cut, without promoting
+            # any ring to the mapped preference evidence.
+            from .branch_rules import branch_prefix
+
+            mapped = frozenset(collect_subtree(mol, child, nitrogen))
+            if (not mapped <= owned or mapped & embedded
+                    or {(i, a.GetIdx()) for i in mapped
+                        for a in mol.GetAtomWithIdx(i).GetNeighbors()
+                        if a.GetIdx() not in mapped and (a.GetAtomicNum() > 1 or a.GetIsotope())}
+                    != {(child, nitrogen)}
+                    or any(mol.GetAtomWithIdx(i).GetIsotope() for i in mapped)):
+                return None
+            name = branch_prefix(mol, child, nitrogen)
+            if not name or not _general_branch_stereo_is_cited(mol, Chem, mapped, name):
+                return None
+        if not name or child not in mapped or mapped & embedded or not mapped <= owned:
             return None
         embedded.update(mapped)
         witnessed.update(mapped_branch_ring_atoms(mol, Chem, child, nitrogen, name, mapped))
         units.append((name, child, mapped))
-    if embedded != owned or not rings <= witnessed:
+    if embedded != owned:
         return None
     prefix = _carbamoyl_ligand_sequence(mol, units)
-    if prefix is None:
+    return (prefix, witnessed) if prefix is not None else None
+
+
+def mapped_ring_oxamoyl(mol, Chem, root, host, *, scope=None):
+    """P-66.1.1.4.1.2 acyl-facing oxamide branch on a ring."""
+    atom = mol.GetAtomWithIdx(root)
+    parent = mol.GetAtomWithIdx(host)
+    if (parent.GetAtomicNum() != 6 or not parent.IsInRing()
+            or atom.GetAtomicNum() != 6 or atom.IsInRing() or atom.GetDegree() != 3
+            or atom.GetFormalCharge() or atom.GetIsotope()
+            or atom.GetNumRadicalElectrons()
+            or mol.GetBondBetweenAtoms(root, host).GetBondTypeAsDouble() != 1):
         return None
-    text = prefix + 'carbamoyl'
-    _record_carbamoyl_construction(mol, Chem, root, host, text, scope, rings)
-    return text, scope
+    oxo, distal = None, None
+    for bond in atom.GetBonds():
+        child = bond.GetOtherAtom(atom)
+        if child.GetIdx() == host:
+            continue
+        if (child.GetAtomicNum() == 8 and child.GetDegree() == 1
+                and bond.GetBondTypeAsDouble() == 2
+                and not (child.GetIsotope() or child.GetFormalCharge() or child.GetNumRadicalElectrons())):
+            oxo = child.GetIdx()
+        elif child.GetAtomicNum() == 6 and bond.GetBondTypeAsDouble() == 1:
+            distal = child
+    if oxo is None or distal is None:
+        return None
+    nitrogen = [a.GetIdx() for a in distal.GetNeighbors() if a.GetAtomicNum() == 7]
+    if len(nitrogen) != 1:
+        return None
+    return mapped_n_substituted_carbamoyl(
+        mol, Chem, distal.GetIdx(), root, nitrogen[0],
+        oxalyl=(root, host, oxo), scope=scope,
+    )
 
 
 def _carbamoyl_ligand_sequence(mol, units):

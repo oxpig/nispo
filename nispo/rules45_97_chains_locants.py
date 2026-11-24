@@ -7,6 +7,7 @@ the original graph and preserves the original attachment direction.
 from collections import Counter
 from dataclasses import replace
 from itertools import combinations
+import re
 
 from .bluebook_lambda_amine_methods import _plain, _out, _sanitize
 from .component_mapping import MappedComponent, decorate_component, mapped_branch
@@ -24,6 +25,15 @@ _VALENCE = {6:4,7:3,8:2,14:4,15:3,16:2,32:4,33:3,34:2,
 _ORDER = (8,16,34,52,7,15,33,51,83,14,32,50,82)
 _TERMS = {8:'oxa',16:'thia',34:'selena',52:'tellura',7:'aza',15:'phospha',
           33:'arsa',51:'stiba',83:'bisma',14:'sila',32:'germa',50:'stanna',82:'plumba'}
+
+
+_CARBOXY_MULTIPLIERS = {text: number for number, text in MULT.items() if text}
+_CARBOXY_MULTIPLIERS[""] = 1
+_CARBOXY_COUNT = "(?P<count>" + "|".join(
+    sorted((text for text in _CARBOXY_MULTIPLIERS if text), key=len, reverse=True)
+) + ")?"
+_CARBOXYLIC_ACID = re.compile(_CARBOXY_COUNT + r"carboxylic acid$")
+_CARBOXY_PREFIX = re.compile(r"(?<![a-zA-Z])" + _CARBOXY_COUNT + r"carboxy(?!l)")
 
 
 def _plain_graph(mol,Chem,elements):
@@ -664,10 +674,20 @@ def ring_polycarboxylate(mol,Chem):
             or {group.center for group in acid_inventory.principal}!={c for c,_o in sites}):
         return None  # A pre-existing COOH is not another carboxylate charge.
     from .api import mol_to_iupac
-    name=mol_to_iupac(acid)
-    if not name.endswith('carboxylic acid'):
+    name = mol_to_iupac(acid)
+    suffix = _CARBOXYLIC_ACID.search(name)
+    if suffix is None:
         return None
-    name=name[:-len('carboxylic acid')]+'carboxylate'
+    prefixes = name[:suffix.start()]
+    branch_sites = tuple(_CARBOXY_PREFIX.finditer(prefixes))
+    # Every acid site in the neutral probe came from an original anionic
+    # oxygen. Require one counted citation per site across suffix and branches.
+    represented = sum(_CARBOXY_MULTIPLIERS[m.group("count") or ""]
+                      for m in (suffix, *branch_sites))
+    if represented != len(sites):
+        return None
+    name = (_CARBOXY_PREFIX.sub(lambda m: m.group() + "lato", prefixes)
+            + (suffix.group("count") or "") + "carboxylate")
     cations=[];charge=-len(sites)
     simple={3:'lithium',11:'sodium',19:'potassium',12:'magnesium',20:'calcium',30:'zinc'}
     for fragment in fragments:
@@ -692,7 +712,10 @@ def ring_polycarboxylate(mol,Chem):
                 return None
             words.append(prefix+text)
         name=' '.join(words)+' '+name
-    return _out(mol,name,(),'P-72.2.2.2.1.1/P-65.6.2.1/P-77',method='functional-class')
+    rule = 'P-72.2.2.2.1.1/P-65.6.2.1/P-77'
+    if branch_sites:
+        rule += '/P-72.6.1'
+    return _out(mol, name, (), rule, method='functional-class')
 
 
 def _tree_paths(mol,atoms):

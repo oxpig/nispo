@@ -1673,6 +1673,8 @@ def _sulfinylamino_prefix(mol, idx: int, parent_idx: int) -> PrefixCandidate | N
     if sulfur_idx is None:
         return None
     sulfur = mol.GetAtomWithIdx(sulfur_idx)
+    if sulfur.GetIsotope() or sulfur.GetTotalValence() != 4:
+        return None
     for nbr in sulfur.GetNeighbors():
         nidx = nbr.GetIdx()
         if nidx == idx or nbr.GetAtomicNum() <= 1:

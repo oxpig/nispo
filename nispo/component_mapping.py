@@ -1465,6 +1465,13 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
     # carbon path as an alkyl group would silently lose the original bond.
     if (mol.GetAtomWithIdx(root).GetAtomicNum()==6 and
             mol.GetBondBetweenAtoms(root,blocked).GetBondTypeAsDouble()!=1):
+        if mol.GetAtomWithIdx(blocked).GetAtomicNum() == 7 and not root_atom.IsInRing():
+            from .branch.carbon import _terminal_locanted_acyclic_substituent_chain_prefix
+
+            text = _terminal_locanted_acyclic_substituent_chain_prefix(
+                mol, root, blocked, attachment_order=2)
+            if text:
+                return text, atoms
         if has_annotations(mol,atoms):return '',frozenset()
         if mol.GetAtomWithIdx(root).IsInRing():
             from .mapped_ring_parents import rooted_prefix
@@ -1681,28 +1688,42 @@ def _mapped_branch(mol, Chem, root, blocked, *, mapped_cyclic_only=False):
             # miss before it rebuilds a whole-graph signature and cut scope.
             # The existing carbamoyl/amide path still proves the full branch.
             neighbors = tuple(root_atom.GetNeighbors())
-            amide_carbonyl = any(
-                n.GetAtomicNum() == 7
-                and mol.GetBondBetweenAtoms(root, n.GetIdx()).GetBondTypeAsDouble() == 1
-                for n in neighbors
-            ) and any(
+            carbonyl = any(
                 n.GetAtomicNum() == 8
                 and mol.GetBondBetweenAtoms(root, n.GetIdx()).GetBondTypeAsDouble() == 2
                 for n in neighbors
             )
+            amide_carbonyl = carbonyl and any(
+                n.GetAtomicNum() == 7
+                and mol.GetBondBetweenAtoms(root, n.GetIdx()).GetBondTypeAsDouble() == 1
+                for n in neighbors
+            )
             if amide_carbonyl:
+                if mol.GetAtomWithIdx(blocked).GetAtomicNum() == 7:
+                    from .branch.preferred_acyl import n_attached_chain_acyl_prefix
+
+                    acyl = n_attached_chain_acyl_prefix(mol, Chem, root, blocked, scope=atoms)
+                    if acyl:
+                        return acyl, atoms
                 annotated = has_annotations(mol, atoms)
-                if annotated:
+                if annotated or mol.GetAtomWithIdx(blocked).IsInRing():
                     amide_nitrogen = next((
                         n.GetIdx() for n in neighbors if n.GetIdx() != blocked and n.GetAtomicNum() == 7
                         and mol.GetBondBetweenAtoms(root, n.GetIdx()).GetBondTypeAsDouble() == 1
                     ), None)
                     if amide_nitrogen is not None:
                         from .carboxamide_prefixes import mapped_n_substituted_carbamoyl
-                        carbamoyl = mapped_n_substituted_carbamoyl(mol, Chem, root, blocked, amide_nitrogen)
+                        carbamoyl = mapped_n_substituted_carbamoyl(
+                            mol, Chem, root, blocked, amide_nitrogen, scope=atoms)
                         if carbamoyl is not None:
                             return carbamoyl
             else:
+                if carbonyl and mol.GetAtomWithIdx(blocked).IsInRing():
+                    from .carboxamide_prefixes import mapped_ring_oxamoyl
+
+                    oxamoyl = mapped_ring_oxamoyl(mol, Chem, root, blocked, scope=atoms)
+                    if oxamoyl is not None:
+                        return oxamoyl
                 # One shared writer owns the other functionalized carbon
                 # branches, including mapped R/S, E/Z and isotope decoration.
                 from .functionalized_carbon_prefixes import functionalized_carbon_prefix

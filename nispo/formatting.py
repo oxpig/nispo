@@ -211,18 +211,17 @@ def _organyl_to_oxy(
     )
     root = None
     chain_length = parent_chain_length
-    if direct:
-        root = direct.group("root")
-        chain_length = roots_by_name.get(root + "yl")
-    elif organyl in roots_by_name:
+    if organyl in roots_by_name:
         root = organyl[:-2]
         chain_length = roots_by_name[organyl]
     elif (parent_chain_length in ROOTS
           and organyl.endswith(ROOTS[parent_chain_length] + "yl")):
-        # A mapped graph writer can establish the terminal parent length for
-        # any compound alkyl tree, including ethyl and nested side branches.
-        # Do not restrict that evidence to the old methyl-only text grammar.
+        # Prefer the mapped terminal chain before checking text patterns.
+        # A prefix such as dimethylsulfamoyl can also start with "dimethyl".
         root = ROOTS[parent_chain_length]
+    elif direct:
+        root = direct.group("root")
+        chain_length = roots_by_name.get(root + "yl")
     if root is None or chain_length is None:
         return ""
     if chain_length <= 4:

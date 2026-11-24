@@ -1072,7 +1072,15 @@ def _sulfur_ylidene_amino_prefix(mol, idx: int, parent_idx: int) -> str:
     neighbors = [nbr.GetIdx() for nbr in atom.GetNeighbors() if nbr.GetIdx() != parent_idx]
     if len(neighbors) != 1:
         return ""
-    from .functional_groups import _lambda6_sulfanylidene_prefix
+    from .functional_groups import _hydrogen_rich_sulfur_prefix, _lambda6_sulfanylidene_prefix
+
+    sulfur = mol.GetAtomWithIdx(neighbors[0])
+    if (sulfur.GetAtomicNum() == 16 and sulfur.GetTotalNumHs(includeNeighbors=True)
+            and mol.GetBondBetweenAtoms(idx, sulfur.GetIdx()).GetBondTypeAsDouble() == 2):
+        from ..formatting import enclose_name_unit
+
+        prefix = _hydrogen_rich_sulfur_prefix(mol, sulfur.GetIdx(), idx)
+        return enclose_name_unit(prefix) + "amino" if prefix else ""
 
     prefix = _lambda6_sulfanylidene_prefix(mol, neighbors[0], idx)
     return prefix + "amino" if prefix else ""
@@ -1186,6 +1194,23 @@ def _single_ligand_amino_needs_explicit_n(name: str) -> bool:
 
 
 def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, name: str) -> str:
+    # P-62.2.1.1.1 allows full substitution on retained anilino.
+    if name.endswith("phenyl"):
+        nitrogen = mol.GetAtomWithIdx(amino_idx)
+        if (not nitrogen.IsInRing() and not nitrogen.GetIsotope()
+                and not nitrogen.GetFormalCharge() and not nitrogen.GetNumRadicalElectrons()
+                and nitrogen.GetDegree() == 2 and nitrogen.GetTotalNumHs() == 1
+                and nitrogen.GetTotalValence() == 3
+                and mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 6):
+            aryl = next(a for a in nitrogen.GetNeighbors() if a.GetIdx() != parent_idx)
+            if aryl.GetAtomicNum() == 6 and aryl.GetIsAromatic():
+                rings = mol.GetRingInfo()
+                if any(len(ring) == 6 and aryl.GetIdx() in ring
+                       and all(rings.NumAtomRings(i) == 1
+                               and mol.GetAtomWithIdx(i).GetAtomicNum() == 6
+                               and mol.GetAtomWithIdx(i).GetIsAromatic() for i in ring)
+                       for ring in rings.AtomRings()):
+                    return name[:-len("phenyl")] + "anilino"
     if name.endswith("sulfonyl") and len(name) > len("sulfonyl"):
         return name[: -len("sulfonyl")] + "sulfonamido"
     acyl_amides = {
@@ -1212,6 +1237,8 @@ def _retained_single_ligand_amino_prefix(mol, amino_idx: int, parent_idx: int, n
     }
     if name in acyl_amides:
         return acyl_amides[name]
+    if name.endswith("acetyl"):
+        return name[:-len("acetyl")] + "acetamido"
     if name in {"boc", "tert-butoxycarbonyl"} and _bocamino_prefix_allowed(mol, amino_idx, parent_idx):
         return "(tert-butoxycarbonyl)amino"
     if name in {"cbz", "benzyloxycarbonyl"}:
@@ -1312,6 +1339,12 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
 def _functional_carbon_substituent_name(mol, idx: int, parent_idx: int) -> str:
     if mol.GetAtomWithIdx(idx).GetSymbol() != "C":
         return ""
+    if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 7:
+        from .preferred_acyl import n_attached_chain_acyl_prefix
+
+        acyl = n_attached_chain_acyl_prefix(mol, Chem, idx, parent_idx)
+        if acyl:
+            return acyl
     return (
         _ketenyl_prefix(mol, idx, parent_idx)
         or _enone_substituent_prefix(mol, idx, parent_idx)
@@ -1774,7 +1807,7 @@ def _imine_carbon_ylidene(mol, carbon_idx: int, nitrogen_idx: int) -> str:
             and sub_bond.GetBondType() == Chem.BondType.SINGLE
         ):
             amino = _nitrogen_prefix(mol, sub_idx, carbon_idx)
-            if amino and amino.endswith("amino"):
+            if amino.endswith(("amino", "amido", "anilino")):
                 from ..formatting import enclose_name_unit
                 # The substituted amino unit is a branch of methylidene.
                 # Its own N ligands must not become substituents of that
@@ -1804,7 +1837,7 @@ def _imine_carbon_ylidene(mol, carbon_idx: int, nitrogen_idx: int) -> str:
                and mol.GetBondBetweenAtoms(carbon_idx, i).GetBondTypeAsDouble() == 1
                for i in substituents):
             names = [_nitrogen_prefix(mol, i, carbon_idx) for i in substituents]
-            if all(name.endswith("amino") for name in names):
+            if all(name.endswith(("amino", "amido", "anilino")) for name in names):
                 return format_prefixes([("", name) for name in names], omit_locants=True,
                                        hierarchical_enclosures=True,
                                        separate_unlocanted=True) + "methylidene"

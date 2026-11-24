@@ -69,8 +69,8 @@ def _configured_aziridine_carbonyl(mol, Chem, core, scope, ligand, carbonyl):
         systematic_parent=True))
 
 
-def _carbon_paths(mol, start, blocked):
-    """Enumerate bounded, saturated carbon chains rooted at the group carbon."""
+def _carbon_paths(mol, start, blocked, bond_orders=(1,)):
+    """Enumerate bounded carbon chains rooted at the group carbon."""
     paths = []
     stack = [(start,)]
     while stack:
@@ -87,7 +87,7 @@ def _carbon_paths(mol, start, blocked):
             and not (a.GetFormalCharge() or a.GetIsotope())
         ]
         if any(
-            mol.GetBondBetweenAtoms(path[-1], idx).GetBondTypeAsDouble() != 1
+            mol.GetBondBetweenAtoms(path[-1], idx).GetBondTypeAsDouble() not in bond_orders
             for idx in neighbors
         ):
             return []
@@ -100,7 +100,7 @@ def _carbon_paths(mol, start, blocked):
     return paths
 
 
-def _path_name(mol, path, blocked, ending):
+def _path_name(mol, path, blocked, ending, *, unsaturated=False, full_acetyl_locants=False):
     from ..acyclic.rules import _path_substituent_prefixes
     from ..branch_rules import parent_chain_name
     from ..stereochemistry import assigned_atom_stereochemistry
@@ -116,22 +116,85 @@ def _path_name(mol, path, blocked, ending):
         for loc, text in prefixes
     ]
     parent = complete_parent_name(parent_chain_name(mol, path))
-    if not parent.endswith("ane"):
+    if not parent or not unsaturated and not parent.endswith("ane"):
         return ""
     if ending == "oyl" and len(path) == 2:
-        name = format_prefixes(prefixes, omit_locants=True) + "acetyl"
+        name = format_prefixes(
+            prefixes, omit_locants=not full_acetyl_locants, hierarchical_enclosures=True
+        ) + "acetyl"
     else:
         name = join_prefix_parent(format_prefixes(prefixes), parent[:-1] + ending)
     locants = {idx: i for i, idx in enumerate(path, 1)}
-    stereo = ",".join(
-        f"{locants[idx]}{descriptor}"
-        for idx, descriptor in sorted(
-            assigned_atom_stereochemistry(mol, Chem),
-            key=lambda item: locants.get(item[0], 999),
+    descriptors = [(locants[idx], descriptor)
+                   for idx, descriptor in assigned_atom_stereochemistry(mol, Chem)
+                   if idx in locants]
+    if unsaturated and any(mol.GetBondBetweenAtoms(a, b).GetStereo()
+                           for a, b in zip(path, path[1:])):
+        from ..stereochemistry import apply_mapped_branch_bond_stereochemistry
+
+        name = apply_mapped_branch_bond_stereochemistry(
+            mol, Chem, name, ((idx, str(locant)) for idx, locant in locants.items()),
         )
-        if idx in locants
-    )
+    stereo = ",".join(f"{locant}{descriptor}" for locant, descriptor in sorted(descriptors))
     return f"({stereo})-{name}" if stereo else name
+
+
+def n_attached_chain_acyl_prefix(mol, Chem, carbonyl, nitrogen, *, scope=None):
+    """Name a substituted acetyl or a single unambiguous unsaturated acyl chain."""
+    host = mol.GetAtomWithIdx(nitrogen)
+    root = mol.GetAtomWithIdx(carbonyl)
+    if (host.GetAtomicNum() != 7 or host.GetFormalCharge() or host.GetIsotope()
+            or root.GetAtomicNum() != 6 or root.GetDegree() != 3 or root.IsInRing()
+            or root.GetFormalCharge() or root.GetIsotope()
+            or mol.GetBondBetweenAtoms(carbonyl, nitrogen).GetBondTypeAsDouble() != 1):
+        return ""
+    oxo, first = None, None
+    for bond in root.GetBonds():
+        atom = bond.GetOtherAtom(root)
+        if atom.GetIdx() == nitrogen:
+            continue
+        if atom.GetAtomicNum() == 8 and atom.GetDegree() == 1 and bond.GetBondTypeAsDouble() == 2:
+            oxo = atom.GetIdx()
+        elif (atom.GetAtomicNum() == 6 and not atom.IsInRing()
+              and bond.GetBondTypeAsDouble() == 1):
+            first = atom
+    if oxo is None or first is None:
+        return ""
+    alpha = first.GetIdx()
+    distal = [a for a in first.GetNeighbors()
+              if a.GetIdx() != carbonyl and a.GetAtomicNum() > 1]
+    if not distal:
+        return ""
+    unsaturated = any(
+        a.GetAtomicNum() == 6 and not a.IsInRing()
+        and mol.GetBondBetweenAtoms(alpha, a.GetIdx()).GetBondTypeAsDouble() in {2, 3}
+        for a in distal
+    )
+    if unsaturated:
+        paths = _carbon_paths(mol, carbonyl, {nitrogen}, (1, 2, 3))
+        if len(paths) != 1:
+            return ""
+        path = paths[0]
+    elif all(a.GetAtomicNum() in {7, 8, 9, 16, 17, 35, 53}
+             and mol.GetBondBetweenAtoms(alpha, a.GetIdx()).GetBondTypeAsDouble() == 1
+             for a in distal):
+        path = (carbonyl, alpha)
+    else:
+        return ""
+
+    if scope is None:
+        from ..branch_rules import collect_subtree
+
+        scope = frozenset(collect_subtree(mol, carbonyl, nitrogen))
+    if (mol.GetStereoGroups() or nitrogen in scope or not frozenset(path) <= scope
+            or any(a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
+                   or a.HasQuery() for a in (mol.GetAtomWithIdx(i) for i in scope))):
+        return ""
+    return _path_name(
+        mol, path, {nitrogen, oxo}, "oyl", unsaturated=unsaturated,
+        full_acetyl_locants=(bool(first.GetChiralTag())
+                            or len({a.GetAtomicNum() for a in distal}) > 1),
+    )
 
 
 def carboxyalkanoyl_prefix(mol, Chem, carbonyl, nitrogen):

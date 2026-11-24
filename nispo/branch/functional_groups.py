@@ -224,12 +224,14 @@ def _sulfur_prefix(mol, idx: int, parent_idx: int) -> str:
             suffix = _sulfur_oxo_substituent_suffix(double_o)
             return _apply_sulfinyl_stereo(mol, idx, double_o, ring + suffix) if suffix else ""
         if mol.GetAtomWithIdx(heavy[0]).GetSymbol() == "N" and double_o == 2:
-            if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 7:
+            host = mol.GetAtomWithIdx(parent_idx)
+            if host.GetAtomicNum() in {6, 7}:
                 from ..sulfur_prefixes import characteristic_sulfur_prefix
 
-                scope = frozenset({idx, heavy[0], *double_oxygens})
+                scope = (frozenset(collect_subtree(mol, idx, parent_idx)) if host.GetAtomicNum() == 6
+                         else frozenset({idx, heavy[0], *double_oxygens}))
                 sulfamoyl = characteristic_sulfur_prefix(mol, Chem, idx, parent_idx, scope)
-                if sulfamoyl:
+                if sulfamoyl and sulfamoyl[0]:
                     return sulfamoyl[0]
             amino = _nitrogen_prefix(mol, heavy[0], idx)
             if not amino:
@@ -1760,16 +1762,24 @@ def _carbonyl_substituent_prefix(mol, idx: int, parent_idx: int) -> str:
     if _is_carboxylate_carbon(mol, idx) and _atom_has_multiple_bond_outside(mol, parent_idx, idx):
         return "1-oxido-1-oxo-methyl"
     distal = heavy[0]
+    if mol.GetAtomWithIdx(distal).GetAtomicNum() == 6 and mol.GetAtomWithIdx(parent_idx).IsInRing():
+        from ..carboxamide_prefixes import mapped_ring_oxamoyl
+
+        oxamoyl = mapped_ring_oxamoyl(mol, Chem, idx, parent_idx)
+        if oxamoyl is not None:
+            return oxamoyl[0]
     if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 8 and mol.GetAtomWithIdx(distal).GetAtomicNum() == 6:
         from .unsaturated_acyl import unsaturated_acyl_prefix
         acyl = unsaturated_acyl_prefix(mol, Chem, idx, parent_idx)
         if acyl is not None:
             return acyl.text
     from .preferred_acyl import (
-        carboxyalkanoyl_prefix, n_attached_aminoacyl_prefix, n_attached_heterocyclylacetyl_prefix,
+        carboxyalkanoyl_prefix, n_attached_aminoacyl_prefix, n_attached_chain_acyl_prefix,
+        n_attached_heterocyclylacetyl_prefix,
     )
     preferred_acyl = (
-        n_attached_aminoacyl_prefix(mol, idx, parent_idx)
+        n_attached_chain_acyl_prefix(mol, Chem, idx, parent_idx)
+        or n_attached_aminoacyl_prefix(mol, idx, parent_idx)
         or n_attached_heterocyclylacetyl_prefix(mol, idx, parent_idx)
         or carboxyalkanoyl_prefix(mol, Chem, idx, parent_idx)
     )

@@ -7,9 +7,13 @@ from functools import lru_cache
 def _residue_queries(Chem):
     alpha = '[C;X4;H1;!R]([N;X3;+0;!R])'
     patterns = (
+        ('glycinate', '[C;X4;H2;!R]([N;X3;+0;!R])'),
         ('alaninate', alpha + '[CH3]'),
         ('valinate', alpha + '[CH]([CH3])[CH3]'),
+        ('leucinate', alpha + '[CH2][CH]([CH3])[CH3]'),
+        ('serinate', alpha + '[CH2][O;X2;H1]'),
         ('phenylalaninate', alpha + '[CH2][c]1[cH][cH][cH][cH][cH]1'),
+        ('tyrosinate', alpha + '[CH2][c]1[cH][cH][c]([O;X2;H1])[cH][cH]1'),
         ('prolinate', '[C;X4;H1]1[N;X3;+0][CH2][CH2][CH2]1'),
     )
     return tuple((name, Chem.MolFromSmarts(pattern)) for name, pattern in patterns)
@@ -17,13 +21,16 @@ def _residue_queries(Chem):
 
 @lru_cache(maxsize=1)
 def _amino_ester_query(Chem):
-    return Chem.MolFromSmarts('[C;X4;H1]([N;X3;+0])[CX3](=[OX1])[OX2][#6]')
+    return Chem.MolFromSmarts('[C;X4;H1,H2]([N;X3;+0])[CX3](=[OX1])[OX2][#6]')
 
 
 def retained_amino_acid_ester_decision(mol, Chem):
     """Name a single selected amino-acid ester before generic parent search."""
-    if not any(mol.GetAtomWithIdx(site[0]).GetChiralTag()
-               for site in mol.GetSubstructMatches(_amino_ester_query(Chem))):
+    for match in mol.GetSubstructMatches(_amino_ester_query(Chem)):
+        alpha = mol.GetAtomWithIdx(match[0])
+        if alpha.GetChiralTag() or alpha.GetTotalNumHs(includeNeighbors=True) == 2:
+            break
+    else:
         return None
     if mol.GetStereoGroups() or any(a.GetIsotope() or a.GetNumRadicalElectrons() or a.HasQuery()
                                    for a in mol.GetAtoms()):
@@ -56,11 +63,12 @@ def retained_amino_acid_ester_decision(mol, Chem):
 
 
 def retained_amino_acid_ester(mol, Chem, group, organyl, organyl_atoms):
-    """Apply P-103.2.3 and P-103.2.6 to an ordinary L/D residue."""
+    """Apply P-103.2.3 and P-103.2.6 to glycine or an ordinary L/D residue."""
     if group.kind != 'ester' or group.owner < 0:
         return ''
     alpha = mol.GetAtomWithIdx(group.owner)
-    if (not alpha.GetChiralTag() or alpha.GetAtomicNum() != 6
+    achiral = alpha.GetTotalNumHs(includeNeighbors=True) == 2
+    if (not (achiral or alpha.GetChiralTag()) or alpha.GetAtomicNum() != 6
             or not any(a.GetAtomicNum() == 7 for a in alpha.GetNeighbors())):
         return ''
 
@@ -68,9 +76,13 @@ def retained_amino_acid_ester(mol, Chem, group, organyl, organyl_atoms):
     from .formatting import format_prefixes
     from .stereochemistry import assigned_atom_stereochemistry
 
-    descriptor = dict(assigned_atom_stereochemistry(mol, Chem)).get(group.owner)
-    if descriptor not in {'R', 'S'}:
-        return ''
+    config = ''
+    if not achiral:
+        descriptor = dict(assigned_atom_stereochemistry(mol, Chem)).get(group.owner)
+        if descriptor not in {'R', 'S'}:
+            return ''
+        # The alpha carbon of each supported chiral residue has S for L.
+        config = 'L-' if descriptor == 'S' else 'D-'
     scope = frozenset(a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
     for parent, query in _residue_queries(Chem):
         for match in mol.GetSubstructMatches(query):
@@ -83,9 +95,6 @@ def retained_amino_acid_ester(mol, Chem, group, organyl, organyl_atoms):
             if any(a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
                    for a in (mol.GetAtomWithIdx(i) for i in residue)):
                 return ''
-            # The alpha configurations of these four mapped skeletons have
-            # the same L/S correspondence, even after N substitution.
-            config = 'L' if descriptor == 'S' else 'D'
             occupied = residue | frozenset(group.atoms) | organyl_atoms
             prefixes = []
             for child in nitrogen.GetNeighbors():
@@ -100,5 +109,5 @@ def retained_amino_acid_ester(mol, Chem, group, organyl, organyl_atoms):
             if occupied != scope:
                 return ''
             prefix = format_prefixes(prefixes, hierarchical_enclosures=True).rstrip('-')
-            return organyl + ' ' + (prefix + '-' if prefix else '') + config + '-' + parent
+            return organyl + ' ' + prefix + ('-' if prefix and config else '') + config + parent
     return ''

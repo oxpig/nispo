@@ -564,16 +564,25 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
     atoms = collect_subtree(mol, idx, parent_idx)
     if len(atoms) < 4 or len(atoms) > max(ROOTS):
         return ""
-    # Long pure-carbon trees have the same bounded endpoint/path problem as
-    # short alkyl groups. Keep the existing cap for functionalized branches.
-    if len(atoms) > 18 and any(
+    with_rings = any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms)
+    if with_rings:
+        # P-46.1 allows cyclic prefixes on the principal carbon chain.
+        # Admit a secondary alkyl on N/O when its two carbon arms include
+        # a methyl terminus. Ring atoms stay in the side branches.
+        root = mol.GetAtomWithIdx(idx)
+        arms = [a for a in root.GetNeighbors() if a.GetIdx() != parent_idx]
+        if (len(atoms) > 48 or attachment.GetBondType() != Chem.BondType.SINGLE or root.IsInRing()
+                or mol.GetAtomWithIdx(parent_idx).GetAtomicNum() not in {7, 8}
+                or root.GetTotalNumHs(includeNeighbors=True) != 1 or len(arms) != 2
+                or any(a.GetAtomicNum() != 6 or a.IsInRing() for a in arms)
+                or not any(_is_terminal_methyl(mol, a.GetIdx(), idx) for a in arms)):
+            return ""
+    elif len(atoms) > 18 and any(
         mol.GetAtomWithIdx(i).GetAtomicNum() not in {1, 6}
         or mol.GetAtomWithIdx(i).GetFormalCharge()
         or mol.GetAtomWithIdx(i).GetNumRadicalElectrons()
         for i in atoms
     ):
-        return ""
-    if any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
         return ""
     if _subtree_has_isotopic_hydrogen(mol, atoms):
         return ""
@@ -581,6 +590,7 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
         atom_idx
         for atom_idx in atoms
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
+        and (not with_rings or not mol.GetAtomWithIdx(atom_idx).IsInRing())
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
         and not _is_nitrile_carbon(mol, atom_idx)
         and not _is_isocyano_carbon(mol, atom_idx)
@@ -594,6 +604,9 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
     paths = _longest_carbon_paths_through_attachment(mol, carbon_atoms, idx)
     candidates = []
     for path in paths:
+        if with_rings and any(mol.GetBondBetweenAtoms(i, j).GetBondType() != Chem.BondType.SINGLE
+                              for i, j in zip(path, path[1:])):
+            continue
         name = _locanted_substituent_path_name(mol, path, atoms, idx, parent_idx)
         if not name:
             continue
@@ -613,7 +626,9 @@ def _locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -
     return candidates[0][-1]
 
 
-def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_idx: int) -> str:
+def _terminal_locanted_acyclic_substituent_chain_prefix(
+    mol, idx: int, parent_idx: int, *, attachment_order=1
+) -> str:
     """Render terminal acyclic alkenyl/alkynyl branches with internal stereo.
 
     The non-terminal locanted-chain renderer needs two carbon leaves.  A branch
@@ -625,12 +640,12 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
     """
 
     parent_bond = mol.GetBondBetweenAtoms(idx, parent_idx)
-    if parent_bond is None or parent_bond.GetBondType() != Chem.BondType.SINGLE:
+    if parent_bond is None or parent_bond.GetBondTypeAsDouble() != attachment_order:
         return ""
     atoms = collect_subtree(mol, idx, parent_idx)
     if len(atoms) < 3 or len(atoms) > 18:
         return ""
-    if any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
+    if attachment_order == 1 and any(mol.GetAtomWithIdx(atom_idx).IsInRing() for atom_idx in atoms):
         return ""
     if _subtree_has_isotopic_hydrogen(mol, atoms):
         return ""
@@ -638,6 +653,7 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
         atom_idx
         for atom_idx in atoms
         if mol.GetAtomWithIdx(atom_idx).GetSymbol() == "C"
+        and (attachment_order == 1 or not mol.GetAtomWithIdx(atom_idx).IsInRing())
         and mol.GetAtomWithIdx(atom_idx).GetFormalCharge() == 0
         and not mol.GetAtomWithIdx(atom_idx).GetIsotope()
         and not _is_nitrile_carbon(mol, atom_idx)
@@ -673,9 +689,14 @@ def _terminal_locanted_acyclic_substituent_chain_prefix(mol, idx: int, parent_id
         name = _locanted_substituent_path_name(mol, path, atoms, idx, parent_idx)
         if not name:
             continue
+        unsaturation = ()
+        if attachment_order == 2:
+            ene, yne = _path_unsaturation_locants(mol, path)
+            unsaturation = (-len(ene) - len(yne), -len(ene), sorted(ene + yne), ene)
         candidates.append(
             (
                 -len(path),
+                unsaturation,
                 _substituent_path_locant_key(mol, path, atoms, parent_idx),
                 len(name),
                 name,
@@ -1095,7 +1116,7 @@ def _heteroatom_methyl_prefix(mol, hetero_idx: int, methylene_idx: int) -> str:
             if not mapped or owned != atoms:
                 return ""
             nitrogen_prefix = mapped
-        if nitrogen_prefix.endswith("amino"):
+        if nitrogen_prefix.endswith(("amino", "anilino")):
             if _complex_hetero_methyl_prefix(nitrogen_prefix):
                 return f"({nitrogen_prefix})methyl"
             return nitrogen_prefix + "methyl"
@@ -1413,7 +1434,8 @@ def _terminal_hetero_functional_group_term(mol, group_idx: int, chain_idx: int) 
     term = branch_prefix(mol, group_idx, chain_idx)
     if not term:
         return ""
-    if term.endswith(("amino", "azaniumyl", "azanidyl", "diazo", "diazenyl", "hydrazono")):
+    if term.endswith(("amino", "anilino", "amido", "azaniumyl", "azanidyl",
+                      "diazo", "diazenyl", "hydrazono")):
         return term
     if term in {"azido", "nitro", "nitroso", "hydroxy", "oxido", "oxidaniumyl", "sulfanyl"}:
         return term
@@ -2103,6 +2125,17 @@ def _alkylidene_prefix(mol, idx: int, parent_idx: int) -> str:
     if len(heavy) == 1:
         heavy_bond = mol.GetBondBetweenAtoms(idx, heavy[0])
         heavy_atom = mol.GetAtomWithIdx(heavy[0])
+        if (mol.GetAtomWithIdx(parent_idx).GetAtomicNum() == 7
+                and heavy_atom.GetAtomicNum() == 6 and not heavy_atom.IsInRing()
+                and heavy_bond.GetBondType() == Chem.BondType.SINGLE
+                and any(b.GetStereo() for b in heavy_atom.GetBonds())):
+            # The E/Z descriptor belongs to the unsaturated ylidene chain.
+            # A separately named alkenyl group can lose that configuration
+            # when its text is concatenated with methylidene.
+            chain = _terminal_locanted_acyclic_substituent_chain_prefix(
+                mol, idx, parent_idx, attachment_order=2)
+            if chain:
+                return chain
         if (
             heavy_atom.GetSymbol() == "O"
             and heavy_atom.GetFormalCharge() == 0

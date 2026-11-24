@@ -97,6 +97,13 @@ def _ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
     if _same_ring_system_attachment(mol, attachment_idx, parent_idx):
         cache[cache_key] = ""
         return ""
+    if mol.GetAtomWithIdx(parent_idx).GetAtomicNum() in {7, 16}:
+        from ..fused_hydrogen_state import retained_ring_hydrogen_prefix
+
+        prefix = retained_ring_hydrogen_prefix(mol, Chem, attachment_idx, parent_idx)
+        if prefix:
+            cache[cache_key] = prefix
+            return prefix
     prefix = _mapped_saturated_spiro_prefix(
         mol, attachment_idx, parent_idx
     ) or _mapped_hydrogenated_heterocycle_prefix(
@@ -975,18 +982,8 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
             prefix = _with_ring_branch_atom_stereo_prefix(mol, nidx, ring_idx, prefix)
             raw_subs.append((ring_idx, prefix))
 
-    pyridine_numbering_proved = _proved_pyridine_substituent_numbering(
-        mol, ordered, attachment_idx, parent_idx, candidates, raw_subs
-    )
-    # This gate is deliberately limited to the substituted diazine parents.
-    # The current branch writer is also used by fast naming, so other rings
-    # must not incur the additional graph and resource-completeness proof.
-    diazine_numbering_proved = bool(
-        candidates
-        and candidates[0][0] in _DIAZINE_NUMBERING_ORBITS
-        and _proved_diazine_substituent_numbering(
-            mol, ordered, attachment_idx, parent_idx, candidates, raw_subs
-        )
+    attachment_numbering = raw_subs and _mancude_attachment_numbering(
+        mol, ordered, attachment_idx, parent_idx, candidates
     )
     best = ""
     best_key = None
@@ -1014,7 +1011,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
                     double.append(bond_loc)
         # Heterocyclic template candidates have their own fixed numbering and
         # carbonyl/H-state conventions. Retain their established ordering.
-        numbering_key = ((loc if carbocycle or pyridine_numbering_proved or diazine_numbering_proved
+        numbering_key = ((loc if carbocycle or attachment_numbering
                           else 0 if loc == 1 else 1),
                          tuple(sorted(multiple)), tuple(sorted(double)), tuple(locants))
         # The rendered text is only the final tie breaker. Keep every tied
@@ -1081,192 +1078,66 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
     return best
 
 
-def _proved_pyridine_substituent_numbering(
-    mol, ordered, attachment_idx, parent_idx, candidates, raw_subs
-):
-    """Prove the two fixed pyridine orientations and their owned branches.
-
-    P-14.4(c) assigns the free valence a lower locant before the ordinary
-    substituent-prefix locants. This only changes the old heterocycle key
-    where both orientations and the complete, unannotated original branch
-    are available; other ring parents retain their existing ordering.
-    """
-    core = set(ordered)
-    if (len(core) != 6 or ring_system_extends_core(mol, core)
-            or attachment_idx not in core or parent_idx in core
-            or mol.GetBondBetweenAtoms(attachment_idx, parent_idx) is None
-            or mol.GetBondBetweenAtoms(attachment_idx, parent_idx).GetBondTypeAsDouble() != 1):
-        return False
-    atoms = [mol.GetAtomWithIdx(i) for i in core]
-    if (sum(atom.GetAtomicNum() == 7 for atom in atoms) != 1
-            or sum(atom.GetAtomicNum() == 6 for atom in atoms) != 5
-            or any(not atom.GetIsAromatic() or atom.GetFormalCharge() for atom in atoms)
-            or mol.GetAtomWithIdx(attachment_idx).GetAtomicNum() != 6):
-        return False
-    if any(name != 'pyridine' for name, _ in candidates) or len(candidates) != 2:
-        return False
-    first, second = (tuple(seq) for _, seq in candidates)
-    if (set(first) != core or set(second) != core or first[0] != second[0]
-            or first[0] not in core or mol.GetAtomWithIdx(first[0]).GetAtomicNum() != 7
-            or first[1:] != tuple(reversed(second[1:]))):
-        return False
-    scope = frozenset(collect_subtree(mol, attachment_idx, parent_idx))
-    from ..component_mapping import has_annotations, mapped_branch
-    if has_annotations(mol, scope):
-        return False
-    if any(any(atom.GetIdx() in scope for atom in group.GetAtoms())
-           for group in mol.GetStereoGroups()):
-        return False
-    cuts = {(i, nbr.GetIdx()) for i in scope for nbr in mol.GetAtomWithIdx(i).GetNeighbors()
-            if nbr.GetIdx() not in scope and (nbr.GetAtomicNum() > 1 or nbr.GetIsotope())}
-    if cuts != {(attachment_idx, parent_idx)}:
-        return False
-    from collections import Counter
-    expected = Counter(raw_subs)
-    actual = Counter()
-    owned = set(core)
-    for host in core:
-        for nbr in mol.GetAtomWithIdx(host).GetNeighbors():
-            root = nbr.GetIdx()
-            if root in core or root == parent_idx or nbr.GetAtomicNum() == 1:
-                continue
-            child = collect_subtree(mol, root, host)
-            if child & owned or not child <= scope:
-                return False
-            child_cuts = {(i, n.GetIdx()) for i in child for n in mol.GetAtomWithIdx(i).GetNeighbors()
-                          if n.GetIdx() not in child and (n.GetAtomicNum() > 1 or n.GetIsotope())}
-            if child_cuts != {(root, host)}:
-                return False
-            text, mapped = mapped_branch(mol, Chem, root, host)
-            if not text or set(mapped) != child:
-                return False
-            actual[(host, text)] += 1
-            owned.update(child)
-    return owned == set(scope) and actual == expected
-
-
-_DIAZINE_NUMBERING_ORBITS = {
-    # Fixed heteroatom positions and the size of their complete dihedral orbit.
-    "pyridazine": ((1, 2), 2),
-    "pyrimidine": ((1, 3), 2),
-    "pyrazine": ((1, 4), 4),
+_MANCUDE_NUMBERING_ORBITS = {
+    # Ring size, heteroatom positions, and size of the fixed-numbering orbit.
+    "furan": (5, ((1, 8),), 2),
+    "thiophene": (5, ((1, 16),), 2),
+    "pyridine": (6, ((1, 7),), 2),
+    "pyridazine": (6, ((1, 7), (2, 7)), 2),
+    "pyrimidine": (6, ((1, 7), (3, 7)), 2),
+    "pyrazine": (6, ((1, 7), (4, 7)), 4),
 }
 
 
-def _proved_diazine_substituent_numbering(
-    mol, ordered, attachment_idx, parent_idx, candidates, raw_subs
-):
-    """Prove one P-14.4(c) numbering of a fixed, substituted diazine.
+def _mancude_attachment_numbering(mol, ordered, attachment, parent, candidates):
+    """P-14.4(c) on neutral mancude monocycles with equivalent orientations.
 
-    This is local numbering of the ring substituent, not a whole-name PIN
-    decision. Tied free-valence locants, annotations, other ring parents,
-    incomplete resource matches and non-owned branches remain outside scope.
+    The existing writer pairs each already rendered child with its original
+    ring atom. Only the choice of numbering changes. Check the ring and its
+    bonds before ranking the complete orientations; child locants and stereo
+    belong to the separately rendered children.
     """
-    if len(ordered) != 6 or not candidates or not raw_subs:
-        return False
     name = candidates[0][0]
-    spec = _DIAZINE_NUMBERING_ORBITS.get(name)
+    spec = _MANCUDE_NUMBERING_ORBITS.get(name)
     if spec is None:
         return False
-    hetero_locants, orbit_size = spec
-    if len(candidates) != orbit_size or any(candidate_name != name
-                                             for candidate_name, _ in candidates):
+    size, heteroatoms, orbit_size = spec
+    if len(ordered) != size:
+        return False
+    accepted_names = {name, 'furane'} if name == 'furan' else {name}
+    if any(word not in accepted_names for word, _ in candidates):
+        return False
+    numberings = {tuple(seq) for _, seq in candidates}
+    if len(numberings) != orbit_size:
         return False
     core = set(ordered)
-    if (len(core) != 6 or ring_system_extends_core(mol, core)
-            or attachment_idx not in core or parent_idx in core):
+    cut = mol.GetBondBetweenAtoms(attachment, parent)
+    if (parent in core or attachment not in core or cut is None
+            or cut.GetBondTypeAsDouble() != 1
+            or mol.GetAtomWithIdx(attachment).GetAtomicNum() != 6
+            or ring_system_extends_core(mol, core)):
         return False
-    attachment_bond = mol.GetBondBetweenAtoms(attachment_idx, parent_idx)
-    if attachment_bond is None or attachment_bond.GetBondTypeAsDouble() != 1:
-        return False
-    atoms = [mol.GetAtomWithIdx(i) for i in ordered]
-    if (sum(atom.GetAtomicNum() == 6 for atom in atoms) != 4
-            or sum(atom.GetAtomicNum() == 7 for atom in atoms) != 2
-            or mol.GetAtomWithIdx(attachment_idx).GetAtomicNum() != 6
-            or any(not atom.GetIsAromatic() or atom.GetFormalCharge()
-                   or atom.GetNumRadicalElectrons() or atom.GetIsotope()
-                   or (atom.GetAtomicNum() == 7 and atom.GetTotalNumHs(includeNeighbors=True))
-                   for atom in atoms)):
-        return False
-    annular = [bond for idx in core for bond in mol.GetAtomWithIdx(idx).GetBonds()
-               if bond.GetBeginAtomIdx() == idx and bond.GetEndAtomIdx() in core]
-    if (len(annular) != 6 or any(not bond.GetIsAromatic()
-            or bond.GetStereo() != Chem.BondStereo.STEREONONE for bond in annular)):
-        return False
-
-    # Derive the entire fixed-numbering orbit from the original cycle, rather
-    # than assuming that an emitted or resource-matched candidate is complete.
-    orientations = set()
-    sequence = tuple(ordered)
-    for direction in (sequence, tuple(reversed(sequence))):
-        for offset in range(6):
-            candidate = direction[offset:] + direction[:offset]
-            if any(mol.GetBondBetweenAtoms(a, b) is None for a, b in
-                   zip(candidate, candidate[1:] + candidate[:1])):
-                return False
-            positions = tuple(i + 1 for i, idx in enumerate(candidate)
-                              if mol.GetAtomWithIdx(idx).GetAtomicNum() == 7)
-            if positions == hetero_locants:
-                orientations.add(candidate)
-    if len(orientations) != orbit_size:
-        return False
-    if {tuple(seq) for _, seq in candidates} != orientations:
-        return False
-    attachment_locs = [seq.index(attachment_idx) + 1 for seq in orientations]
-    if attachment_locs.count(min(attachment_locs)) != 1:
-        return False
-
-    # Resource matches are globally capped by RDKit. The caller has already
-    # populated these exact query caches; reject a saturated or missing cache
-    # instead of concluding that no competing resource alias exists.
-    from ..ring_resource_rules import _single_ring_templates_by_symbols
-    matches_by_query = mol_cache_get(mol, "resource_ring_matches_by_atom_set", {})
-    templates = _single_ring_templates_by_symbols(Chem).get(
-        (6, ("C", "C", "C", "C", "N", "N")), ()
-    )
-    for template, _ in templates:
-        groups = matches_by_query.get(template_record_mol(template))
-        if groups is None or sum(len(rows) for rows in groups.values()) >= 1000:
+    for idx in ordered:
+        atom = mol.GetAtomWithIdx(idx)
+        if (atom.GetFormalCharge() or atom.GetIsotope() or atom.GetNumRadicalElectrons()
+                or int(atom.GetChiralTag())
+                or atom.GetAtomicNum() != 6 and atom.GetTotalNumHs(includeNeighbors=True)
+                or any(bond.GetBondTypeAsDouble() != 1 or bond.GetStereo()
+                       for bond in atom.GetBonds() if bond.GetOtherAtomIdx(idx) not in core)):
             return False
-
-    scope = frozenset(collect_subtree(mol, attachment_idx, parent_idx))
-    from ..component_mapping import has_annotations, mapped_branch
-    if has_annotations(mol, scope):
-        return False
-    if any(any(atom.GetIdx() in scope for atom in group.GetAtoms())
-           for group in mol.GetStereoGroups()):
-        return False
-    cuts = {(i, nbr.GetIdx()) for i in scope for nbr in mol.GetAtomWithIdx(i).GetNeighbors()
-            if nbr.GetIdx() not in scope and (nbr.GetAtomicNum() > 1 or nbr.GetIsotope())}
-    if cuts != {(attachment_idx, parent_idx)}:
-        return False
-
-    # Every already-rendered child must own precisely its disjoint original
-    # graph component, attached by one ordinary bond to this same ring.
-    from collections import Counter
-    expected = Counter(raw_subs)
-    actual = Counter()
-    owned = set(core)
-    for host in core:
-        for nbr in mol.GetAtomWithIdx(host).GetNeighbors():
-            root = nbr.GetIdx()
-            if root in core or root == parent_idx or nbr.GetAtomicNum() == 1:
-                continue
-            if mol.GetBondBetweenAtoms(host, root).GetBondTypeAsDouble() != 1:
-                return False
-            child = collect_subtree(mol, root, host)
-            if child & owned or not child <= scope:
-                return False
-            child_cuts = {(i, n.GetIdx()) for i in child for n in mol.GetAtomWithIdx(i).GetNeighbors()
-                          if n.GetIdx() not in child and (n.GetAtomicNum() > 1 or n.GetIsotope())}
-            if child_cuts != {(root, host)}:
-                return False
-            text, mapped = mapped_branch(mol, Chem, root, host)
-            if not text or set(mapped) != child:
-                return False
-            actual[(host, text)] += 1
-            owned.update(child)
-    return owned == set(scope) and actual == expected
+    # The admitted ring-parent candidates describe the same mancude parent.
+    # Derive the entire dihedral orbit independently of the resource matches.
+    sequence = tuple(ordered)
+    orientations = set()
+    for direction in (sequence, sequence[::-1]):
+        for offset in range(size):
+            path = direction[offset:] + direction[:offset]
+            positions = tuple((loc, mol.GetAtomWithIdx(idx).GetAtomicNum())
+                              for loc, idx in enumerate(path, 1)
+                              if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6)
+            if positions == heteroatoms:
+                orientations.add(path)
+    return numberings == orientations
 
 
 def _pyrazole_hydride_parent(mol, parent_name: str, seq: Sequence[int]) -> str:

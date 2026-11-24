@@ -8,7 +8,7 @@ than acquiring the rank of an unrelated neutral function.
 from .molecule_iteration import iter_atoms
 from .functional_inventory import CharacteristicGroup, _inventory, functional_inventory
 from .molecule_cache import mol_cache_get, mol_cache_set
-from .sulfur_selection import sulfonamide_n_sites
+from .sulfur_selection import sulfonamide_n_sites, sulfonamide_ylidene_root
 
 
 def selection_inventory(mol):
@@ -232,7 +232,7 @@ def additional_sites(mol, *, charge_role_proofs=(), subordinate_thioxo=(), subor
                 if any(
                     b.GetBondTypeAsDouble() != 1
                     for b in mol.GetAtomWithIdx(nitrogen[0]).GetBonds()
-                ):
+                ) and (len(double_o) != 2 or sulfonamide_ylidene_root(mol, idx, nitrogen[0]) is None):
                     if len(double_o) == 2:
                         from rdkit import Chem
                         from .functional_inventory import _neutral_carboxyl_query

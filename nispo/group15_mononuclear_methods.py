@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .component_mapping import MappedComponent, decorate_component, mapped_branch
+from .component_mapping import MappedComponent, decorate_component, mapped_branch, mapped_general_branch
 from .formatting import attach_suffix
 from .naming_methods import MethodDecision
 from .prefix_sequences import PrefixUnit, mononuclear_prefix_sequence
@@ -32,6 +32,7 @@ class Group15Recognition:
     suffix_atom: int | None = None
     suffix_element: int | None = None
     lambda_valence: int | None = None
+    complex_ligands: bool = False
 
 
 def _single(mol, left: int, right: int) -> bool:
@@ -84,6 +85,17 @@ def _carbon_organyl(mol, root: int, center: int):
     return group
 
 
+def _complex_carbon_organyl(mol, root, center):
+    from .branch_rules import collect_subtree
+
+    atoms = frozenset(collect_subtree(mol, root, center))
+    if center in atoms:
+        return None
+    cuts = {(i, a.GetIdx()) for i in atoms for a in mol.GetAtomWithIdx(i).GetNeighbors()
+            if a.GetIdx() not in atoms}
+    return atoms if cuts == {(root, center)} else None
+
+
 def recognize_group15_mononuclear(mol) -> Group15Recognition:
     """Classify the whole graph for this bounded suffix-mode operation."""
     centers = [a for a in mol.GetAtoms() if a.GetAtomicNum() in _PARENTS]
@@ -99,13 +111,21 @@ def recognize_group15_mononuclear(mol) -> Group15Recognition:
         return Group15Recognition("deferred", "central isotope or stereochemistry is unproved", cidx, element)
     if mol.GetNumAtoms() > 96 or mol.GetStereoGroups():
         return Group15Recognition("deferred", "graph or enhanced-stereo group exceeds bounded scope", cidx, element)
-    if any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
-        return Group15Recognition("deferred", "charged or radical atom is outside the neutral route", cidx, element)
+    triorganyl_oxide = element == 15 and center.GetDegree() == 4 and any(
+        bond.GetBondTypeAsDouble() == 2 and bond.GetOtherAtom(center).GetAtomicNum() == 8
+        for bond in center.GetBonds()
+    )
+    if any(a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
+        return Group15Recognition("deferred", "radical atom is outside the neutral route", cidx, element)
+    charged = any(a.GetFormalCharge() for a in mol.GetAtoms())
+    if charged and not triorganyl_oxide:
+        return Group15Recognition("deferred", "charged atom is outside the neutral route", cidx, element)
     if any(a.GetAtomicNum() == 1 for a in mol.GetAtoms()):
         return Group15Recognition("deferred", "explicit hydrogen atoms are not part of this component grammar", cidx, element)
 
     suffixes = []
     roots, groups = [], []
+    complex_ligands = False
     for neighbor in center.GetNeighbors():
         idx, number = neighbor.GetIdx(), neighbor.GetAtomicNum()
         bond = mol.GetBondBetweenAtoms(cidx, idx)
@@ -123,6 +143,9 @@ def recognize_group15_mononuclear(mol) -> Group15Recognition:
             continue
         if number == 6 and bond.GetBondTypeAsDouble() == 1.0:
             group = _carbon_organyl(mol, idx, cidx)
+            if group is None and triorganyl_oxide:
+                group = _complex_carbon_organyl(mol, idx, cidx)
+                complex_ligands = True
             if group is None:
                 return Group15Recognition("deferred", "organyl is not a saturated carbon tree or plain phenyl", cidx, element)
             if any(mol.GetAtomWithIdx(i).GetIsotope()
@@ -140,6 +163,14 @@ def recognize_group15_mononuclear(mol) -> Group15Recognition:
         return Group15Recognition("deferred", "requires at least one carbon organyl", cidx, element)
     if any(a.GetIsotope() for a in mol.GetAtoms()):
         return Group15Recognition("deferred", "isotope grammar outside the bounded parent/suffix operation", cidx, element)
+    if complex_ligands or charged:
+        from .extended_inventory import selection_inventory
+        from .neutral_charge_components import validate_neutral_charge_role_proofs
+
+        inventory = selection_inventory(mol)
+        if (not inventory.supported or any(g.seniority[0] <= 16 for g in inventory.groups)
+                or not validate_neutral_charge_role_proofs(mol, inventory.charge_role_proofs)):
+            return Group15Recognition("deferred", "competing suffix or unproved charge", cidx, element)
 
     valence = int(center.GetTotalValence())
     if valence not in {3, 5}:
@@ -161,19 +192,31 @@ def recognize_group15_mononuclear(mol) -> Group15Recognition:
     if owned != heavy:
         return Group15Recognition("deferred", "not every heavy atom belongs to a mapped parent component", cidx, element)
     return Group15Recognition("supported", "complete neutral mononuclear Group 15 parent-hydride graph",
-        cidx, element, tuple(roots), tuple(groups), suffix_atom, suffix_element, lambda_valence)
+        cidx, element, tuple(roots), tuple(groups), suffix_atom, suffix_element, lambda_valence,
+        complex_ligands)
 
 
 def _organyl_prefix_text(mol, Chem, recognition):
     terms = {}
     branches = []
+    resolver = mapped_general_branch if recognition.complex_ligands else mapped_branch
     for root, atoms in zip(recognition.carbon_roots, recognition.carbon_groups, strict=True):
-        text, owned = mapped_branch(mol, Chem, root, recognition.center)
+        text, owned = resolver(mol, Chem, root, recognition.center)
+        if not text and recognition.complex_ligands:
+            from .component_mapping import _general_branch_stereo_is_cited
+            from .parent_rules import _simple_or_branch_prefix, _strip_outer_parentheses
+
+            # The recognition step has already proved this single P-C cut.
+            # Reuse the same complete organyl writer as the oxide class name.
+            text = _strip_outer_parentheses(_simple_or_branch_prefix(mol, root, recognition.center))
+            if text and _general_branch_stereo_is_cited(mol, Chem, atoms, text):
+                owned = atoms
         if not text or frozenset(owned) != atoms:
             return None
         path = all(sum(n.GetIdx() in atoms for n in mol.GetAtomWithIdx(i).GetNeighbors()) <= 2
                    for i in atoms)
-        nature = "simple" if text in {"phenyl", "tert-butyl"} or path else "compound"
+        simple_path = path and (not recognition.complex_ligands or text.isalpha())
+        nature = "simple" if text in {"phenyl", "tert-butyl"} or simple_path else "compound"
         if text in terms and terms[text] != nature:
             return None
         terms[text] = nature

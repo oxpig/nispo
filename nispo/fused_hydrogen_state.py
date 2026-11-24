@@ -16,6 +16,123 @@ from .functional_inventory import functional_inventory
 from .hydrogen_accommodation import annular_pi_bonds, joint_hydrogen_states, peripheral_ring_atoms
 
 
+@lru_cache(maxsize=1)
+def _benzimidazole_imine_query(Chem):
+    # Ring sequence from C-2 through N-3 and around the benzenoid ring to N-1.
+    return Chem.MolFromSmarts('[c;H0;+0]1[nH;+0][c]2[c][c][c][c][c]2[nH;+0]1')
+
+
+@lru_cache(maxsize=1)
+def _quinoxalinedione_query(Chem):
+    return Chem.MolFromSmarts('[nH;+0]1[c](=[O;D1])[c](=[O;D1])[nH;+0][c]2[c][c][c][c][c]12')
+
+
+def _plain_ring_atoms(mol, atoms):
+    return all(not (a.GetIsotope() or a.GetFormalCharge() or a.GetNumRadicalElectrons()
+                   or a.HasQuery() or a.GetChiralTag())
+               for a in (mol.GetAtomWithIdx(i) for i in atoms))
+
+
+def retained_ring_hydrogen_prefix(mol, Chem, root, host):
+    """Use the source NH positions of a complete fused ring substituent."""
+    from .branch_rules import collect_subtree
+
+    atom = mol.GetAtomWithIdx(root)
+    if atom.GetAtomicNum() != 6 or not atom.GetIsAromatic():
+        return ""
+    cut = mol.GetBondBetweenAtoms(root, host)
+    if cut.GetBondTypeAsDouble() == 2 and mol.GetAtomWithIdx(host).GetAtomicNum() == 7:
+        if cut.GetStereo() != Chem.BondStereo.STEREONONE:
+            return ""
+        for match in mol.GetSubstructMatches(_benzimidazole_imine_query(Chem)):
+            if match[0] == root and _plain_ring_atoms(mol, match):
+                if set(match) == set(collect_subtree(mol, root, host)):
+                    # P-58.2.3.1.1: the indicated H at C-2 accommodates the
+                    # ylidene valence. The two annular N-H sites remain.
+                    return '1,3-dihydro-2H-1,3-benzimidazol-2-ylidene'
+        return ""
+    if cut.GetBondTypeAsDouble() != 1 or mol.GetAtomWithIdx(host).GetAtomicNum() != 16:
+        return ""
+    for match in mol.GetSubstructMatches(_quinoxalinedione_query(Chem)):
+        positions = match[7:11]
+        if root not in positions or not _plain_ring_atoms(mol, match):
+            continue
+        if set(match) == set(collect_subtree(mol, root, host)):
+            # The symmetric dione has equivalent 5/8 and 6/7 attachments.
+            locant = (5, 6, 6, 5)[positions.index(root)]
+            return f'2,3-dioxo-1,2,3,4-tetrahydroquinoxalin-{locant}-yl'
+    return ""
+
+
+def benzimidazole_imino_ester_decision(mol, Chem):
+    """Name a fused carboxylic ester carrying a phosphoric ester imino arm."""
+    from .formatting import enclose_name_unit
+    from .functional_inventory import CharacteristicGroup
+    from .mapped_ester_general import mapped_ester_arm
+    from .naming_methods import MethodDecision
+    from .naming_result import SelectionLimitation
+    from .phosphorus_acyl_prefixes import phosphorus_acyl_prefix
+    from .stereochemistry import apply_mapped_branch_bond_stereochemistry
+
+    locants = ('2', '3', '3a', '4', '5', '6', '7', '7a', '1')
+    for match in mol.GetSubstructMatches(_benzimidazole_imine_query(Chem), uniquify=False):
+        ring = frozenset(match)
+        attachments = [(idx, bond) for idx in match
+                       for bond in mol.GetAtomWithIdx(idx).GetBonds()
+                       if bond.GetOtherAtomIdx(idx) not in ring]
+        if len(attachments) != 2 or not _plain_ring_atoms(mol, ring) or mol.GetStereoGroups():
+            continue
+        imines = [mol.GetAtomWithIdx(b.GetOtherAtomIdx(i)) for i, b in attachments if i == match[0]
+                  and b.GetBondTypeAsDouble() == 2]
+        if len(imines) != 1 or imines[0].GetAtomicNum() != 7 or imines[0].GetDegree() != 2:
+            continue
+        nitrogen = imines[0]
+        phosphorus = next(a for a in nitrogen.GetNeighbors() if a.GetIdx() != match[0])
+        phospho = phosphorus_acyl_prefix(mol, Chem, phosphorus.GetIdx(), nitrogen.GetIdx())
+        if phospho is None or any(a.GetAtomicNum() != 8 for a in phosphorus.GetNeighbors()
+                                  if a.GetIdx() != nitrogen.GetIdx()):
+            continue
+        if any(len(arm) < 2 for arm in phospho.ligand_atoms):
+            continue
+        owner, bond = next((i, b) for i, b in attachments if i != match[0])
+        position = match.index(owner)
+        # P-14.4 gives the carboxylate suffix the lower of the reflected
+        # benzenoid locants. Both annular nitrogens carry a hydrogen.
+        if position not in {3, 4} or bond.GetBondTypeAsDouble() != 1:
+            continue
+        carbon = mol.GetAtomWithIdx(bond.GetOtherAtomIdx(owner))
+        if carbon.GetAtomicNum() != 6 or carbon.GetDegree() != 3 or carbon.IsInRing():
+            continue
+        oxygens = {b.GetBondTypeAsDouble(): b.GetOtherAtomIdx(carbon.GetIdx())
+                   for b in carbon.GetBonds() if b.GetOtherAtom(carbon).GetAtomicNum() == 8}
+        if oxygens.keys() != {1, 2} or mol.GetAtomWithIdx(oxygens[2]).GetDegree() != 1:
+            continue
+        group = CharacteristicGroup('ester', carbon.GetIdx(),
+            (carbon.GetIdx(), oxygens[2], oxygens[1]), owner, oxygens[1])
+        arm = mapped_ester_arm(mol, Chem, group)
+        if arm is None or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in arm.atoms):
+            continue
+        acid = frozenset(group.atoms)
+        imino = phospho.atoms | {nitrogen.GetIdx()}
+        scope = ring | acid | arm.atoms | imino
+        if (len(scope) != sum(map(len, (ring, acid, arm.atoms, imino)))
+                or len(scope) != mol.GetNumAtoms() or not _plain_ring_atoms(mol, scope)):
+            continue
+        mapping = tuple(zip(match, locants, strict=True))
+        text = f'2-[{enclose_name_unit(phospho.name)}imino]-2,3-dihydro-1H-1,3-benzimidazole'
+        parent = f'{text}-{locants[position]}-carboxylate'
+        parent = apply_mapped_branch_bond_stereochemistry(mol, Chem, parent, mapping)
+        rule = 'P-41/P-42/P-58.2/P-65.6/P-67.1.4.1.1.5'
+        return MethodDecision(
+            arm.name + ' ' + parent, 'functional-class', frozenset({group.center}), scope, rule,
+            mapping, component_roles=(('acid', ring | acid | imino, mapping),
+                                      ('O-organyl', arm.atoms, ())),
+            preference_issues=(SelectionLimitation(
+                'ester-parent', rule, 'The carboxylic ester, annular H and imino arm are mapped.'),),
+        )
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class FusedHydrogenRecord:
     name: str = ""

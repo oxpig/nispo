@@ -711,6 +711,10 @@ def _inventory_build(mol, *, extended=False, subordinate_thioxo=()):
                 sulfur = next((a for a in nitrogen.GetNeighbors() if a.GetAtomicNum() == 16), None)
                 if sulfur is not None:
                     from .sulfonylguanidine import sulfonylguanidine
+                    from .sulfur_selection import sulfonamide_ylidene_root
+
+                    if sulfonamide_ylidene_root(mol, sulfur.GetIdx(), nitrogen.GetIdx()) == idx:
+                        continue
 
                     site = sulfonylguanidine(mol, sulfur.GetIdx())
                     if site is not None and site.carbon == idx and site.imino == nitrogen.GetIdx():

@@ -1287,8 +1287,10 @@ def _build_ring_preparation(mol, Chem, core, inventory_groups, groups, scope,
                                    or atom.GetDegree() == 2 and atom.GetTotalNumHs() == 1
                                    and any(n.GetIsAromatic() and n.GetAtomicNum() == 6
                                            for n in atom.GetNeighbors())))
+            sulfonamide_ylidene = (kind == 'sulfonamide' and idx not in core
+                                   and atom.GetAtomicNum() == 6)
             allowed = order == 1 or order == 2 and (
-                atom.GetAtomicNum() in {7, 8} or carbon_ylidene)
+                atom.GetAtomicNum() in {7, 8} or carbon_ylidene or sulfonamide_ylidene)
             rows.append((neighbor, allowed))
         branch_edges[idx] = tuple(rows)
     return _RingPreparation(carbonyls, oxygen_suffix_groups,

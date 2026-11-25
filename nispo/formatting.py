@@ -722,7 +722,8 @@ def _simple_hydride_oxosulfur_prefix(name: str) -> bool:
     compound: repeated units still use a basic multiplier. Substituted and
     more complex hydride names keep their own source-aware writer.
     """
-    suffix = next((ending for ending in ('sulfonyl', 'sulfinyl')
+    suffix = next((ending for ending in ('sulfonyl', 'sulfinyl', 'selenonyl', 'seleninyl',
+                                         'telluronyl', 'tellurinyl')
                    if name.endswith(ending)), None)
     if suffix is None:
         return False

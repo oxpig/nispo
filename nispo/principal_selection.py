@@ -1016,7 +1016,11 @@ class PrincipalSelectionPipeline:
             if name:
                 return PrincipalDecision(stage, PrincipalRequirement('cyclic-oxime'),
                     output_name=name, direct_route='substitutive:P-68.3.1.1.2')
-        if counts[6, 7, 2] and view.elements['N'] >= 2:
+        if counts[7, 7, 1] and (counts[6, 8, 2] and counts[6, 7, 2] or
+                counts[6, 8, 2] + counts[8, 16, 2] + counts[8, 34, 2] + counts[8, 52, 2] >= 2):
+            from .acylhydrazide_parents import acylhydrazide_decision
+            decision = acylhydrazide_decision(b.mol, b.Chem)
+        if decision is None and counts[6, 7, 2] and view.elements['N'] >= 2:
             if counts[7, 7, 1]:
                 from .hydrazone_methods import hydrazone_parent_decision, hydrazone_query
                 if b.mol.HasSubstructMatch(hydrazone_query(b.Chem)):

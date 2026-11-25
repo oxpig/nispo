@@ -33,6 +33,7 @@ class AcidComponent:
     bridge_oxygen: int | None = None
     suffix_oxygen_isotopes: tuple = ()
     construction: MappedComponent | None = None
+    parent_facts: object = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,11 +118,15 @@ def _unsaturated_carbon_tree_acid_parent(acid, Chem):
     return frontier.candidates[0]
 
 
-def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapped_chain=False):
+def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapped_chain=False,
+                    hydrazide=False):
     atoms=frozenset(collect_subtree(mol,center,leaving))
     if leaving in atoms:return None
     bridge=mol.GetAtomWithIdx(leaving)
-    if bridge.GetIsotope() and bridge.GetAtomicNum()!=8:return None
+    bridge_mass = bridge.GetIsotope()
+    if hydrazide and bridge.GetAtomicNum() == 7:
+        bridge_mass = 0  # The original nitrogen remains in the hydrazide, outside this acid cap.
+    if bridge_mass and bridge.GetAtomicNum()!=8:return None
     if int(bridge.GetChiralTag()):return None
     carbonyl_oxygens=[a.GetIdx() for a in mol.GetAtomWithIdx(center).GetNeighbors()
                       if a.GetAtomicNum()==8 and
@@ -137,7 +142,7 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
     cap=Chem.Atom(8)
     # The capped acid's hydroxy oxygen represents the original ester/anhydride
     # bridge oxygen for isotope identity and acid-side suffix counting.
-    cap.SetIsotope(bridge.GetIsotope())
+    cap.SetIsotope(bridge_mass)
     oxygen=graph.AddAtom(cap);graph.AddBond(order.index(center),oxygen,Chem.BondType.SINGLE)
     acid=graph.GetMol()
     try:Chem.SanitizeMol(acid)
@@ -175,6 +180,7 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
         selected = (substituted_benzoic_acid_parent(acid, Chem)
                     or aromatic_acetic_acid_parent(acid, Chem)
                     or amino_acetic_acid_parent(acid, Chem))
+    facts = None
     if selected is None and (allow_mapped_ring or bridge.GetAtomicNum() in {9, 17, 35, 53}):
         # The leaving group remains outside the capped ring acid. Compare
         # mapped ring constructions with full ownership of the acid residue.
@@ -183,6 +189,9 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
         rows = records(parent_graph, Chem, general_branches=True)
         if len(rows) == 1 and rows[0].principal_centers == {order.index(center)}:
             selected = rows[0]
+            if hydrazide:
+                from .mapped_ring_parents import parent_facts
+                facts = parent_facts(parent_graph, selected, selection_inventory(parent_graph).principal[0].seniority)
     if selected is None and (allow_mapped_chain or bridge.GetAtomicNum() in {9, 17, 35, 53}):
         from .mapped_principal_general import _carbon_proposals
         from .parent_selection import parent_frontier
@@ -196,6 +205,8 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
                 best = parent_frontier(rows, lambda row: row[1])
                 if len({row.name for row, _ in best}) == 1:
                     selected = best[0][0]
+                    if hydrazide:
+                        facts = best[0][1]
     if selected is None:return None
     construction=selected.construction
     if construction is None or not construction.parent.endswith(' acid'):return None
@@ -263,7 +274,7 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
     if has_annotations(mol,atoms-mapped_atoms-translated.embedded_atoms):return None
     named=decorate_component(mol,Chem,translated)
     if not named:return None
-    oxygen_isotopes=tuple(mass for mass in (carbonyl_atom.GetIsotope(),bridge.GetIsotope()) if mass)
+    oxygen_isotopes=tuple(mass for mass in (carbonyl_atom.GetIsotope(),bridge_mass) if mass)
     if oxygen_isotopes:
         named=suffix_oxygen_descriptors(named,oxygen_isotopes)
         if not named:return None
@@ -273,12 +284,24 @@ def _acid_component(mol,Chem,center,leaving,*,allow_mapped_ring=False,allow_mapp
     identity_graph = Chem.Mol(acid)
     for atom in identity_graph.GetAtoms():
         atom.SetAtomMapNum(0)
+    if hydrazide and facts is None:
+        facts = getattr(selected, 'parent_selection', None)
+        if facts is None:
+            # Retained acid writers also expose their selected skeleton and
+            # locants. Reuse it when comparing benzoic and acetic derivatives.
+            from .cross_route_selection import _facts
+            mapping = dict(construction.atom_locants)
+            site = selection_inventory(parent_graph).principal[0]
+            rings = [r for r in parent_graph.GetRingInfo().AtomRings() if site.owner in r]
+            if len(rings) == 1 and set(rings[0]) <= mapping.keys():
+                facts = _facts(parent_graph, (site,), rings[0], mapping, construction.prefixes,
+                               selected.name, cyclic=True, construction=construction)
     return AcidComponent(named,atoms,translated.atom_locants,
                          Chem.MolToSmiles(identity_graph,isomericSmiles=True),
                          bool(translated.prefixes) or has_annotations(mol,atoms),
-                         organyl_oxygen_qualifier(bridge.GetIsotope(),carbonyl_atom.GetIsotope()),
+                         organyl_oxygen_qualifier(bridge_mass,carbonyl_atom.GetIsotope()),
                          carbonyl_oxygen,leaving,
-                         oxygen_isotopes,translated)
+                         oxygen_isotopes,translated,facts)
 
 
 def _acyl(acid):

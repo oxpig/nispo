@@ -106,6 +106,9 @@ class MappedComponent:
     # parent, but owned outside this descriptor's map. Their H population
     # must still prevent a false P-82.6.1.3 completeness claim.
     isotope_hydrogen_context_atoms: frozenset[int] = frozenset()
+    # An external C=N suffix has its own bond, distinct from the skeletal
+    # atom carrying the suffix. Keep its written E/Z locant on that bond.
+    suffix_stereo_locants: tuple[tuple[int, int, str], ...] = ()
 
 
 def _valid_isotope_role_evidence(mol, component):
@@ -213,9 +216,9 @@ def chemical_inventory(mol):
 
 
 def _locant_key(loc):
-    n_site = re.fullmatch(r"N('*)(\d+)", loc)
-    if n_site:
-        return (999, 'N', int(n_site[2]), len(n_site[1]))
+    site = re.fullmatch(r"([CNO])('*)(\d+)('*)", loc)
+    if site:
+        return (999, site[1], int(site[3]), len(site[4]), len(site[2]))
     m = re.fullmatch(r"(\d+)(.*)", loc)
     return (int(m[1]), m[2]) if m else (999, loc)
 
@@ -528,6 +531,10 @@ def _mapped_stereochemistry_plan(mol, Chem, component, locants,
             return None
         printed = (presentation.stereo_bond_locant(a, b, locant)
                    if presentation is not None else locant)
+        for center, nitrogen, written in component.suffix_stereo_locants:
+            if {a, b} == {center, nitrogen}:
+                printed = written
+                break
         stereo_text.append((_locant_key(locant), f"{printed}{descriptor}"))
         bond_facts.append((a, b, locant, descriptor))
     if parent_annotation_proof is not None:

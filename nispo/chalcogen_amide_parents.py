@@ -7,6 +7,7 @@ from .component_mapping import decorate_component, mapped_general_branch
 from .formatting import complete_parent_name
 from .naming_methods import MethodDecision
 from .naming_result import SelectionLimitation
+from .rooted_carbon_parents import hydride_numberings
 from .sulfur_selection import sulfur_suffix_locants
 
 
@@ -76,34 +77,6 @@ def _oxyamide(mol, Chem, center, host, nitrogen, oxos):
                      frozenset(owned), tuple(branches), configuration)
 
 
-def _mixed_frames(mol, Chem, host, skeleton):
-    """Parent orientations before suffix, substituent and N-site numbering."""
-    from .branch_rules import parent_chain_name
-    from .mapped_ring_parents import ring_systems, skeletons
-    from .rooted_carbon_parents import carbon_paths
-
-    if mol.GetAtomWithIdx(host).IsInRing():
-        ring = next((r for r in ring_systems(mol) if host in r), None)
-        if not ring or not ring <= skeleton:
-            return
-        aromatic = all(mol.GetAtomWithIdx(i).GetIsAromatic() and not (
-            mol.GetAtomWithIdx(i).GetAtomicNum() != 6 and mol.GetAtomWithIdx(i).GetTotalNumHs())
-            for i in ring)
-        for hydride, seq, locants, _, _, saturated, key, *_ in skeletons(mol, Chem, ring):
-            if saturated or aromatic:
-                yield hydride, dict(zip(seq, locants)), (key,), ()
-        return
-    for path in carbon_paths(mol, {host}, skeleton):
-        for seq in dict.fromkeys((path, path[::-1])):
-            orders = [mol.GetBondBetweenAtoms(a, b).GetBondTypeAsDouble() for a, b in zip(seq, seq[1:])]
-            hydride = parent_chain_name(mol, seq)
-            if hydride:
-                yield (complete_parent_name(hydride), {idx: str(n) for n, idx in enumerate(seq, 1)},
-                       (-len(seq), -sum(o > 1 for o in orders), -orders.count(2)),
-                       (tuple(n for n, o in enumerate(orders, 1) if o > 1),
-                        tuple(n for n, o in enumerate(orders, 1) if o == 2)))
-
-
 def _frame_prefixes(mol, Chem, mapping, scope, units, suffix_centers):
     """Render every off-frame branch once, including nested junior oxyamides."""
     direct = [u for u in units if u.host in mapping]
@@ -140,7 +113,7 @@ def _mixed_branch(mol, Chem, root, scope, units):
 
     skeleton = scope.difference(*(u.atoms for u in units))
     options = []
-    for hydride, mapping, frame_key, pi_key in _mixed_frames(mol, Chem, root, skeleton):
+    for hydride, mapping, frame_key, pi_key in hydride_numberings(mol, Chem, root, skeleton):
         prefixes = _frame_prefixes(mol, Chem, mapping, scope, units, ())
         if prefixes is None:
             continue
@@ -205,7 +178,7 @@ def _mixed_amides(mol, Chem, units):
             suffix_units = []
     suffix_centers = frozenset(u.center for u in suffix_units)
     options = []
-    for parent, mapping, frame_key, pi_key in _mixed_frames(mol, Chem, senior[0].host, skeleton):
+    for parent, mapping, frame_key, pi_key in hydride_numberings(mol, Chem, senior[0].host, skeleton):
         if any(u.host not in mapping for u in senior):
             continue
         sites = sorted((mapping[u.host] for u in suffix_units), key=locant_key)

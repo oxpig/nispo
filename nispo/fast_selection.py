@@ -17,7 +17,7 @@ from .amine_cation_components import ring_alkyl_aminium, ring_alkyl_aminium_quer
 from .carbonyl_oxide_methods import carbonyl_oxide_decision, carbonyl_oxide_query
 from .fast_parent_construction import (bounded_ester_name, bounded_fused_carbonyl_name,
                                        principal_acid_name, repaired_parent_name)
-from .functional_class_queries import amide_query, hydrazone_query, lactone_query, urea_query
+from .functional_class_queries import acylhydrazide_query, amide_query, amidine_query, hydrazone_query, lactone_query, urea_query
 from .locant_presentation import placement_proof_scope
 from .naming_result import NamingResult, SelectionLimitation
 from .prefix_presentation import (normalize_enclosing_marks, numbered_biphenyl_ligand,
@@ -185,8 +185,20 @@ def _shared_component(mol, Chem, canonical=None):
     if canonical is not None and not _N_OR_O.search(canonical):
         return ''
     if canonical is None or 'N' in canonical and '=' in canonical:
-        if ((canonical is None or canonical.count('N') >= 2 and ('N=' in canonical or '=N' in canonical))
-                and mol.HasSubstructMatch(hydrazone_query(Chem))):
+        imine = canonical is None or ('N=' in canonical or '=N' in canonical) and canonical.count('N') >= 2
+        if ((canonical is None or ('NN' in canonical or 'N(' in canonical)
+                and (canonical.count('O') >= 2 or imine and 'O' in canonical))
+                and mol.HasSubstructMatch(acylhydrazide_query(Chem))):
+            from .acylhydrazide_parents import acylhydrazide_decision
+            decision = acylhydrazide_decision(mol, Chem)
+            if decision:
+                return decision.name
+        if imine and mol.HasSubstructMatch(amidine_query(Chem)):
+            from .amidine_parents import imidic_parent_decision
+            decision = imidic_parent_decision(mol, Chem)
+            if decision:
+                return decision.name
+        if imine and mol.HasSubstructMatch(hydrazone_query(Chem)):
             from .hydrazone_methods import hydrazone_parent_decision
             decision = hydrazone_parent_decision(mol, Chem)
             if decision:
@@ -573,12 +585,22 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
            for atom in mol.GetAtoms()):
         rings = mol.GetRingInfo().AtomRings()
         isotopic = any(a.GetIsotope() for a in mol.GetAtoms())
-        if isotopic and mol.HasSubstructMatch(hydrazone_query(Chem)):
+        if isotopic and mol.HasSubstructMatch(amidine_query(Chem)):
+            from .amidine_parents import imidic_parent_decision
+            decision = imidic_parent_decision(mol, Chem)
+            if decision:
+                annotated_component = decision.name
+        if not annotated_component and isotopic and mol.HasSubstructMatch(acylhydrazide_query(Chem)):
+            from .acylhydrazide_parents import acylhydrazide_decision
+            decision = acylhydrazide_decision(mol, Chem)
+            if decision:
+                annotated_component = decision.name
+        if not annotated_component and isotopic and mol.HasSubstructMatch(hydrazone_query(Chem)):
             from .hydrazone_methods import hydrazone_parent_decision
             decision = hydrazone_parent_decision(mol, Chem)
             if decision:
                 annotated_component = decision.name
-        elif isotopic and mol.HasSubstructMatch(urea_query(Chem)):
+        elif not annotated_component and isotopic and mol.HasSubstructMatch(urea_query(Chem)):
             from .urea_methods import urea_decision
             decision = urea_decision(mol, Chem)
             if decision:

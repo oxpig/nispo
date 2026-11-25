@@ -513,6 +513,14 @@ def imidic_hydrazide(mol, Chem):
             sites.append((carbon.GetIdx(), imines[0].GetIdx(), amino[0].GetIdx(), ends[0].GetIdx()))
     if not sites or len(set(i for site in sites for i in site)) != 4 * len(sites):
         return None
+    # Replacing =NH by =O may create a second ordinary hydrazide. In that
+    # case the proxy's selected parent need not be the converted acid residue.
+    from .extended_inventory import selection_inventory
+    from .functional_class_queries import acylhydrazide_query
+    if (mol.HasSubstructMatch(acylhydrazide_query(Chem)) or any(
+            g.center not in {s[0] for s in sites} and g.seniority <= (12, 0)
+            for g in selection_inventory(mol).groups)):
+        return None
     from .api import mol_to_iupac
     # The corresponding ordinary hydrazide provides the interleaved prefix
     # ordering and N/N-prime locants for one or several identical sites.
@@ -2983,6 +2991,16 @@ def select(mol, Chem):
         result = polynaphthylene_decision(mol, Chem, mol.GetRingInfo().AtomRings())
         if result is not None:
             return result
+    if numbers[7] >= 2:
+        from .graph_model import method_bond_counts
+        bonds = method_bond_counts(mol, Chem)
+        if bonds[6, 7, 2] or bonds[7, 16, 2] or bonds[7, 34, 2] or bonds[7, 52, 2]:
+            from .functional_class_queries import amidine_query
+            if mol.HasSubstructMatch(amidine_query(Chem)):
+                from .amidine_parents import imidic_parent_decision
+                result = imidic_parent_decision(mol, Chem)
+                if result:
+                    return result
     if numbers[7] >= 3 and numbers[6]:
         result = imidic_hydrazide(mol, Chem)
         if result:

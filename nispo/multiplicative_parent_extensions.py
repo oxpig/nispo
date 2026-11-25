@@ -119,10 +119,11 @@ def unit(mol, Chem, atoms, root):
     return _RingUnit(identity, rows[0][0], min(locants, key=int))
 
 
-def _assembly_name(parent, locant, bridge, count=2, *, mononuclear=False, stereo=(), simple_bridge=False):
+def _assembly_name(parent, locant, bridge, count=2, *, mononuclear=False, stereo=(), simple_bridge=False,
+                   substituted=False):
     # bis avoids implying a continuous hydride, and encloses parents with
     # internal punctuation (P-15.3.2.3/P-16.3).
-    complex_parent = parent.startswith(('di','tri')) or parent[0].isdigit()
+    complex_parent = substituted or parent.startswith(('di','tri')) or parent[0].isdigit()
     if parent.endswith(('silane','phosphane','azane','sulfane','oxidane','hydroxylamine')):
         complex_parent = True
     enclosed = complex_parent or any(c.isdigit() or c in '()[]' for c in parent)

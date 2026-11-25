@@ -119,7 +119,7 @@ def _amide_nitrogen_roles(mol, group):
 def sulfonimidamide_site(sulfur):
     """Recognize the neutral R–S(=O)(=N)–N core on original atoms."""
     if (sulfur.GetAtomicNum() != 16 or sulfur.IsInRing() or sulfur.GetFormalCharge()
-            or sulfur.GetIsotope() or sulfur.GetDegree() != 4
+            or sulfur.GetDegree() != 4
             or sulfur.GetNumRadicalElectrons()):
         return None
     center = sulfur.GetIdx()

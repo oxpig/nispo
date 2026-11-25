@@ -179,6 +179,12 @@ def _all_sites(mol, Chem):
     sulfur_atoms = [a for a in mol.GetAtoms() if a.GetAtomicNum() == 16]
     hydrazide_centers = ({site.center for site in recognize_hydrazides(mol)}
                          if sulfur_atoms else set())
+    if sulfur_atoms:
+        from .functional_class_queries import acylhydrazide_query
+        hydrazide_centers.update(c for _, c, _, _ in mol.GetSubstructMatches(acylhydrazide_query(Chem))
+                                 if mol.GetAtomWithIdx(c).GetAtomicNum() == 16
+                                 and mol.GetAtomWithIdx(c).GetDegree() == 3
+                                 and mol.GetAtomWithIdx(c).GetTotalValence() == 4)
     sites, failures = [], []
     for sulfur in sulfur_atoms:
         # P-66.3.0: replacing acid OH by NH-NH2 creates a class-12

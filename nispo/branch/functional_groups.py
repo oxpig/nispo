@@ -286,10 +286,14 @@ def _lambda_sulfur_hydride_prefix(mol, idx: int, parent_idx: int) -> str:
     if (
         sulfur.GetSymbol() != "S" or sulfur.IsInRing() or sulfur.GetIsotope()
         or sulfur.GetFormalCharge() or sulfur.GetNumRadicalElectrons()
-        or int(sulfur.GetChiralTag()) or valence not in {4, 6}
+        or valence not in {4, 6}
         or bond is None or bond.GetBondTypeAsDouble() not in {1, 2}
         or int(bond.GetStereo())
     ):
+        return ""
+    if sulfur.GetChiralTag() and not any(
+            b.GetBondTypeAsDouble() == 2 and b.GetOtherAtom(sulfur).GetAtomicNum() == 7
+            and b.GetOtherAtom(sulfur).GetFormalCharge() == 1 for b in sulfur.GetBonds()):
         return ""
     ligands, demand = [], int(bond.GetBondTypeAsDouble())
     for neighbor in sulfur.GetNeighbors():
@@ -305,9 +309,15 @@ def _lambda_sulfur_hydride_prefix(mol, idx: int, parent_idx: int) -> str:
         if neighbor.GetIsotope() or neighbor.GetNumRadicalElectrons():
             return ""
         if order == 2:
-            if neighbor.GetFormalCharge():
+            if neighbor.GetAtomicNum() == 7 and neighbor.GetFormalCharge() == 1 and neighbor.GetTotalValence() == 4:
+                from .hetero_atoms import _imino_prefix
+
+                if edge.GetStereo():
+                    return ""
+                ligand = _imino_prefix(mol, nidx, idx)
+            elif neighbor.GetFormalCharge():
                 return ""
-            if (neighbor.GetAtomicNum() in {8, 16} and neighbor.GetDegree() == 1
+            elif (neighbor.GetAtomicNum() in {8, 16} and neighbor.GetDegree() == 1
                     and not neighbor.GetTotalNumHs(includeNeighbors=True)):
                 ligand = 'oxo' if neighbor.GetAtomicNum() == 8 else 'thioxo'
             elif (neighbor.GetAtomicNum() == 7 and neighbor.GetTotalValence() == 3
@@ -328,7 +338,11 @@ def _lambda_sulfur_hydride_prefix(mol, idx: int, parent_idx: int) -> str:
     text = _format_prefixes([('', ligand) for ligand in ligands], omit_locants=True,
                             hierarchical_enclosures=True, separate_unlocanted=True)
     ending = 'sulfanylidene' if bond.GetBondTypeAsDouble() == 2 else 'sulfanyl'
-    return (text + '-' if text else '') + f'lambda{valence}-' + ending
+    prefix = (text + '-' if text else '') + f'lambda{valence}-' + ending
+    if sulfur.GetChiralTag():
+        descriptor = _sulfinyl_stereo_descriptor(mol, idx)
+        return f"({descriptor})-{prefix}" if descriptor else ""
+    return prefix
 
 
 def _lambda6_sulfanylidene_prefix(mol, sulfur_idx: int, parent_idx: int) -> str:
@@ -473,6 +487,8 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
             return ""
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
+    if mol.GetAtomWithIdx(imino[0]).GetFormalCharge():
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
     s_group = branch_prefix(mol, single_groups[0], idx) or substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
         return ""
@@ -1241,6 +1257,8 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
 
+    if mol.GetAtomWithIdx(imino[0]).GetFormalCharge():
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
     single_atom = mol.GetAtomWithIdx(single_groups[0])
     if single_atom.GetSymbol() in HALO:
         s_group = HALO[single_atom.GetSymbol()]

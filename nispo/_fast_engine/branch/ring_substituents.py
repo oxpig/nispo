@@ -24,6 +24,7 @@ from ..fused_template_families import (
 from ..molecule_cache import mol_cache_dict, mol_cache_get
 from ...parent_join_presentation import CARBONYL_SUFFIX_ENDINGS
 from ..ring.hydrogen import _drop_indicated_hydrogen_prefix
+from ...charge_valence import fused_azolide_substituent, ring_substituent_charge_site
 from ..ring_resource_rules import resource_ring_parent_candidates as _resource_ring_parent_candidates
 from ..ring_rules import (
     ring_parent_candidates as _ring_parent_candidates,
@@ -851,6 +852,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
     if not candidates:
         return ""
     ring_set = set(ordered)
+    charge_atom, charge_suffix = ring_substituent_charge_site(mol, ordered)
     raw_subs = []
     for ring_idx in ordered:
         atom = mol.GetAtomWithIdx(ring_idx)
@@ -870,7 +872,7 @@ def _simple_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -
         if attachment_idx not in seq:
             continue
         loc = seq.index(attachment_idx) + 1
-        charge_loc, charge_suffix = _charged_ring_substituent_charge(mol, seq, parent_name)
+        charge_loc = seq.index(charge_atom) + 1 if charge_atom is not None and "ium" not in parent_name else None
         suffix = _ring_substituent_suffix(parent_name, loc, charge_loc, charge_suffix)
         if not suffix:
             continue
@@ -1198,21 +1200,9 @@ def _ring_substituent_unsaturated_suffix(
     return ""
 
 
-def _charged_ring_substituent_charge(mol, seq: Sequence[int], parent_name: str = "") -> tuple[int | None, str]:
-    if "ium" in parent_name:
-        return None, "ium"
-    charged = [
-        (loc, "ylium" if atom.GetSymbol() == "C" else "ium")
-        for loc, idx in enumerate(seq, start=1)
-        for atom in (mol.GetAtomWithIdx(idx),)
-        if atom.GetSymbol() in {"C", "N", "O", "S"} and atom.GetFormalCharge() > 0
-    ]
-    return charged[0] if len(charged) == 1 else (None, "ium")
-
-
 def _charged_ring_nitrogen_locant(mol, seq: Sequence[int]) -> int | None:
-    locant, suffix = _charged_ring_substituent_charge(mol, seq)
-    return locant if suffix == "ium" else None
+    idx, suffix = ring_substituent_charge_site(mol, seq)
+    return seq.index(idx) + 1 if idx is not None and suffix == "ium" else None
 
 
 def _fused_ring_substituent_prefix(mol, attachment_idx: int, parent_idx: int) -> str:
@@ -1437,6 +1427,8 @@ def _fused_ring_substituent_prefix_from_templates(
                 intrinsic = preferred_fused_substituent_prefix_records(template)
                 parent = "4H-chromene" if parent == "chromone" else "chromane"
             suffix = _charged_fused_substituent_suffix(mol, template, match, reverse, locant)
+            if suffix is None:
+                continue
             if not suffix:
                 parent = _mapped_pyrazolopyridine_parent(mol, template, match, attachment_idx, parent)
                 if parent in {"benzimidazole", "benzimidazol", "1H-benzimidazole", "3H-benzimidazole"}:
@@ -2073,7 +2065,8 @@ def _charged_fused_substituent_suffix(
     match: Sequence[int],
     reverse: dict[int, int],
     attachment_locant: str,
-) -> str:
+) -> str | None:
+    """An empty suffix allows the template parent; None rules out this map."""
     parent_name = template_record_name(template)
     parent_name = _PREFERRED_FUSED_BRANCH_PARENTS.get(parent_name, parent_name)
     if _charged_fused_substituent_template_is_unstable(parent_name):
@@ -2086,12 +2079,18 @@ def _charged_fused_substituent_suffix(
     for mol_idx in match:
         template_idx = reverse[mol_idx]
         atom = mol.GetAtomWithIdx(mol_idx)
+        charge = atom.GetFormalCharge()
+        if not charge:
+            continue
         template_atom = template_mol.GetAtomWithIdx(template_idx)
+        if charge == -1 and atom.GetAtomicNum() == 7 and atom.GetIsAromatic() and not template_atom.GetFormalCharge():
+            return fused_azolide_substituent(mol, template_mol, match, template_idx,
+                                             parent_name, locants, attachment_locant)
         locant = locants.get(template_idx, "")
         if (
             not locant
             or not locant.isdigit()
-            or atom.GetFormalCharge() <= 0
+            or charge < 0
             or template_atom.GetFormalCharge() != 0
         ):
             continue

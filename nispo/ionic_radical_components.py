@@ -29,6 +29,8 @@ def localized_ionic_radical(mol, Chem, *, allow_closed_shell=False):
         return None
     charged = [a for a in mol.GetAtoms() if a.GetFormalCharge()]
     radicals = [a for a in mol.GetAtoms() if a.GetNumRadicalElectrons()]
+    if allow_closed_shell and len(charged) == 2 and not radicals:
+        return _onium_ylide(mol, Chem, charged)
     if (len(charged) != 1 or len(radicals) > 1
             or radicals and charged[0].GetIdx() != radicals[0].GetIdx()
             or not radicals and not allow_closed_shell):
@@ -74,7 +76,44 @@ def substituted_sulfanuide(mol, Chem):
     return replace(decision, rule=rule + '/P-29', preference_issues=(issue,))
 
 
-def _localized_ionic_hydride(mol, Chem, center, spec, allow_closed_shell):
+def _onium_ylide(mol, Chem, charged):
+    """P-74: build a carbanion bearing an explicitly charged onium substituent."""
+    carbon, onium = sorted(charged, key=lambda atom: atom.GetFormalCharge())
+    if (carbon.GetAtomicNum() != 6 or carbon.GetFormalCharge() != -1
+            or onium.GetFormalCharge() != 1 or onium.GetAtomicNum() not in {7, 8, 15, 16, 33, 34, 51, 52}
+            or onium.IsInRing() or onium.GetChiralTag() or onium.GetIsotope()):
+        return None
+    root, ion = carbon.GetIdx(), onium.GetIdx()
+    bond = mol.GetBondBetweenAtoms(root, ion)
+    valence, parent = _PARENTS[onium.GetAtomicNum(), 1]
+    if bond is None or bond.GetBondType() != Chem.BondType.SINGLE or onium.GetTotalValence() != valence:
+        return None
+    from .component_mapping import mapped_general_branch
+
+    ligands, owned = [], {ion}
+    for edge in onium.GetBonds():
+        other = edge.GetOtherAtom(onium)
+        if other.GetIdx() == root:
+            continue
+        if other.GetAtomicNum() == 1 or edge.GetStereo():
+            return None
+        name, atoms = mapped_branch(mol, Chem, other.GetIdx(), ion)
+        if not name:
+            name, atoms = mapped_general_branch(mol, Chem, other.GetIdx(), ion)
+        if not name or root in atoms or owned.intersection(atoms):
+            return None
+        order = edge.GetBondTypeAsDouble()
+        if (order not in {1, 2, 3} or order == 2 and not name.endswith("ylidene")
+                or order == 3 and not name.endswith("ylidyne")):
+            return None
+        ligands.append(('', name))
+        owned.update(atoms)
+    head = format_prefixes(ligands, omit_locants=True, hierarchical_enclosures=True, separate_unlocanted=True)
+    ligand = ion, head + parent + 'yl', frozenset(owned)
+    return _localized_ionic_hydride(mol, Chem, carbon, _PARENTS[6, -1], True, ionic_ligand=ligand)
+
+
+def _localized_ionic_hydride(mol, Chem, center, spec, allow_closed_shell, *, ionic_ligand=None):
     count = center.GetNumRadicalElectrons()
     if (spec is None or count not in ({0, 1, 2} if allow_closed_shell else {1, 2})
             or center.IsInRing() or int(center.GetChiralTag())
@@ -87,7 +126,9 @@ def _localized_ionic_hydride(mol, Chem, center, spec, allow_closed_shell):
     for neighbor in center.GetNeighbors():
         if neighbor.GetAtomicNum() == 1:
             continue
-        if (neighbor.GetAtomicNum() in {8, 16} and neighbor.GetFormalCharge() == -1
+        if ionic_ligand is not None and neighbor.GetIdx() == ionic_ligand[0]:
+            _, text, owned = ionic_ligand
+        elif (neighbor.GetAtomicNum() in {8, 16} and neighbor.GetFormalCharge() == -1
                 and neighbor.GetDegree() == 1 and not neighbor.GetTotalNumHs()
                 and not neighbor.GetIsotope() and not neighbor.GetNumRadicalElectrons()
                 and mol.GetBondBetweenAtoms(root, neighbor.GetIdx()).GetBondTypeAsDouble() == 1):
@@ -122,6 +163,11 @@ def _localized_ionic_hydride(mol, Chem, center, spec, allow_closed_shell):
         issue = SelectionLimitation('ionic-radical-parent', 'P-75.2/P-75.3/P-75.4',
             'The localized radical ion and its substituents are represented. '
             'Preferred comparison with functional radical-ion names remains open.')
+    elif ionic_ligand is not None:
+        rule = 'P-74.1.3/P-74.2/P-72.2/P-73.6'
+        role = 'carbanionic-parent'
+        issue = SelectionLimitation('ylide-parent', rule,
+            'Both ionic centres are mapped. Comparison with other dipolar naming methods remains open.')
     else:
         rule = 'P-72/P-73/P-29/P-82'
         role = 'localized-ionic-center'

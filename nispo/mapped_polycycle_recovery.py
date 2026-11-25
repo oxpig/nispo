@@ -221,7 +221,7 @@ def numbered_polycycle_decision(mol, Chem):
     cores = frozenset(core for core in systems
                       if 4 <= _graph_cycle_rank(_ring_system_graph(mol, Chem, core)) <= 9)
     if (not cores or len(Chem.GetMolFrags(mol)) != 1
-            or any(a.GetAtomicNum() == 1 or a.GetIsotope() or a.GetFormalCharge()
+            or any(a.GetAtomicNum() == 1 or a.GetIsotope()
                    or a.GetNumRadicalElectrons() or a.HasQuery() for a in mol.GetAtoms())
             or any(b.HasQuery() for b in mol.GetBonds())):
         return None
@@ -230,6 +230,14 @@ def numbered_polycycle_decision(mol, Chem):
     from .mapped_ring_construction import mapped_substituted_ring
 
     inventory = selection_inventory(mol)
+    if any(a.GetFormalCharge() for a in mol.GetAtoms()):
+        # A nitro or azido branch carries local charges even on a neutral
+        # molecule. The principal-group writer can retain those branches on
+        # their original attachment atoms, including inside an N substituent.
+        proofs = inventory.charge_role_proofs
+        if (not inventory.supported or not inventory.principal or not proofs
+                or any(p.kind not in {'nitro', 'azido'} for p in proofs)):
+            return None
     annular = {} if inventory.supported else {
         core: unit for core in cores if (unit := _annular_acylsulfonamide(mol, core)) is not None}
     if not inventory.supported and not annular:

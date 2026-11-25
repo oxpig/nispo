@@ -15,6 +15,7 @@ from .resource_operations import apply_token_operations
 from .molecule_cache import mol_cache_dict
 from .template_access import template_record_mol, template_record_name
 from .template_match_utils import match_has_extra_core_bonds
+from ..template_match_utils import match_preserves_formal_charges
 
 
 SUBSTITUENT_RESOURCE_FILES = (
@@ -82,17 +83,16 @@ def resource_substituent_match(mol, idx: int, parent_idx: int, Chem) -> dict | N
     for template in _substituent_templates(Chem).get(key, ()):
         query = template_record_mol(template)
         for match in mol.GetSubstructMatches(query, uniquify=False, useChirality=True):
-            if set(match) != atoms:
+            if match[0] != idx or set(match) != atoms:
                 continue
-            if match_has_extra_core_bonds(mol, query, match):
+            if match_has_extra_core_bonds(mol, query, match) or not match_preserves_formal_charges(mol, query, match):
                 continue
             if template.get("unassigned_root_only") and mol.GetAtomWithIdx(idx).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
             if _acyclic_carbalkoxy_token_on_ring(template, mol, match):
                 continue
-            if match[0] == idx:
-                cache[cache_key] = template
-                return template
+            cache[cache_key] = template
+            return template
     cache[cache_key] = None
     return None
 

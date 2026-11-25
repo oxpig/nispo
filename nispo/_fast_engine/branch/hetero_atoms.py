@@ -892,6 +892,10 @@ def _needs_explicit_n_ligand_name(name: str) -> bool:
 
 
 def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
+    atom = mol.GetAtomWithIdx(idx)
+    if (atom.GetFormalCharge() != -1 or atom.GetNumRadicalElectrons() or atom.GetTotalValence() != 2
+            or any(b.GetBondTypeAsDouble() != 1 for b in atom.GetBonds())):
+        return ""
     parent = mol.GetAtomWithIdx(parent_idx)
     if parent.GetFormalCharge() < 0:
         return ""
@@ -910,6 +914,8 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
         name = f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     elif substituent.GetSymbol() == "S":
         name = _sulfur_prefix(mol, substituent_idx, idx)
+    elif substituent.GetAtomicNum() == 8:
+        name = _oxygen_prefix(mol, substituent_idx, idx)
     elif substituent.GetSymbol() == "C":
         name = (
             suffix_prefix_term("nitrile", "cyano")

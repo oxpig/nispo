@@ -1317,6 +1317,8 @@ def _azanidyl_prefix(mol, idx: int, parent_idx: int) -> str:
         name = f"[{isotope}{symbol}]{HALO[symbol]}" if isotope else HALO[symbol]
     elif substituent.GetSymbol() == "S":
         name = _sulfur_prefix(mol, substituent_idx, idx)
+    elif substituent.GetAtomicNum() == 8:
+        name = _oxygen_prefix(mol, substituent_idx, idx)
     elif substituent.GetSymbol() == "C":
         name = (
             suffix_prefix_term("nitrile", "cyano")

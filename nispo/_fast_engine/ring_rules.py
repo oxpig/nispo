@@ -2058,6 +2058,10 @@ def ring_substituent_suffix(
     charge_loc: int | None = None,
     charge_suffix: str = "ium",
 ) -> str:
+    if charge_loc is not None and charge_suffix == "id":
+        # P-72.6.3: retain the deprotonated ring N when the ion supplies
+        # a substituent. The free valence can be on a different ring atom.
+        return f"{parent_name.removesuffix('e')}-{charge_loc}-id-{loc}-yl"
     if parent_name == "maleimide":
         if loc in {3, 4}:
             return f"1H-pyrrole-2,5-dione-{loc}-yl"

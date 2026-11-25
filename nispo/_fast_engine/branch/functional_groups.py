@@ -317,6 +317,9 @@ def _sulfimidoyl_prefix(mol, idx: int, parent_idx: int) -> str:
             single_groups.append(nidx)
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
+    if mol.GetAtomWithIdx(imino[0]).GetFormalCharge():
+        from ...branch.functional_groups import _lambda_sulfur_hydride_prefix
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
     s_group = branch_prefix(mol, single_groups[0], idx) or substituent_from_root(mol, single_groups[0], idx)
     if not s_group:
         return ""
@@ -970,6 +973,9 @@ def _sulfonimidoyl_prefix(mol, idx: int, parent_idx: int, double_o: int) -> str:
     if len(imino) != 1 or len(single_groups) != 1:
         return ""
 
+    if mol.GetAtomWithIdx(imino[0]).GetFormalCharge():
+        from ...branch.functional_groups import _lambda_sulfur_hydride_prefix
+        return _lambda_sulfur_hydride_prefix(mol, idx, parent_idx)
     single_atom = mol.GetAtomWithIdx(single_groups[0])
     if single_atom.GetSymbol() in HALO:
         s_group = HALO[single_atom.GetSymbol()]
@@ -1032,6 +1038,9 @@ def _carbamoyl_substituent_name(
             return ""
     if not has_double_o or amine is None:
         return ""
+    if mol.GetAtomWithIdx(amine).GetFormalCharge():
+        nitrogen = _nitrogen_prefix(mol, amine, cidx)
+        return f"({nitrogen})carbonyl" if nitrogen else ""
     if mol.GetAtomWithIdx(amine).IsInRing():
         ring = _ring_substituent_prefix(mol, amine, cidx)
         if not ring:

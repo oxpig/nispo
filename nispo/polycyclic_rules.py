@@ -2684,6 +2684,8 @@ def _polycyclic_external_prefixes_by_parent(
                 continue
             prefix = _simple_or_branch_prefix(mol, nidx, idx)
             if not prefix:
+                prefix = _mapped_ionic_polycycle_branch(mol, core_atoms, nidx, idx)
+            if not prefix:
                 cache[cache_key] = None
                 return None
             atom_prefixes.append(prefix)
@@ -2692,6 +2694,26 @@ def _polycyclic_external_prefixes_by_parent(
     result = {idx: tuple(prefixes) for idx, prefixes in prefixes_by_parent.items()}
     cache[cache_key] = result
     return result
+
+
+def _mapped_ionic_polycycle_branch(mol, core, root, host):
+    """Keep a numbered ionic ring and map the whole pendant group across one cut."""
+    ions = {(atom.GetAtomicNum(), atom.GetFormalCharge()) for i in core
+            if (atom := mol.GetAtomWithIdx(i)).GetFormalCharge()}
+    # The ring writers express C/B ions by suffix and N/S cations by replacement.
+    if not ions or not ions <= {(6, -1), (6, 1), (5, -1), (7, 1), (16, 1)}:
+        return ""
+    from rdkit import Chem
+    from .component_mapping import mapped_general_branch
+
+    source = mol
+    if mol.HasProp("_nispo_kekulized_aromatic_view"):
+        # The bridge writer uses alternating double bonds. Restore aromatic
+        # perception for heterocyclic side chains, retaining original indices.
+        source = Chem.Mol(mol)
+        Chem.SetAromaticity(source)
+    name, owned = mapped_general_branch(source, Chem, root, host)
+    return name if core.isdisjoint(owned) else ""
 
 
 def _append_polycyclic_parent_isotope_suffixes(mol, seq: Sequence[int], parent: str) -> str:

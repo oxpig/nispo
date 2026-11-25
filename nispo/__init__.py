@@ -5,7 +5,7 @@ naming engine. Public exports retain their defining module aliases.
 """
 from importlib import import_module as _import_module
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     "__version__", "mol_to_iupac", "smiles_to_iupac", "smiles_to_iupac_batch",

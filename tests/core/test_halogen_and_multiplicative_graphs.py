@@ -10,6 +10,9 @@ pytestmark = pytest.mark.current_only
      'CCN(Cl)Cl', 'CCCC(=O)N(Cl)Br', '[13CH3]CCNI(=O)=O', 'CCOCCNCl', 'ClNc1ccc(F)cc1'),
     ('COCCPCl', 'FC1=CC=C(SCl)C=C1', 'CC[Se]Br', 'CCOBr',
      'COCCP(Cl)Br', 'CCOI(=O)=O', 'C[13CH2]SCl'),
+    # Independently drawn ethyl groups on iodine and on ring carbon. The
+    # phenyl iodic amide has an exocyclic iodine and must keep both oxygens.
+    ('O=I1(CC)OCc2ccccc21', 'CCC1O[IH](=O)c2ccccc21', 'c1ccccc1NI(=O)=O'),
     ('OCCCOC(Cl)COCC(Cl)OCCCO', 'O=C(O)CP(CC(=O)O)CC(=O)O',
      'O=C(O)CC[Se]CCC(=O)O', 'O=C(O)C1CCC(OC2CCC(C(=O)O)CC2)CC1',
      'NC(=O)c1ccnc(Oc2cc(C(=O)N)ccn2)c1', 'CNS(=O)(=O)c1ccc(Oc2ccc(S(=O)(=O)NC)cc2)cc1',
@@ -39,7 +42,7 @@ pytestmark = pytest.mark.current_only
     ('O=C1CC(OC2CC(=O)CC(=O)C2)CC(=O)C1',
      'O=C1CCC(OC2CC(=O)CC(=O)C2)CC1'),
 ], ids=(
-    'halogen-amides', 'heteroatom-halides-and-esters', 'repeated-functional-groups',
+    'halogen-amides', 'heteroatom-halides-and-esters', 'ring-and-exocyclic-iodine', 'repeated-functional-groups',
     'labelled-and-stereospecified-ends', 'substituted-ring-linkers',
     'repeated-ketones-and-aldehydes', 'substituted-diamines', 'equal-and-unequal-ring-carbonyl-counts',
 ))

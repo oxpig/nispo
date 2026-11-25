@@ -120,7 +120,10 @@ def carbon_branch(mol, Chem, root, host):
 
 def derivative_decision(mol, Chem):
     """Return the shared whole-graph decision and whether a lossy fallback must stop."""
-    sites = mol.GetSubstructMatches(derivative_query(Chem))
+    # A ring halogen belongs to the parent skeleton. A halogen outside the
+    # ring can still form an acid derivative with a cyclic ligand.
+    sites = [(halogen, ligand) for halogen, ligand in mol.GetSubstructMatches(derivative_query(Chem))
+             if not mol.GetAtomWithIdx(halogen).IsInRing()]
     if not sites:
         return None, False
     elements = {mol.GetAtomWithIdx(y).GetAtomicNum() for _, y in sites}

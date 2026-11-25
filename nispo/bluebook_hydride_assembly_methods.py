@@ -390,7 +390,7 @@ def noncarbon_replacement_acid_decision(mol, Chem):
 
 
 def phosphorus_halide_decision(mol, Chem):
-    """Functional-class P/As/Sb acid halides with carbon-only substituents."""
+    """Functional-class P/As/Sb acid halides with fully mapped carbon-bound organyls."""
     if not _plain(mol, Chem) or any(a.GetAtomicNum() == 1 for a in mol.GetAtoms()):
         return None
     centers = [a for a in mol.GetAtoms() if a.GetAtomicNum() in {15, 33, 51}]
@@ -413,10 +413,14 @@ def phosphorus_halide_decision(mol, Chem):
         return None
     used = {center.GetIdx(), *oxos}
     used.update(a.GetIdx() for a in center.GetNeighbors() if a.GetAtomicNum() in {9, 17, 35, 53})
+    from .extended_inventory import selection_inventory
+    from .halogen_oxoacids import carbon_branch, senior_organyl_group
+    if any(g.center != center.GetIdx() and g.seniority[0] <= 10 for g in selection_inventory(mol).groups):
+        return None
     prefixes = []
     for root in roots:
-        text, atoms = mapped_branch(mol, Chem, root.GetIdx(), center.GetIdx())
-        if not text or atoms & used or any(mol.GetAtomWithIdx(i).GetAtomicNum() != 6 for i in atoms):
+        text, atoms = carbon_branch(mol, Chem, root.GetIdx(), center.GetIdx())
+        if not text or atoms & used or senior_organyl_group(mol, Chem, atoms, 10):
             return None
         prefixes.append(('', text))
         used.update(atoms)

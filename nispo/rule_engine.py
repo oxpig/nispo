@@ -8,6 +8,7 @@ import re
 import sys
 import time
 
+from .halogen_oxoacids import derivative_query, derivative_decision
 from .molecule_iteration import iter_atoms, iter_bonds
 from .candidate_facts import (
     CandidateSafety,
@@ -377,6 +378,17 @@ def _commit_principal_decision(decision, *, telemetry=None, result_state=None):
     return decision.output_name
 
 
+def _commit_functional_method(mol, method, stage, *, telemetry, result_state):
+    from .selection_evidence import functional_justification
+    # Local construction proves this method but does not compare every parent.
+    justification = functional_justification(mol, (), None, method_rule=method.rule, method_proved=True)
+    decision = PrincipalDecision(stage, PrincipalRequirement(
+        method.method, tuple(sorted(method.principal_centers)), method.method),
+        output_name=method.name, direct_route='naming_method:' + method.method,
+        comparison=method, preference_issues=method.preference_issues, justification=justification)
+    return _commit_principal_decision(decision, telemetry=telemetry, result_state=result_state)
+
+
 def _commit_general_method(method, stage, *, telemetry, result_state):
     decision = PrincipalDecision(stage, PrincipalRequirement(
         stage, tuple(sorted(method.principal_centers)), method.method),
@@ -528,6 +540,25 @@ class NamingEngine:
     @placement_proof_scope()
     def _name_or_general(self, mol, *, telemetry=None, result_state=None):
         """Keep preferred selection and general-name availability separate."""
+        if not mol.NeedsUpdatePropertyCache() and mol.HasSubstructMatch(derivative_query(self._Chem)):
+            method, protected = derivative_decision(mol, self._Chem)
+            if method:
+                return _commit_functional_method(mol, method, 'halogen-acid-derivative',
+                                                 telemetry=telemetry, result_state=result_state)
+            if protected:
+                _record_general_construction(result_state, 'unsupported:halogen-acid-derivative',
+                    'halogen-acid-derivative', 'P-61.3.2.2/P-68.5.3',
+                    'A complete construction for the original halogen and its ligands is unavailable.')
+                return ''
+        if not mol.NeedsUpdatePropertyCache():
+            from .functional_class_queries import suffix_query
+            matches = mol.GetSubstructMatches(suffix_query(self._Chem), maxMatches=5)
+            if 2 <= len(matches) <= 4:
+                from .repeated_functional_parents import repeated_functional_decision
+                method = repeated_functional_decision(mol, self._Chem, tuple(i for i, in matches))
+                if method:
+                    return _commit_functional_method(mol, method, 'repeated-functional-parent',
+                                                     telemetry=telemetry, result_state=result_state)
         depth = _GENERAL_DELIVERY_DEPTH.get()
         token = _GENERAL_DELIVERY_DEPTH.set(depth + 1)
         fragment_names_token = _HYDRAZIDO_FRAGMENT_NAMES.set({}) if depth == 0 else None

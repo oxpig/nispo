@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - benchmark environment provides RDKit.
 else:
     RDLogger.DisableLog("rdApp.*")
 
+from .halogen_oxoacids import read_smiles
 from .parent_rules import parent_rules
 from .rule_engine import NamingEngine
 from .telemetry import CandidateTelemetry, telemetry_to_dict
@@ -53,7 +54,7 @@ def smiles_to_iupac(smiles: str) -> str:
     if Chem is None:
         return ""
     try:
-        mol = Chem.MolFromSmiles(smiles)
+        mol = read_smiles(Chem, smiles)
     except Exception:
         return ""
     if mol is None or mol.GetNumAtoms() == 0:
@@ -95,7 +96,7 @@ def smiles_to_iupac_result(smiles: str) -> NamingResult:
     if Chem is None:
         return NamingResult('', 'unavailable', 'not-assessed')
     try:
-        mol = Chem.MolFromSmiles(smiles)
+        mol = read_smiles(Chem, smiles)
     except Exception:
         mol = None
     if mol is None or not mol.GetNumAtoms():
@@ -133,7 +134,6 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
     engine = _engine()
     names: list[str] = []
     batch_cache: dict[str, str] = {}
-    mol_from_smiles = Chem.MolFromSmiles
     name_molecule = engine.name
     cache_get = batch_cache.get
     cache_set = batch_cache.__setitem__
@@ -144,7 +144,7 @@ def smiles_to_iupac_batch(smiles_list: Iterable[str]) -> list[str]:
             append_name(cached)
             continue
         try:
-            mol = mol_from_smiles(smiles)
+            mol = read_smiles(Chem, smiles)
             if mol is None or mol.GetNumAtoms() == 0:
                 name = ""
                 cache_set(smiles, name)
@@ -340,7 +340,7 @@ def _smiles_to_iupac_batch_with_telemetry(
     names: list[str] = []
     for smiles in smiles_values:
         try:
-            mol = Chem.MolFromSmiles(smiles)
+            mol = read_smiles(Chem, smiles)
             if mol is None or mol.GetNumAtoms() == 0:
                 names.append("")
                 continue

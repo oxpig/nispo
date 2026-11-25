@@ -37,6 +37,13 @@ def lactone_query(Chem):
     return Chem.MolFromSmarts('[#8;R;+0]@[#6;R;+0](=[O,S,Se,Te;D1;+0])@[#6;R]')
 
 
+@lru_cache(maxsize=2)
+def suffix_query(Chem):
+    # One match per potential suffix center, including alcohol and acid OH only once.
+    return Chem.MolFromSmarts('[$([#6]-[O;D1;H1]),$([C](=O)-[N;X3]),'
+                              '$([C]#[N;D1]),$([S](=O)(=O)-[N;X3])]')
+
+
 def only_lower_substituents(mol, core):
     """Bound an unclassified residue to organyl, halo, hydroxy, ether and amine groups."""
     for atom in mol.GetAtoms():

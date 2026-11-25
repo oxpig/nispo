@@ -1,23 +1,17 @@
-"""Mapped neutral amides of terminal halogen acids.
-
-The original bounded ``R-NH-X`` family is retained.  The typed extension
-distinguishes it from ``R2N-X`` and the carbon-free ``NH2-X`` parent case, and
-from N-bound higher oxoacid groups such as ``N-BrO2``.  Unsupported structures
-are deferred rather than sent through ordinary halo-prefix logic.
-"""
+"""Mapped amides of hypohalous and higher halogen oxoacids, with P-41 class routing."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
 
 from .naming_methods import MethodDecision
+from .halogen_oxoacids import ADJECTIVES, carbon_branch, oxo_atoms, senior_organyl_group
 
 
 RULE = "P-41/P-61.3.2.2/P-67.1.2.2/P-68.5.2/P-68.5.3/P-44/P-16"
 EXTENSION_RULE = "P-10/P-11/P-12.2/P-41/P-42.5/P-61.3.2.2/P-62.4/P-67.1.2.2/P-67.1.2.6/P-68.5.2/P-68.5.3/P-44/P-16"
 CYCLIC_IMIDE_RULE = "P-66.2.1/P-64.3/P-61.3.2.2/P-41"
-_ACID_ADJECTIVE = {9: "hypofluorous", 17: "hypochlorous",
-                   35: "hypobromous", 53: "hypoiodous"}
+_ACID_ADJECTIVE = {z: row[0] for z, row in ADJECTIVES.items()}
 _HEAVY_LIMIT = 64
 
 
@@ -78,10 +72,12 @@ class HalogenAcidAmideProposal:
     prefix_evidence: tuple[object, ...] = ()
     rule: str = EXTENSION_RULE
 
+    oxos: frozenset[int] = frozenset()
+
     def as_method_decision(self) -> MethodDecision:
         roles = tuple((f"organic-organyl-{i + 1}", atoms, ())
                       for i, atoms in enumerate(self.organyl_atoms)) + (
-            ("halogen-acid-amide-unit", frozenset((self.nitrogen, self.halogen)), ()),
+            ("halogen-acid-amide-unit", self.oxos | {self.nitrogen, self.halogen}, ()),
         )
         covered = frozenset().union(*(role[1] for role in roles))
         if len(covered) != sum(len(role[1]) for role in roles) or covered != self.atoms:
@@ -172,13 +168,13 @@ def _cyclic_imide_centers(mol, nitrogen_idx: int, halogen_idx: int, Chem):
     return centers
 
 
-def _principal_class_evidence(mol, halogen_z: int, n_x_center: int, *, terminal_hypohalous: bool):
+def _principal_class_evidence(mol, halogen_z: int, n_x_center: int, *, oxo_count: int | None):
     """Return source-ranked higher groups, considering only the best rank."""
     from .extended_inventory import selection_inventory
     from .monobasic_oxoacid_seniority import class11_monobasic_oxoamide_subrank
 
-    target_subrank = (class11_monobasic_oxoamide_subrank(halogen_z, 0)
-                      if terminal_hypohalous else None)
+    target_subrank = (class11_monobasic_oxoamide_subrank(halogen_z, oxo_count)
+                      if oxo_count is not None else None)
     target = (11, target_subrank) if target_subrank is not None else None
     inventory = selection_inventory(mol)
     ranked = []
@@ -326,7 +322,7 @@ def recognize_hypohalous_amide(mol, Chem=None) -> HypohalousAmideRecognition:
 
 
 def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
-    """Recognize N-terminal-hypohalous-acid amide cores with class routing.
+    """Recognize N-bound halogen acid amides and rank competing characteristic groups.
 
     This disposition is deliberately separate from the legacy R-NH-X API.
     It admits NH2-X only as a preselected noncarbon parent construction and
@@ -353,20 +349,17 @@ def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
     if not nx_bonds:
         return HalogenAcidAmideDisposition("not-applicable", "no N-halogen bond")
     nidx, xidx = nx_bonds[0]
-    acid_subrank = None
-    higher_groups = ()
     # Principal-group routing is decided from the original graph before
     # renderer-only annotation, ring, or organyl restrictions.
     early_x = mol.GetAtomWithIdx(xidx)
-    terminal_hypohalous = (early_x.GetDegree() == 1 and early_x.GetTotalValence() == 1
-                            and _single(mol, nidx, xidx, Chem))
+    oxos = oxo_atoms(early_x, nidx)
     target_rank, higher_groups = _principal_class_evidence(
-        mol, early_x.GetAtomicNum(), nidx, terminal_hypohalous=terminal_hypohalous)
+        mol, early_x.GetAtomicNum(), nidx, oxo_count=len(oxos) if oxos is not None else None)
+    adjective = ADJECTIVES[early_x.GetAtomicNum()][len(oxos)] if oxos is not None else None
     def pending(reason, *, roots=(), branches=(), status="pending", centers=frozenset()):
         return HalogenAcidAmideDisposition(status, reason, nidx, xidx,
                                            tuple(roots), tuple(branches), centers,
-                                           (_ACID_ADJECTIVE.get(mol.GetAtomWithIdx(xidx).GetAtomicNum())
-                                            if terminal_hypohalous else None),
+                                           adjective,
                                            class11_subrank=(target_rank[1] if target_rank else None),
                                            higher_groups=higher_groups)
     if higher_groups:
@@ -387,38 +380,16 @@ def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
             rule=CYCLIC_IMIDE_RULE)
     if mol.GetNumHeavyAtoms() > _HEAVY_LIMIT or mol.GetNumAtoms() != mol.GetNumHeavyAtoms():
         return pending("explicit hydrogen or graph over the declared bound")
-    if (mol.GetStereoGroups() or any(int(b.GetStereo()) or b.GetBondDir() != Chem.BondDir.NONE
-                                     for b in mol.GetBonds())):
-        return pending("stereo/directional annotations are outside this renderer")
-    if any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
-        return pending("charged or radical graph")
-    if any(a.GetIsotope() or int(a.GetChiralTag()) for a in mol.GetAtoms()):
-        return pending("isotope or atom stereo requires a separate mapped grammar")
-    nitrogen, halogen = mol.GetAtomWithIdx(nidx), mol.GetAtomWithIdx(xidx)
+    if oxos is None or mol.GetStereoGroups() or any(a.HasQuery() for a in mol.GetAtoms()):
+        return pending("halogen oxo, charge, or stereo assignment is outside the mapped grammar")
+    nitrogen, halogen = mol.GetAtomWithIdx(nidx), early_x
     acid_subrank = target_rank[1] if target_rank else None
-    # Distinguish N-BrO2 and related higher oxoacid amides from the terminal
-    # hypohalous-acid unit.  They remain pending for their own P-68.5.3 grammar.
-    if not terminal_hypohalous:
-        return pending("N-X is not a terminal hypohalous-acid ligand; higher oxoacid families are separate")
+    if (nitrogen.GetFormalCharge() or nitrogen.GetNumRadicalElectrons() or nitrogen.GetChiralTag()
+            or any(b.HasQuery() for b in mol.GetBonds())):
+        return pending("annotated or nonordinary amide nitrogen")
     if (nitrogen.GetIsAromatic() or nitrogen.IsInRing() or nitrogen.GetTotalValence() != 3
             or any(b.GetBondType() != Chem.BondType.SINGLE for b in nitrogen.GetBonds())):
         return pending("N-X nitrogen is not an ordinary acyclic trivalent amide nitrogen")
-    # Apply the clear P-41 senior classes before restricting the N substituent
-    # grammar.  A higher acid/ester/anhydride/acid-halide graph must be allowed
-    # to proceed to its own renderer even when the N-bound carbon arm contains
-    # that characteristic group and is not an admitted alkyl arm here.
-    try:
-        from .functional_inventory import functional_inventory
-        inventory = functional_inventory(mol)
-        if inventory.supported:
-            higher = [g for g in inventory.groups if g.seniority[0] < 11
-                      and g.center != nidx]
-            if higher:
-                return pending("a P-41-superior characteristic group owns principal selection",
-                               status="higher-class-route",
-                               centers=frozenset(g.center for g in higher))
-    except Exception:
-        return pending("principal-class comparison is unavailable")
     neighbors = list(nitrogen.GetNeighbors())
     carbon_neighbors = [a for a in neighbors if a.GetIdx() != xidx and a.GetAtomicNum() == 6]
     other_heavy = [a for a in neighbors if a.GetIdx() != xidx and a.GetAtomicNum() > 1]
@@ -432,7 +403,7 @@ def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
         if hydrogen_count != 2:
             return pending("carbon-free parent is not NH2-X")
         heavy = {a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1}
-        if heavy != {nidx, xidx}:
+        if heavy != oxos | {nidx, xidx}:
             return pending("NH2-X has unassigned heavy atoms")
         return pending("preselected noncarbon parent; not an organic whole-molecule PIN",
                        status="preselected-parent", centers=frozenset((nidx,)))
@@ -443,14 +414,19 @@ def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
     roots = tuple(a.GetIdx() for a in carbon_neighbors)
     branches = []
     for root in roots:
-        branch = _organyl(mol, Chem, root, nidx)
-        if branch is None:
-            return pending("an N-bound group is not a saturated carbon tree or plain phenyl",
+        _, branch = carbon_branch(mol, Chem, root, nidx)
+        if not branch:
+            return pending("an N-bound organyl lacks a complete rooted name",
                            roots=roots)
+        if oxos and (senior_organyl_group(mol, Chem, branch, 11) or any(
+                b.GetOtherAtomIdx(root) != nidx and b.GetBondTypeAsDouble() == 2
+                and b.GetOtherAtom(mol.GetAtomWithIdx(root)).GetAtomicNum() in (8, 16, 34, 52)
+                for b in mol.GetAtomWithIdx(root).GetBonds())):
+            return pending("the N-bound organyl contains a competing senior group", roots=roots)
         branches.append(branch)
     if len(set().union(*branches)) != sum(map(len, branches)):
         return pending("organyl branches overlap")
-    owned = {nidx, xidx} | set().union(*(set(b) for b in branches))
+    owned = oxos | {nidx, xidx} | set().union(*(set(b) for b in branches))
     heavy = {a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1}
     if owned != heavy:
         return pending("additional functions or unassigned heavy atoms are outside the family",
@@ -463,11 +439,11 @@ def classify_halogen_acid_amide(mol, Chem=None) -> HalogenAcidAmideDisposition:
                                  and halogen.GetAtomicNum() == 17)
     published_ethyl_chloride = (len(roots) == 1 and len(branches[0]) == 2
                                 and halogen.GetAtomicNum() == 17)
-    conf = ("printed-example" if published_methyl_chloride or published_ethyl_chloride
+    conf = ("printed-example" if not oxos and (published_methyl_chloride or published_ethyl_chloride)
             else "rule-composed" if len(roots) == 1 else "inference")
-    return HalogenAcidAmideDisposition("renderable", "complete ordinary neutral N-terminal-X graph",
+    return HalogenAcidAmideDisposition("renderable", "complete mapped halogen-acid amide graph",
                                        nidx, xidx, roots, tuple(branches),
-                                       frozenset((nidx,)), _ACID_ADJECTIVE[halogen.GetAtomicNum()],
+                                       frozenset((nidx,)), adjective,
                                        conf, acid_subrank)
 
 
@@ -479,41 +455,45 @@ def halogen_acid_amide_proposal(mol, Chem=None) -> HalogenAcidAmideProposal | No
     result = classify_halogen_acid_amide(mol, Chem)
     if result.status != "renderable":
         return None
-    from .component_mapping import mapped_branch
-    names, maps = [], []
-    natures = []
-    for root in result.organyl_roots:
-        name, atom_map = mapped_branch(mol, Chem, root, result.nitrogen)
-        atom_set = frozenset(atom_map)
-        expected = result.organyl_atoms[len(names)]
-        if not name or atom_set != expected:
+    from collections import Counter
+    from .formatting import enclose_name_unit, format_prefixes
+    from .organyl_prefix_components import organyl_prefix_nature
+    from .prefix_sequences import PrefixUnit, mononuclear_prefix_sequence
+    names, maps, natures = [], [], []
+    for root, expected in zip(result.organyl_roots, result.organyl_atoms):
+        name, owned = carbon_branch(mol, Chem, root, result.nitrogen)
+        if not name or owned != expected:
             return None
         names.append(name)
-        maps.append(atom_set)
-        from .organyl_prefix_components import organyl_prefix_nature
-        nature = organyl_prefix_nature(mol, root, atom_set, name)
-        if nature is None:
-            return None
-        natures.append(nature)
-    adjective = result.acid_adjective
+        maps.append(owned)
+        natures.append(organyl_prefix_nature(mol, root, owned, name) or 'compound')
+    units = tuple(PrefixUnit(component=word, nature=nature) for word, nature in zip(names, natures))
     if len(names) == 1:
-        name = f"{names[0]}{adjective} amide"
+        prefix = enclose_name_unit(names[0]) if natures[0] == 'compound' else names[0]
         prefix_evidence = ()
     else:
-        from .prefix_sequences import PrefixUnit, mononuclear_prefix_sequence
-        sequence = mononuclear_prefix_sequence(
-            PrefixUnit(component=component, nature=nature)
-            for component, nature in zip(names, natures)
-        )
-        if sequence is None:
-            return None
-        name = f"{sequence.text}{adjective} amide"
-        prefix_evidence = sequence.units
+        sequence = mononuclear_prefix_sequence(units)
+        prefix = sequence.text if sequence else format_prefixes(
+            [('', word) for word in names], omit_locants=True, separate_unlocanted=True,
+            hierarchical_enclosures=True)
+        prefix_evidence = sequence.units if sequence else ()
+    x = mol.GetAtomWithIdx(result.halogen)
+    oxos = oxo_atoms(x, result.nitrogen)
+    labels = []
+    for idx in (result.nitrogen, result.halogen):
+        atom = mol.GetAtomWithIdx(idx)
+        if atom.GetIsotope():
+            labels.append((atom.GetSymbol(), atom.GetIsotope(), ''))
+    for mass, count in Counter(mol.GetAtomWithIdx(i).GetIsotope() for i in oxos).items():
+        if mass:
+            labels.append(('O', mass, str(count) if len(oxos) > 1 else ''))
+    descriptor = ','.join(f'{mass}{symbol}{count}' for symbol, mass, count in sorted(labels))
+    name = prefix + ('(' + descriptor + ')' if descriptor else '') + result.acid_adjective + ' amide'
     heavy = frozenset(a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
     return HalogenAcidAmideProposal(name, result.nitrogen, result.halogen,
                                     result.organyl_roots, tuple(maps), tuple(names),
                                     tuple(natures), heavy, result.confidence,
-                                    prefix_evidence)
+                                    prefix_evidence, oxos=oxos)
 
 
 def hypohalous_amide_proposal(mol, Chem=None) -> HypohalousAmideProposal | None:
@@ -586,3 +566,52 @@ def mononuclear_haloazane_name(mol, Chem):
         prefix_natures=((HALO[halogen.GetSymbol()], 'simple'),),
         isotope_unlocanted_elements=(7,))
     return decorate_component(mol, Chem, component)
+
+
+def dihaloazane_decision(mol, Chem, sites):
+    """A general azane name that binds both halogens to the original nitrogen."""
+    from .constants import HALO
+    from .formatting import enclose_name_unit, prefix_alphabetization_key
+    from .naming_result import SelectionLimitation
+    if len(sites) != 2 or mol.GetStereoGroups():
+        return None
+    nidx = sites[0][1]
+    n = mol.GetAtomWithIdx(nidx)
+    if (n.GetTotalValence() != 3 or n.GetFormalCharge() or n.GetIsotope() or n.IsInRing()
+            or n.GetChiralTag() or n.GetNumRadicalElectrons()):
+        return None
+    halogens = {x for x, _ in sites}
+    if any(oxo_atoms(mol.GetAtomWithIdx(x), nidx) != frozenset()
+           or mol.GetAtomWithIdx(x).GetIsotope() for x in halogens):
+        return None
+    roots = [a.GetIdx() for a in n.GetNeighbors() if a.GetAtomicNum() == 6]
+    if len(roots) != 1:
+        return None
+    _, higher = _principal_class_evidence(mol, mol.GetAtomWithIdx(sites[0][0]).GetAtomicNum(),
+                                          nidx, oxo_count=0)
+    if higher:
+        # Directly acylated nitrogen requires both halogens on N of the senior
+        # amide. The mapped writer must supply both N locants for this handoff.
+        from .mapped_principal_general import mapped_principal_decision
+        if not any(item.kind == 'amide' and any(i in item.centers for i in roots) for item in higher):
+            return None
+        method = mapped_principal_decision(mol, Chem)
+        words = [HALO[mol.GetAtomWithIdx(x).GetSymbol()] for x in halogens]
+        if method and (all('N-' + w in method.name for w in set(words)) if len(set(words)) == 2
+                       else 'N,N-di' + words[0] in method.name):
+            return method
+        return None
+    name, owned = carbon_branch(mol, Chem, roots[0], nidx)
+    if not name or len(owned | halogens | {nidx}) != mol.GetNumAtoms():
+        return None
+    from collections import Counter
+    from .constants import MULT
+    groups = Counter(HALO[mol.GetAtomWithIdx(x).GetSymbol()] for x in halogens)
+    groups[name] += 1
+    words = []
+    for word, count in sorted(groups.items(), key=lambda pair: prefix_alphabetization_key(pair[0])):
+        words.append((MULT[count] if count > 1 else '') + enclose_name_unit(word))
+    limitation = SelectionLimitation('halogen-acid-amide', 'P-68.5.3',
+                                     'Preferred selection among multiple N-bound halogens is unresolved.')
+    return MethodDecision(''.join(words) + 'azane', 'substitutive', frozenset({nidx}),
+                          owned | halogens | {nidx}, EXTENSION_RULE, preference_issues=(limitation,))

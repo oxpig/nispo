@@ -765,31 +765,49 @@ def pnictogen_halogen_ester_decision(mol, Chem):
     return _out(mol, ' '.join(text), (center.GetIdx(),), 'P-67.1.3.2', 'functional-class')
 
 
-def hypohalite_ester_decision(mol, Chem):
-    """Esters R-X-Hal of hypohalous acid and its chalcogen analogues."""
-    if not _plain(mol, Chem, {6, 8, 9, 16, 17, 34, 35, 52, 53}):
+def hypohalite_ester_decision(mol, Chem, *, sites=None):
+    """Cite the esterifying chalcogen and every terminal oxo of its halogen acid."""
+    from .halogen_oxoacids import ADJECTIVES, carbon_branch, derivative_query, oxo_atoms, senior_organyl_group
+    from .extended_inventory import selection_inventory
+    if (mol.GetStereoGroups() or mol.GetNumAtoms() != mol.GetNumHeavyAtoms()
+            or any(a.HasQuery() or a.GetNumRadicalElectrons() for a in mol.GetAtoms())):
         return None
-    halogens = [a for a in mol.GetAtoms() if a.GetAtomicNum() in {9, 17, 35, 53}]
-    links = [a for a in mol.GetAtoms() if a.GetAtomicNum() in {8, 16, 34, 52}]
-    if len(halogens) != 1 or len(links) != 1:
-        return None
-    halogen, link = halogens[0], links[0]
-    bond = mol.GetBondBetweenAtoms(halogen.GetIdx(), link.GetIdx())
-    if (halogen.GetDegree() != 1 or link.GetDegree() != 2 or link.IsInRing()
-            or bond is None or bond.GetBondTypeAsDouble() != 1):
-        return None
-    roots = [a for a in link.GetNeighbors() if a.GetAtomicNum() == 6]
-    if len(roots) != 1 or mol.GetBondBetweenAtoms(link.GetIdx(), roots[0].GetIdx()).GetBondTypeAsDouble() != 1:
-        return None
-    from .phosphorus_ester_methods import _carbon_component
-    from .component_mapping import mapped_branch
-    group = _carbon_component(mol, roots[0].GetIdx(), link.GetIdx())
-    if group is None or set(group) | {link.GetIdx(), halogen.GetIdx()} != set(range(mol.GetNumAtoms())):
-        return None
-    word, owned = mapped_branch(mol, Chem, roots[0].GetIdx(), link.GetIdx())
-    if not word or frozenset(owned) != group:
-        return None
-    element = {8: '', 16: 'thio', 34: 'seleno', 52: 'telluro'}[link.GetAtomicNum()]
-    halide = {9: 'fluorite', 17: 'chlorite', 35: 'bromite', 53: 'iodite'}[halogen.GetAtomicNum()]
-    return _out(mol, word + ' ' + element + 'hypo' + halide,
-                (halogen.GetIdx(),), 'P-67.1.3.2', 'functional-class')
+    if sites is None:
+        sites = mol.GetSubstructMatches(derivative_query(Chem))
+    for x, y in sites:
+        halogen, link = mol.GetAtomWithIdx(x), mol.GetAtomWithIdx(y)
+        if (link.GetAtomicNum() not in (8, 16, 34, 52) or link.GetDegree() != 2
+                or link.GetTotalValence() != 2 or link.GetFormalCharge() or link.GetIsotope()
+                or link.IsInRing() or link.GetChiralTag() or halogen.GetIsotope()):
+            continue
+        oxos = oxo_atoms(halogen, y)
+        if oxos is None or any(mol.GetAtomWithIdx(i).GetIsotope() for i in oxos):
+            continue
+        root = next(a.GetIdx() for a in link.GetNeighbors() if a.GetIdx() != x)
+        if mol.GetBondBetweenAtoms(root, y).GetBondTypeAsDouble() != 1:
+            continue
+        carbon = mol.GetAtomWithIdx(root)
+        if any(b.GetBondTypeAsDouble() == 2 and b.GetOtherAtom(carbon).GetAtomicNum()
+               in (8, 16, 34, 52) for b in carbon.GetBonds()):
+            if link.GetAtomicNum() == 8 and oxos:
+                from .bluebook_hydride_assembly_methods import mixed_anhydride_decision
+                return mixed_anhydride_decision(mol, Chem)
+            continue
+        word, owned = carbon_branch(mol, Chem, root, y)
+        if not word or len(owned | oxos | {x, y}) != mol.GetNumAtoms():
+            continue
+        if (any(g.seniority[0] <= 9 for g in selection_inventory(mol).groups)
+                or senior_organyl_group(mol, Chem, owned, 9)):
+            continue
+        adjective = ADJECTIVES[halogen.GetAtomicNum()][len(oxos)]
+        anion = adjective[:-3] + 'ite' if adjective.endswith('ous') else adjective[:-2] + 'ate'
+        chalcogen = {8: '', 16: 'thio', 34: 'seleno', 52: 'telluro'}[link.GetAtomicNum()]
+        # In higher acids the unlocanted thio name can put sulfur on a terminal
+        # double bond. S-/Se-/Te- binds the organyl to the esterifying atom.
+        if oxos and chalcogen:
+            from .formatting import enclose_name_unit
+            if word[0].isdigit() or '(' in word:
+                word = enclose_name_unit(word)
+            word = link.GetSymbol() + '-' + word
+        return _out(mol, word + ' ' + chalcogen + anion, (x,), 'P-61.3.2.2/P-67.1.3.2', 'functional-class')
+    return None

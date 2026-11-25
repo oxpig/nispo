@@ -18,6 +18,7 @@ from .carbonyl_oxide_methods import carbonyl_oxide_decision, carbonyl_oxide_quer
 from .fast_parent_construction import (bounded_ester_name, bounded_fused_carbonyl_name,
                                        principal_acid_name, repaired_parent_name)
 from .functional_class_queries import acylhydrazide_query, amide_query, amidine_query, hydrazone_query, lactone_query, urea_query
+from .halogen_oxoacids import derivative_query, derivative_decision, read_smiles
 from .locant_presentation import placement_proof_scope
 from .naming_result import NamingResult, SelectionLimitation
 from .prefix_presentation import (normalize_enclosing_marks, numbered_biphenyl_ligand,
@@ -425,6 +426,23 @@ def _full_after_failure(smiles, *, structured):
                         'fast:full-after-failure:' + result.route)
 
 
+@lru_cache(maxsize=1)
+def _annotation_query(Chem):
+    from rdkit.Chem import rdqueries
+    atom = rdqueries.IsotopeEqualsQueryAtom(0, True)
+    union = Chem.CompositeQueryType.COMPOSITE_OR
+    atom.ExpandQuery(rdqueries.NumRadicalElectronsEqualsQueryAtom(0, True), union)
+    atom.ExpandQuery(Chem.AtomFromSmarts('[$([#8;-1]~[#8])]'), union)
+    query = Chem.RWMol()
+    query.AddAtom(atom)
+    return query.GetMol()
+
+
+@lru_cache(maxsize=1)
+def _charged_or_sulfur_query(Chem):
+    return Chem.MolFromSmarts('[!+0,#16]')
+
+
 def _unproved_fast_graph_scope(mol):
     """Decline fast-engine routes with reproduced charge/H or bridge-map loss.
 
@@ -432,7 +450,9 @@ def _unproved_fast_graph_scope(mol):
     Shared bounded producers run first; the full API is the normal handoff.
     A timeout's fast-only attempt must instead report unavailable.
     """
-    for atom in mol.GetAtoms():
+    # Only charged atoms and sulfur can trigger these valence/H checks.
+    for idx, in mol.GetSubstructMatches(_charged_or_sulfur_query(_public.Chem), maxMatches=mol.GetNumAtoms()):
+        atom = mol.GetAtomWithIdx(idx)
         number = atom.GetAtomicNum()
         if atom.GetFormalCharge() < 0:
             if number in {5, 6, 15, 16}:
@@ -545,7 +565,7 @@ def _fast_dispatch(smiles, *, structured, allow_full_fallback=True, _provisional
     if Chem is None:
         return NamingResult('', 'unavailable', 'not-assessed') if structured else ''
     try:
-        mol = Chem.MolFromSmiles(smiles)
+        mol = read_smiles(Chem, smiles)
     except Exception:
         mol = None
     if mol is None or not mol.GetNumAtoms():
@@ -570,6 +590,27 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
             return NamingResult('', 'unavailable', 'unresolved', (_RELATIVE_LIMITATION,),
                                 'unsupported-relative-stereochemistry')
         return ''
+    if mol.HasSubstructMatch(derivative_query(Chem)):
+        decision, protected = derivative_decision(mol, Chem)
+        if decision:
+            result = NamingResult(decision.name, 'available', 'unresolved', (_LIMITATION,),
+                                  'fast:halogen-acid-derivative')
+            if _provisional_callback is not None:
+                _provisional_callback(result)
+            return result if structured else result.name
+        if protected:
+            return unavailable()
+    from .functional_class_queries import suffix_query
+    matches = mol.GetSubstructMatches(suffix_query(Chem), maxMatches=5)
+    if 2 <= len(matches) <= 4:
+        from .repeated_functional_parents import repeated_functional_decision
+        decision = repeated_functional_decision(mol, Chem, tuple(i for i, in matches))
+        if decision:
+            result = NamingResult(decision.name, 'available', 'unresolved', (_LIMITATION,),
+                                  'fast:repeated-functional-parent')
+            if _provisional_callback is not None:
+                _provisional_callback(result)
+            return result if structured else result.name
     # The public writer can silently discard isotope labels or radical
     # hydrogens. Decline those annotated graphs instead of emitting a name
     # for a different molecule. Inspect the parsed graph so byte-string and
@@ -579,10 +620,7 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
     # retains this ionic construction; a fast-only timeout fallback must
     # decline it instead of delivering a different charge/H state.
     annotated_component = ''
-    if any(atom.GetIsotope() or atom.GetNumRadicalElectrons()
-           or (atom.GetAtomicNum() == 8 and atom.GetFormalCharge() == -1
-               and any(neighbor.GetAtomicNum() == 8 for neighbor in atom.GetNeighbors()))
-           for atom in mol.GetAtoms()):
+    if mol.HasSubstructMatch(_annotation_query(Chem)):
         rings = mol.GetRingInfo().AtomRings()
         isotopic = any(a.GetIsotope() for a in mol.GetAtoms())
         if isotopic and mol.HasSubstructMatch(amidine_query(Chem)):

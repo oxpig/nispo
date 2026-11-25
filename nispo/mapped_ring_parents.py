@@ -17,7 +17,7 @@ from .fast_ring_scope import (
     fast_carbon_ring_numbering_enabled,
     without_fast_carbon_ring_numbering,
 )
-from .parent_selection import graph_parent_facts, locant_set, replace_parent_facts as replace
+from .parent_selection import graph_parent_facts, locant_key, locant_set, replace_parent_facts as replace
 from .ring_state_parent import (
     _inventory, _reference_states, _render, _skeletons, _VALENCE, _RingNumberingFrontier,
     _skeleton_references, is_supported_hw_chalcogen_core,
@@ -535,7 +535,8 @@ def _site(mol,group,core=None):
 
 
 def records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=None,
-            nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False):
+            nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False,
+            multiplicative_root=None):
     # Parent orientations repeatedly request the same original rooted scope.
     # Cache immutable witnesses on the API-owned molecule, never globally or
     # on a capped fragment with different CIP priorities.
@@ -551,12 +552,14 @@ def records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=Non
     key=(None if scope is None else frozenset(scope),attachment,
          None if core_filter is None else frozenset(core_filter),principal,nitrogen_attachment,
          ester_arms,general_branches,local_inventory)
+    if multiplicative_root is not None:
+        key += (multiplicative_root,)
     cache=mol_cache_dict(mol,'mapped_ring_records')
     if key not in cache:
         cache[key]=_records(mol,Chem,scope=scope,attachment=attachment,core_filter=core_filter,
                             principal=principal,nitrogen_attachment=nitrogen_attachment,
                             ester_arms=ester_arms,general_branches=general_branches,
-                            local_inventory=local_inventory)
+                            local_inventory=local_inventory,multiplicative_root=multiplicative_root)
     return cache[key]
 
 
@@ -667,7 +670,8 @@ def _fast_rooted_carbon_ring(mol, scope, attachment, core, principal, nitrogen_a
 
 
 def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=None,
-             nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False):
+             nitrogen_attachment=None,ester_arms=(),general_branches=False,local_inventory=False,
+             multiplicative_root=None):
     from .naming_context import MoleculeContext
     if mol.GetStereoGroups() or any(a.GetNumRadicalElectrons()
         or int(a.GetChiralTag()) and a.GetAtomicNum()!=6 for a in iter_atoms(mol)):return ()
@@ -702,6 +706,7 @@ def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=No
     output=[]
     for core in ring_systems(mol):
         if not core<=scope or core_filter is not None and core!=core_filter:continue
+        if multiplicative_root is not None and multiplicative_root not in core:continue
         if attachment is not None and _requires_relative_ring_writer(mol, Chem, core):
             continue
         if attachment is not None:
@@ -734,9 +739,9 @@ def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=No
             and all(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in core)
             and _fast_rooted_carbon_ring(mol, scope, attachment, core, principal, nitrogen_attachment))
         all_parents, kept_parents = (set(), set()) if fast_rooted_carbon else (None, None)
-        # The N-attachment writer applies a different key after rendering.
+        # An attachment can break a tie between otherwise equivalent numberings.
         numbering_frontier = (_RingNumberingFrontier.for_context(ctx)
-                              if nitrogen_attachment is None else None)
+                              if nitrogen_attachment is None and multiplicative_root is None else None)
         for skeleton in skeletons(mol,Chem,core):
             if fast_rooted_carbon:
                 all_parents.add(skeleton[0])
@@ -764,12 +769,16 @@ def _records(mol,Chem,*,scope=None,attachment=None,core_filter=None,principal=No
                 _records, mol, Chem, scope=scope, attachment=attachment,
                 core_filter=core_filter, principal=principal,
                 nitrogen_attachment=nitrogen_attachment,ester_arms=ester_arms,
-                general_branches=general_branches, local_inventory=local_inventory)
+                general_branches=general_branches, local_inventory=local_inventory,
+                multiplicative_root=multiplicative_root)
         if not candidates or len({r.parent for r in candidates})!=1:continue
         def numbering(record):
             key=record.numbering_key
+            if multiplicative_root is not None:
+                # P-15.3.2 retains the parent numbering, then minimizes the
+                # position of the linker among all remaining orientations.
+                return key + (locant_key(dict(record.atom_locants)[multiplicative_root]),)
             if nitrogen_attachment is None:return key
-            from .parent_selection import locant_key
             loc=locant_key(dict(record.atom_locants)[nitrogen_attachment])
             return key[:8]+(tuple(sorted(key[8]+(loc,))),(loc,))+key[10:]
         if nitrogen_attachment is not None:

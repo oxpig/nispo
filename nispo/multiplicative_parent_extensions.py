@@ -258,13 +258,14 @@ def _chain_alcohol_unit(mol, atoms, root, atom_stereo, bond_stereo, *, allow_bra
     return next(iter(winners)) if len(winners) == 1 else None
 
 
-def _alcohol_stereo(mol, Chem, tagged):
+def multiplicand_stereo(mol, Chem, tagged, *, linker_atoms=()):
+    """Read source E/Z and tetrahedral assignments outside a separately named linker."""
     atom_stereo, bond_stereo = {}, {}
     if tagged:
         from .stereochemistry import assigned_atom_stereochemistry
 
-        atom_stereo = dict(assigned_atom_stereochemistry(mol, Chem))
-        if atom_stereo.keys() != tagged or any(d not in ('R', 'S') for d in atom_stereo.values()):
+        atom_stereo = {i: d for i, d in assigned_atom_stereochemistry(mol, Chem) if i not in linker_atoms}
+        if atom_stereo.keys() != tagged.difference(linker_atoms) or any(d not in ('R', 'S') for d in atom_stereo.values()):
             return None
     stereo_bonds = {b.GetIdx() for b in mol.GetBonds() if b.GetStereo()}
     if stereo_bonds:
@@ -297,7 +298,7 @@ def straight_polyol(mol, Chem, *, allow_branches=False):
             tagged.add(atom.GetIdx())
     if len(centers) < 2 or any(b.HasQuery() for b in mol.GetBonds()):
         return None
-    descriptors = _alcohol_stereo(mol, Chem, tagged)
+    descriptors = multiplicand_stereo(mol, Chem, tagged)
     if descriptors is None:
         return None
     row = _chain_alcohol_unit(mol, frozenset(range(mol.GetNumAtoms())), None, *descriptors,
@@ -398,7 +399,7 @@ def _linked_alcohol_units(mol, Chem, linker_atoms, bridge=''):
             return None
     if not centers or any(b.HasQuery() for b in mol.GetBonds()):
         return None
-    descriptors = _alcohol_stereo(mol, Chem, tagged)
+    descriptors = multiplicand_stereo(mol, Chem, tagged)
     if descriptors is None:
         return None
     atom_stereo, bond_stereo = descriptors

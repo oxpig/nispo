@@ -180,11 +180,11 @@ def _hydroxy_hydrogen_chain(mol, Chem, atoms, hydrogens, scope):
         return outcome.decision if outcome.status == NamingMethodStatus.COMPLETE else None
     if len(oxygens) != 1 or any(a.GetAtomicNum() not in (1, 6, 8) for a in atoms):
         return None
-    from .multiplicative_parent_extensions import _alcohol_stereo, _chain_alcohol_unit
+    from .multiplicative_parent_extensions import multiplicand_stereo, _chain_alcohol_unit
 
     oxygen, = oxygens
     host = next((a.GetIdx() for a in oxygen.GetNeighbors() if a.GetAtomicNum() == 6), None)
-    stereo = _alcohol_stereo(mol, Chem, {a.GetIdx() for a in atoms if a.GetChiralTag()})
+    stereo = multiplicand_stereo(mol, Chem, {a.GetIdx() for a in atoms if a.GetChiralTag()})
     if host is None or stereo is None:
         return None
     row = _chain_alcohol_unit(mol, scope - hydrogens, None, *stereo, allow_branches=True)

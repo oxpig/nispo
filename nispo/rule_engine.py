@@ -551,11 +551,10 @@ class NamingEngine:
                     'A complete construction for the original halogen and its ligands is unavailable.')
                 return ''
         if not mol.NeedsUpdatePropertyCache():
-            from .functional_class_queries import suffix_query
-            matches = mol.GetSubstructMatches(suffix_query(self._Chem), maxMatches=5)
-            if 2 <= len(matches) <= 4:
+            from .functional_class_queries import repeated_suffix_centers
+            for centers in repeated_suffix_centers(mol, self._Chem):
                 from .repeated_functional_parents import repeated_functional_decision
-                method = repeated_functional_decision(mol, self._Chem, tuple(i for i, in matches))
+                method = repeated_functional_decision(mol, self._Chem, centers)
                 if method:
                     return _commit_functional_method(mol, method, 'repeated-functional-parent',
                                                      telemetry=telemetry, result_state=result_state)

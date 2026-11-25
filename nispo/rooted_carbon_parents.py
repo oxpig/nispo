@@ -130,7 +130,7 @@ def hydride_numberings(mol, Chem, host, skeleton, *, extended=False):
                         tuple(n for n, o in enumerate(orders, 1) if o == 2)))
 
 
-def skeleton_prefixes(mol, Chem, skeleton, scope):
+def skeleton_prefixes(mol, Chem, skeleton, scope, *, check_branch_stereo=False):
     occupied = set(skeleton)
     prefixes = []
     for idx, loc in skeleton.items():
@@ -141,6 +141,10 @@ def skeleton_prefixes(mol, Chem, skeleton, scope):
             word, atoms = mapped_general_branch(mol, Chem, root, idx)
             if not word or atoms & occupied or not atoms <= scope:
                 return None
+            if check_branch_stereo:
+                from .component_mapping import _general_branch_stereo_is_cited
+                if not _general_branch_stereo_is_cited(mol, Chem, atoms, word):
+                    return None
             occupied.update(atoms)
             prefixes.append((loc, word))
     return prefixes if occupied == scope else None

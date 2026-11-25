@@ -1911,7 +1911,7 @@ def _connector_name(mol, atoms, units, *, functional_units=False, allow_urea=Fal
 
 
 def _monocyclic_arylene_connector(mol, Chem, scope, units):
-    """Number a complete symmetric divalent aromatic monocycle."""
+    """Number both ports of a central aromatic monocycle, including inequivalent ports."""
     if len(scope) != 6 or len(units) != 2:
         return ''
     ports = {u.connector for u in units}
@@ -1929,18 +1929,13 @@ def _monocyclic_arylene_connector(mol, Chem, scope, units):
     rows = [(row[0], tuple(int(loc) for loc in row[2]), row[1])
             for row in skeletons(mol, Chem, scope)
             if row[0] in {'benzene', 'pyridine', 'pyrimidine', 'pyridazine', 'pyrazine'}]
-    options = defaultdict(set)
+    options = set()
     for parent, locants, seq in rows:
         numbered = dict(zip(seq, locants, strict=True))
-        pair = tuple(numbered[u.connector] for u in units)
-        options[parent, tuple(sorted(pair))].add(pair)
+        options.add((parent, tuple(sorted(numbered[u.connector] for u in units))))
     if len({parent for parent, _ in options}) != 1:
         return ''
     parent, locants = min(options, key=lambda row: row[1])
-    # Both directions must be witnessed by an automorphism of the same
-    # numbered parent. A pair of unlike attachment positions cannot multiply.
-    if len(options[parent, locants]) != 2:
-        return ''
     return attach_suffix(parent, 'diyl', locants)
 
 
@@ -2041,12 +2036,13 @@ def _connector_arm_name(mol, path):
 def _mapped_ring_connector(mol, Chem, scope, units):
     """Render one numbered central ring at its original polyvalent ports."""
     from .component_mapping import MappedComponent, decorate_component, mapped_general_branch
-    from .mapped_ring_parents import ring_systems, skeletons
+    from .mapped_ring_parents import ring_systems
     from .parent_selection import locant_key
+    from .rooted_carbon_parents import hydride_numberings
 
-    ports = {unit.connector for unit in units}
-    cores = [core for core in ring_systems(mol) if ports <= core <= scope]
-    if len(ports) != len(units) or len(cores) != 1:
+    ports = tuple(unit.connector for unit in units)
+    cores = [core for core in ring_systems(mol) if set(ports) <= core <= scope]
+    if len(cores) != 1:
         return ''
     core = cores[0]
     if (not 3 <= len(core) <= 16 or any(
@@ -2073,20 +2069,26 @@ def _mapped_ring_connector(mol, Chem, scope, units):
     suffix = {2: 'diyl', 3: 'triyl', 4: 'tetrayl'}.get(len(ports))
     if suffix is None:
         return ''
+    relative = None
+    if not branches and scope == core and any(mol.GetAtomWithIdx(i).GetChiralTag() for i in ports):
+        from .relative_cycle_evidence import native_relative_cycle_evidence
+        cycle = next(r for r in mol.GetRingInfo().AtomRings() if frozenset(r) == core)
+        relative = native_relative_cycle_evidence(mol, Chem, cycle)
     choices = []
-    for parent, sequence, locants, _numbers, _edges, saturated, *_ in skeletons(mol, Chem, core):
-        if not saturated:
-            continue
-        mapping = dict(zip(sequence, locants, strict=True))
+    for parent, mapping, frame, pi in hydride_numberings(mol, Chem, ports[0], core, extended=True):
         positions = tuple(sorted((mapping[i] for i in ports), key=locant_key))
         # Multivalent -diyl/-triyl/-tetrayl retains the hydride's final e.
         body = parent + '-' + ','.join(positions) + '-' + suffix
         prefixes = tuple((mapping[i], text) for i, text in branches)
-        name = decorate_component(mol, Chem, MappedComponent(
-            body, tuple(mapping.items()), core, prefixes, scope - core))
+        if relative is not None and relative.tagged_atoms == set(ports) and not any(
+                mol.GetAtomWithIdx(i).GetIsotope() for i in core):
+            name = f"({relative.descriptor})-{body}"
+        else:
+            name = decorate_component(mol, Chem, MappedComponent(
+                body, tuple(mapping.items()), core, prefixes, scope - core))
         if not name:
             continue
-        key = (tuple(map(locant_key, positions)),
+        key = (frame, tuple(map(locant_key, positions)), pi,
                tuple(sorted(locant_key(loc) for loc, _text in prefixes)),
                tuple(locant_key(loc) for loc, _text in sorted(
                    prefixes, key=lambda row: (prefix_alphabetization_key(row[1]), locant_key(row[0])))))

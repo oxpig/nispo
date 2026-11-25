@@ -600,11 +600,10 @@ def _fast_molecule(mol, *, smiles, structured, allow_full_fallback, _provisional
             return result if structured else result.name
         if protected:
             return unavailable()
-    from .functional_class_queries import suffix_query
-    matches = mol.GetSubstructMatches(suffix_query(Chem), maxMatches=5)
-    if 2 <= len(matches) <= 4:
+    from .functional_class_queries import repeated_suffix_centers
+    for centers in repeated_suffix_centers(mol, Chem):
         from .repeated_functional_parents import repeated_functional_decision
-        decision = repeated_functional_decision(mol, Chem, tuple(i for i, in matches))
+        decision = repeated_functional_decision(mol, Chem, centers)
         if decision:
             result = NamingResult(decision.name, 'available', 'unresolved', (_LIMITATION,),
                                   'fast:repeated-functional-parent')

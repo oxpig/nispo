@@ -443,6 +443,16 @@ def test_unique_hydroxy_prefix_hydrogen_uses_the_same_oxygen_proof():
     assert Chem.MolToSmiles(Chem.MolFromSmiles(result))==Chem.MolToSmiles(Chem.MolFromSmiles('[2H]OC(CC)C(N)=O'))
 
 
+def test_oxime_spelling_supplement_only_expands_hydrogen_at_the_named_hydroxy_site():
+    from _name_oracles.oxime_hydrogen import explicit_oxime_hydrogen_count
+
+    name = 'N-(3H,18O)hydroxy-3-[(2H)hydroxy]propan-1-imine'
+    assert explicit_oxime_hydrogen_count(name) == 'N-(3H1,18O)hydroxy-3-[(2H)hydroxy]propan-1-imine'
+    for other in ('N-(3H1)hydroxyethanimine', 'N-(2H2)hydroxyethanimine',
+                  'N-(2H)hydroxylamine', '(2H)hydroxyethane', '[(3H)hydroxy]aminoethane'):
+        assert explicit_oxime_hydrogen_count(other) is None, other
+
+
 # Originally test_phospho_name_oracle.py
 """Independent synthetic prefix semantics; no production naming calls."""
 import pytest

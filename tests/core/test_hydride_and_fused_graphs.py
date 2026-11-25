@@ -71,18 +71,19 @@ def test_aryl_ligands_and_chalcogen_linker_lengths_roundtrip(naming, assert_grap
     assert_graphs(inputs, naming.names(inputs), raw_only=True)
 
 
-def test_hydroxyl_label_stays_at_the_same_site_under_atom_reordering(naming):
-    inputs = ['[2H]OC1CCCP1', '[2H]OC1CCPC1', '[3H]OC1CCCP1',
-              '[2H][18O]C1CCCP1', '[2H]OC1C(O[2H])CCP1',
-              '[2H]OC1CCC(O)C(O)C1', 'Oc1ccc(O[2H])cc1', 'CO[2H]']
-    alternates = []
-    for source in inputs:
-        graph = Chem.MolFromSmiles(source)
-        other = Chem.RenumberAtoms(graph, list(reversed(range(graph.GetNumAtoms()))))
-        alternates.append(Chem.MolToSmiles(other, canonical=False))
-    names = naming.names(inputs)
-    assert all(names) and len(set(names)) == len(names)
-    assert names == naming.names(alternates)
+SINGLE_HYDROXYL_ISOTOPES = ('[2H]OC1CCCP1', '[2H]OC1CCPC1', '[3H]OC1CCCP1', 'CO[2H]')
+
+
+def test_hydroxyl_isotope_names_are_distinct_and_order_invariant(naming):
+    inputs = SINGLE_HYDROXYL_ISOTOPES + (
+        '[2H][18O]C1CCCP1', '[2H]OC1C(O[2H])CCP1',
+        '[2H]OC1CCC(O)C(O)C1', 'Oc1ccc(O[2H])cc1',
+    )
+    assert len(set(naming.order_invariant_names(inputs))) == len(inputs)
+
+
+def test_single_hydroxyl_isotope_positions_with_parser_supplement(naming, assert_graphs):
+    assert_graphs(SINGLE_HYDROXYL_ISOTOPES, naming.names(SINGLE_HYDROXYL_ISOTOPES))
 
 
 def test_mixed_ligands_on_group14_chains_recover_the_parent_and_sites(naming, assert_graphs):

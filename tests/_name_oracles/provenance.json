@@ -25,6 +25,13 @@
     "origin": "Independent oracle for general P-82 suffix nuclide placement, motivated by independently authored deuterated alcohol test; no panel data/reference-name outcomes used.",
     "implementation_sha256": "19abb434170dbf4d1e82ffb8d12c1c18c16ade7a2d72f0cc232d32550695b226"
   },
+  "oxime_hydrogen": {
+    "source": "tests/_name_oracles/oxime_hydrogen.py",
+    "origin": "Extracted from the independently drawn oxime OH isotope controls in tests/core/test_oxime_spiro_anhydride_graphs.py at 2a8e4a3.",
+    "scope": "An implicit single 2H or 3H in an N-hydroxy imine or bracketed hydroxyimino prefix, optionally accompanied by an oxygen isotope. The alternative spelling makes only that hydrogen count explicit.",
+    "policy": "Raw OPSIN receives the delivered name first. The supplement retries a rejected name with OPSIN and records successful recovery separately. It receives no input molecule or expected graph.",
+    "implementation_sha256": "6b4dce788cf6654c76b21d50f5d5ff9bbe08301df3cecec79379ab3e7ebfd42e"
+  },
   "acid_hydrogen": {
     "rule_sources": [
       "https://iupac.qmul.ac.uk/BlueBook/P8.html#P-82.2.4"

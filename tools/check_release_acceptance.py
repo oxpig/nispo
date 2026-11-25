@@ -141,6 +141,9 @@ def run(root, output, diagnose=False):
         inventory = selection_inventory(mol)
         row['source_class'] = None if 'principal' not in case else inventory.supported and bool(inventory.principal) and all((group.kind == case['principal'] for group in inventory.principal))
         row['source_parent'] = None if 'parent_ending' not in case else result.name.endswith(case['parent_ending'])
+        if case.get('check_fast_parent'):
+            fast_name = nispo.smiles_to_iupac(case['smiles'], mode='fast')
+            row['fast_parent'] = fast_name.endswith(case['parent_ending'])
         row['source_prefix'] = None if 'preferred_unit' not in case else case['preferred_unit'] in result.name
         if diagnose:
             row.update(name=result.name, expected=case['expected'], unresolved=[(r.rule, r.reason) for r in result.unresolved])
@@ -168,7 +171,9 @@ def run(root, output, diagnose=False):
             runtime_events.append(dict(index=index, id=case['id'], smiles=case['smiles'], completed_full_name=name, default_result=receipt))
     default_contract = len(default) == len(cases) and all((row['default_result']['contract'] for row in rows))
     flags = ('nonempty', 'scalar_parity', 'atom_order', 'nonmutation', 'raw_OPSIN_graph', 'formula')
-    failures = [r['id'] for r in rows if any((not r[k] for k in flags)) or any((r[k] is False for k in ('source_name', 'source_class', 'source_parent', 'source_prefix'))) or (not r['default_result']['contract'])]
+    construction_checks = ('source_name', 'source_class', 'source_parent', 'source_prefix', 'fast_parent')
+    failures = [r['id'] for r in rows if any(not r[k] for k in flags)
+                or any(r.get(k) is False for k in construction_checks) or not r['default_result']['contract']]
     failures.extend((difference['id'] or 'batch-output-count' for difference in differences))
     if len(default) != len(cases):
         failures.append('default-batch-output-count')
@@ -244,6 +249,9 @@ def _gap_sm2_parent_composition_controls():
     for label, smiles in (('ethyl-dipyridine', 'CCOC(=O)c1cncc(C(=O)OCC)c1'), ('N-methyl-pyrrole', 'COC(=O)c1cc(C(=O)OC)n(C)c1'), ('ring-carbon13', 'COC(=O)[13CH]1CC(C(=O)OC)CCN1'), ('ring-RS-pair', 'COC(=O)[C@H]1CC[C@@H](C(=O)OC)CN1'), ('ring-RS-carbon13', 'COC(=O)[13C@H]1CC[C@@H](C(=O)OC)CN1'), ('phenyl-dihydropyridine', 'COC(=O)C1=C(C)NC(C)=C(C(=O)OC)C1c1ccccc1'), ('lactam', 'CCOC(=O)C1CC(=O)NCC1'), ('N-methyl-piperidine', 'CCOC(=O)C1CCN(C)CC1'), ('fluoro-pyridine', 'CCOC(=O)c1cc(F)ncc1C(=O)OCC')):
         rows.append(dict(id='ester-extension:' + label, smiles=smiles, expected=None, principal='ester'))
     rows.append(dict(id='ester-extension:printed-P65-dihydropyridine', smiles='COC(=O)C1=C(C)NC(C)=C(C(=O)OC)C1c1ccccc1[N+](=O)[O-]', expected='dimethyl 2,6-dimethyl-4-(2-nitrophenyl)-1,4-dihydropyridine-3,5-dicarboxylate', principal='ester'))
+    # Independently drawn P-51.3.1 control. Both ketones are cited as parents.
+    rows.append(dict(id='ketone:oxygen-linked-cyclohexanones', smiles='O=C1CCC(OC2CCC(=O)CC2)CC1',
+                     expected=None, parent_ending='di(cyclohexan-1-one)', check_fast_parent=True))
     return rows
 
 def _gate_sm2_parent_composition():

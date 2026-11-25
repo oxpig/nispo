@@ -65,6 +65,22 @@ class NamingAdapter:
         return (smiles_to_iupac_batch(values, timeout_seconds=None) if self.mode=='full'
                 else smiles_to_iupac_batch(values))
 
+    def order_invariant_names(self, inputs):
+        """Return the names after checking each one against a reversed atom ordering."""
+        from rdkit import Chem
+
+        inputs = list(inputs)
+        reversed_inputs = []
+        for smiles in inputs:
+            mol = Chem.MolFromSmiles(smiles)
+            assert mol is not None, smiles
+            other = Chem.RenumberAtoms(mol, list(reversed(range(mol.GetNumAtoms()))))
+            reversed_inputs.append(Chem.MolToSmiles(other, canonical=False, isomericSmiles=True))
+        names = self.names(inputs)
+        for smiles, name, other_name in zip(inputs, names, self.names(reversed_inputs), strict=True):
+            assert name and name == other_name, (smiles, name, other_name)
+        return names
+
     def result(self, smiles):
         if not self.supports_results:
             pytest.skip('Public 0.1.7 has no structured result API')
@@ -178,6 +194,7 @@ def assert_graphs(request):
             # The CIP supplement preserves the existing regression oracle.
             from _name_oracles.numbered_stereo import verify_names
             from _name_oracles.ol_hydrogen import recover_ol_hydrogen_isotope
+            from _name_oracles.oxime_hydrogen import explicit_oxime_hydrogen_count
             from _name_oracles.acid_hydrogen import recover_acid_hydrogen_isotope
             from _name_oracles.mixed_esters import recover_mixed_diyl_ester
             from _name_oracles.peroxolate_salts import recover_alkali_peroxolate_salt
@@ -227,6 +244,18 @@ def assert_graphs(request):
                         if graph:
                             parsed[name] = canonical(graph)
                             supplements[name] = label
+            # Retry the rejected originals together. Keep their raw OPSIN results
+            # keyed to the delivered names, separate from this spelling supplement.
+            expanded = {
+                name: spelling for name in missing if parsed[name] is None
+                and (spelling := explicit_oxime_hydrogen_count(name)) is not None
+            }
+            if expanded:
+                graphs = parse_names(expanded.values(), raw_only=True)
+                for name, graph in zip(expanded, graphs, strict=True):
+                    if graph:
+                        parsed[name] = graph
+                        supplements[name] = 'oxime-hydroxy-explicit-hydrogen-count'
         recovered = raw if raw_only else parsed
         return [recovered.get(name) or '' for name in names]
 

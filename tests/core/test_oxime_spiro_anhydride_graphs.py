@@ -3,10 +3,7 @@
 The structures vary ligand, ring, bridge and substitution independently.
 No benchmark panel records or molecule-level panel results supplied the inputs.
 """
-import re
-
 import pytest
-from rdkit import Chem
 
 
 pytestmark = pytest.mark.current_only
@@ -40,27 +37,11 @@ pytestmark = pytest.mark.current_only
                   'CCCC(=O)O[Sb](=O)(O)O'), id='inorganic-acid-residues'),
 ])
 def test_original_graph_and_atom_order(naming, assert_graphs, inputs):
-    reversed_smiles = []
-    for smiles in inputs:
-        graph = Chem.MolFromSmiles(smiles)
-        other = Chem.RenumberAtoms(graph, list(reversed(range(graph.GetNumAtoms()))))
-        reversed_smiles.append(Chem.MolToSmiles(other, canonical=False))
-    names = naming.names(inputs)
-    assert names == naming.names(reversed_smiles)
-    assert_graphs(inputs, names, raw_only=True)
+    assert_graphs(inputs, naming.order_invariant_names(inputs), raw_only=True)
 
 
-def test_oxime_hydroxyl_isotopes(naming, assert_graphs):
+def test_oxime_hydroxyl_isotope_graphs_with_parser_supplement(naming, assert_graphs):
     inputs = ('CCC(C)=NO[2H]', 'CC/C(C)=N/O[3H]', 'CC/C(C)=N\\O[3H]',
               'CCC(C)=N[18O][2H]', '[2H]ON=CC=NO', '[2H]ON=CC=NO[2H]',
               '[3H]ON=C1CCC(O)CC1', 'CCOC(=O)CC(=NO[2H])CC')
-    graphs = [Chem.MolFromSmiles(s) for s in inputs]
-    reverse = [Chem.MolToSmiles(Chem.RenumberAtoms(m, list(reversed(range(m.GetNumAtoms())))),
-                                canonical=False) for m in graphs]
-    names = naming.names(inputs)
-    assert names == naming.names(reverse)
-    # OPSIN 2.9 needs the single hydroxyl hydrogen count written explicitly.
-    # Expand only that default count in the name; the parser still assigns
-    # the isotope to its site, reconstructs the graph and resolves its stereo.
-    names = [re.sub(r'\(([23])H(,\d+O)?\)(?=hydroxy)', r'(\1H1\2)', n) for n in names]
-    assert_graphs(inputs, names, raw_only=True)
+    assert_graphs(inputs, naming.order_invariant_names(inputs))

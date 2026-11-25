@@ -1,6 +1,5 @@
 """Independent structural variations on the four published functional-class definitions."""
 import pytest
-from rdkit import Chem
 
 
 pytestmark = pytest.mark.current_only
@@ -38,11 +37,4 @@ pytestmark = pytest.mark.current_only
                  id='bis-hydrazone-geometry'),
 ])
 def test_graph_and_reversed_atom_order(naming, assert_graphs, inputs):
-    reverse = []
-    for smiles in inputs:
-        graph = Chem.MolFromSmiles(smiles)
-        reordered = Chem.RenumberAtoms(graph, list(reversed(range(graph.GetNumAtoms()))))
-        reverse.append(Chem.MolToSmiles(reordered, canonical=False))
-    names = naming.names(inputs)
-    assert names == naming.names(reverse)
-    assert_graphs(inputs, names, raw_only=True)
+    assert_graphs(inputs, naming.order_invariant_names(inputs), raw_only=True)

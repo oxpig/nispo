@@ -6,7 +6,6 @@ da85ecc). The other graphs were drawn independently from the published rules.
 """
 
 import pytest
-from rdkit import Chem
 
 
 pytestmark = pytest.mark.current_only
@@ -46,11 +45,4 @@ pytestmark = pytest.mark.current_only
                   'CC(=O)NNC(=O)c1cc(C(=O)NNC(=O)C)cc(C(=O)NNC(=O)C)c1'), id='polyacylhydrazides'),
 ])
 def test_original_graph_and_atom_order(naming, assert_graphs, inputs):
-    reversed_smiles = []
-    for smiles in inputs:
-        mol = Chem.MolFromSmiles(smiles)
-        permuted = Chem.RenumberAtoms(mol, tuple(reversed(range(mol.GetNumAtoms()))))
-        reversed_smiles.append(Chem.MolToSmiles(permuted, canonical=False))
-    names = naming.names(inputs)
-    assert names == naming.names(reversed_smiles)
-    assert_graphs(inputs, names, raw_only=True)
+    assert_graphs(inputs, naming.order_invariant_names(inputs), raw_only=True)
